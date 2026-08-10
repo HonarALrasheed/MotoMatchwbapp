@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="de">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>MotoMatch — Finde dein perfektes Bike</title>
+
+    <!-- Fonts: Barlow (landing body) + display fonts + quiz/garage fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Barlow:wght@300;400;500;600;700;800&family=Prata&family=Bebas+Neue&family=Playfair+Display:ital,wght@1,700&family=Righteous&family=Rajdhani:wght@600&family=Orbitron:wght@700&family=Chakra+Petch:wght@700&display=swap"
+      rel="stylesheet"
+    />
+  </head>
+  <body>
+    <div id="landing"></div>
+
+    <div id="bike-detail" style="display: none"></div>
+
+    <div id="quiz-screen" style="display: none">
+      <canvas id="moto-canvas"></canvas>
+      <canvas id="gauge-canvas"></canvas>
+      <div id="quiz-container"></div>
+    </div>
+
+    <div id="drop-container" style="display: none"></div>
+
+    <div id="garage-container" style="display: none"></div>
+
+    <script type="module" src="/src/main.js"></script>
+  </body>
+</html>

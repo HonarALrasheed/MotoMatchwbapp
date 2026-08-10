@@ -1,0 +1,12 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "moto-match",
+      "runtimeExecutable": "/Users/alrasheed/.nvm/versions/node/v25.9.0/bin/npm",
+      "runtimeArgs": ["run", "dev", "--", "--port", "${PORT}"],
+      "port": 5173,
+      "autoPort": true
+    }
+  ]
+}

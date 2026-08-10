@@ -1,0 +1,50 @@
+# Dependencies & Build-Output
+node_modules/
+dist/
+dist-ssr/
+build/
+.next/
+out/
+.vite/
+.vercel/
+
+# Lockfiles
+package-lock.json
+yarn.lock
+pnpm-lock.yaml
+
+# Große Assets (~220 MB in public/)
+public/bikes/
+public/models/
+public/__video/
+public/hdri/
+public/rider/
+public/Quiz Bike/
+*.png
+*.jpg
+*.jpeg
+*.webp
+*.gif
+*.mp4
+*.mov
+*.webm
+*.glb
+*.gltf
+*.hdr
+*.woff
+*.woff2
+*.ttf
+*.otf
+
+# Secrets
+.env
+.env.*
+
+# Coverage & Logs
+coverage/
+*.log
+logs/
+
+# macOS-Metadaten (externes Volume)
+._*
+.DS_Store

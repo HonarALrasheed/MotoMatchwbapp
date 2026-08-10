@@ -1,0 +1,321 @@
+-- ══════════════════════════════════════════════════════════════════
+--  MotoMatch — Supabase-Schema
+--  Dieses Skript im Supabase-Dashboard unter SQL-Editor ausführen.
+--  Reihenfolge beachten (Fremdschlüssel).
+-- ══════════════════════════════════════════════════════════════════
+
+-- ── Profiles ─────────────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS profiles (
+  id            uuid PRIMARY KEY REFERENCES auth.users(id) ON DELETE CASCADE,
+  username      text UNIQUE NOT NULL,
+  display_name  text,
+  bio           text DEFAULT 'Motorradfahrer · MotoMatch 🏍',
+  status_text   text,
+  avatar_color  text,
+  show_bike     boolean DEFAULT false,
+  bike_text     text,
+  dm_policy     text DEFAULT 'all',     -- 'all' | 'friends'
+  show_online   boolean DEFAULT true,
+  notif_sounds  boolean DEFAULT true,
+  notif_desktop boolean DEFAULT false,
+  created_at    timestamptz DEFAULT now()
+);
+ALTER TABLE profiles ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "profiles_select"  ON profiles FOR SELECT USING (true);
+CREATE POLICY "profiles_insert"  ON profiles FOR INSERT WITH CHECK (id = auth.uid());
+CREATE POLICY "profiles_update"  ON profiles FOR UPDATE USING (id = auth.uid());
+
+-- ── Friendships ──────────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS friendships (
+  id      bigserial PRIMARY KEY,
+  user_a  uuid NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
+  user_b  uuid NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
+  UNIQUE (user_a, user_b),
+  CHECK (user_a < user_b)
+);
+ALTER TABLE friendships ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "friendships_select" ON friendships FOR SELECT
+  USING (user_a = auth.uid() OR user_b = auth.uid());
+CREATE POLICY "friendships_insert" ON friendships FOR INSERT
+  WITH CHECK (user_a = auth.uid() OR user_b = auth.uid());
+CREATE POLICY "friendships_delete" ON friendships FOR DELETE
+  USING (user_a = auth.uid() OR user_b = auth.uid());
+
+-- ── Friend requests ───────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS friend_requests (
+  id          uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  from_user   uuid NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
+  to_user     uuid NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
+  created_at  timestamptz DEFAULT now(),
+  UNIQUE (from_user, to_user)
+);
+ALTER TABLE friend_requests ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "freq_select" ON friend_requests FOR SELECT
+  USING (from_user = auth.uid() OR to_user = auth.uid());
+CREATE POLICY "freq_insert" ON friend_requests FOR INSERT
+  WITH CHECK (from_user = auth.uid());
+CREATE POLICY "freq_delete" ON friend_requests FOR DELETE
+  USING (from_user = auth.uid() OR to_user = auth.uid());
+
+-- ── Blocks ───────────────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS blocks (
+  id          bigserial PRIMARY KEY,
+  blocker     uuid NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
+  blocked     uuid NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
+  UNIQUE (blocker, blocked)
+);
+ALTER TABLE blocks ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "blocks_select" ON blocks FOR SELECT
+  USING (blocker = auth.uid() OR blocked = auth.uid());
+CREATE POLICY "blocks_insert" ON blocks FOR INSERT WITH CHECK (blocker = auth.uid());
+CREATE POLICY "blocks_delete" ON blocks FOR DELETE USING (blocker = auth.uid());
+
+-- ── Ignores ───────────────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS ignores (
+  id          bigserial PRIMARY KEY,
+  ignorer     uuid NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
+  ignored     uuid NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
+  UNIQUE (ignorer, ignored)
+);
+ALTER TABLE ignores ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "ignores_select" ON ignores FOR SELECT USING (ignorer = auth.uid());
+CREATE POLICY "ignores_insert" ON ignores FOR INSERT WITH CHECK (ignorer = auth.uid());
+CREATE POLICY "ignores_delete" ON ignores FOR DELETE USING (ignorer = auth.uid());
+
+-- ── Groups ───────────────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS groups (
+  id          uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  name        text NOT NULL,
+  description text,
+  category    text NOT NULL DEFAULT 'gruppen',
+  join_mode   text NOT NULL DEFAULT 'open',  -- 'open' | 'request' | 'invite'
+  created_by  uuid NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
+  created_at  timestamptz DEFAULT now()
+);
+ALTER TABLE groups ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "groups_select_public" ON groups FOR SELECT USING (true);
+CREATE POLICY "groups_insert" ON groups FOR INSERT WITH CHECK (created_by = auth.uid());
+CREATE POLICY "groups_update" ON groups FOR UPDATE
+  USING (created_by = auth.uid() OR EXISTS (
+    SELECT 1 FROM group_members WHERE group_id = groups.id AND user_id = auth.uid() AND role = 'mod'
+  ));
+CREATE POLICY "groups_delete" ON groups FOR DELETE USING (created_by = auth.uid());
+
+-- ── Group members ─────────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS group_members (
+  id        bigserial PRIMARY KEY,
+  group_id  uuid NOT NULL REFERENCES groups(id) ON DELETE CASCADE,
+  user_id   uuid NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
+  role      text NOT NULL DEFAULT 'member',  -- 'owner' | 'mod' | 'member'
+  joined_at timestamptz DEFAULT now(),
+  UNIQUE (group_id, user_id)
+);
+ALTER TABLE group_members ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "gm_select" ON group_members FOR SELECT USING (true);
+CREATE POLICY "gm_insert" ON group_members FOR INSERT WITH CHECK (user_id = auth.uid());
+CREATE POLICY "gm_insert_mod" ON group_members FOR INSERT
+  WITH CHECK (EXISTS (
+    SELECT 1 FROM group_members gm WHERE gm.group_id = group_members.group_id
+    AND gm.user_id = auth.uid() AND gm.role IN ('owner','mod')
+  ));
+CREATE POLICY "gm_delete" ON group_members FOR DELETE
+  USING (user_id = auth.uid() OR EXISTS (
+    SELECT 1 FROM group_members gm WHERE gm.group_id = group_members.group_id
+    AND gm.user_id = auth.uid() AND gm.role IN ('owner','mod')
+  ));
+CREATE POLICY "gm_update" ON group_members FOR UPDATE
+  USING (EXISTS (
+    SELECT 1 FROM group_members gm WHERE gm.group_id = group_members.group_id
+    AND gm.user_id = auth.uid() AND gm.role IN ('owner','mod')
+  ));
+
+-- ── Channels ─────────────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS channels (
+  id        uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  group_id  uuid NOT NULL REFERENCES groups(id) ON DELETE CASCADE,
+  name      text NOT NULL DEFAULT 'allgemein',
+  position  int NOT NULL DEFAULT 0
+);
+ALTER TABLE channels ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "channels_select" ON channels FOR SELECT
+  USING (EXISTS (
+    SELECT 1 FROM group_members WHERE group_id = channels.group_id AND user_id = auth.uid()
+  ) OR EXISTS (
+    SELECT 1 FROM groups WHERE id = channels.group_id AND join_mode = 'open'
+  ));
+CREATE POLICY "channels_insert" ON channels FOR INSERT
+  WITH CHECK (EXISTS (
+    SELECT 1 FROM group_members WHERE group_id = channels.group_id
+    AND user_id = auth.uid() AND role IN ('owner','mod')
+  ));
+CREATE POLICY "channels_delete" ON channels FOR DELETE
+  USING (EXISTS (
+    SELECT 1 FROM group_members WHERE group_id = channels.group_id
+    AND user_id = auth.uid() AND role IN ('owner','mod')
+  ));
+
+-- ── Messages ─────────────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS messages (
+  id          uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  channel_id  uuid REFERENCES channels(id) ON DELETE CASCADE,
+  dm_thread   text,          -- '<user_a_id>:<user_b_id>' (sorted, kleinste UUID zuerst)
+  author_id   uuid NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
+  text        text NOT NULL,
+  reply_to_id uuid REFERENCES messages(id) ON DELETE SET NULL,
+  reactions   jsonb DEFAULT '{}',
+  edited_at   timestamptz,
+  created_at  timestamptz DEFAULT now(),
+  CHECK ((channel_id IS NOT NULL) != (dm_thread IS NOT NULL))
+);
+ALTER TABLE messages ENABLE ROW LEVEL SECURITY;
+
+-- Gruppenkanal: nur Mitglieder
+CREATE POLICY "msg_select_channel" ON messages FOR SELECT
+  USING (
+    channel_id IS NOT NULL AND EXISTS (
+      SELECT 1 FROM channels c
+      JOIN group_members gm ON gm.group_id = c.group_id AND gm.user_id = auth.uid()
+      WHERE c.id = messages.channel_id
+    )
+  );
+-- DM: nur Beteiligte
+CREATE POLICY "msg_select_dm" ON messages FOR SELECT
+  USING (
+    dm_thread IS NOT NULL AND (
+      dm_thread LIKE auth.uid()::text || ':%' OR
+      dm_thread LIKE '%:' || auth.uid()::text
+    )
+  );
+CREATE POLICY "msg_insert_channel" ON messages FOR INSERT
+  WITH CHECK (
+    author_id = auth.uid() AND channel_id IS NOT NULL AND EXISTS (
+      SELECT 1 FROM channels c
+      JOIN group_members gm ON gm.group_id = c.group_id AND gm.user_id = auth.uid()
+      WHERE c.id = messages.channel_id
+    )
+  );
+CREATE POLICY "msg_insert_dm" ON messages FOR INSERT
+  WITH CHECK (author_id = auth.uid() AND dm_thread IS NOT NULL);
+CREATE POLICY "msg_update" ON messages FOR UPDATE
+  USING (author_id = auth.uid() OR EXISTS (
+    SELECT 1 FROM channels c
+    JOIN group_members gm ON gm.group_id = c.group_id AND gm.user_id = auth.uid()
+    WHERE c.id = messages.channel_id AND gm.role IN ('owner','mod')
+  ));
+CREATE POLICY "msg_delete" ON messages FOR DELETE
+  USING (author_id = auth.uid() OR EXISTS (
+    SELECT 1 FROM channels c
+    JOIN group_members gm ON gm.group_id = c.group_id AND gm.user_id = auth.uid()
+    WHERE c.id = messages.channel_id AND gm.role IN ('owner','mod')
+  ));
+CREATE INDEX IF NOT EXISTS messages_channel_created ON messages(channel_id, created_at);
+CREATE INDEX IF NOT EXISTS messages_dm_created ON messages(dm_thread, created_at);
+
+-- ── Group join requests ───────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS group_join_requests (
+  id          uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  group_id    uuid NOT NULL REFERENCES groups(id) ON DELETE CASCADE,
+  from_user   uuid NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
+  text        text,
+  created_at  timestamptz DEFAULT now(),
+  UNIQUE (group_id, from_user)
+);
+ALTER TABLE group_join_requests ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "gjr_select" ON group_join_requests FOR SELECT
+  USING (from_user = auth.uid() OR EXISTS (
+    SELECT 1 FROM group_members WHERE group_id = group_join_requests.group_id
+    AND user_id = auth.uid() AND role IN ('owner','mod')
+  ));
+CREATE POLICY "gjr_insert" ON group_join_requests FOR INSERT WITH CHECK (from_user = auth.uid());
+CREATE POLICY "gjr_delete" ON group_join_requests FOR DELETE
+  USING (from_user = auth.uid() OR EXISTS (
+    SELECT 1 FROM group_members WHERE group_id = group_join_requests.group_id
+    AND user_id = auth.uid() AND role IN ('owner','mod')
+  ));
+
+-- ── Invites ───────────────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS invites (
+  code        text PRIMARY KEY,
+  group_id    uuid NOT NULL REFERENCES groups(id) ON DELETE CASCADE,
+  created_by  uuid NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
+  expires_at  timestamptz,
+  max_uses    int,
+  uses        int NOT NULL DEFAULT 0,
+  created_at  timestamptz DEFAULT now()
+);
+ALTER TABLE invites ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "invites_select" ON invites FOR SELECT USING (true);
+CREATE POLICY "invites_insert" ON invites FOR INSERT
+  WITH CHECK (EXISTS (
+    SELECT 1 FROM group_members WHERE group_id = invites.group_id
+    AND user_id = auth.uid() AND role IN ('owner','mod')
+  ));
+CREATE POLICY "invites_update" ON invites FOR UPDATE USING (true);
+CREATE POLICY "invites_delete" ON invites FOR DELETE
+  USING (created_by = auth.uid() OR EXISTS (
+    SELECT 1 FROM group_members WHERE group_id = invites.group_id
+    AND user_id = auth.uid() AND role IN ('owner','mod')
+  ));
+
+-- ── Message reports ───────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS message_reports (
+  id          uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  message_id  uuid NOT NULL REFERENCES messages(id) ON DELETE CASCADE,
+  group_id    uuid REFERENCES groups(id) ON DELETE CASCADE,
+  reported_by uuid NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
+  reason      text,
+  created_at  timestamptz DEFAULT now()
+);
+ALTER TABLE message_reports ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "mreports_insert" ON message_reports FOR INSERT WITH CHECK (reported_by = auth.uid());
+CREATE POLICY "mreports_select" ON message_reports FOR SELECT
+  USING (reported_by = auth.uid() OR EXISTS (
+    SELECT 1 FROM group_members WHERE group_id = message_reports.group_id
+    AND user_id = auth.uid() AND role IN ('owner','mod')
+  ));
+
+-- ── User reports ──────────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS user_reports (
+  id          uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  from_user   uuid NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
+  reported    uuid NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
+  reason      text,
+  text        text,
+  status      text DEFAULT 'open',
+  created_at  timestamptz DEFAULT now()
+);
+ALTER TABLE user_reports ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "ureports_insert" ON user_reports FOR INSERT WITH CHECK (from_user = auth.uid());
+CREATE POLICY "ureports_select" ON user_reports FOR SELECT USING (from_user = auth.uid());
+
+-- ── Group bans (separate from members) ───────────────────────────
+CREATE TABLE IF NOT EXISTS group_bans (
+  id        bigserial PRIMARY KEY,
+  group_id  uuid NOT NULL REFERENCES groups(id) ON DELETE CASCADE,
+  user_id   uuid NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
+  banned_by uuid NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
+  banned_at timestamptz DEFAULT now(),
+  UNIQUE (group_id, user_id)
+);
+ALTER TABLE group_bans ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "gbans_select" ON group_bans FOR SELECT
+  USING (user_id = auth.uid() OR EXISTS (
+    SELECT 1 FROM group_members WHERE group_id = group_bans.group_id
+    AND user_id = auth.uid() AND role IN ('owner','mod')
+  ));
+CREATE POLICY "gbans_insert" ON group_bans FOR INSERT
+  WITH CHECK (EXISTS (
+    SELECT 1 FROM group_members WHERE group_id = group_bans.group_id
+    AND user_id = auth.uid() AND role IN ('owner','mod')
+  ));
+CREATE POLICY "gbans_delete" ON group_bans FOR DELETE
+  USING (EXISTS (
+    SELECT 1 FROM group_members WHERE group_id = group_bans.group_id
+    AND user_id = auth.uid() AND role IN ('owner','mod')
+  ));
+
+-- ══════════════════════════════════════════════════════════════════
+--  Realtime aktivieren (einmalig im Supabase-Dashboard unter
+--  Database → Replication → Tables):
+--  Tabellen: messages, friend_requests, group_members
+-- ══════════════════════════════════════════════════════════════════

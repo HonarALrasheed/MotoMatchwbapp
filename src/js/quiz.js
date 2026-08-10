@@ -175,7 +175,7 @@ function createLoader() {
 export function preloadQuizAssets() {
   if (preloadedBikeGLTF) return;
   createLoader().load(
-    "/Quiz Bike/akira_guy_on_motorcycle_animated.glb",
+    "https://quljniqnizxlhczzfkhq.supabase.co/storage/v1/object/public/models/akira_guy_on_motorcycle_animated.glb",
     (gltf) => {
       preloadedBikeGLTF = gltf;
     },
@@ -332,7 +332,7 @@ function setupThreeJS() {
     preloadedBikeGLTF = null;
   } else {
     createLoader().load(
-      "/Quiz Bike/akira_guy_on_motorcycle_animated.glb",
+      "https://quljniqnizxlhczzfkhq.supabase.co/storage/v1/object/public/models/akira_guy_on_motorcycle_animated.glb",
       setupBike,
       undefined,
       (err) => console.error("GLB load error:", err),

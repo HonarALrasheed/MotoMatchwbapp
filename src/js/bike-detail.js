@@ -100,7 +100,7 @@ export const BIKE_DATA = {
   'Iron 883': {
     fullName: 'Iron 883', brand: 'Harley-Davidson', bgText: 'Iron 883',
     img1: '/bikes/2/harley_iron883_2018.png', img2: '/bikes/harley_iron883_2018.jpg',
-    glb: '/models/harley_iron883_2018.glb', style: 'Cruiser',
+    glb: 'https://quljniqnizxlhczzfkhq.supabase.co/storage/v1/object/public/models/harley_iron883_2018.glb', style: 'Cruiser',
     specs: { accel: '6.5', topSpeed: '161', power: '38 kW / 51 PS', cc: '883', weight: '256', seat: '65.3', tank: '12.5', gear: '5-Gang' },
     desc: 'Dark Custom mit V-Twin. Minimalistisch, roh, unverkennbar.',
     price: 'Ab EUR 7.000',
@@ -121,7 +121,7 @@ export const BIKE_DATA = {
   'Seventy-Two': {
     fullName: 'Seventy-Two', brand: 'Harley-Davidson', bgText: 'Seventy-Two',
     img1: '/bikes/2/harley_seventytwo_2015.png', img2: '/bikes/harley_seventytwo_2015.jpg',
-    glb: '/models/harley_seventytwo_2015.glb', style: 'Cruiser',
+    glb: 'https://quljniqnizxlhczzfkhq.supabase.co/storage/v1/object/public/models/harley_seventytwo_2015.glb', style: 'Cruiser',
     specs: { accel: '5.2', topSpeed: '170', power: '49 kW / 66 PS', cc: '1202', weight: '255', seat: '67.6', tank: '7.9', gear: '5-Gang' },
     desc: 'Klassischer Chopper-Stil mit V-Twin Power. Purer Cruiser-Charakter.',
     price: 'Ab EUR 15.000',
@@ -142,7 +142,7 @@ export const BIKE_DATA = {
   'CB 750 F': {
     fullName: 'CB 750 F', brand: 'Honda', bgText: 'CB750F',
     img1: '/bikes/2/honda_cb750f_1970.png', img2: '/bikes/honda_cb750f_1970.jpg',
-    glb: '/models/honda_cb750f_1970.glb', style: 'Klassiker',
+    glb: 'https://quljniqnizxlhczzfkhq.supabase.co/storage/v1/object/public/models/honda_cb750f_1970.glb', style: 'Klassiker',
     specs: { accel: '5.8', topSpeed: '200', power: '49 kW / 67 PS', cc: '736', weight: '235', seat: '80.0', tank: '14.0', gear: '5-Gang' },
     desc: 'Die Legende, die alles veränderte. Vier Zylinder, Geschichte.',
     price: 'Ab EUR 12.000',
@@ -163,7 +163,7 @@ export const BIKE_DATA = {
   '500 Custom': {
     fullName: '500 Custom', brand: 'Yamaha', bgText: '500 Custom',
     img1: '/bikes/2/yamaha_500custom.png', img2: '/bikes/yamaha_500custom.png',
-    glb: '/models/yamaha_500custom.glb', style: 'Custom',
+    glb: 'https://quljniqnizxlhczzfkhq.supabase.co/storage/v1/object/public/models/yamaha_500custom.glb', style: 'Custom',
     specs: { accel: '5.5', topSpeed: '180', power: '35 kW / 48 PS', cc: '500', weight: '195', seat: '82.0', tank: '13.0', gear: '5-Gang' },
     desc: 'Moderner Custom-Cruiser. Vielseitig, komfortabel, einzigartig.',
     price: 'Ab EUR 5.500',
@@ -184,7 +184,7 @@ export const BIKE_DATA = {
   'YZF-R3': {
     fullName: 'YZF-R3', brand: 'Yamaha', bgText: 'YZF-R3',
     img1: '/bikes/2/yamaha_yzfr3_2017.png', img2: '/bikes/yamaha_yzfr3_2017.jpg',
-    glb: '/models/yamaha_yzfr3_2017.glb', style: 'Sportbike',
+    glb: 'https://quljniqnizxlhczzfkhq.supabase.co/storage/v1/object/public/models/yamaha_yzfr3_2017.glb', style: 'Sportbike',
     specs: { accel: '5.6', topSpeed: '180', power: '31 kW / 42 PS', cc: '321', weight: '167', seat: '78.0', tank: '14.0', gear: '6-Gang' },
     desc: 'Idealer Einstieg in die Sportwelt. Agil, leicht, perfekt für A2.',
     price: 'Ab EUR 4.500',
@@ -205,7 +205,7 @@ export const BIKE_DATA = {
   'NR750': {
     fullName: 'NR750', brand: 'Honda', bgText: 'NR750',
     img1: '/bikes/2/honda_nr750_1994.png', img2: '/bikes/honda_nr750_1994.png',
-    glb: '/models/honda_nr750_1994.glb', style: 'Sportbike',
+    glb: 'https://quljniqnizxlhczzfkhq.supabase.co/storage/v1/object/public/models/honda_nr750_1994.glb', style: 'Sportbike',
     specs: { accel: '3.5', topSpeed: '259', power: '92 kW / 125 PS', cc: '747', weight: '244', seat: '78.5', tank: '18.0', gear: '6-Gang' },
     desc: 'Ikonischer V4-Sportler mit ovalen Kolben. Technisches Meisterwerk.',
     price: 'Ab EUR 18.000',

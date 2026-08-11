@@ -28,7 +28,7 @@ neue Regressionen vermieden werden).
 | ✅ `GET /favicon.ico → 404` | Alle Seiten | gefixt (T3.2) | Minimales valides 1×1 ICO in `public/favicon.ico` abgelegt (70 Bytes). Response jetzt 200 `image/x-icon`. SVG-Favicon bleibt weiter als primäres Icon aktiv. |
 | ✅ `GET /__video/hero.mp4 → net::ERR_ABORTED` | Landing (Hero) | kein Bug | **T3.2 verifiziert:** Datei existiert (HTTP 200, 3.9 MB, via Vite-Middleware mit Range-Requests). `ERR_ABORTED` ist normales Verhalten für `<video autoplay muted loop>`-Range-Requests, die beim Loop/Pause abgebrochen werden. Nichts zu fixen. |
 | ✅ Konsolen-Warning: `THREE.Clock: deprecated` | Quiz-3D | gefixt (T3.2) | Migriert auf `THREE.Timer`; Loop ruft jetzt `clock.update()` und `getElapsed()`. Verifiziert: 0 Warnings, keine neuen Errors. Screenshot `T3.2-B-01-timer-quiz.png`. |
-| ⚠️ Konsolen-Warning: `Google Maps JavaScript API has been loaded directly without loading=async` | Karte / Dealers | non-blocking | Loader auf `loading=async` umstellen (Performance-Hinweis von Google). |
+| ✅ Konsolen-Warning: `Google Maps without loading=async` | Karte / Dealers | gefixt (T3.2) | `&loading=async` an Script-URL angehängt. Verifiziert: keine Warning mehr. |
 | ✅ Keine `pageerror` (uncaught) über alle 21 Steps | — | — | App wirft keine unbehandelten Exceptions während Basic-Navigation. |
 
 ---

@@ -867,7 +867,7 @@ function loadGoogleMapsScript() {
   if (gmapsLoadPromise) return gmapsLoadPromise;
   gmapsLoadPromise = new Promise((resolve, reject) => {
     const s = document.createElement("script");
-    s.src = `https://maps.googleapis.com/maps/api/js?key=${GMAPS_KEY}&libraries=places`;
+    s.src = `https://maps.googleapis.com/maps/api/js?key=${GMAPS_KEY}&libraries=places&loading=async`;
     s.async = true;
     const timer = setTimeout(() => {
       gmapsLoadPromise = null; // nächster Klick darf einen frischen Versuch starten

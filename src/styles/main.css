@@ -1,4 +1,34 @@
 /* ============================================
+   Self-hosted fonts (no Google Fonts requests)
+   ============================================ */
+
+/* Barlow */
+@font-face { font-family: 'Barlow'; font-style: normal; font-weight: 300; font-display: swap; src: url('/fonts/barlow-300.woff2') format('woff2'); }
+@font-face { font-family: 'Barlow'; font-style: normal; font-weight: 400; font-display: swap; src: url('/fonts/barlow-400.woff2') format('woff2'); }
+@font-face { font-family: 'Barlow'; font-style: normal; font-weight: 500; font-display: swap; src: url('/fonts/barlow-500.woff2') format('woff2'); }
+@font-face { font-family: 'Barlow'; font-style: normal; font-weight: 600; font-display: swap; src: url('/fonts/barlow-600.woff2') format('woff2'); }
+@font-face { font-family: 'Barlow'; font-style: normal; font-weight: 700; font-display: swap; src: url('/fonts/barlow-700.woff2') format('woff2'); }
+@font-face { font-family: 'Barlow'; font-style: normal; font-weight: 800; font-display: swap; src: url('/fonts/barlow-800.woff2') format('woff2'); }
+
+/* Bebas Neue */
+@font-face { font-family: 'Bebas Neue'; font-style: normal; font-weight: 400; font-display: swap; src: url('/fonts/bebas-neue-400.woff2') format('woff2'); }
+
+/* Playfair Display */
+@font-face { font-family: 'Playfair Display'; font-style: italic; font-weight: 700; font-display: swap; src: url('/fonts/playfair-display-700-italic.woff2') format('woff2'); }
+
+/* Righteous */
+@font-face { font-family: 'Righteous'; font-style: normal; font-weight: 400; font-display: swap; src: url('/fonts/righteous-400.woff2') format('woff2'); }
+
+/* Rajdhani */
+@font-face { font-family: 'Rajdhani'; font-style: normal; font-weight: 600; font-display: swap; src: url('/fonts/rajdhani-600.woff2') format('woff2'); }
+
+/* Orbitron */
+@font-face { font-family: 'Orbitron'; font-style: normal; font-weight: 700; font-display: swap; src: url('/fonts/orbitron-700.woff2') format('woff2'); }
+
+/* Chakra Petch */
+@font-face { font-family: 'Chakra Petch'; font-style: normal; font-weight: 700; font-display: swap; src: url('/fonts/chakra-petch-700.woff2') format('woff2'); }
+
+/* ============================================
    MotoMatch — Porsche Design System
    ============================================ */
 
@@ -518,6 +548,9 @@ html.has-landing body {
   line-height: 1.5; margin: 0 0 24px;
 }
 .p-auth-google-slot { display: flex; justify-content: center; min-height: 40px; }
+.p-auth-google-btn { display: flex; align-items: center; gap: 10px; justify-content: center; width: 100%; padding: 10px 16px; border: 1px solid #dadce0; border-radius: 4px; background: #fff; color: #3c4043; font-size: 14px; font-weight: 500; cursor: pointer; transition: background .15s, box-shadow .15s; }
+.p-auth-google-btn:hover { background: #f8f9fa; box-shadow: 0 1px 3px rgba(0,0,0,.15); }
+.p-auth-google-btn:disabled { opacity: .6; cursor: not-allowed; }
 .p-auth-divider {
   display: flex; align-items: center; gap: 12px;
   margin: 20px 0; color: #aaa;
@@ -836,6 +869,10 @@ select.p-auth-input {
   letter-spacing: 0.01em;
 }
 .p-footer-link:hover { color: #fff; }
+.p-footer-link--disabled {
+  cursor: default; pointer-events: none;
+  color: rgba(255,255,255,0.2);
+}
 .p-footer-bottom {
   display: flex; justify-content: space-between; align-items: center;
   padding: var(--p-md) clamp(24px, 5vw, 80px);
@@ -855,16 +892,39 @@ select.p-auth-input {
    ═══════════════════════════════════════════ */
 @media (max-width: 900px) {
   .p-finder { grid-template-columns: 1fr; }
-  .p-finder-visual { height: 280px; }
-  .p-finder-text { padding: var(--p-xl) clamp(20px, 5vw, 40px); }
+  .p-finder-visual { height: auto; order: 2; }
+  .p-finder-visual img { height: auto; object-fit: contain; }
+  .p-finder-text { padding: var(--p-xl) clamp(20px, 5vw, 40px); order: 1; }
+}
+@media (max-width: 600px) {
+  .p-finder-text { padding: var(--p-lg) clamp(20px, 5vw, 40px); }
+  .p-finder-desc { margin-bottom: var(--p-sm); }
 }
 @media (max-width: 768px) {
   .p-models-grid { grid-template-columns: 1fr; }
-  .p-lifestyle-cards { grid-template-columns: 1fr; }
-  .p-footer-cols { grid-template-columns: 1fr; gap: var(--p-md); }
   .p-finder-title { font-size: clamp(20px, 6vw, 32px); }
   .p-hero-title { font-size: clamp(32px, 9vw, 56px); }
   .p-nav-menu-text { display: none; }
+
+  /* Lifestyle-Karten: 2 kompakte Spalten statt 3× voller Breite gestapelt;
+     die dritte Karte spannt beide Spalten, damit keine Lücke entsteht. */
+  .p-lifestyle-cards { grid-template-columns: repeat(2, 1fr); }
+  .p-lifestyle-card:nth-child(3) { grid-column: 1 / -1; }
+  .p-lifestyle-card-img { height: clamp(130px, 32vw, 200px); }
+
+  /* Entdecken: 2-Spalten-Grid im Hochformat statt 6 riesigen Vollbreite-Karten */
+  .p-discover { padding: var(--p-lg) clamp(16px, 4vw, 24px); }
+  .p-discover-title { margin-bottom: clamp(20px, 3vw, 32px); }
+  .p-discover-cats { grid-template-columns: repeat(2, 1fr); }
+  .p-discover-cat { aspect-ratio: 3 / 4; }
+  .p-discover-cat-desc {
+    display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+
+  /* Footer: 2 Spalten statt einer langen Linkliste; letzte Spalte spannt voll */
+  .p-footer-cols { grid-template-columns: repeat(2, 1fr); gap: var(--p-md) var(--p-lg); }
+  .p-footer-col:nth-child(3) { grid-column: 1 / -1; }
 }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {
@@ -1061,6 +1121,99 @@ select.p-auth-input {
   100% {
     transform: scale(1);
   }
+}
+
+/* ── Slider Question (Budget, Größe, …) ── */
+.quiz-slider {
+  margin-bottom: 16px;
+}
+.quiz-slider-row {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+.q-slider {
+  flex: 1;
+  height: 4px;
+  border-radius: 2px;
+  background: rgba(255, 255, 255, 0.08);
+  appearance: none;
+  -webkit-appearance: none;
+  cursor: pointer;
+  margin: 0;
+}
+.q-slider::-webkit-slider-thumb {
+  appearance: none;
+  -webkit-appearance: none;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: var(--gold);
+  box-shadow: 0 0 10px rgba(201, 168, 76, 0.5);
+  cursor: pointer;
+  transition: transform 0.2s var(--ease-out);
+}
+.q-slider::-webkit-slider-thumb:hover {
+  transform: scale(1.15);
+}
+.q-slider::-moz-range-thumb {
+  width: 18px;
+  height: 18px;
+  border: none;
+  border-radius: 50%;
+  background: var(--gold);
+  box-shadow: 0 0 10px rgba(201, 168, 76, 0.5);
+  cursor: pointer;
+}
+.q-slider::-moz-range-track {
+  height: 4px;
+  border-radius: 2px;
+  background: rgba(255, 255, 255, 0.08);
+}
+.quiz-slider-scale {
+  display: flex;
+  justify-content: space-between;
+  font-size: 10px;
+  color: var(--text-dim);
+  margin-top: 8px;
+  letter-spacing: 0.03em;
+}
+.quiz-slider-input-wrap {
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 8px;
+  padding: 5px 10px;
+  transition: border-color 0.2s var(--ease-out);
+}
+.quiz-slider-input-wrap:focus-within {
+  border-color: var(--gold);
+}
+.q-slider-input {
+  width: 64px;
+  background: transparent;
+  border: none;
+  color: var(--gold);
+  font-size: 15px;
+  font-family: var(--font);
+  text-align: right;
+  outline: none;
+}
+.q-slider-input::-webkit-outer-spin-button,
+.q-slider-input::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+.q-slider-input[type="number"] {
+  appearance: textfield;
+  -moz-appearance: textfield;
+}
+.quiz-slider-input-suffix {
+  color: var(--text-dim);
+  font-size: 13px;
+  margin-left: 4px;
 }
 
 /* ── CTA Buttons ── */
@@ -2011,20 +2164,21 @@ select.p-auth-input {
   z-index: 200;
   display: flex;
   justify-content: center;
-  padding: 76px 24px 16px;
+  padding: 76px clamp(4px, 1vw, 24px) 16px;
   background: #fff;
   pointer-events: none;
 }
 .tb-bar {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: clamp(1px, 0.6vw, 10px);
   background: #fff;
   border-radius: 18px;
-  padding: 8px;
+  padding: clamp(3px, 1vw, 8px);
   box-shadow: 0 2px 12px rgba(0, 0, 0, 0.06);
   border: 1px solid rgba(0, 0, 0, 0.08);
   pointer-events: auto;
+  max-width: 100%;
   transition: box-shadow 0.45s cubic-bezier(0.4,0,0.2,1), border-radius 0.45s cubic-bezier(0.4,0,0.2,1), padding 0.45s cubic-bezier(0.4,0,0.2,1);
 }
 .tb-wrap.scrolled .tb-bar {
@@ -2057,13 +2211,16 @@ select.p-auth-input {
   background: #f0f0f0;
   border: none;
   color: #444;
-  font-size: 15px;
+  font-size: clamp(8.5px, 2.3vw, 15px);
   font-weight: 500;
-  padding: 16px 32px;
+  padding: clamp(8px, 2.4vw, 16px) clamp(1px, 0.6vw, 32px);
   border-radius: 12px;
   cursor: pointer;
   white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
   flex: 1;
+  min-width: 0;
   text-align: center;
   letter-spacing: 0.01em;
   transition: background 0.4s cubic-bezier(0.4,0,0.2,1), color 0.4s cubic-bezier(0.4,0,0.2,1);
@@ -2085,8 +2242,8 @@ select.p-auth-input {
 .tb-wrap.scrolled .tb-btn {
   background: rgba(255, 255, 255, 0.08);
   color: rgba(255, 255, 255, 0.6);
-  font-size: 13px;
-  padding: 8px 16px;
+  font-size: clamp(8.5px, 2.3vw, 13px);
+  padding: clamp(6px, 1.8vw, 8px) clamp(1px, 0.6vw, 16px);
   border-radius: 8px;
 }
 .tb-wrap.scrolled .tb-btn:hover {
@@ -2224,24 +2381,64 @@ select.p-auth-input {
     padding-top: 20px;
   }
   .bd-hero-img-wrap {
-    padding: 40px 16px 0;
+    padding: 0 16px;
+    min-height: 38vh;
+    overflow: hidden;
+  }
+  .bd-hero-img {
+    width: 230%;
+    max-width: 230%;
   }
   .bd-hero-bg-text {
-    font-size: 60px;
-    top: 8%;
+    font-size: 92px;
+    top: 10%;
+  }
+
+  /* Touch-Bar der Garage-Ergebnisseite: alle 5 Reiter sollen ohne
+     horizontales Wischen in eine Zeile passen — Bar deterministisch auf
+     volle Breite statt intrinsischer (zu schmaler) Flex-Größe. */
+  #bd-sticky-nav .tb-bar {
+    width: 100%;
+  }
+  .bd-specs {
+    padding: 56px 0;
   }
   .bd-specs-inner {
     flex-direction: column;
     padding: 0 24px;
+    gap: 24px;
   }
+  /* Die 3 Spec-Zahlen als 2-spaltiges Grid statt 3 einzelner Zeilen —
+     Button und ausklappbares Detail-Panel bleiben als eigene "Box" darunter
+     über die volle Breite. */
   .bd-specs-left {
-    gap: 32px;
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 28px 16px;
+  }
+  .bd-specs-left .bd-details-toggle,
+  .bd-specs-left .bd-details-panel {
+    grid-column: 1 / -1;
   }
   .bd-spec-value {
-    font-size: 36px;
+    font-size: 30px;
   }
   .bd-specs-right {
     min-height: 300px;
+  }
+  /* 3D-Viewer: auf Mobile ist der Wrap volle (schmale) Breite — die feste
+     Desktop-Mindesthöhe von 550px macht ihn hochkant statt querformatig,
+     wodurch die Kamera das breite Bike winzig einpasst. Kompakteres,
+     breiteres Seitenverhältnis, damit das Modell den Rahmen ausfüllt. */
+  .bd-3d-canvas-wrap {
+    min-height: 300px;
+  }
+  /* Kamera-Framing lässt bei sehr breiten Bikes viel Leerraum um das Modell
+     — auf Mobile per CSS-Zoom kaschiert, statt die 3D-Kamera (auch für
+     Desktop genutzt) anzufassen. */
+  .bd-3d-canvas-wrap canvas {
+    transform: scale(1.6);
+    transform-origin: 50% 58%;
   }
   .bd-details-panel .bd-details-grid {
     grid-template-columns: repeat(2, 1fr);
@@ -2497,6 +2694,7 @@ select.p-auth-input {
   position: fixed !important;
   top: 10px !important;
   left: 50% !important;
+  right: auto !important;
   transform: translateX(-50%) !important;
   width: auto !important;
   padding: 6px 8px !important;
@@ -2508,6 +2706,15 @@ select.p-auth-input {
   backdrop-filter: blur(20px) !important;
   -webkit-backdrop-filter: blur(20px) !important;
   border-color: rgba(255,255,255,0.08) !important;
+  width: max-content !important;
+  max-width: calc(100vw - 32px) !important;
+}
+/* Above mobile: let each tab keep its natural label width instead of
+   being squeezed to an equal fraction of a too-narrow flex row. */
+@media (min-width: 601px) {
+  .konf-tb-wrap .tb-btn {
+    min-width: max-content;
+  }
 }
 
 /* ── Top: Cinematic 2D Viewer ── */
@@ -2838,17 +3045,6 @@ select.p-auth-input {
   flex-wrap: wrap;
   row-gap: 10px;
 }
-.konf-own-btn {
-  display: inline-flex; align-items: center; gap: 6px;
-  margin-left: 8px;
-  padding: 7px 14px;
-  background: #fff; border: 1px solid #ddd; border-radius: 20px;
-  color: #444; font-family: inherit; font-size: 12.5px; font-weight: 600;
-  cursor: pointer;
-  transition: background 0.2s, border-color 0.2s, color 0.2s;
-}
-.konf-own-btn:hover { border-color: #999; }
-.konf-own-btn--active { background: #000; border-color: #000; color: #fff; }
 .konf-price-tag {
   font-size: 22px;
   font-weight: 700;
@@ -4664,6 +4860,17 @@ select.p-auth-input {
   color: inherit;
   stroke-width: 1.4;
 }
+.gear-card-photo {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  padding: 10px;
+  box-sizing: border-box;
+  transition: transform 0.3s ease;
+}
+.gear-card:hover .gear-card-photo {
+  transform: scale(1.06);
+}
 
 .gear-card-heart {
   position: absolute;
@@ -4885,17 +5092,28 @@ select.p-auth-input {
   }
 }
 @media (max-width: 600px) {
+  /* Wie bei der Garage-Touchbar: volle Breite statt zentrierter Pille,
+     damit alle 5 Reiter ohne Kürzung lesbar sind. */
   .konf-tb-wrap {
-    padding: 6px 8px;
+    left: 8px !important;
+    right: 8px !important;
+    top: 16px !important;
+    width: auto !important;
+    transform: none !important;
+    padding: 0 !important;
   }
-  .konf-split {
-    margin-top: 48px;
+  .konf-tb-wrap .tb-bar {
+    width: 100%;
+  }
+  /* Zurück-Pfeil raus — auf Mobile navigiert man per Swipe-Geste */
+  .konf-back-float {
+    display: none;
   }
   .konf-bg-text {
-    font-size: 28vw;
+    font-size: 16vw;
   }
   .konf-left-info {
-    top: 16px;
+    top: 64px;
     left: 16px;
   }
   .konf-left-brand {
@@ -5281,28 +5499,67 @@ select.p-auth-input {
 .kv-search-row {
   display: flex;
   align-items: center;
+  justify-content: space-between;
   gap: 14px;
-  flex-wrap: wrap;
+}
+/* Collapsed search: a lupe toggle that expands into the PLZ/Ort field on demand */
+.kv-search-wrap {
+  position: relative;
+  flex-shrink: 0;
+}
+.kv-search-toggle {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  background: rgba(255,255,255,0.08);
+  border: 1px solid rgba(255,255,255,0.12);
+  color: #ccc;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
+}
+.kv-search-toggle:hover { background: rgba(255,255,255,0.14); color: #fff; }
+.kv-search-toggle[aria-expanded="true"] {
+  background: #fff;
+  color: #000;
+  border-color: #fff;
 }
 .kv-search-field {
-  flex: 1;
-  min-width: 260px;
+  position: absolute;
+  top: calc(100% + 10px);
+  right: 0;
+  z-index: 20;
+  width: min(320px, 82vw);
   display: flex;
   align-items: center;
   gap: 8px;
-  background: rgba(255,255,255,0.05);
-  border: 1px solid rgba(255,255,255,0.10);
-  border-radius: 28px;
+  background: #181818;
+  border: 1px solid rgba(255,255,255,0.12);
+  border-radius: 24px;
   padding: 8px 8px 8px 16px;
-  transition: border-color 0.18s, background 0.18s;
+  box-shadow: 0 16px 40px rgba(0,0,0,0.45);
+  opacity: 0;
+  visibility: hidden;
+  transform: translateY(-6px);
+  pointer-events: none;
+  transition: opacity 0.16s ease, transform 0.16s ease, visibility 0.16s;
+}
+.kv-search-field--open {
+  opacity: 1;
+  visibility: visible;
+  transform: translateY(0);
+  pointer-events: auto;
 }
 .kv-search-field:focus-within {
-  background: rgba(255,255,255,0.08);
-  border-color: rgba(255,255,255,0.25);
+  border-color: rgba(255,255,255,0.3);
 }
 .kv-search-icon { color: #888; flex-shrink: 0; }
 .kv-search-input {
   flex: 1;
+  min-width: 0;
   background: transparent;
   border: none;
   outline: none;
@@ -5331,8 +5588,10 @@ select.p-auth-input {
 .kv-radius-group {
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: 10px;
   flex-wrap: wrap;
+  min-width: 0;
+  flex: 1;
 }
 .kv-radius-label {
   font-size: 11px;
@@ -5340,25 +5599,34 @@ select.p-auth-input {
   letter-spacing: 0.1em;
   text-transform: uppercase;
   color: #666;
-  margin-right: 6px;
+  margin-right: 2px;
+}
+/* Segmented control: presets grouped into one clear track instead of loose outlined buttons */
+.kv-radius-pills {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  background: rgba(255,255,255,0.05);
+  border: 1px solid rgba(255,255,255,0.08);
+  border-radius: 18px;
+  padding: 3px;
 }
 .kv-radius-pill {
   background: transparent;
-  border: 1px solid rgba(255,255,255,0.12);
-  color: #aaa;
+  border: none;
+  color: #999;
   font-size: 12px;
   font-weight: 600;
   padding: 6px 12px;
-  border-radius: 16px;
+  border-radius: 14px;
   cursor: pointer;
   transition: all 0.15s;
   font-variant-numeric: tabular-nums;
 }
-.kv-radius-pill:hover { background: rgba(255,255,255,0.06); color: #fff; }
+.kv-radius-pill:hover { background: rgba(255,255,255,0.08); color: #fff; }
 .kv-radius-pill--active {
   background: #fff;
   color: #000;
-  border-color: #fff;
 }
 
 /* ─── Karte: filter pills with icons ─── */
@@ -5611,6 +5879,107 @@ select.p-auth-input {
 .kv-results-list::-webkit-scrollbar-thumb { background: #333; border-radius: 3px; }
 .kv-results-list::-webkit-scrollbar-thumb:hover { background: #555; }
 
+/* ─── Karte: aufgeräumtes Mobile-Layout ─── */
+@media (max-width: 640px) {
+  .konf-karte-hub {
+    padding: 4px 0 40px;
+  }
+  .kv-toolbar {
+    padding: 0 16px;
+    margin: 0 0 20px;
+  }
+  .kv-search-row {
+    gap: 8px;
+  }
+  /* Umkreis + Lupe bleiben auf einer Zeile — Label weicht auf Mobile der Platznot */
+  .kv-radius-label {
+    display: none;
+  }
+  .kv-radius-group {
+    gap: 4px;
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    scrollbar-width: none;
+    min-width: 0;
+  }
+  .kv-radius-group::-webkit-scrollbar { display: none; }
+  .kv-radius-pills {
+    flex-shrink: 0;
+  }
+  .kv-radius-pill {
+    padding: 6px 8px;
+    font-size: 11.5px;
+  }
+  .kv-search-toggle {
+    width: 32px;
+    height: 32px;
+  }
+  .kv-search-field {
+    min-width: 0;
+    width: min(280px, 88vw);
+    padding: 6px 6px 6px 12px;
+  }
+  .kv-search-icon {
+    width: 14px;
+    height: 14px;
+  }
+  .kv-search-input {
+    font-size: 13px;
+  }
+  .kv-recenter-btn {
+    width: 28px;
+    height: 28px;
+  }
+  /* Kategorie-Pills als horizontal scrollbare Chip-Leiste statt wildem Zeilenumbruch */
+  .konf-karte-hub .hub-filters {
+    flex-wrap: nowrap;
+    justify-content: flex-start;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+    margin: 0 -16px 24px;
+    padding: 0 16px 6px;
+    gap: 10px;
+  }
+  .konf-karte-hub .hub-filters::-webkit-scrollbar { display: none; }
+  .konf-karte-hub .hub-pill {
+    flex-shrink: 0;
+    white-space: nowrap;
+    padding: 10px 18px;
+    font-size: 13.5px;
+  }
+  .kv-layout {
+    padding: 0 16px;
+    gap: 16px;
+  }
+  .kv-map-wrap .hub-map {
+    height: 42vh;
+    min-height: 260px;
+    border-radius: 18px;
+  }
+  .kv-weather-card {
+    top: 12px;
+    left: 12px;
+    padding: 8px 12px;
+    gap: 8px;
+  }
+  .kv-sidebar {
+    border-radius: 18px;
+    max-height: none;
+  }
+  .kv-sidebar-head {
+    padding: 16px;
+  }
+  .kv-results-list {
+    padding: 10px;
+    gap: 8px;
+    max-height: 50vh;
+  }
+  .kv-result-card {
+    padding: 12px;
+  }
+}
+
 /* Pill filters — no borders, Apple-style */
 .hub-filters {
   display: flex;
@@ -5679,6 +6048,23 @@ select.p-auth-input {
   border-top-color: #888;
   border-radius: 50%;
   animation: hub-spin 0.8s linear infinite;
+}
+.hub-retry-btn {
+  margin-top: 4px;
+  padding: 10px 22px;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 40px;
+  background: rgba(255, 255, 255, 0.06);
+  color: #fff;
+  font-size: 13px;
+  font-weight: 600;
+  font-family: var(--font);
+  cursor: pointer;
+  transition: background 0.2s var(--ease-out), border-color 0.2s var(--ease-out);
+}
+.hub-retry-btn:hover {
+  background: rgba(255, 255, 255, 0.12);
+  border-color: rgba(255, 255, 255, 0.25);
 }
 @keyframes hub-spin {
   to {
@@ -8272,6 +8658,11 @@ select.mmc-input option { background: #111; color: #fff; }
   width: 28px; height: 28px; border-radius: 50%; flex-shrink: 0;
   display: flex; align-items: center; justify-content: center;
   color: #fff; font-family: var(--p-font); font-size: 11px; font-weight: 700;
+  overflow: hidden;
+}
+.mmc-avatar-img {
+  position: absolute; inset: 0; width: 100%; height: 100%;
+  object-fit: cover; border-radius: 50%;
 }
 .mmc-avatar--sm { width: 40px; height: 40px; font-size: 14px; }
 .mmc-avatar--dm { width: 32px; height: 32px; font-size: 12px; }

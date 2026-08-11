@@ -1,0 +1,25 @@
+Self-hosted web fonts used in MotoMatch
+========================================
+
+All fonts below are licensed under the SIL Open Font License 1.1 (OFL-1.1),
+which permits free use, embedding, and redistribution in web applications.
+Source: Google Fonts (fonts.google.com) — downloaded as woff2 subset files.
+
+Font             | License  | Source
+-----------------|----------|-----------------------------------------------
+Barlow           | OFL-1.1  | https://fonts.google.com/specimen/Barlow
+                 |          | Designer: Jeremy Tribby
+Bebas Neue       | OFL-1.1  | https://fonts.google.com/specimen/Bebas+Neue
+                 |          | Designer: Ryoichi Tsunekawa
+Playfair Display | OFL-1.1  | https://fonts.google.com/specimen/Playfair+Display
+                 |          | Designer: Claus Eggers Sørensen
+Righteous        | OFL-1.1  | https://fonts.google.com/specimen/Righteous
+                 |          | Designer: Astigmatic
+Rajdhani         | OFL-1.1  | https://fonts.google.com/specimen/Rajdhani
+                 |          | Designer: Indian Type Foundry
+Orbitron         | OFL-1.1  | https://fonts.google.com/specimen/Orbitron
+                 |          | Designer: Matt McInerney
+Chakra Petch     | OFL-1.1  | https://fonts.google.com/specimen/Chakra+Petch
+                 |          | Designer: Cadson Demak
+
+Full OFL-1.1 license text: https://scripts.sil.org/OFL

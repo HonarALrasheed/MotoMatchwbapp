@@ -1,7 +1,5 @@
-import { initQuiz, preloadQuizAssets } from "./quiz.js";
-import { openBikeGarage } from "./garage.js";
-import { openAccount } from "./account.js";
 import { maybeShowOnboarding } from "./onboarding.js";
+import { getCatalog, findBikeByShortName } from "./matching.js";
 
 let landingObserver = null;
 let _scrollHandler = null;
@@ -66,6 +64,13 @@ const FEATURED_BIKES = [
   },
 ];
 
+// FEATURED_BIKES-Einträge tragen nur Name/Stil fürs Landing-UI — für den
+// Konfigurator (Preis, PS, Beschleunigung etc.) brauchen wir den vollen
+// Katalog-Eintrag, sonst bleiben Preis und Kennzahlen dort leer.
+function resolveFeaturedBike(def) {
+  return findBikeByShortName(def.name) || def;
+}
+
 const DISCOVER_CATS = [
   { type: "Stil", name: "Cruiser",   primaryBike: "Iron 883",    bikes: "Iron 883 · Seventy-Two",   desc: "Dark Custom mit V-Twin. Minimalistisch, roh, unverkennbar.",        img: "/bikes/harley_iron883_2018.jpg",    filter: "Cruiser"   },
   { type: "Stil", name: "Sportbike", primaryBike: "YZF-R3",      bikes: "YZF-R3 · NR750",           desc: "Agilität trifft Technik. Für die Rennstrecke und die Straße.",       img: "/bikes/yamaha_yzfr3_2017.jpg",      filter: "Sport"     },
@@ -116,20 +121,25 @@ function buildSearchOverlay() {
 
   const renderResults = (query) => {
     const q = query.trim().toLowerCase();
+    const catalog = getCatalog();
     const matches = q
-      ? FEATURED_BIKES.filter(b =>
+      ? catalog.filter(b =>
           b.name.toLowerCase().includes(q) ||
-          b.style.toLowerCase().includes(q) ||
-          b.desc.toLowerCase().includes(q))
-      : FEATURED_BIKES;
+          (b.brand || "").toLowerCase().includes(q) ||
+          (b.style || "").toLowerCase().includes(q) ||
+          (b.bgText || "").toLowerCase().includes(q))
+      : catalog;
 
     if (matches.length === 0) {
-      results.innerHTML = `<div class="p-search-empty">Kein Ergebnis für „${query}"</div>`;
+      const empty = document.createElement("div");
+      empty.className = "p-search-empty";
+      empty.textContent = `Kein Ergebnis für „${query}"`;
+      results.replaceChildren(empty);
       return;
     }
     results.innerHTML = matches.map(b => `
-      <div class="p-search-result" data-name="${b.name}">
-        <img class="p-search-result-thumb" src="${b.img}" alt="${b.name}">
+      <div class="p-search-result" data-name="${b.name.replace(/"/g, "&quot;")}">
+        <img class="p-search-result-thumb" src="${b.image}" alt="${b.name.replace(/"/g, "&quot;")}">
         <div>
           <div class="p-search-result-name">${b.name}</div>
           <div class="p-search-result-style">${b.style}</div>
@@ -138,8 +148,9 @@ function buildSearchOverlay() {
     `).join("");
 
     results.querySelectorAll(".p-search-result").forEach(row => {
-      row.addEventListener("click", () => {
+      row.addEventListener("click", async () => {
         closeSearch();
+        const { openBikeGarage } = await import("./garage.js");
         openBikeGarage(row.dataset.name);
       });
     });
@@ -171,6 +182,46 @@ function closeSearch() {
   const overlay = document.getElementById("p-search-overlay");
   if (!overlay) return;
   overlay.classList.remove("open");
+}
+
+// ── Global window listeners (registered once per app lifetime) ────────────
+let _globalListenersRegistered = false;
+function ensureGlobalListeners() {
+  if (_globalListenersRegistered) return;
+  _globalListenersRegistered = true;
+
+  window.addEventListener("mm:open-bike", async (e) => {
+    if (e.detail?.name) {
+      const { openBikeGarage } = await import("./garage.js");
+      openBikeGarage(e.detail.name);
+    }
+  });
+  window.addEventListener("mm:open-community", async () => {
+    const { openKonfigurator } = await import("./bike-detail.js");
+    const def = FEATURED_BIKES[0];
+    openKonfigurator(resolveFeaturedBike(def), null, "community");
+  });
+  window.addEventListener("mm:open-karte", async (e) => {
+    const { openKonfigurator } = await import("./bike-detail.js");
+    const { panHubToCoords } = await import("./garage.js");
+    const primary = localStorage.getItem("mm_primary_bike");
+    const def = primary
+      ? FEATURED_BIKES.find((b) => b.name === primary) || FEATURED_BIKES[0]
+      : FEATURED_BIKES[0];
+    const { lat, lng } = e.detail || {};
+    if (lat && lng) sessionStorage.setItem("mm_karte_focus", JSON.stringify({ lat, lng }));
+    openKonfigurator(resolveFeaturedBike(def), null, "karte");
+    if (lat && lng) {
+      setTimeout(() => {
+        if (!panHubToCoords(lat, lng)) {
+          const retry = setInterval(() => {
+            if (panHubToCoords(lat, lng)) clearInterval(retry);
+          }, 200);
+          setTimeout(() => clearInterval(retry), 5000);
+        }
+      }, 300);
+    }
+  });
 }
 
 // ── initLanding ───────────────────────────────────────────
@@ -222,9 +273,7 @@ export function initLanding() {
         <button class="p-nav-icon" id="nav-account" aria-label="Konto">
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
         </button>
-        <button class="p-nav-icon" id="nav-lang" aria-label="Land/Sprache">
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M2 12h20M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>
-        </button>
+
       </div>
     </header>
 
@@ -311,25 +360,38 @@ export function initLanding() {
       </div>
       <div class="p-footer-cols">
         <div class="p-footer-col">
-          <a href="#" class="p-footer-link">Datenschutz / Cookies</a>
-          <a href="#" class="p-footer-link">Impressum</a>
-          <a href="#" class="p-footer-link">Kontakt</a>
-          <a href="#" class="p-footer-link">Karriere</a>
-          <a href="#" class="p-footer-link">Newsroom &amp; Presse</a>
+          <a href="/datenschutz.html" class="p-footer-link">Datenschutz / Cookies</a>
+          <a href="/impressum.html" class="p-footer-link">Impressum</a>
+          <!-- TODO: Zielseite für "Kontakt" noch nicht angelegt -->
+          <span class="p-footer-link p-footer-link--disabled">Kontakt</span>
+          <!-- TODO: Zielseite für "Karriere" noch nicht angelegt -->
+          <span class="p-footer-link p-footer-link--disabled">Karriere</span>
+          <!-- TODO: Zielseite für "Newsroom & Presse" noch nicht angelegt -->
+          <span class="p-footer-link p-footer-link--disabled">Newsroom &amp; Presse</span>
         </div>
         <div class="p-footer-col">
-          <a href="#" class="p-footer-link">Investor Relations</a>
-          <a href="#" class="p-footer-link">MotoMatch AG</a>
-          <a href="#" class="p-footer-link">Motorrad-Konfigurator</a>
-          <a href="#" class="p-footer-link">Händler finden</a>
-          <a href="#" class="p-footer-link">MotoMatch Connect</a>
+          <!-- TODO: Zielseite für "Investor Relations" noch nicht angelegt -->
+          <span class="p-footer-link p-footer-link--disabled">Investor Relations</span>
+          <!-- TODO: Zielseite für "MotoMatch AG" noch nicht angelegt -->
+          <span class="p-footer-link p-footer-link--disabled">MotoMatch AG</span>
+          <!-- TODO: Zielseite für "Motorrad-Konfigurator" noch nicht angelegt -->
+          <span class="p-footer-link p-footer-link--disabled">Motorrad-Konfigurator</span>
+          <!-- TODO: Zielseite für "Händler finden" noch nicht angelegt -->
+          <span class="p-footer-link p-footer-link--disabled">Händler finden</span>
+          <!-- TODO: Zielseite für "MotoMatch Connect" noch nicht angelegt -->
+          <span class="p-footer-link p-footer-link--disabled">MotoMatch Connect</span>
         </div>
         <div class="p-footer-col">
-          <a href="#" class="p-footer-link">MotoMatch Homepage</a>
-          <a href="#" class="p-footer-link">Motorrad kaufen</a>
-          <a href="#" class="p-footer-link">Motorrad verkaufen</a>
-          <a href="#" class="p-footer-link">Marktplatz</a>
-          <a href="#" class="p-footer-link">MotoMatch Contact</a>
+          <!-- TODO: Zielseite für "MotoMatch Homepage" noch nicht angelegt -->
+          <span class="p-footer-link p-footer-link--disabled">MotoMatch Homepage</span>
+          <!-- TODO: Zielseite für "Motorrad kaufen" noch nicht angelegt -->
+          <span class="p-footer-link p-footer-link--disabled">Motorrad kaufen</span>
+          <!-- TODO: Zielseite für "Motorrad verkaufen" noch nicht angelegt -->
+          <span class="p-footer-link p-footer-link--disabled">Motorrad verkaufen</span>
+          <!-- TODO: Zielseite für "Marktplatz" noch nicht angelegt -->
+          <span class="p-footer-link p-footer-link--disabled">Marktplatz</span>
+          <!-- TODO: Zielseite für "MotoMatch Contact" noch nicht angelegt -->
+          <span class="p-footer-link p-footer-link--disabled">MotoMatch Contact</span>
         </div>
       </div>
       <div class="p-footer-bottom">
@@ -340,12 +402,13 @@ export function initLanding() {
   `;
 
   // ── Quiz start ──────────────────────────────────────────
-  const startQuiz = () => {
+  const startQuiz = async () => {
     if (_scrollHandler) { window.removeEventListener("scroll", _scrollHandler); _scrollHandler = null; }
     if (landingObserver) { landingObserver.disconnect(); landingObserver = null; }
     document.documentElement.classList.remove("has-landing");
     landing.style.transition = "opacity 0.5s ease";
     landing.style.opacity = "0";
+    const { initQuiz } = await import("./quiz.js");
     setTimeout(() => {
       landing.style.display = "none";
       document.getElementById("quiz-screen").style.display = "flex";
@@ -359,9 +422,12 @@ export function initLanding() {
 
   // ── Discover category cards → Garage ───────────────────
   landing.querySelectorAll(".p-discover-cat").forEach((cat) => {
-    cat.addEventListener("click", () => {
+    cat.addEventListener("click", async () => {
       const primaryBike = cat.dataset.primaryBike;
-      if (primaryBike) openBikeGarage(primaryBike);
+      if (primaryBike) {
+        const { openBikeGarage } = await import("./garage.js");
+        openBikeGarage(primaryBike);
+      }
     });
   });
 
@@ -369,76 +435,14 @@ export function initLanding() {
   document.getElementById("nav-search").addEventListener("click", openSearch);
 
   // ── Nav: Account ─────────────────────────────────────────
-  document.getElementById("nav-account").addEventListener("click", () => {
+  document.getElementById("nav-account").addEventListener("click", async () => {
+    const { openAccount } = await import("./account.js");
     openAccount();
   });
 
-  // ── Listen for account → open bike events ─────────────────
-  window.addEventListener("mm:open-bike", (e) => {
-    if (e.detail?.name) openBikeGarage(e.detail.name);
-  });
-  window.addEventListener("mm:open-community", async () => {
-    const { openKonfigurator } = await import("./bike-detail.js");
-    const def = FEATURED_BIKES[0];
-    openKonfigurator({ name: def.name, style: def.style }, null, "community");
-  });
-  window.addEventListener("mm:open-karte", async (e) => {
-    const { openKonfigurator } = await import("./bike-detail.js");
-    const { panHubToCoords } = await import("./garage.js");
-    const primary = localStorage.getItem("mm_primary_bike");
-    const def = primary
-      ? FEATURED_BIKES.find((b) => b.name === primary) || FEATURED_BIKES[0]
-      : FEATURED_BIKES[0];
-    const { lat, lng } = e.detail || {};
-    if (lat && lng) sessionStorage.setItem("mm_karte_focus", JSON.stringify({ lat, lng }));
-    openKonfigurator({ name: def.name, style: def.style }, null, "karte");
-    if (lat && lng) {
-      // panHubToCoords works immediately if the map is already initialized
-      setTimeout(() => {
-        if (!panHubToCoords(lat, lng)) {
-          // Map not yet ready — try again after it has loaded
-          const retry = setInterval(() => {
-            if (panHubToCoords(lat, lng)) clearInterval(retry);
-          }, 200);
-          setTimeout(() => clearInterval(retry), 5000);
-        }
-      }, 300);
-    }
-  });
+  // ── Global window listeners (once per app lifetime) ──────
+  ensureGlobalListeners();
 
-  // ── Nav: Language ────────────────────────────────────────
-  document.getElementById("nav-lang").addEventListener("click", (e) => {
-    e.stopPropagation();
-    let dd = document.getElementById("lang-dropdown");
-    if (dd) { dd.remove(); return; }
-    const current = localStorage.getItem("mm_lang") || "de";
-    dd = document.createElement("div");
-    dd.id = "lang-dropdown";
-    dd.className = "lang-dropdown";
-    dd.innerHTML = `
-      <button class="lang-opt ${current === "de" ? "lang-opt--active" : ""}" data-lang="de">🇩🇪 Deutsch</button>
-      <button class="lang-opt ${current === "en" ? "lang-opt--active" : ""}" data-lang="en">🇬🇧 English</button>
-      <button class="lang-opt ${current === "fr" ? "lang-opt--active" : ""}" data-lang="fr">🇫🇷 Français</button>
-      <button class="lang-opt ${current === "es" ? "lang-opt--active" : ""}" data-lang="es">🇪🇸 Español</button>
-    `;
-    const rect = e.currentTarget.getBoundingClientRect();
-    dd.style.top = (rect.bottom + 8) + "px";
-    dd.style.right = (window.innerWidth - rect.right) + "px";
-    document.body.appendChild(dd);
-    dd.querySelectorAll(".lang-opt").forEach(btn => {
-      btn.addEventListener("click", () => {
-        const lang = btn.dataset.lang;
-        localStorage.setItem("mm_lang", lang);
-        const labels = { de: "Deutsch", en: "English", fr: "Français", es: "Español" };
-        showToast(`Sprache: ${labels[lang]}${lang !== "de" ? " (Vollständige Übersetzung folgt)" : ""}`);
-        dd.remove();
-      });
-    });
-    setTimeout(() => {
-      const h = (ev) => { if (!dd.contains(ev.target)) { dd.remove(); document.removeEventListener("click", h); } };
-      document.addEventListener("click", h);
-    }, 0);
-  });
 
   // ── Nav: Menu (hamburger → drawer) ──────────────────────
   const menuBtn = document.getElementById("p-nav-menu");
@@ -492,7 +496,7 @@ export function initLanding() {
       const { openKonfigurator } = await import("./bike-detail.js");
       setTimeout(() => {
         landing.style.display = "none";
-        openKonfigurator({ name: defaultBike.name, style: defaultBike.style }, null, tab);
+        openKonfigurator(resolveFeaturedBike(defaultBike), null, tab);
       }, 300);
     });
   });
@@ -509,7 +513,7 @@ export function initLanding() {
   window.addEventListener("scroll", _scrollHandler, { passive: true });
 
   // ── Preload quiz assets ──────────────────────────────────
-  setTimeout(() => preloadQuizAssets(), 2000);
+  setTimeout(() => import("./quiz.js").then(m => m.preloadQuizAssets()), 2000);
 
   // ── First-visit onboarding ─────────────────────────────────
   maybeShowOnboarding();

@@ -25,7 +25,7 @@ neue Regressionen vermieden werden).
 
 | Symptom | Wo | Blockierend? | Notiz |
 |---|---|---|---|
-| ⚠️ `GET /favicon.ico → 404` | Alle Seiten | non-blocking | Fehlt komplett, siehe `docs/screenshots/T3.1-J-04-open-impressum.png` (Konsole). Simple `favicon.ico` in `public/` reicht. |
+| ✅ `GET /favicon.ico → 404` | Alle Seiten | gefixt (T3.2) | Minimales valides 1×1 ICO in `public/favicon.ico` abgelegt (70 Bytes). Response jetzt 200 `image/x-icon`. SVG-Favicon bleibt weiter als primäres Icon aktiv. |
 | ✅ `GET /__video/hero.mp4 → net::ERR_ABORTED` | Landing (Hero) | kein Bug | **T3.2 verifiziert:** Datei existiert (HTTP 200, 3.9 MB, via Vite-Middleware mit Range-Requests). `ERR_ABORTED` ist normales Verhalten für `<video autoplay muted loop>`-Range-Requests, die beim Loop/Pause abgebrochen werden. Nichts zu fixen. |
 | ⚠️ Konsolen-Warning: `THREE.Clock: This module has been deprecated. Please use THREE.Timer instead.` | Bike-Detail 3D | non-blocking | Three.js-Migration in T3.2 einplanen. |
 | ⚠️ Konsolen-Warning: `Google Maps JavaScript API has been loaded directly without loading=async` | Karte / Dealers | non-blocking | Loader auf `loading=async` umstellen (Performance-Hinweis von Google). |

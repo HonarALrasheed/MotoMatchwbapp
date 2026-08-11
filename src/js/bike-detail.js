@@ -1547,6 +1547,10 @@ function buildKarteView(data) {
 }
 
 function buildMatchView(data) {
+  const q = encodeURIComponent(data.name || '')
+  const kleinanzeigenUrl = `https://www.kleinanzeigen.de/s-motorraeder-roller/${q}/k0c305`
+  const mobileUrl = `https://suchen.mobile.de/fahrzeuge/search.html?ms=&s=Motorbike&fr=&sfmr=false&isSearchRequest=true&makeModelVariantExact=true&fnai=prem&keyword=${q}`
+  const ebayUrl = `https://www.ebay.de/sch/i.html?_from=R40&_trksid=p2334524.m570.l1313&_nkw=${q}&_sacat=6024`
   return `
     <div class="konf-card konf-card-cta konf-reveal">
       <span class="konf-overline" style="color:rgba(255,255,255,0.4)">N\u00e4chster Schritt</span>
@@ -1555,6 +1559,12 @@ function buildMatchView(data) {
       <div class="konf-cta-row">
         <button class="konf-cta-btn konf-cta-primary" id="konf-cta-dealer">H\u00e4ndler finden</button>
         <button class="konf-cta-btn konf-cta-secondary" id="konf-cta-quiz">Neues Match finden</button>
+      </div>
+      <div class="konf-used-row" style="margin-top:18px;display:flex;flex-wrap:wrap;align-items:center;gap:10px;">
+        <span style="color:rgba(255,255,255,0.55);font-size:13px;">Gebraucht suchen:</span>
+        <a class="konf-used-btn" href="${kleinanzeigenUrl}" target="_blank" rel="noopener noreferrer" style="padding:6px 12px;border-radius:999px;border:1px solid rgba(255,255,255,0.2);color:#fff;font-size:13px;text-decoration:none;">Kleinanzeigen</a>
+        <a class="konf-used-btn" href="${mobileUrl}" target="_blank" rel="noopener noreferrer" style="padding:6px 12px;border-radius:999px;border:1px solid rgba(255,255,255,0.2);color:#fff;font-size:13px;text-decoration:none;">mobile.de</a>
+        <a class="konf-used-btn" href="${ebayUrl}" target="_blank" rel="noopener noreferrer" style="padding:6px 12px;border-radius:999px;border:1px solid rgba(255,255,255,0.2);color:#fff;font-size:13px;text-decoration:none;">eBay</a>
       </div>
     </div>
   `

@@ -29,6 +29,27 @@ export function initFeedbackFab() {
   fab.innerHTML = `<span class="mm-fb-fab-icon" aria-hidden="true">💬</span><span class="mm-fb-fab-label">Feedback</span>`
   fab.addEventListener('click', openFeedbackModal)
   document.body.appendChild(fab)
+  scheduleFabPeek(fab)
+}
+
+/**
+ * Nach 6s versteckt sich der FAB halb am rechten Rand (nur Icon schaut raus).
+ * Alle 45s wackelt er kurz komplett raus als dezenter Hinweis.
+ * Hover / Fokus bringt ihn sofort wieder komplett rein.
+ */
+function scheduleFabPeek(fab) {
+  const hide = () => fab.classList.add('mm-fb-fab--peek')
+  const show = () => fab.classList.remove('mm-fb-fab--peek')
+  const nudge = () => {
+    if (document.getElementById('mm-fb-modal')) return
+    show()
+    setTimeout(hide, 2500)
+  }
+  setTimeout(hide, 6000)
+  setInterval(nudge, 45000)
+  fab.addEventListener('mouseenter', show)
+  fab.addEventListener('focus', show)
+  fab.addEventListener('touchstart', show, { passive: true })
 }
 
 function openFeedbackModal() {

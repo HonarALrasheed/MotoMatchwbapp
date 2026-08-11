@@ -48,21 +48,23 @@ const questions = [
   {
     id: 5,
     question: "Dein Budget?",
-    options: [
-      { value: "0-5k", label: "Bis 5.000 €" },
-      { value: "5-10k", label: "5.000 – 10.000 €" },
-      { value: "10-20k", label: "10.000 – 20.000 €" },
-      { value: "20k+", label: "Über 20.000 €" },
-    ],
+    type: "slider",
+    unit: "€",
+    min: 1000,
+    max: 30000,
+    step: 500,
+    default: 10000,
+    openEnded: true,
   },
   {
     id: 6,
     question: "Wie groß bist du?",
-    options: [
-      { value: "<165cm", label: "Unter 165 cm" },
-      { value: "165-180cm", label: "165 – 180 cm" },
-      { value: ">180cm", label: "Über 180 cm" },
-    ],
+    type: "slider",
+    unit: "cm",
+    min: 150,
+    max: 210,
+    step: 1,
+    default: 175,
   },
   {
     id: 7,
@@ -182,6 +184,13 @@ export function preloadQuizAssets() {
   );
 }
 
+/* ═══ Persistence helpers ═══ */
+const LS_KEY = 'motoMatchAnswers';
+
+function saveAnswers() {
+  try { localStorage.setItem(LS_KEY, JSON.stringify(answers)); } catch (e) { /* ignore */ }
+}
+
 /* ═══ Init ═══ */
 export function initQuiz() {
   idx = 0;
@@ -207,6 +216,7 @@ export function initQuiz() {
 
   clock = new THREE.Clock();
   animId = requestAnimationFrame(loop);
+
   showQuestion(0);
 }
 
@@ -1163,22 +1173,42 @@ function sleep(ms) {
   return new Promise((r) => setTimeout(r, ms));
 }
 
+function formatEuro(n) {
+  return Math.round(n).toLocaleString("de-DE") + " €";
+}
+
+function formatSliderValue(value, q) {
+  if (q.unit === "€") return formatEuro(value) + (q.openEnded && value >= q.max ? "+" : "");
+  return Math.round(value) + " " + q.unit;
+}
+
 /* ═══ Quiz UI ═══ */
 function showQuestion(i) {
   idx = i;
   currentQuestionIndex = i;
   const q = questions[i];
   const container = document.getElementById("quiz-container");
-  const progress = (i / questions.length) * 100;
-  const cols = q.options.length > 3 ? "cols-2" : "";
+  const progress = ((i + 1) / questions.length) * 100;
+  const isSlider = q.type === "slider";
+  const cols = !isSlider && q.options.length > 3 ? "cols-2" : "";
 
-  container.innerHTML = `
-    <div class="quiz-card quiz-enter">
-      <div class="progress-track">
-        <div class="progress-fill" style="width:${progress}%"></div>
+  const optionsHtml = isSlider
+    ? `
+      <div class="quiz-slider">
+        <div class="quiz-slider-row">
+          <input type="range" id="q-slider" class="q-slider" min="${q.min}" max="${q.max}" step="${q.step}">
+          <div class="quiz-slider-input-wrap">
+            <input type="number" id="q-slider-input" class="q-slider-input" min="0" step="${q.step}" inputmode="numeric" aria-label="${q.question} — Wert eintippen">
+            <span class="quiz-slider-input-suffix">${q.unit}</span>
+          </div>
+        </div>
+        <div class="quiz-slider-scale">
+          <span>${formatSliderValue(q.min, q)}</span>
+          <span>${formatSliderValue(q.max, q)}</span>
+        </div>
       </div>
-      <p class="quiz-step">Schritt ${i + 1} von ${questions.length}</p>
-      <h2 class="quiz-question">${q.question}</h2>
+    `
+    : `
       <div class="quiz-options ${cols}">
         ${q.options
           .map(
@@ -1188,6 +1218,16 @@ function showQuestion(i) {
           )
           .join("")}
       </div>
+    `;
+
+  container.innerHTML = `
+    <div class="quiz-card quiz-enter">
+      <div class="progress-track">
+        <div class="progress-fill" style="width:${progress}%"></div>
+      </div>
+      <p class="quiz-step">Schritt ${i + 1} von ${questions.length}</p>
+      <h2 class="quiz-question">${q.question}</h2>
+      ${optionsHtml}
       <div class="quiz-nav">
         ${i > 0 ? '<button class="btn-back" id="prev-btn">Zurück</button>' : ""}
         <button class="btn-next" id="next-btn" disabled>
@@ -1197,33 +1237,69 @@ function showQuestion(i) {
     </div>
   `;
 
-  if (answers[`q${i + 1}`]) {
-    const pre = container.querySelector(
-      `[data-value="${answers[`q${i + 1}`]}"]`,
-    );
-    if (pre) pre.classList.add("selected");
-    document.getElementById("next-btn").disabled = false;
+  // RPM spike feedback shared by all answer inputs
+  function pulseRpm() {
+    idleTimer = 0;
+    if (rpmSpikeTimer) clearTimeout(rpmSpikeTimer);
+    const baseSpeed = 20 + (i + 1) * 18;
+    targetSpeed = Math.min(160, baseSpeed + 8);
+    rpmSpikeTimer = setTimeout(() => {
+      if (!transitionActive) targetSpeed = baseSpeed;
+      rpmSpikeTimer = null;
+    }, 400);
   }
 
-  container.querySelectorAll(".opt-btn").forEach((btn) => {
-    btn.addEventListener("click", () => {
-      container
-        .querySelectorAll(".opt-btn")
-        .forEach((b) => b.classList.remove("selected"));
-      btn.classList.add("selected");
-      answers[`q${i + 1}`] = btn.dataset.value;
-      document.getElementById("next-btn").disabled = false;
-      idleTimer = 0;
-      // RPM spike feedback
-      if (rpmSpikeTimer) clearTimeout(rpmSpikeTimer);
-      const baseSpeed = 20 + (i + 1) * 18;
-      targetSpeed = Math.min(160, baseSpeed + 8);
-      rpmSpikeTimer = setTimeout(() => {
-        if (!transitionActive) targetSpeed = baseSpeed;
-        rpmSpikeTimer = null;
-      }, 400);
+  if (isSlider) {
+    const slider = document.getElementById("q-slider");
+    const numberInput = document.getElementById("q-slider-input");
+    const nextBtn = document.getElementById("next-btn");
+
+    const initial = Number(answers[`q${i + 1}`]) || q.default;
+    slider.value = Math.min(q.max, Math.max(q.min, initial));
+    numberInput.value = initial;
+    nextBtn.disabled = !answers[`q${i + 1}`];
+
+    const commitValue = (value) => {
+      answers[`q${i + 1}`] = String(value);
+      saveAnswers();
+      nextBtn.disabled = false;
+      pulseRpm();
+    };
+
+    slider.addEventListener("input", () => {
+      const value = Number(slider.value);
+      numberInput.value = value;
+      commitValue(value);
     });
-  });
+
+    numberInput.addEventListener("input", () => {
+      const value = Number(numberInput.value);
+      if (!numberInput.value || Number.isNaN(value) || value < 0) return;
+      slider.value = Math.min(q.max, Math.max(q.min, value));
+      commitValue(value);
+    });
+  } else {
+    if (answers[`q${i + 1}`]) {
+      const pre = container.querySelector(
+        `[data-value="${answers[`q${i + 1}`]}"]`,
+      );
+      if (pre) pre.classList.add("selected");
+      document.getElementById("next-btn").disabled = false;
+    }
+
+    container.querySelectorAll(".opt-btn").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        container
+          .querySelectorAll(".opt-btn")
+          .forEach((b) => b.classList.remove("selected"));
+        btn.classList.add("selected");
+        answers[`q${i + 1}`] = btn.dataset.value;
+        saveAnswers();
+        document.getElementById("next-btn").disabled = false;
+        pulseRpm();
+      });
+    });
+  }
 
   document.getElementById("next-btn").addEventListener("click", () => {
     idleTimer = 0;

@@ -24,6 +24,7 @@ export function startDropAnimation(answers) {
   container.style.opacity = "1";
 
   const winner = findBestBike(answers);
+  try { localStorage.setItem('mm_primary_bike', winner.name); } catch (e) { /* ignore */ }
   const winBike =
     BIKES.find((b) => b.name === winner.name) ||
     BIKES.find((b) => winner.name.includes(b.name.split(" ").slice(-1)[0])) ||

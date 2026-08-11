@@ -121,7 +121,7 @@ const DEFAULT_CATALOG = [
     bgText: "GSX-R750",
     has3D: true,
     glb: "https://quljniqnizxlhczzfkhq.supabase.co/storage/v1/object/public/models/suzuki_gsxr750_2023.glb",
-    image: "/bikes/suzuki_gsxr750_2023.png",
+    image: "/bikes/2/suzuki_gsxr750_2023.png",
     image2: "/bikes/2/suzuki_gsxr750_2023.png",
   },
   {
@@ -287,12 +287,14 @@ const DEFAULT_CATALOG = [
 // ══════════════════════════════════════════════════════════════
 
 const WEIGHT = Object.freeze({
-  STYLE: 50, // Style preference match (highest)
-  USE_CASE: 40, // Use case alignment
-  BUDGET: 35, // Within budget range
-  SEAT_HEIGHT: 20, // Ergonomic compatibility (max, degrades with diff)
-  PASSENGER: 10, // Passenger-capable bonus
-  BEGINNER_PENALTY: -30, // Non-beginner bike for beginner rider
+  STYLE: 45, // Style preference match (highest)
+  USE_CASE: 35, // Use case alignment
+  BUDGET: 25, // Within budget range
+  SEAT_HEIGHT: 30, // Ergonomic compatibility (max, degrades with diff) — as
+  // heavily weighted as budget so rider height reliably decides between
+  // otherwise-tied bikes, not just nudges the score
+  PASSENGER: 15, // Passenger-capable bonus
+  BEGINNER_PENALTY: -35, // Non-beginner bike for beginner rider
 });
 
 // License class compatibility (what each class can legally ride)
@@ -303,20 +305,12 @@ const LICENSE_ALLOWS = Object.freeze({
   B196: new Set(["A1"]),
 });
 
-// Height bracket to ideal seat height (cm)
-const HEIGHT_TO_IDEAL_SEAT = Object.freeze({
-  "<165cm": 74,
-  "165-180cm": 80,
-  ">180cm": 86,
-});
-
-// Budget bracket to max price (EUR)
-const BUDGET_CEILING = Object.freeze({
-  "0-5k": 5000,
-  "5-10k": 10000,
-  "10-20k": 20000,
-  "20k+": Infinity,
-});
+// Rider height (cm) to ideal seat height (cm) — linear fit through the
+// previous brackets' midpoints (160cm -> 74, 172cm -> 80, 185cm -> 86)
+function idealSeatFromHeight(heightCm) {
+  if (!heightCm) return 80;
+  return Math.min(92, Math.max(68, heightCm * 0.48 - 2.8));
+}
 
 // Use case aliases for fuzzy matching
 const USE_ALIASES = Object.freeze({
@@ -400,7 +394,7 @@ function scoreBike(bike, ctx) {
 
   // Seat height compatibility (diminishing returns)
   const seatDiff = Math.abs((bike.seat_height || 80) - ctx.idealSeat);
-  const seatScore = Math.max(0, WEIGHT.SEAT_HEIGHT - seatDiff * 0.5);
+  const seatScore = Math.max(0, WEIGHT.SEAT_HEIGHT - seatDiff * 0.9);
   score += seatScore;
   breakdown.seatHeight = Math.round(seatScore * 10) / 10;
 
@@ -481,11 +475,11 @@ export function findTopMatches(answers, n = 5) {
   // Pre-compute context once (not per-bike)
   const allowedLicenses =
     LICENSE_ALLOWS[answers.q1] || new Set(["A1", "A2", "A"]);
-  const budgetMax = BUDGET_CEILING[answers.q5] || Infinity;
+  const budgetMax = Number(answers.q5) || Infinity;
   const ctx = {
     style: answers.q3,
     normalizedUse: USE_ALIASES[answers.q4] || answers.q4,
-    idealSeat: HEIGHT_TO_IDEAL_SEAT[answers.q6] || 80,
+    idealSeat: idealSeatFromHeight(Number(answers.q6)),
     wantsPassenger: answers.q7 === "Ja",
     isBeginner: answers.q2 === "Anfanger" || answers.q2 === "Anfänger",
   };
@@ -504,13 +498,23 @@ export function findTopMatches(answers, n = 5) {
     survivors.push(bike);
   }
 
-  // Edge case: no survivors after hard filter
+  // Edge case: no bike fits the budget at all (e.g. budget below the
+  // cheapest available bike). Don't drop the budget constraint — fall
+  // back to whichever license-eligible bike(s) are closest to it.
   if (survivors.length === 0) {
-    // Relax budget constraint and retry with license only
-    for (let i = 0; i < catalog.length; i++) {
-      if (allowedLicenses.has(catalog[i].license)) {
-        survivors.push(catalog[i]);
+    const licenseMatches = catalog.filter((b) => allowedLicenses.has(b.license));
+    const pool = licenseMatches.length > 0 ? licenseMatches : catalog;
+    let closestPrice = Infinity;
+    let closestDiff = Infinity;
+    for (const b of pool) {
+      const diff = Math.abs(parseMinPrice(b.price) - budgetMax);
+      if (diff < closestDiff) {
+        closestDiff = diff;
+        closestPrice = parseMinPrice(b.price);
       }
+    }
+    for (const b of pool) {
+      if (parseMinPrice(b.price) === closestPrice) survivors.push(b);
     }
   }
 

@@ -7,7 +7,6 @@ export const dealers = [
     lat: 51.77,
     lng: 7.444,
     city: "Lüdinghausen",
-    phone: "+49 2591 2345",
   },
   {
     id: 2,
@@ -16,7 +15,6 @@ export const dealers = [
     lat: 51.7685,
     lng: 7.451,
     city: "Lüdinghausen",
-    phone: "+49 2591 3456",
   },
   {
     id: 3,
@@ -25,7 +23,6 @@ export const dealers = [
     lat: 51.771,
     lng: 7.4475,
     city: "Lüdinghausen",
-    phone: "+49 2591 4567",
   },
   {
     id: 4,
@@ -34,7 +31,6 @@ export const dealers = [
     lat: 51.8558,
     lng: 7.4987,
     city: "Senden",
-    phone: "+49 2597 5678",
   },
   {
     id: 5,
@@ -43,7 +39,6 @@ export const dealers = [
     lat: 51.831,
     lng: 7.281,
     city: "Dülmen",
-    phone: "+49 2594 6789",
   },
   {
     id: 6,
@@ -52,7 +47,6 @@ export const dealers = [
     lat: 51.854,
     lng: 7.502,
     city: "Senden",
-    phone: "+49 2597 7890",
   },
   {
     id: 7,
@@ -61,7 +55,6 @@ export const dealers = [
     lat: 51.687,
     lng: 7.467,
     city: "Selm",
-    phone: "+49 2592 8901",
   },
   {
     id: 8,
@@ -70,7 +63,6 @@ export const dealers = [
     lat: 51.9607,
     lng: 7.6261,
     city: "Münster",
-    phone: "+49 251 12345",
   },
   {
     id: 9,
@@ -79,7 +71,6 @@ export const dealers = [
     lat: 51.9385,
     lng: 7.609,
     city: "Münster",
-    phone: "+49 251 23456",
   },
   {
     id: 10,
@@ -88,7 +79,6 @@ export const dealers = [
     lat: 51.951,
     lng: 7.635,
     city: "Münster",
-    phone: "+49 251 34567",
   },
   {
     id: 11,
@@ -97,7 +87,6 @@ export const dealers = [
     lat: 51.962,
     lng: 7.6285,
     city: "Münster",
-    phone: "+49 251 45678",
   },
   {
     id: 12,
@@ -106,7 +95,6 @@ export const dealers = [
     lat: 51.6738,
     lng: 7.8159,
     city: "Hamm",
-    phone: "+49 2381 56789",
   },
   {
     id: 13,
@@ -115,7 +103,6 @@ export const dealers = [
     lat: 51.68,
     lng: 7.82,
     city: "Hamm",
-    phone: "+49 2381 67890",
   },
   {
     id: 14,
@@ -124,7 +111,6 @@ export const dealers = [
     lat: 51.675,
     lng: 7.81,
     city: "Hamm",
-    phone: "+49 2381 78901",
   },
   {
     id: 15,
@@ -133,7 +119,6 @@ export const dealers = [
     lat: 51.9436,
     lng: 7.1676,
     city: "Coesfeld",
-    phone: "+49 2541 89012",
   },
   {
     id: 16,
@@ -142,7 +127,6 @@ export const dealers = [
     lat: 51.737,
     lng: 7.526,
     city: "Nordkirchen",
-    phone: "+49 2596 90123",
   },
 
   // ── NRW ──
@@ -153,7 +137,6 @@ export const dealers = [
     lat: 51.4556,
     lng: 7.0116,
     city: "Essen",
-    phone: "+49 201 111111",
   },
   {
     id: 21,
@@ -162,7 +145,6 @@ export const dealers = [
     lat: 51.2277,
     lng: 6.7735,
     city: "Düsseldorf",
-    phone: "+49 211 987654",
   },
   {
     id: 22,
@@ -171,7 +153,6 @@ export const dealers = [
     lat: 51.5136,
     lng: 7.4653,
     city: "Dortmund",
-    phone: "+49 231 222222",
   },
   {
     id: 23,
@@ -180,7 +161,6 @@ export const dealers = [
     lat: 51.51,
     lng: 7.47,
     city: "Dortmund",
-    phone: "+49 231 333333",
   },
   {
     id: 24,
@@ -189,7 +169,6 @@ export const dealers = [
     lat: 51.515,
     lng: 7.46,
     city: "Dortmund",
-    phone: "+49 231 444444",
   },
   {
     id: 25,
@@ -198,7 +177,6 @@ export const dealers = [
     lat: 50.9365,
     lng: 6.9589,
     city: "Köln",
-    phone: "+49 221 555555",
   },
   {
     id: 26,
@@ -207,7 +185,6 @@ export const dealers = [
     lat: 50.94,
     lng: 6.96,
     city: "Köln",
-    phone: "+49 221 666666",
   },
 
   // ── Weitere Großstädte ──
@@ -218,7 +195,6 @@ export const dealers = [
     lat: 52.3667,
     lng: 9.7165,
     city: "Hannover",
-    phone: "+49 511 123456",
   },
   {
     id: 31,
@@ -227,7 +203,6 @@ export const dealers = [
     lat: 48.1351,
     lng: 11.582,
     city: "München",
-    phone: "+49 89 222222",
   },
   {
     id: 32,
@@ -236,7 +211,6 @@ export const dealers = [
     lat: 48.1667,
     lng: 11.5833,
     city: "München",
-    phone: "+49 89 333333",
   },
   {
     id: 33,
@@ -245,7 +219,6 @@ export const dealers = [
     lat: 49.4521,
     lng: 11.0767,
     city: "Nürnberg",
-    phone: "+49 911 444444",
   },
   {
     id: 34,
@@ -254,7 +227,6 @@ export const dealers = [
     lat: 48.7758,
     lng: 9.1829,
     city: "Stuttgart",
-    phone: "+49 711 666666",
   },
   {
     id: 35,
@@ -263,7 +235,6 @@ export const dealers = [
     lat: 49.0134,
     lng: 8.4043,
     city: "Karlsruhe",
-    phone: "+49 721 777777",
   },
   {
     id: 36,
@@ -272,7 +243,6 @@ export const dealers = [
     lat: 50.1109,
     lng: 8.6821,
     city: "Frankfurt",
-    phone: "+49 69 888888",
   },
   {
     id: 37,
@@ -281,7 +251,6 @@ export const dealers = [
     lat: 50.1109,
     lng: 8.7,
     city: "Frankfurt",
-    phone: "+49 69 999999",
   },
   {
     id: 38,
@@ -290,7 +259,6 @@ export const dealers = [
     lat: 52.52,
     lng: 13.405,
     city: "Berlin",
-    phone: "+49 30 101010",
   },
   {
     id: 39,
@@ -299,7 +267,6 @@ export const dealers = [
     lat: 52.528,
     lng: 13.406,
     city: "Berlin",
-    phone: "+49 30 111111",
   },
   {
     id: 40,
@@ -308,7 +275,6 @@ export const dealers = [
     lat: 52.51,
     lng: 13.39,
     city: "Berlin",
-    phone: "+49 30 121212",
   },
   {
     id: 41,
@@ -317,7 +283,6 @@ export const dealers = [
     lat: 53.5511,
     lng: 9.9937,
     city: "Hamburg",
-    phone: "+49 40 131313",
   },
   {
     id: 42,
@@ -326,7 +291,6 @@ export const dealers = [
     lat: 53.555,
     lng: 10.0,
     city: "Hamburg",
-    phone: "+49 40 141414",
   },
   {
     id: 43,
@@ -335,7 +299,6 @@ export const dealers = [
     lat: 53.553,
     lng: 9.995,
     city: "Hamburg",
-    phone: "+49 40 151515",
   },
 ];
 

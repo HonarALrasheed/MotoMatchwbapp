@@ -1,8 +1,15 @@
 import { initLanding } from './landing.js'
-import { initSupabaseAuth } from './auth.js'
+import { initSupabaseAuth, openPasswordResetScreen } from './auth.js'
+import { initMonitoring } from './monitoring.js'
+import { initFeedbackFab } from './feedback.js'
 
 export function startApp() {
+  initMonitoring()
   initSupabaseAuth()
+  initFeedbackFab()
+  if (new URLSearchParams(window.location.search).get('reset') === '1') {
+    openPasswordResetScreen()
+  }
   document.getElementById('landing').style.display = 'none'
   document.getElementById('quiz-screen').style.display = 'none'
   document.getElementById('drop-container').style.display = 'none'

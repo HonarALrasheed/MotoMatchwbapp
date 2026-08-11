@@ -26,7 +26,7 @@ neue Regressionen vermieden werden).
 | Symptom | Wo | Blockierend? | Notiz |
 |---|---|---|---|
 | ⚠️ `GET /favicon.ico → 404` | Alle Seiten | non-blocking | Fehlt komplett, siehe `docs/screenshots/T3.1-J-04-open-impressum.png` (Konsole). Simple `favicon.ico` in `public/` reicht. |
-| ⚠️ `GET /__video/hero.mp4 → net::ERR_ABORTED` | Landing (Hero) | non-blocking | Wird abgebrochen — vermutlich Autoplay+preload race. Kein visuelles Broken-Image, aber Netzwerkfehler in DevTools. Prüfen, ob Videopfad korrekt. |
+| ✅ `GET /__video/hero.mp4 → net::ERR_ABORTED` | Landing (Hero) | kein Bug | **T3.2 verifiziert:** Datei existiert (HTTP 200, 3.9 MB, via Vite-Middleware mit Range-Requests). `ERR_ABORTED` ist normales Verhalten für `<video autoplay muted loop>`-Range-Requests, die beim Loop/Pause abgebrochen werden. Nichts zu fixen. |
 | ⚠️ Konsolen-Warning: `THREE.Clock: This module has been deprecated. Please use THREE.Timer instead.` | Bike-Detail 3D | non-blocking | Three.js-Migration in T3.2 einplanen. |
 | ⚠️ Konsolen-Warning: `Google Maps JavaScript API has been loaded directly without loading=async` | Karte / Dealers | non-blocking | Loader auf `loading=async` umstellen (Performance-Hinweis von Google). |
 | ✅ Keine `pageerror` (uncaught) über alle 21 Steps | — | — | App wirft keine unbehandelten Exceptions während Basic-Navigation. |

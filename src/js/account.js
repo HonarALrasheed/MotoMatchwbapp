@@ -14,7 +14,7 @@
 // Zentrale, plattformweite Auth — dieselbe Session/DB wie im Community-Bereich
 import * as auth from './auth.js'
 import { getCatalog } from './matching.js'
-import L from 'leaflet'
+import { esc } from './util.js'
 
 const DEFAULT_ACCOUNT = {
   name: 'Gast',
@@ -185,14 +185,14 @@ function buildAccountHTML() {
           <!-- LINKS: Profil-Spalte -->
           <aside class="acc-side">
             <div class="acc-side-card">
-              <div class="acc-avatar" style="background:${color}">${acc.avatar ? `<img src="${acc.avatar}" alt="">` : initials}</div>
+              <div class="acc-avatar" style="background:${color}">${acc.avatar ? `<img src="${esc(acc.avatar)}" alt="">` : initials}</div>
               <div class="acc-name-row">
-                <h2 class="acc-name" id="acc-display-name">${acc.name}</h2>
+                <h2 class="acc-name" id="acc-display-name">${esc(acc.name)}</h2>
                 <button class="acc-edit-icon" id="acc-edit-btn" title="Profil bearbeiten" aria-label="Profil bearbeiten">
                   <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4z"/></svg>
                 </button>
               </div>
-              <p class="acc-bio" id="acc-display-bio">${acc.bio}</p>
+              <p class="acc-bio" id="acc-display-bio">${esc(acc.bio)}</p>
               <div class="acc-social">
                 <div class="acc-social-item"><span class="acc-social-num">0</span><span class="acc-social-label">Folgen dir</span></div>
                 <div class="acc-social-item"><span class="acc-social-num">0</span><span class="acc-social-label">Du folgst</span></div>
@@ -247,7 +247,12 @@ function refreshAccountHeader() {
   const avatarEl = document.querySelector('.acc-side-card .acc-avatar')
   if (avatarEl) {
     avatarEl.style.background = stringColor(acc.name)
-    avatarEl.innerHTML = acc.avatar ? `<img src="${acc.avatar}" alt="">` : getInitials(acc.name)
+    avatarEl.innerHTML = acc.avatar ? `<img src="${esc(acc.avatar)}" alt="">` : getInitials(acc.name)
+  }
+  const settingsAvatarEl = document.getElementById('acc-avatar-preview')
+  if (settingsAvatarEl) {
+    settingsAvatarEl.style.background = stringColor(acc.name)
+    settingsAvatarEl.innerHTML = acc.avatar ? `<img src="${esc(acc.avatar)}" alt="">` : getInitials(acc.name)
   }
 }
 
@@ -445,8 +450,8 @@ function renderOverview() {
             <div class="acc-activity-item" ${a.jump?.openBike ? `data-open-bike="${a.jump.openBike}"` : ''} ${a.jump?.tab ? `data-tab-jump="${a.jump.tab}"` : ''} ${a.jump?.community ? 'data-open-community' : ''}>
               <div class="acc-activity-icon" style="background:${a.color}">${a.icon}</div>
               <div class="acc-activity-body">
-                <div class="acc-activity-title">${a.title}</div>
-                <div class="acc-activity-sub">${a.sub}</div>
+                <div class="acc-activity-title">${esc(a.title)}</div>
+                <div class="acc-activity-sub">${esc(a.sub)}</div>
               </div>
               <div class="acc-activity-time">${fmtRelative(a.ts)}</div>
             </div>
@@ -1023,13 +1028,13 @@ function renderJournal() {
                 `}
                 <div class="rj-card-body">
                   <div class="rj-card-date">${dayStr} <span>${yearStr}</span></div>
-                  <div class="rj-card-title">${r.title}</div>
+                  <div class="rj-card-title">${esc(r.title)}</div>
                   <div class="rj-card-chips">
                     <span class="rj-chip">${r.km} km</span>
                     ${r.hours ? `<span class="rj-chip">${r.hours} h</span>` : ''}
-                    ${r.mood ? `<span class="rj-chip rj-chip-mood">${r.mood}</span>` : ''}
+                    ${r.mood ? `<span class="rj-chip rj-chip-mood">${esc(r.mood)}</span>` : ''}
                   </div>
-                  ${r.notes ? `<div class="rj-card-notes">${r.notes}</div>` : ''}
+                  ${r.notes ? `<div class="rj-card-notes">${esc(r.notes)}</div>` : ''}
                 </div>
                 <div class="rj-card-edit-hint">Tippen zum Bearbeiten</div>
               </div>
@@ -1685,7 +1690,7 @@ function renderSettings() {
           <div class="acc-section">
             <h3 class="acc-section-title">Profilbild</h3>
             <div class="acc-avatar-edit">
-              <div class="acc-avatar acc-avatar--lg" style="background:${color}" id="acc-avatar-preview">${acc.avatar ? `<img src="${acc.avatar}" alt="">` : initials}</div>
+              <div class="acc-avatar acc-avatar--lg" style="background:${color}" id="acc-avatar-preview">${acc.avatar ? `<img src="${esc(acc.avatar)}" alt="">` : initials}</div>
               <div class="acc-avatar-edit-actions">
                 <label class="acc-data-btn" for="acc-avatar-file">Bild hochladen</label>
                 <input type="file" id="acc-avatar-file" accept="image/*" style="display:none">
@@ -1698,11 +1703,11 @@ function renderSettings() {
             <form class="acc-form" id="acc-settings-form">
               <label class="acc-field">
                 <span class="acc-field-label">Name</span>
-                <input class="acc-input" id="acc-set-name" type="text" value="${acc.name.replace(/"/g,'&quot;')}" maxlength="32">
+                <input class="acc-input" id="acc-set-name" type="text" value="${esc(acc.name)}" maxlength="32">
               </label>
               <label class="acc-field">
                 <span class="acc-field-label">Bio</span>
-                <textarea class="acc-input" id="acc-set-bio" rows="3" maxlength="160">${acc.bio}</textarea>
+                <textarea class="acc-input" id="acc-set-bio" rows="3" maxlength="160">${esc(acc.bio)}</textarea>
               </label>
               <button type="submit" class="acc-save-btn">Speichern</button>
             </form>
@@ -1718,8 +1723,8 @@ function renderSettings() {
             <div class="acc-fieldbox" data-fieldbox="username">
               <div class="acc-fieldbox-label">Benutzername</div>
               <div class="acc-fieldbox-row">
-                <div class="acc-fieldbox-value" data-fb-value>${u.username}</div>
-                <input class="acc-input acc-fieldbox-input" data-fb-input type="text" value="${u.username.replace(/"/g,'&quot;')}" maxlength="24" hidden>
+                <div class="acc-fieldbox-value" data-fb-value>${esc(u.username)}</div>
+                <input class="acc-input acc-fieldbox-input" data-fb-input type="text" value="${esc(u.username)}" maxlength="24" hidden>
                 <button type="button" class="acc-fieldbox-btn" data-fb-edit>Bearbeiten</button>
               </div>
               <div class="acc-inline-error" data-fb-error hidden></div>
@@ -1728,8 +1733,8 @@ function renderSettings() {
             <div class="acc-fieldbox" data-fieldbox="email">
               <div class="acc-fieldbox-label">E-Mail</div>
               <div class="acc-fieldbox-row">
-                <div class="acc-fieldbox-value" data-fb-value>${acc.email || '—'}</div>
-                <input class="acc-input acc-fieldbox-input" data-fb-input type="email" value="${acc.email.replace(/"/g,'&quot;')}" hidden>
+                <div class="acc-fieldbox-value" data-fb-value>${esc(acc.email || '—')}</div>
+                <input class="acc-input acc-fieldbox-input" data-fb-input type="email" value="${esc(acc.email)}" hidden>
                 <button type="button" class="acc-fieldbox-btn" data-fb-edit>Bearbeiten</button>
               </div>
               <div class="acc-inline-error" data-fb-error hidden></div>
@@ -1904,19 +1909,23 @@ function wireSettings() {
       if (on) (inputEl || pwForm?.querySelector('input'))?.focus()
     }
 
-    editBtn?.addEventListener('click', () => {
+    editBtn?.addEventListener('click', async () => {
       const editing = editBtn.textContent === 'Speichern'
       if (!editing) { setEditing(true); return }
 
       if (errEl) errEl.hidden = true
 
       if (field === 'username') {
-        const res = auth.changeUsername(inputEl.value.trim())
+        editBtn.disabled = true
+        const res = await auth.changeUsername(inputEl.value.trim())
+        editBtn.disabled = false
         if (!res.ok) { errEl.textContent = res.error; errEl.hidden = false; return }
         valueEl.textContent = auth.currentUser().username
       } else if (field === 'password') {
         const [curInput, newInput] = pwForm.querySelectorAll('input')
-        const res = auth.changePassword(curInput.value, newInput.value)
+        editBtn.disabled = true
+        const res = await auth.changePassword(curInput.value, newInput.value)
+        editBtn.disabled = false
         if (!res.ok) { errEl.textContent = res.error; errEl.hidden = false; return }
         curInput.value = ''; newInput.value = ''
         showFlash('Passwort geändert ✓')
@@ -1935,9 +1944,10 @@ function wireSettings() {
     })
   })
 
-  document.getElementById('acc-delete-account')?.addEventListener('click', () => {
+  document.getElementById('acc-delete-account')?.addEventListener('click', async () => {
     if (!confirm('Konto wirklich endgültig löschen? Diese Aktion kann nicht rückgängig gemacht werden.')) return
-    auth.deleteAccount()
+    const res = await auth.deleteAccount()
+    if (!res.ok) { showFlash(res.error); setTimeout(() => location.reload(), 1200); return }
     showFlash('Konto gelöscht')
     setTimeout(() => location.reload(), 600)
   })
@@ -2049,6 +2059,14 @@ export function openAccount() {
     if (u && !u.guest) { auth.logout(); reopenAccount() }
     else { auth.openAuthModal(() => reopenAccount()) }
   })
+
+  // Wenn initSupabaseAuth noch läuft und Session erst nach dem Render eintrifft,
+  // Panel einmalig neu aufbauen sobald ein echter User bekannt wird.
+  if (!auth.currentUser() || auth.currentUser().guest) {
+    const unsub = auth.subscribe(session => {
+      if (session && !session.guest) { unsub(); reopenAccount() }
+    })
+  }
 }
 function reopenAccount() {
   const ov = document.getElementById('acc-overlay')

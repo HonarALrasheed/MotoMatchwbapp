@@ -11,6 +11,21 @@ import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js'
 import { getGear } from './gear.js'
 import { initHubMap, searchNearby, getHubSearchResults, onHubResults, focusHubResult, recenterHubMap, getUserCoords, searchNearbyAt } from './garage.js'
 import { mountCommunity } from './community.js'
+import { esc } from './util.js'
+
+// Deterministic pseudo-random number from a seed string, returns float in [0,1)
+function seededRand(seed) {
+  let h = 0x811c9dc5
+  for (let i = 0; i < seed.length; i++) {
+    h ^= seed.charCodeAt(i)
+    h = (h * 0x01000193) >>> 0
+  }
+  return (h >>> 0) / 0x100000000
+}
+// Returns an integer in [min, max] deterministically based on seed string + salt
+function hashInt(seed, salt, min, max) {
+  return min + Math.floor(seededRand(seed + '\x00' + salt) * (max - min + 1))
+}
 
 // Open-Meteo weather code → icon + label
 const WEATHER_CODES = {
@@ -49,11 +64,18 @@ async function loadWeather() {
   const card = document.getElementById('kv-weather-card')
   if (!card) return
   try {
-    // Wait briefly for user coords if just initialized
+    // Auf User-Koordinaten warten, falls die Geolocation-Abfrage noch läuft
+    // (getUserLocation() erlaubt bis zu 8s) — kurz pollen statt einmalig kurz warten.
     let coords = getUserCoords()
-    if (!coords.lat) {
-      await new Promise(r => setTimeout(r, 1500))
+    for (let i = 0; i < 16 && !coords.lat; i++) {
+      await new Promise(r => setTimeout(r, 500))
       coords = getUserCoords()
+    }
+    if (!coords.lat) {
+      card.querySelector('.kv-weather-icon').textContent = '📍'
+      card.querySelector('.kv-weather-temp').textContent = '–'
+      card.querySelector('.kv-weather-desc').textContent = 'Standort unbekannt'
+      return
     }
     const res = await fetch(`https://api.open-meteo.com/v1/forecast?latitude=${coords.lat}&longitude=${coords.lng}&current_weather=true`)
     const data = await res.json()
@@ -69,7 +91,7 @@ async function loadWeather() {
     console.warn('[weather] fetch failed', err)
   }
 }
-import { trackBikeVisit, getAccount, isBikeOwned, toggleOwnedBike } from './account.js'
+import { trackBikeVisit, getAccount } from './account.js'
 
 function getCurrentUserName() {
   try { return getAccount().name || 'Du' } catch { return 'Du' }
@@ -243,8 +265,8 @@ function normalizeGarageData(bikeData) {
     fullName: existing?.fullName || shortName,
     brand: bikeData.brand,
     bgText: existing?.bgText || shortName,
-    img1: bikeData.image2 || bikeData.image,
-    img2: bikeData.image,
+    img1: bikeData.image2 || bikeData.image || existing?.img1,
+    img2: bikeData.image || existing?.img2,
     glb: bikeData.glb,
     style: bikeData.style,
     specs: {
@@ -318,7 +340,7 @@ export function openKonfigurator(bikeData, garageCleanup, initialTab) {
       initViewerPills(data)
       bindKonfiguratorEvents(data, bikeData)
       // Direkt die Ziel-Ansicht initialisieren — kein Umweg über "Ansicht"
-      if (targetTab === 'ansicht') { animateBarsOnReveal(); bindOwnBikeToggle(data) }
+      if (targetTab === 'ansicht') animateBarsOnReveal()
       if (targetTab === 'match') bindMatchViewEvents(data)
       if (targetTab === 'karte') bindKarteViewEvents()
       if (targetTab === 'community') mountCommunity(document.getElementById('mm-comm-root'))
@@ -495,7 +517,6 @@ function transitionToKonfigurator(data) {
       initKonfiguratorAnimations()
       initViewerPills(data)
       animateBarsOnReveal()
-      bindOwnBikeToggle(data)
       bindKonfiguratorEvents(data)
     })
 
@@ -707,7 +728,7 @@ function buildVideoDetailView(item, cardId, category) {
   const liked = state.liked
   const baseLikes = parseInt(item.baseLikes ?? 4800)
   const totalLikes = baseLikes + (liked ? 1 : 0)
-  const views = parseInt(item.extra) || Math.floor(Math.random() * 50000 + 10000)
+  const views = parseInt(item.extra) || hashInt(item.title, 'views', 10000, 60000)
   const suggestions = getSuggestions(cardId)
   return `
     <button class="cc-detail-back" id="cc-detail-back" aria-label="Zurück">
@@ -760,7 +781,7 @@ function buildVideoDetailView(item, cardId, category) {
           <div class="ccd-avatar" style="background:${channelColor}">${getInitials(channelName)}</div>
           <div class="ccd-channel-info">
             <div class="ccd-channel-name">${channelName}</div>
-            <div class="ccd-channel-subs">${(Math.floor(Math.random()*45+5))}.${Math.floor(Math.random()*900+100)} Abonnenten</div>
+            <div class="ccd-channel-subs">${hashInt(channelName,'subs_k',5,45)}.${hashInt(channelName,'subs_r',100,999)} Abonnenten</div>
           </div>
           <button class="ccd-subscribe-big" data-card-id="${cardId}" data-subscribed="${subscribed}">
             ${subscribed ? '✓ Abonniert' : 'Abonnieren'}
@@ -891,9 +912,9 @@ function buildProfileView(userName) {
         <p class="ccp-handle">@${userName.toLowerCase().replace(/[^a-z0-9]+/g,'_')}</p>
         <p class="ccp-bio">${isMe ? 'Motorradfahrer · Sammler von Touren-Erinnerungen 🏍' : 'Cruiser-Fan · Touren in Süddeutschland · Custom-Liebhaber'}</p>
         <div class="ccp-stats">
-          <div class="ccp-stat"><div class="ccp-stat-num">${Math.floor(Math.random()*200+30)}</div><div class="ccp-stat-label">Beiträge</div></div>
-          <div class="ccp-stat"><div class="ccp-stat-num">${Math.floor(Math.random()*40+5)}k</div><div class="ccp-stat-label">Follower</div></div>
-          <div class="ccp-stat"><div class="ccp-stat-num">${Math.floor(Math.random()*500+50)}</div><div class="ccp-stat-label">Folgt</div></div>
+          <div class="ccp-stat"><div class="ccp-stat-num">${hashInt(userName,'posts',30,230)}</div><div class="ccp-stat-label">Beiträge</div></div>
+          <div class="ccp-stat"><div class="ccp-stat-num">${hashInt(userName,'followers',5,45)}k</div><div class="ccp-stat-label">Follower</div></div>
+          <div class="ccp-stat"><div class="ccp-stat-num">${hashInt(userName,'following',50,550)}</div><div class="ccp-stat-label">Folgt</div></div>
         </div>
         ${isMe ? '' : `
           <div class="ccp-actions">
@@ -998,7 +1019,7 @@ function buildCommunityCards() {
     const id = isUser ? `u${item.id}` : `c${cardId++}_${key}`
     COMMUNITY_LOOKUP[id] = { item, category: key, isUser }
     const cardState = getCardState(id)
-    const baseLikes = item.baseLikes ?? Math.floor(Math.random() * 200 + 40)
+    const baseLikes = item.baseLikes ?? hashInt(item.title, 'likes', 40, 240)
     const totalLikes = baseLikes + (cardState.liked ? 1 : 0) + cardState.likes
     const subscribable = key === 'video' || key === 'short'
     const subscribeBtn = subscribable ? `
@@ -1030,7 +1051,7 @@ function buildCommunityCards() {
           </button>
           <button class="cc-act cc-comment" data-card-id="${id}" onclick="event.preventDefault();event.stopPropagation()">
             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 11a8 8 0 0 1-12 7l-5 1 1-4A8 8 0 1 1 21 11z"/></svg>
-            <span>${item.comments ?? Math.floor(Math.random() * 50 + 5)}</span>
+            <span>${item.comments ?? hashInt(item.title, 'comments', 5, 55)}</span>
           </button>
           ${subscribeBtn}
         </div>
@@ -1059,7 +1080,6 @@ function buildGearCards(style) {
     { key: 'backprotector', items: gear.backprotector },
   ]
 
-  let cardId = 0
   const cards = categories.flatMap(({ key, items }) =>
     items.map((item, i) => {
       const col = GEAR_COLOR[key]
@@ -1076,11 +1096,19 @@ function buildGearCards(style) {
       const ceBadge = ceLevel
         ? `<span class="gear-card-ce gear-card-ce--${ceLevel}">CE ${ceLevel}</span>`
         : ''
+      const productUrl = item.url || `https://www.louis.de/suche?query=${searchQ}`
+      const photoHtml = item.image
+        ? `<img class="gear-card-photo" src="${item.image}" alt="${item.name}" loading="lazy" onerror="this.remove()">`
+        : `<div class="gear-card-svg">${GEAR_ICON_SMALL[key]}</div>`
+      const priceHtml = item.price
+        ? `${item.price} \u20ac`
+        : `${item.priceMin}\u2013${item.priceMax} \u20ac`
+      const cardId = `${style}-${key}-${i}`
       return `
-      <a class="gear-card konf-reveal" data-gear="${key}" data-price-min="${item.priceMin}" data-price-max="${item.priceMax}" data-card-id="${cardId++}"
-         href="https://www.louis.de/suche?query=${searchQ}" target="_blank" rel="noopener">
-        <div class="gear-card-img" style="background:${col.bg}; color:${col.fg}">
-          <div class="gear-card-svg">${GEAR_ICON_SMALL[key]}</div>
+      <a class="gear-card konf-reveal" data-gear="${key}" data-price-min="${item.priceMin}" data-price-max="${item.priceMax}" data-card-id="${cardId}"
+         href="${productUrl}" target="_blank" rel="noopener sponsored">
+        <div class="gear-card-img" style="background:${item.image ? '#f2f2f2' : col.bg}; color:${col.fg}">
+          ${photoHtml}
           <button class="gear-card-heart" aria-label="Merken">
             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg>
           </button>
@@ -1093,7 +1121,7 @@ function buildGearCards(style) {
           <div class="gear-card-brand">${brand}</div>
           <div class="gear-card-name">${productName}</div>
           <div class="gear-card-type">${item.type}</div>
-          <div class="gear-card-price">${item.priceMin}\u2013${item.priceMax} \u20ac</div>
+          <div class="gear-card-price">${priceHtml}</div>
         </div>
       </a>`
     })
@@ -1108,6 +1136,7 @@ function buildGearCards(style) {
 
 let activeKonfTab = 'ansicht'
 let konfData = null
+let _accountUpdatedListenerRegistered = false
 
 function buildAnsichtView(data) {
   const kw = data.specs.power.split('/')[0].replace(/[^0-9]/g, '').trim()
@@ -1130,10 +1159,6 @@ function buildAnsichtView(data) {
           <span class="konf-price-tag">${data.price}</span>
           <span class="konf-price-note">inkl. MwSt.</span>
         </div>
-        <button class="konf-own-btn ${isBikeOwned(data.fullName) ? 'konf-own-btn--active' : ''}" id="konf-own-btn">
-          <svg width="15" height="15" viewBox="0 0 24 24" fill="${isBikeOwned(data.fullName) ? 'currentColor' : 'none'}" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
-          <span id="konf-own-label">${isBikeOwned(data.fullName) ? 'Eigenes Bike ✓' : 'Ich fahre dieses Bike'}</span>
-        </button>
       </div>
 
       <div class="konf-card konf-reveal" id="konf-bars-card">
@@ -1224,7 +1249,13 @@ function buildAnsichtView(data) {
 }
 
 function buildAusstattungView(data) {
+  const tip = STYLE_TIPS[data.style] || STYLE_TIPS.Naked
   return `
+    <div class="gear-style-banner">
+      <span class="gear-style-icon">${tip.icon}</span>
+      <span class="gear-style-tip">${tip.text}</span>
+    </div>
+
     <div class="gear-filter-bar">
       <button class="gear-filter-btn gear-filter-btn--active" data-filter="all">Alle</button>
       <button class="gear-filter-btn" data-filter="helmet">Helm</button>
@@ -1259,6 +1290,20 @@ function buildAusstattungView(data) {
           <button class="gear-sort-btn" id="gear-sort-btn" data-dir="none" style="display:flex;align-items:center;gap:4px;background:#2a2a2a;border:1px solid #404040;color:#aaa;border-radius:8px;padding:5px 10px;font-size:11px;font-weight:700;cursor:pointer;letter-spacing:0.02em;white-space:nowrap;margin-left:4px;line-height:1;">
             <span class="gear-sort-label">Preis \u2191</span>
           </button>
+        </div>
+      </div>
+
+      <div class="gear-price-divider"></div>
+      <div class="gear-price-bottom">
+        <div class="gear-results-row">
+          <div class="gear-results-left">
+            <span class="gear-count-badge" id="gear-count-badge">0 Artikel</span>
+          </div>
+          <span class="gear-fav-badge" id="gear-fav-count" style="display:none">0 \u2665</span>
+        </div>
+        <div class="gear-price-bottom-right">
+          <span class="gear-price-label">Budget</span>
+          <span class="gear-budget-range" id="gear-budget-range">\u2014</span>
         </div>
       </div>
 
@@ -1396,20 +1441,27 @@ function buildKarteView(data) {
         <!-- Search + radius -->
         <div class="kv-toolbar">
           <div class="kv-search-row">
-            <div class="kv-search-field">
-              <svg class="kv-search-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>
-              <input type="text" class="kv-search-input" id="kv-search-input" placeholder="PLZ oder Ort eingeben\u2026">
-              <button class="kv-recenter-btn" id="kv-recenter-btn" aria-label="Mein Standort" title="Mein Standort">
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M12 1v4M12 19v4M1 12h4M19 12h4"/></svg>
-              </button>
-            </div>
             <div class="kv-radius-group" role="group" aria-label="Suchradius">
               <span class="kv-radius-label">Umkreis</span>
-              <button class="kv-radius-pill" data-radius="2000">2km</button>
-              <button class="kv-radius-pill kv-radius-pill--active" data-radius="5000">5km</button>
-              <button class="kv-radius-pill" data-radius="10000">10km</button>
-              <button class="kv-radius-pill" data-radius="25000">25km</button>
-              <button class="kv-radius-pill" data-radius="50000">50km</button>
+              <div class="kv-radius-pills">
+                <button class="kv-radius-pill" data-radius="2000">2 km</button>
+                <button class="kv-radius-pill kv-radius-pill--active" data-radius="5000">5 km</button>
+                <button class="kv-radius-pill" data-radius="10000">10 km</button>
+                <button class="kv-radius-pill" data-radius="25000">25 km</button>
+                <button class="kv-radius-pill" data-radius="50000">50 km</button>
+              </div>
+            </div>
+            <div class="kv-search-wrap">
+              <button class="kv-search-toggle" id="kv-search-toggle" aria-label="Ort suchen" aria-expanded="false" title="Ort suchen">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>
+              </button>
+              <div class="kv-search-field" id="kv-search-field">
+                <svg class="kv-search-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>
+                <input type="text" class="kv-search-input" id="kv-search-input" placeholder="PLZ oder Ort eingeben\u2026">
+                <button class="kv-recenter-btn" id="kv-recenter-btn" aria-label="Mein Standort" title="Mein Standort">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M12 1v4M12 19v4M1 12h4M19 12h4"/></svg>
+                </button>
+              </div>
             </div>
           </div>
         </div>
@@ -1555,7 +1607,7 @@ function switchTab(tabName, data) {
       container.classList.remove('konf-right--fading')
 
       initKonfiguratorAnimations()
-      if (tabName === 'ansicht') { animateBarsOnReveal(); bindOwnBikeToggle(data) }
+      if (tabName === 'ansicht') animateBarsOnReveal()
 
       container.querySelector('.konf-next-btn')?.addEventListener('click', (e) => {
         const next = e.currentTarget.dataset.next
@@ -1571,7 +1623,9 @@ function switchTab(tabName, data) {
 
 function bindKarteViewEvents() {
   // Init the Google Map (re-uses garage's hub map implementation)
-  initHubMap()
+  // Ergebnisliste danach einmal aktualisieren, damit sie bei fehlendem
+  // Standort sofort "Standort nicht verfügbar" statt für immer "Suche läuft…" zeigt.
+  initHubMap().then(() => renderResults())
   // Load real weather data (Open-Meteo)
   setTimeout(() => loadWeather(), 2000)
 
@@ -1591,7 +1645,10 @@ function bindKarteViewEvents() {
 
     if (countEl) countEl.textContent = results.length
     if (!results.length) {
-      list.innerHTML = `<div class="kv-results-empty"><span>🔎 Suche läuft…</span></div>`
+      const { lat } = getUserCoords()
+      list.innerHTML = lat
+        ? `<div class="kv-results-empty"><span>🔎 Suche läuft…</span></div>`
+        : `<div class="kv-results-empty"><span>📍 Standort nicht verfügbar — bitte erlaube den Standortzugriff im Browser.</span></div>`
       return
     }
     list.innerHTML = results.map(r => {
@@ -1605,9 +1662,9 @@ function bindKarteViewEvents() {
         <div class="kv-result-card" data-place-id="${r.placeId}">
           <div class="kv-result-distance">${distance}</div>
           <div class="kv-result-body">
-            <div class="kv-result-name">${r.name}</div>
+            <div class="kv-result-name">${esc(r.name)}</div>
             <div class="kv-result-meta">${rating}${openStatus}</div>
-            <div class="kv-result-address">${r.address}</div>
+            <div class="kv-result-address">${esc(r.address)}</div>
             <div class="kv-result-actions">
               <a class="kv-action-btn" href="${mapsUrl}" target="_blank" rel="noopener" onclick="event.stopPropagation()">
                 <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 11l18-8-8 18-2-7-8-3z"/></svg>
@@ -1689,6 +1746,29 @@ function bindKarteViewEvents() {
     currentSort = e.target.value
     renderResults()
   })
+  // Search toggle — collapsed magnifying glass expands into the PLZ/Ort field
+  const searchToggle = document.getElementById('kv-search-toggle')
+  const searchField = document.getElementById('kv-search-field')
+  const searchWrap = searchToggle?.closest('.kv-search-wrap')
+  const openSearch = () => {
+    searchField?.classList.add('kv-search-field--open')
+    searchToggle?.setAttribute('aria-expanded', 'true')
+    setTimeout(() => document.getElementById('kv-search-input')?.focus(), 10)
+  }
+  const closeSearch = () => {
+    searchField?.classList.remove('kv-search-field--open')
+    searchToggle?.setAttribute('aria-expanded', 'false')
+    document.getElementById('mm-recent-dd')?.remove()
+  }
+  searchToggle?.addEventListener('click', () => {
+    searchField?.classList.contains('kv-search-field--open') ? closeSearch() : openSearch()
+  })
+  document.addEventListener('mousedown', e => {
+    if (searchWrap && !searchWrap.contains(e.target)) closeSearch()
+  })
+  searchField?.addEventListener('keydown', e => {
+    if (e.key === 'Escape') closeSearch()
+  })
   // Recenter button
   document.getElementById('kv-recenter-btn')?.addEventListener('click', () => {
     recenterHubMap()
@@ -1711,7 +1791,7 @@ function bindKarteViewEvents() {
           <span>Letzte Suchen</span>
           <button class="mm-recent-clear">Löschen</button>
         </div>
-        ${list.map(q => `<button class="mm-recent-item" data-q="${q.replace(/"/g,'&quot;')}"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/></svg><span>${q}</span></button>`).join('')}
+        ${list.map(q => `<button class="mm-recent-item" data-q="${esc(q)}"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/></svg><span>${esc(q)}</span></button>`).join('')}
       `
       const rect = searchInput.getBoundingClientRect()
       dd.style.top = (rect.bottom + 6) + 'px'
@@ -1823,7 +1903,6 @@ function buildKonfiguratorHTML(data, initialTab = 'ansicht') {
         <div class="konf-viewer" id="konf-viewer">
           <img class="konf-viewer-img konf-viewer-img--active" id="konf-img-bike" src="${data.img1}" alt="${data.fullName}">
           <img class="konf-viewer-img" id="konf-img-rider" src="${data.img2}" alt="${data.fullName} mit Fahrer">
-          <img class="konf-viewer-img" id="konf-img-pillion" src="${data.img2}" alt="${data.fullName} mit Sozius">
         </div>
         <div class="konf-viewer-label" id="konf-height-label" style="display:none">
           Fahrgr\u00f6\u00dfe: ${userHeight} cm
@@ -1831,7 +1910,6 @@ function buildKonfiguratorHTML(data, initialTab = 'ansicht') {
         <div class="konf-pills" id="konf-pills">
           <button class="konf-pill konf-pill--active" data-view="bike">Motorrad</button>
           <button class="konf-pill" data-view="rider">Mit Fahrer</button>
-          <button class="konf-pill" data-view="pillion">Mit Sozius</button>
         </div>
       </div>
 
@@ -1853,10 +1931,8 @@ function getUserHeight() {
     const stored = localStorage.getItem('motoMatchAnswers')
     if (stored) {
       const answers = JSON.parse(stored)
-      // Quiz question 6 is height — extract numeric value
-      const heightAnswer = answers[5] || answers.height || ''
-      const match = String(heightAnswer).match(/(\d+)/)
-      if (match) return match[1]
+      const q6 = Number(answers.q6)
+      if (q6) return String(Math.round(q6))
     }
   } catch (e) { /* ignore */ }
   return '175'
@@ -1866,12 +1942,11 @@ function initViewerPills(data) {
   const pills = document.querySelectorAll('.konf-pill')
   const imgBike = document.getElementById('konf-img-bike')
   const imgRider = document.getElementById('konf-img-rider')
-  const imgPillion = document.getElementById('konf-img-pillion')
   const heightLabel = document.getElementById('konf-height-label')
 
   if (!pills.length) return
 
-  const images = { bike: imgBike, rider: imgRider, pillion: imgPillion }
+  const images = { bike: imgBike, rider: imgRider }
 
   pills.forEach(pill => {
     pill.addEventListener('click', () => {
@@ -1888,9 +1963,9 @@ function initViewerPills(data) {
         requestAnimationFrame(() => target.classList.add('konf-viewer-img--active'))
       }
 
-      // Show height label for rider/pillion
+      // Show height label for rider view
       if (heightLabel) {
-        heightLabel.style.display = (view === 'rider' || view === 'pillion') ? 'block' : 'none'
+        heightLabel.style.display = (view === 'rider') ? 'block' : 'none'
       }
     })
   })
@@ -1912,22 +1987,6 @@ function animateBarNumber(el) {
     if (progress < 1) requestAnimationFrame(tick)
   }
   requestAnimationFrame(tick)
-}
-
-/** "Ich fahre dieses Bike"-Button auf dem Ansicht-Tab — trennt "besitze ich"
- *  bewusst von der reinen Ansichts-Chronik (nur weil man 20 Bikes ansieht,
- *  heißt das nicht, dass man sie besitzt). */
-function bindOwnBikeToggle(data) {
-  const btn = document.getElementById('konf-own-btn')
-  if (!btn) return
-  btn.addEventListener('click', () => {
-    const nowOwned = toggleOwnedBike(data.fullName, data.style, data.img1 || data.img2 || '')
-    btn.classList.toggle('konf-own-btn--active', nowOwned)
-    const label = btn.querySelector('#konf-own-label')
-    if (label) label.textContent = nowOwned ? 'Eigenes Bike ✓' : 'Ich fahre dieses Bike'
-    const icon = btn.querySelector('svg')
-    if (icon) icon.setAttribute('fill', nowOwned ? 'currentColor' : 'none')
-  })
 }
 
 function animateBarsOnReveal() {
@@ -2309,16 +2368,18 @@ function initKonfiguratorAnimations() {
   // Topbar "Erstellen" button also opens the same modal
   document.getElementById('cc-create-btn')?.addEventListener('click', openCcModal)
   // Topbar profile avatar → open full account page
-  document.getElementById('cc-profile-btn')?.addEventListener('click', async () => {
-    const { openAccount } = await import('./account.js')
+  document.getElementById('cc-profile-btn')?.addEventListener('click', () => {
     openAccount()
   })
 
-  // Listen for account updates to refresh profile button
-  window.addEventListener('mm:account-updated', () => {
-    const btn = document.getElementById('cc-profile-btn')
-    if (btn) btn.textContent = getCurrentUserInitials()
-  }, { once: false })
+  // Listen for account updates to refresh profile button (registered once)
+  if (!_accountUpdatedListenerRegistered) {
+    _accountUpdatedListenerRegistered = true
+    window.addEventListener('mm:account-updated', () => {
+      const btn = document.getElementById('cc-profile-btn')
+      if (btn) btn.textContent = getCurrentUserInitials()
+    })
+  }
 
   // Topbar notifications → dropdown
   const ccNotifBtn = document.getElementById('cc-notif-btn')
@@ -2409,9 +2470,9 @@ function initKonfiguratorAnimations() {
         <button class="mm-recent-clear">Löschen</button>
       </div>
       ${recent.map(q => `
-        <button class="mm-recent-item" data-q="${q.replace(/"/g,'&quot;')}">
+        <button class="mm-recent-item" data-q="${esc(q)}">
           <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 8v4l3 2M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0z"/></svg>
-          <span>${q}</span>
+          <span>${esc(q)}</span>
         </button>
       `).join('')}
     `

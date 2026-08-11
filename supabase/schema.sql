@@ -12,6 +12,7 @@ CREATE TABLE IF NOT EXISTS profiles (
   bio           text DEFAULT 'Motorradfahrer · MotoMatch 🏍',
   status_text   text,
   avatar_color  text,
+  avatar        text,                  -- Profilbild als Data-URL (base64), analog zum localStorage-Offline-Modus
   show_bike     boolean DEFAULT false,
   bike_text     text,
   dm_policy     text DEFAULT 'all',     -- 'all' | 'friends'
@@ -24,6 +25,10 @@ ALTER TABLE profiles ENABLE ROW LEVEL SECURITY;
 CREATE POLICY "profiles_select"  ON profiles FOR SELECT USING (true);
 CREATE POLICY "profiles_insert"  ON profiles FOR INSERT WITH CHECK (id = auth.uid());
 CREATE POLICY "profiles_update"  ON profiles FOR UPDATE USING (id = auth.uid());
+
+-- Migration für bereits bestehende Datenbanken (obiges CREATE TABLE ist dort ein No-Op,
+-- da die Tabelle schon existiert) — einmalig im SQL-Editor ausführen:
+-- ALTER TABLE profiles ADD COLUMN IF NOT EXISTS avatar text;
 
 -- ── Friendships ──────────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS friendships (
@@ -313,6 +318,26 @@ CREATE POLICY "gbans_delete" ON group_bans FOR DELETE
     SELECT 1 FROM group_members WHERE group_id = group_bans.group_id
     AND user_id = auth.uid() AND role IN ('owner','mod')
   ));
+
+-- ── Login per Benutzername ────────────────────────────────────────
+-- profiles enthält keine E-Mail-Spalte (die liegt in auth.users, per RLS
+-- nicht direkt abfragbar). Für den Login-Flow "Benutzername ODER E-Mail"
+-- braucht das Frontend die zugehörige E-Mail zu einem Benutzernamen —
+-- SECURITY DEFINER erlaubt genau diesen einen kontrollierten Lesezugriff.
+CREATE OR REPLACE FUNCTION email_for_username(uname text)
+RETURNS text
+LANGUAGE sql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+  SELECT au.email
+  FROM auth.users au
+  JOIN profiles p ON p.id = au.id
+  WHERE p.username ILIKE uname
+  LIMIT 1
+$$;
+REVOKE ALL ON FUNCTION email_for_username(text) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION email_for_username(text) TO anon, authenticated;
 
 -- ══════════════════════════════════════════════════════════════════
 --  Realtime aktivieren (einmalig im Supabase-Dashboard unter

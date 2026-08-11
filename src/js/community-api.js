@@ -17,6 +17,7 @@
  */
 
 import { supabase, OFFLINE_MODE } from './supabase.js'
+import { findUserByUsername, searchUsers, getUserRecord, currentUser } from './auth.js'
 
 /* ── localStorage-Keys (Offline-Modus + UI-Preferences) ─────────── */
 const LS_FRIENDS        = 'mm_comm_friends_v2'
@@ -130,6 +131,7 @@ async function _loadProfiles() {
       bio:            p.bio,
       statusText:     p.status_text,
       avatarColor:    p.avatar_color,
+      avatarImg:      p.avatar,
       showBike:       p.show_bike,
       bikeText:       p.bike_text,
       dmPolicy:       p.dm_policy,
@@ -369,7 +371,7 @@ async function _handleNewMessage(row) {
   // Absender-Username nachschlagen (Profile könnte noch nicht im Cache sein)
   let author = _uidToUsername(row.author_id)
   if (!author) {
-    const { data } = await supabase.from('profiles').select('username').eq('id', row.author_id).single()
+    const { data } = await supabase.from('profiles').select('username').eq('id', row.author_id).maybeSingle()
     author = data?.username || '?'
     if (data) _profileCache[author] = { ..._profileCache[author], _uid: row.author_id }
   }
@@ -417,8 +419,26 @@ async function _handleNewFriendRequest(row) {
    PROFIL
    ══════════════════════════════════════════════════════════════════ */
 
+/**
+ * Community-Profil eines Nutzers — ergänzt um echten Namen/Avatar aus dem
+ * zentralen Konto (auth.js), damit Community denselben Namen/dasselbe Bild
+ * zeigt wie Account/Rest der Plattform:
+ *  - eigenes Profil: immer live aus currentUser() (funktioniert online & offline,
+ *    auch bevor die erste Synchronisierung mit Supabase durchgelaufen ist)
+ *  - fremde Profile online: kommen aus der Supabase-`profiles`-Tabelle
+ *    (avatar-Spalte, per _loadProfiles() synchron gehalten)
+ *  - fremde Profile offline: aus der lokalen User-DB (getUserRecord)
+ */
 export function getProfile(username) {
-  return _profileCache[username] || {}
+  const p = _profileCache[username] || {}
+  if (username === _myUsername) {
+    const me = currentUser()
+    if (me) return { ...p, displayName: p.displayName || me.name, avatarImg: p.avatarImg ?? me.avatar ?? null, bio: p.bio || me.bio }
+  } else if (OFFLINE_MODE) {
+    const rec = getUserRecord(username)
+    if (rec) return { ...p, displayName: p.displayName || rec.name, avatarImg: p.avatarImg ?? rec.avatar ?? null, bio: p.bio || rec.bio }
+  }
+  return p
 }
 
 export function getMyProfile() {
@@ -431,18 +451,27 @@ export async function setMyProfile(data) {
   if (OFFLINE_MODE || !_myUid) {
     lsWrite(LS_PROFILE, _profileCache); return
   }
-  await supabase.from('profiles').update({
+  const dbPatch = {
     display_name:  data.displayName  ?? prev.displayName,
     bio:           data.bio          ?? prev.bio,
     status_text:   data.statusText   ?? prev.statusText,
     avatar_color:  data.avatarColor  ?? prev.avatarColor,
+    avatar:        data.avatarImg    ?? prev.avatarImg,
     show_bike:     data.showBike     ?? prev.showBike,
     bike_text:     data.bikeText     ?? prev.bikeText,
     dm_policy:     data.dmPolicy     ?? prev.dmPolicy,
     show_online:   data.showOnline   ?? prev.showOnline,
     notif_sounds:  data.notifySounds ?? prev.notifySounds,
     notif_desktop: data.notifyDesktop ?? prev.notifyDesktop,
-  }).eq('id', _myUid)
+  }
+  const { error } = await supabase.from('profiles').update(dbPatch).eq('id', _myUid)
+  if (error?.code === 'PGRST204') {
+    // `avatar`-Spalte fehlt noch (Migration aus supabase/schema.sql nicht ausgeführt) —
+    // ohne sie erneut speichern, damit die übrigen Felder nicht mitscheitern.
+    console.warn('[Community] Profilbild wird nicht gespeichert — Spalte `avatar` fehlt in Supabase. Siehe supabase/schema.sql.')
+    const { avatar, ...rest } = dbPatch
+    await supabase.from('profiles').update(rest).eq('id', _myUid)
+  }
 }
 
 /* ══════════════════════════════════════════════════════════════════
@@ -962,11 +991,10 @@ export async function sendFriendRequest(toUsername) {
 
   // Prüfe, ob Nutzer existiert
   if (OFFLINE_MODE || !_myUid) {
-    const { findUserByUsername } = await import('./auth.js')
     const target = findUserByUsername(toUsername)
     if (!target) return { ok: false, error: 'Es gibt keinen Nutzer mit diesem Benutzernamen.' }
   } else {
-    const { data } = await supabase.from('profiles').select('id,username').ilike('username', toUsername).single()
+    const { data } = await supabase.from('profiles').select('id,username').ilike('username', toUsername).maybeSingle()
     if (!data) return { ok: false, error: 'Es gibt keinen Nutzer mit diesem Benutzernamen.' }
     if (!_profileCache[data.username]) _profileCache[data.username] = { _uid: data.id }
   }
@@ -1121,7 +1149,6 @@ export async function searchUsersApi(query, { exclude = [] } = {}) {
   const q = (query || '').trim().toLowerCase()
   if (!q) return []
   if (OFFLINE_MODE || !_myUid) {
-    const { searchUsers } = await import('./auth.js')
     return searchUsers(q, { exclude })
   }
   const excl = new Set(exclude.map(x => x.toLowerCase()))
@@ -1137,10 +1164,9 @@ export async function searchUsersApi(query, { exclude = [] } = {}) {
 
 export async function findUserApi(username) {
   if (OFFLINE_MODE || !_myUid) {
-    const { findUserByUsername } = await import('./auth.js')
     return findUserByUsername(username)
   }
-  const { data } = await supabase.from('profiles').select('username').ilike('username', username).single()
+  const { data } = await supabase.from('profiles').select('username').ilike('username', username).maybeSingle()
   return data ? { username: data.username } : null
 }
 

@@ -27,6 +27,7 @@ import { getGear } from "./gear.js";
 import { getStaticListings, getLiveListings } from "./marketplace.js";
 import { getAIExplanation } from "./ai.js";
 import { findNearby } from "./dealers.js";
+import { esc } from "./util.js";
 
 // Einmaliger, dezenter Puls auf der Tab-Leiste, damit Nutzer merken, dass
 // hinter "Ansicht"/"Ausrüstung"/etc. mehr Inhalt steckt.
@@ -37,7 +38,6 @@ function tabHintSeen() {
 function markTabHintSeen() {
   try { localStorage.setItem(TABHINT_KEY, "1"); } catch {}
 }
-import { openKonfigurator } from "./bike-detail.js";
 
 const GMAPS_KEY = import.meta.env.VITE_GMAPS_KEY;
 
@@ -81,6 +81,7 @@ let camDist = 5,
   lookAtY = 0.45;
 let userLat = 51.77,
   userLng = 7.444;
+let userLocationKnown = false;
 let gmapsLoadPromise = null;
 let geoPromise = null;
 
@@ -143,7 +144,24 @@ export function loadGarage(answers) {
  */
 export function openBikeGarage(shortName) {
   const bikeData = findBikeByShortName(shortName);
-  if (!bikeData) return;
+  if (!bikeData) {
+    import('./landing.js').then(m => m.initLanding());
+    // Reuse the existing mm-toast style — no new CSS introduced
+    let el = document.getElementById('mm-toast');
+    if (!el) {
+      el = document.createElement('div');
+      el.id = 'mm-toast';
+      el.className = 'mm-toast';
+      document.body.appendChild(el);
+    }
+    el.textContent = 'Bike nicht gefunden.';
+    el.classList.remove('mm-toast--show');
+    void el.offsetWidth; // force reflow so re-adding the class triggers transition
+    el.classList.add('mm-toast--show');
+    clearTimeout(el._t);
+    el._t = setTimeout(() => el.classList.remove('mm-toast--show'), 2800);
+    return;
+  }
 
   cleanup();
 
@@ -580,8 +598,9 @@ function bindEvents(bikeData, answers) {
   }
 
   // Ansicht button → open Porsche Konfigurator split-screen
-  document.getElementById("gr-3d-btn")?.addEventListener("click", () => {
+  document.getElementById("gr-3d-btn")?.addEventListener("click", async () => {
     setActiveBtn("gr-3d-btn");
+    const { openKonfigurator } = await import("./bike-detail.js");
     openKonfigurator(bikeData, cleanup, "ansicht");
   });
 
@@ -627,8 +646,9 @@ function bindEvents(bikeData, answers) {
     "gr-nav-hub": "community",
   };
   Object.entries(navMap).forEach(([id, tab]) => {
-    document.getElementById(id)?.addEventListener("click", () => {
+    document.getElementById(id)?.addEventListener("click", async () => {
       setActiveBtn(id);
+      const { openKonfigurator } = await import("./bike-detail.js");
       openKonfigurator(bikeData, cleanup, tab);
     });
   });
@@ -646,6 +666,23 @@ function bindEvents(bikeData, answers) {
       if (!hubMapInstance) initHubMap();
     });
   });
+
+  // Retry-Button im Fehlerzustand ("Standort nicht verfügbar") — der Button
+  // wird per innerHTML injiziert, daher hier per Delegation binden.
+  document.getElementById("garage-container")?.addEventListener("click", (e) => {
+    if (e.target.closest("#hub-retry-btn")) retryHubLocation();
+  });
+}
+
+function retryHubLocation() {
+  const loader = document.getElementById("hub-map-loading");
+  if (loader) {
+    loader.innerHTML = `
+      <span class="hub-map-spinner"></span>
+      <span>Standort wird ermittelt…</span>
+    `;
+  }
+  getUserLocation().then(() => initHubMap());
 }
 
 function goBack() {
@@ -749,9 +786,9 @@ function renderTab(tab, bikeData, answers) {
         el.innerHTML = items
           .map(
             (item) => `
-          <a href="${item.url}" target="_blank" rel="noopener" class="gr-listing-item">
-            <span class="gr-listing-title">${item.title}</span>
-            <span class="gr-listing-meta">${item.source}</span>
+          <a href="${esc(item.url)}" target="_blank" rel="noopener" class="gr-listing-item">
+            <span class="gr-listing-title">${esc(item.title)}</span>
+            <span class="gr-listing-meta">${esc(item.source)}</span>
           </a>
         `,
           )
@@ -824,6 +861,7 @@ function getUserLocation() {
       (pos) => {
         userLat = pos.coords.latitude;
         userLng = pos.coords.longitude;
+        userLocationKnown = true;
 
         // If map already initialized, re-center and re-search
         if (hubMapInstance) {
@@ -846,6 +884,7 @@ function getUserLocation() {
             <div style="font-size:12px;color:#888;max-width:280px;text-align:center;line-height:1.4">
               Bitte erlaube den Standortzugriff im Browser, damit Ergebnisse in deiner Nähe angezeigt werden können.
             </div>
+            <button type="button" class="hub-retry-btn" id="hub-retry-btn">Standort erneut anfragen</button>
           `;
         }
         resolve();
@@ -1044,6 +1083,7 @@ export function searchNearbyAt(lat, lng) {
 }
 // Get current coordinates (for weather API)
 export function getUserCoords() {
+  if (!userLocationKnown) return { lat: null, lng: null };
   return { lat: userLat, lng: userLng }
 }
 // Callback hook: bike-detail Karte view subscribes to result updates
@@ -1131,9 +1171,9 @@ function buildInfoContent(place, query) {
         : "";
 
   return `<div class="hub-info">
-    <span class="hub-info-name">${place.name}</span>
+    <span class="hub-info-name">${esc(place.name)}</span>
     <span class="hub-info-type" style="color:${colors.fill}">${colors.label}${rating ? " \u00b7 " + rating : ""}</span>
-    ${addr ? `<span class="hub-info-addr">${addr}</span>` : ""}
+    ${addr ? `<span class="hub-info-addr">${esc(addr)}</span>` : ""}
     ${openLabel ? `<span class="hub-info-open">${openLabel}</span>` : ""}
   </div>`;
 }
@@ -1141,10 +1181,11 @@ function buildInfoContent(place, query) {
 function buildDealerInfoContent(dealer, query) {
   const colors = QUERY_COLORS[query] || QUERY_COLORS["Motorradwerkstatt"];
   return `<div class="hub-info">
-    <span class="hub-info-name">${dealer.name}</span>
+    <span class="hub-info-name">${esc(dealer.name)}</span>
     <span class="hub-info-type" style="color:${colors.fill}">${colors.label}</span>
-    <span class="hub-info-addr">${dealer.city}</span>
-    ${dealer.phone ? `<a class="hub-info-phone" href="tel:${dealer.phone}">${dealer.phone}</a>` : ""}
+    <span class="hub-info-addr">${esc(dealer.city)}</span>
+    ${dealer.phone ? `<a class="hub-info-phone" href="tel:${esc(dealer.phone)}">${esc(dealer.phone)}</a>` : ""}
+    <span class="hub-info-addr" style="margin-top:4px;font-size:10px;opacity:0.55">Beispieldaten · keine echten Betriebe</span>
   </div>`;
 }
 
@@ -1172,6 +1213,13 @@ export async function initHubMap() {
     // Wait for script + real user location before showing map
     await Promise.all([loadGoogleMapsScript(), getUserLocation()]);
     if (myToken !== hubMapInitToken || !document.body.contains(el)) return;
+
+    // Ohne echten Standort nicht stillschweigend mit dem Default-Fallback
+    // (Lüdinghausen) weitermachen — sonst wirken Karte/Ergebnisse wie am
+    // echten Standort, obwohl der Nutzer den Zugriff verweigert hat.
+    // getUserLocation() hat dafür bereits eine Fehlermeldung in den Loader
+    // geschrieben; die bleibt stehen, bis ein neuer Versuch erfolgreich ist.
+    if (!userLocationKnown) return;
 
     // Hide loading spinner
     const loader = document.getElementById("hub-map-loading");
@@ -1260,8 +1308,8 @@ function renderDealerFallbackList(filter) {
         .map(
           (d) => `
         <div style="background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.08);border-radius:12px;padding:14px 16px">
-          <div style="font-weight:700;color:#fff;font-size:14px;margin-bottom:2px">${d.name}</div>
-          <div style="font-size:12px;color:#888">${d.city}${d.phone ? " \u00b7 " + d.phone : ""}</div>
+          <div style="font-weight:700;color:#fff;font-size:14px;margin-bottom:2px">${esc(d.name)}</div>
+          <div style="font-size:12px;color:#888">${esc(d.city)}${d.phone ? " \u00b7 " + esc(d.phone) : ""}</div>
         </div>`,
         )
         .join("")}

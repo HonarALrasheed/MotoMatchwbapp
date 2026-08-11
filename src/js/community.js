@@ -12,6 +12,7 @@
  */
 
 import commBg from '../assets/community-bg.jpeg'
+import { esc } from './util.js'
 import {
   joinVoiceRoom, leaveVoiceRoom, toggleVoiceMute, toggleVoiceDeafen,
   inVoiceRoom, currentRoomId, listAudioDevices, switchMicrophone, switchSpeaker,
@@ -88,6 +89,11 @@ function avatarColor(username) {
 }
 function displayName(username) {
   return getProfile(username).displayName || username
+}
+/** Innerer Avatar-Inhalt: echtes Profilbild, falls vorhanden, sonst Initialen des Anzeigenamens. */
+function avatarInner(username) {
+  const img = getProfile(username).avatarImg
+  return img ? `<img class="mmc-avatar-img" src="${esc(img)}" alt="">` : initials(displayName(username))
 }
 
 /* ── Demo-Accounts (nur Offline-Modus) ──────────────────────────── */
@@ -323,11 +329,6 @@ function seedDefaults() {
 }
 
 /* ── Utils ─────────────────────────────────────────────────────── */
-function esc(s = '') {
-  return String(s).replace(/[&<>"']/g, c => (
-    { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]
-  ))
-}
 function initials(name = '') {
   const p = name.trim().split(/\s+/)
   return ((p[0]?.[0] || '') + (p[1]?.[0] || '')).toUpperCase() || name.slice(0, 2).toUpperCase()
@@ -756,7 +757,7 @@ function userbarHtml(session, prefs) {
   return `
     <div class="mmc-userbar">
       <button class="mmc-user-id" id="mmc-user-id" title="Benutzermenü">
-        <div class="mmc-avatar" style="background:${avatarColor(session.username)}">${initials(session.username)}<span class="mmc-presence" style="background:${presenceColor}"></span></div>
+        <div class="mmc-avatar" style="background:${avatarColor(session.username)}">${avatarInner(session.username)}<span class="mmc-presence" style="background:${presenceColor}"></span></div>
         <div class="mmc-user-meta">
           <div class="mmc-user-name">${esc(dname)}</div>
           <div class="mmc-user-status">${esc(subline)}</div>
@@ -944,7 +945,7 @@ function openUserMenu(root) {
   pop.innerHTML = `
     <div class="mmc-um-banner" style="background:linear-gradient(135deg, ${myAvatarColor}, #1a1a1a)"></div>
     <div class="mmc-um-avatar-wrap">
-      <div class="mmc-avatar mmc-um-avatar" style="background:${myAvatarColor}">${initials(name)}<span class="mmc-presence" style="background:${statusMeta(cur).color}"></span></div>
+      <div class="mmc-avatar mmc-um-avatar" style="background:${myAvatarColor}">${avatarInner(name)}<span class="mmc-presence" style="background:${statusMeta(cur).color}"></span></div>
     </div>
     <div class="mmc-um-body">
       <div class="mmc-um-name">${esc(myDisplayName)}</div>
@@ -1063,7 +1064,7 @@ function openUserProfile(root, username) {
       <div class="mmc-up-banner" style="background:linear-gradient(135deg, ${uColor}, #1a1a1a)"></div>
       <button class="mmc-up-more" id="mmc-up-more" title="Weitere Optionen" aria-label="Weitere Optionen">⋯</button>
       <div class="mmc-up-avatar-wrap">
-        <div class="mmc-avatar mmc-um-avatar" style="background:${uColor}">${initials(username)}<span class="mmc-presence"></span></div>
+        <div class="mmc-avatar mmc-um-avatar" style="background:${uColor}">${avatarInner(username)}<span class="mmc-presence"></span></div>
       </div>
       <div class="mmc-um-body">
         <div class="mmc-um-name">${esc(uDname)}</div>
@@ -1265,8 +1266,8 @@ function fillHomeColumn(root, searchQuery = '') {
         const ign = isIgnored(f)
         return `
         <div class="mmc-dm ${activeDM === f ? 'is-active' : ''}${ign ? ' mmc-dm--ignored' : ''}" data-dm="${esc(f)}">
-          <div class="mmc-avatar mmc-avatar--dm" style="background:${colorFor(f)};${ign ? 'opacity:.45' : ''}">${initials(f)}<span class="mmc-presence"></span></div>
-          <span class="mmc-dm-name">${esc(f)}</span>
+          <div class="mmc-avatar mmc-avatar--dm" style="background:${avatarColor(f)};${ign ? 'opacity:.45' : ''}">${avatarInner(f)}<span class="mmc-presence"></span></div>
+          <span class="mmc-dm-name">${esc(displayName(f))}</span>
           ${!ign && unread.includes(f) ? '<span class="mmc-dm-dot"></span>' : ''}
         </div>`}).join('')
         : `<div class="mmc-dm-empty">${q ? 'Keine Treffer.' : 'Noch keine Unterhaltungen — füge oben Freunde hinzu'}</div>`}
@@ -1404,8 +1405,8 @@ function renderFriendsView(main, root) {
       const matches = await searchUsersApi(q, { exclude: already })
       suggestBox.innerHTML = matches.length
         ? matches.map(u => `<button type="button" class="mmc-suggest-item" data-user="${esc(u)}">
-            <span class="mmc-avatar mmc-avatar--dm" style="background:${colorFor(u)}">${initials(u)}</span>
-            <span>${esc(u)}</span>
+            <span class="mmc-avatar mmc-avatar--dm" style="background:${avatarColor(u)}">${avatarInner(u)}</span>
+            <span>${esc(displayName(u))}</span>
           </button>`).join('')
         : `<div class="mmc-suggest-empty">Kein passender Nutzer gefunden.</div>`
       suggestBox.querySelectorAll('[data-user]').forEach(b => b.addEventListener('click', () => doSend(b.dataset.user)))
@@ -1422,9 +1423,9 @@ function renderFriendsView(main, root) {
     const inc = incomingRequests(), out = outgoingRequests()
     const row = (r, dir) => `
       <div class="mmc-friend-row">
-        <div class="mmc-avatar mmc-avatar--dm" style="background:${colorFor(dir === 'in' ? r.from : r.to)}">${initials(dir === 'in' ? r.from : r.to)}</div>
+        <div class="mmc-avatar mmc-avatar--dm" style="background:${avatarColor(dir === 'in' ? r.from : r.to)}">${avatarInner(dir === 'in' ? r.from : r.to)}</div>
         <div class="mmc-friend-meta">
-          <div class="mmc-friend-name">${esc(dir === 'in' ? r.from : r.to)}</div>
+          <div class="mmc-friend-name">${esc(displayName(dir === 'in' ? r.from : r.to))}</div>
           <div class="mmc-friend-status">${dir === 'in' ? 'Möchte dich als Freund hinzufügen' : 'Ausstehende Anfrage'}</div>
         </div>
         ${dir === 'in'
@@ -1463,8 +1464,8 @@ function renderFriendsView(main, root) {
         const ign = isIgnored(f)
         return `
         <div class="mmc-friend-row${ign ? ' mmc-friend-row--ignored' : ''}" data-dm="${esc(f)}">
-          <div class="mmc-avatar mmc-avatar--dm" style="background:${colorFor(f)};${ign ? 'opacity:.4' : ''}">${initials(f)}<span class="mmc-presence"></span></div>
-          <div class="mmc-friend-meta"><div class="mmc-friend-name"${ign ? ' style="opacity:.5"' : ''}>${esc(f)}</div><div class="mmc-friend-status">${ign ? 'ignoriert' : 'online'}</div></div>
+          <div class="mmc-avatar mmc-avatar--dm" style="background:${avatarColor(f)};${ign ? 'opacity:.4' : ''}">${avatarInner(f)}<span class="mmc-presence"></span></div>
+          <div class="mmc-friend-meta"><div class="mmc-friend-name"${ign ? ' style="opacity:.5"' : ''}>${esc(displayName(f))}</div><div class="mmc-friend-status">${ign ? 'ignoriert' : 'online'}</div></div>
           <button class="mmc-friend-msg-btn" data-dm="${esc(f)}" title="Nachricht">${ICON.send}</button>
         </div>`}).join('')}
     </div>`
@@ -1493,15 +1494,15 @@ function renderDMView(main, root) {
     : `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>`
   main.innerHTML = `
     <header class="mmc-chat-head">
-      <div class="mmc-avatar mmc-avatar--dm" style="background:${colorFor(name)}">${initials(name)}<span class="mmc-presence"></span></div>
-      <span class="mmc-chat-title">${esc(name)}</span>
+      <div class="mmc-avatar mmc-avatar--dm" style="background:${avatarColor(name)}">${avatarInner(name)}<span class="mmc-presence"></span></div>
+      <span class="mmc-chat-title">${esc(displayName(name))}</span>
       <button class="mmc-bell-btn${dmMuted ? ' is-muted' : ''}" id="mmc-dm-bell" title="${dmMuted ? 'Stummschaltung aufheben' : 'Chat stummschalten'}">${bellIcon}</button>
     </header>
     <div class="mmc-messages" id="mmc-messages"></div>
     ${composeHtml('Nachricht an @' + esc(name))}`
   main.querySelector('#mmc-dm-bell')?.addEventListener('click', e => { e.stopPropagation(); openMuteMenu(root, dmKey, true) })
   renderMessagesInto(root, main.querySelector('#mmc-messages'), (getDMs()[name]) || [], {
-    title: name, text: `Das ist der Anfang deiner Unterhaltung mit ${name}.`, avatar: name,
+    title: displayName(name), text: `Das ist der Anfang deiner Unterhaltung mit ${displayName(name)}.`, avatar: name,
   }, null, prevReadTs)
   bindComposeExtras(main, root)
   main.querySelector('#mmc-compose-form')?.addEventListener('submit', async e => {
@@ -1519,7 +1520,7 @@ function renderDMView(main, root) {
     const rb = main.querySelector('#mmc-reply-bar')
     if (rb) { rb.hidden = true; rb.innerHTML = '' }
     replyingTo = null
-    renderMessagesInto(root, main.querySelector('#mmc-messages'), getDMs()[name] || [], { title: name, text: '', avatar: name })
+    renderMessagesInto(root, main.querySelector('#mmc-messages'), getDMs()[name] || [], { title: displayName(name), text: '', avatar: name })
     input.focus()
   })
   requestAnimationFrame(() => main.querySelector('#mmc-compose-input')?.focus())
@@ -1641,7 +1642,7 @@ function groupCardHtml(g, myName) {
         <div class="mmc-group-badge" style="background:${colorFor(g.name)}">${initials(g.name)}</div>
         <div class="mmc-group-info">
           <div class="mmc-group-name${!muted && unreadCount > 0 ? ' mmc-group-name--unread' : ''}">${esc(g.name)}</div>
-          <div class="mmc-group-meta">${ICON.users}<span>${g.members.length} Mitglieder · von ${esc(g.createdBy)}</span></div>
+          <div class="mmc-group-meta">${ICON.users}<span>${g.members.length} Mitglieder · von ${esc(displayName(g.createdBy))}</span></div>
         </div>
         <span class="mmc-mode-badge" title="${mode.label}">${mode.icon}</span>
         ${canManage(g) && reqCount > 0 ? `<span class="mmc-req-badge">${reqCount}</span>` : ''}
@@ -1951,8 +1952,8 @@ function voiceChannelHtml(r, myName) {
         const muted = !!vp.muted
         return `
         <div class="mmc-vc-member ${m === myName ? '' : 'mmc-vc-member--clickable'}${speaking ? ' is-speaking' : ''}" ${m === myName ? '' : `data-user="${esc(m)}"`}>
-          <div class="mmc-avatar mmc-avatar--xs${speaking ? ' mmc-avatar--speaking' : ''}" style="background:${colorFor(m)}">${initials(m)}</div>
-          <span>${esc(m)}${m === myName ? ' (du)' : ''}</span>
+          <div class="mmc-avatar mmc-avatar--xs${speaking ? ' mmc-avatar--speaking' : ''}" style="background:${avatarColor(m)}">${avatarInner(m)}</div>
+          <span>${esc(displayName(m))}${m === myName ? ' (du)' : ''}</span>
           ${muted ? `<span class="mmc-vc-muted" title="Stummgeschaltet">${MIC_OFF_ICON}</span>` : ''}
         </div>`
       }).join('')}
@@ -2113,7 +2114,7 @@ function openSettingsPanel(root) {
         <h2 class="mmc-sp-heading">Mein Profil</h2>
         <form id="mmc-sp-profile-form" class="mmc-sp-form">
           <div class="mmc-sp-avatar-row">
-            <div class="mmc-avatar mmc-sp-avatar" id="mmc-sp-avatar-preview" style="background:${avatarColor(myName)}">${initials(myName)}</div>
+            <div class="mmc-avatar mmc-sp-avatar" id="mmc-sp-avatar-preview" style="background:${avatarColor(myName)}">${avatarInner(myName)}</div>
             <div class="mmc-sp-swatch-grid">${colorSwatches}
               <button type="button" class="mmc-sp-swatch mmc-sp-swatch--clear${!prof.avatarColor ? ' is-selected' : ''}" data-color="" title="Automatisch">auto</button>
             </div>
@@ -2183,8 +2184,8 @@ function openSettingsPanel(root) {
         <div class="mmc-sp-section-label" style="margin-top:20px">Blockierte Nutzer</div>
         ${blocked.length ? blocked.map(b => `
           <div class="mmc-manage-row">
-            <div class="mmc-avatar mmc-avatar--sm" style="background:${avatarColor(b)}">${initials(b)}</div>
-            <div class="mmc-manage-meta"><strong>${esc(b)}</strong></div>
+            <div class="mmc-avatar mmc-avatar--sm" style="background:${avatarColor(b)}">${avatarInner(b)}</div>
+            <div class="mmc-manage-meta"><strong>${esc(displayName(b))}</strong></div>
             <button class="mmc-manage-ic" data-unblock="${esc(b)}" title="Entblocken">${ICON.undo}</button>
           </div>`).join('')
           : `<div class="mmc-friends-empty"><p>Keine blockierten Nutzer.</p></div>`}
@@ -2390,9 +2391,9 @@ function openManagePanel(root, initialTab = null) {
       bodyHtml = reqs.length
         ? reqs.map(r => `
           <div class="mmc-manage-row">
-            <div class="mmc-avatar mmc-avatar--sm" style="background:${colorFor(r.from)}">${initials(r.from)}</div>
+            <div class="mmc-avatar mmc-avatar--sm" style="background:${avatarColor(r.from)}">${avatarInner(r.from)}</div>
             <div class="mmc-manage-meta">
-              <strong>${esc(r.from)}</strong>
+              <strong>${esc(displayName(r.from))}</strong>
               ${r.text ? `<p class="mmc-manage-sub">${esc(r.text)}</p>` : '<p class="mmc-manage-sub" style="opacity:.4">Kein Bewerbungstext</p>'}
             </div>
             <button class="mmc-req-btn mmc-req-accept" data-accept="${r.id}" title="Annehmen">✓</button>
@@ -2405,11 +2406,11 @@ function openManagePanel(root, initialTab = null) {
       bodyHtml = reps.length
         ? reps.map(r => `
           <div class="mmc-manage-row mmc-report-row">
-            <div class="mmc-avatar mmc-avatar--sm" style="background:${colorFor(r.msgAuthor)}">${initials(r.msgAuthor)}</div>
+            <div class="mmc-avatar mmc-avatar--sm" style="background:${avatarColor(r.msgAuthor)}">${avatarInner(r.msgAuthor)}</div>
             <div class="mmc-manage-meta">
-              <strong>${esc(r.msgAuthor)}</strong>
+              <strong>${esc(displayName(r.msgAuthor))}</strong>
               <p class="mmc-manage-sub mmc-report-text">${esc(r.msgText)}</p>
-              <span class="mmc-manage-sub" style="opacity:.45;font-size:.78em">Gemeldet von ${esc(r.reportedBy)}</span>
+              <span class="mmc-manage-sub" style="opacity:.45;font-size:.78em">Gemeldet von ${esc(displayName(r.reportedBy))}</span>
             </div>
             <div class="mmc-manage-actions">
               <button class="mmc-manage-ic mmc-manage-ic--danger" data-rep-delete="${r.id}" data-rep-msg="${r.msgId}" title="Nachricht löschen">${ICON.ban}</button>
@@ -2427,9 +2428,9 @@ function openManagePanel(root, initialTab = null) {
         const isMe     = m.toLowerCase() === myName.toLowerCase()
         return `
           <div class="mmc-manage-row">
-            <div class="mmc-avatar mmc-avatar--sm" style="background:${colorFor(m)}">${initials(m)}</div>
+            <div class="mmc-avatar mmc-avatar--sm" style="background:${avatarColor(m)}">${avatarInner(m)}</div>
             <div class="mmc-manage-meta">
-              <strong>${esc(m)}${isMe ? ' (du)' : ''}</strong>
+              <strong>${esc(displayName(m))}${isMe ? ' (du)' : ''}</strong>
               <span class="mmc-role-badge ${mIsOwner ? 'mmc-role-owner' : mIsMod ? 'mmc-role-mod' : 'mmc-role-member'}">
                 ${mIsOwner ? ICON.crown + ' Host' : mIsMod ? ICON.shield + ' Mod' : 'Mitglied'}
               </span>
@@ -2446,8 +2447,8 @@ function openManagePanel(root, initialTab = null) {
         bodyHtml += `<div class="mmc-manage-section">Gesperrte Nutzer</div>`
         bodyHtml += gCurrent.banned.map(b => `
           <div class="mmc-manage-row mmc-manage-row--banned">
-            <div class="mmc-avatar mmc-avatar--sm" style="background:${colorFor(b)};opacity:.5">${initials(b)}</div>
-            <div class="mmc-manage-meta"><strong>${esc(b)}</strong><span style="opacity:.5;font-size:.8em">Gesperrt</span></div>
+            <div class="mmc-avatar mmc-avatar--sm" style="background:${avatarColor(b)};opacity:.5">${avatarInner(b)}</div>
+            <div class="mmc-manage-meta"><strong>${esc(displayName(b))}</strong><span style="opacity:.5;font-size:.8em">Gesperrt</span></div>
             <button class="mmc-manage-ic" data-unban="${esc(b)}" title="Entsperren">${ICON.undo}</button>
           </div>`).join('')
       }
@@ -2812,7 +2813,7 @@ function renderMessagesInto(root, box, msgs, empty, groupCtx = null, prevReadTs 
   if (!msgs.length) {
     box.innerHTML = `
       <div class="mmc-empty">
-        <div class="mmc-empty-hash">${empty.hash ? '#' : `<div class="mmc-avatar mmc-avatar--lg" style="background:${colorFor(empty.avatar || empty.title)}">${initials(empty.avatar || empty.title)}</div>`}</div>
+        <div class="mmc-empty-hash">${empty.hash ? '#' : `<div class="mmc-avatar mmc-avatar--lg" style="background:${colorFor(empty.avatar || empty.title)}">${initials(displayName(empty.avatar || empty.title))}</div>`}</div>
         <h3>${empty.hash ? 'Willkommen in #' + esc(empty.title) : esc(empty.title)}</h3>
         <p>${esc(empty.text)}</p>
       </div>`
@@ -2890,7 +2891,7 @@ function renderMessagesInto(root, box, msgs, empty, groupCtx = null, prevReadTs 
     const imgHtml = m.image ? `<img class="mmc-msg-image" src="${esc(m.image)}" alt="Anhang" loading="lazy" data-img-src="${esc(m.image)}">` : ''
     const replyQuote = m.replyTo ? `
       <div class="mmc-reply-quote" data-reply-to="${esc(m.replyTo.id)}">
-        <span class="mmc-reply-quote-author">${esc(m.replyTo.author)}</span>
+        <span class="mmc-reply-quote-author">${esc(displayName(m.replyTo.author))}</span>
         <span class="mmc-reply-quote-text">${esc((m.replyTo.text || '').slice(0, 80))}${(m.replyTo.text || '').length > 80 ? '…' : ''}</span>
       </div>` : ''
 
@@ -2909,10 +2910,10 @@ function renderMessagesInto(root, box, msgs, empty, groupCtx = null, prevReadTs 
     } else {
       parts.push(`
         <div class="mmc-msg${m.system ? ' mmc-msg--system' : ''}" data-msg-id="${esc(m.id)}">
-          <div class="mmc-avatar mmc-avatar--sm ${clickable(m) ? 'mmc-avatar--clickable' : ''}" ${clickable(m) ? `data-user="${esc(m.author)}"` : ''} style="background:${colorFor(m.author)}">${initials(m.author)}</div>
+          <div class="mmc-avatar mmc-avatar--sm ${clickable(m) ? 'mmc-avatar--clickable' : ''}" ${clickable(m) ? `data-user="${esc(m.author)}"` : ''} style="background:${avatarColor(m.author)}">${avatarInner(m.author)}</div>
           <div class="mmc-msg-body">
             <div class="mmc-msg-head">
-              <span class="mmc-msg-author${clickable(m) ? ' mmc-msg-author--clickable' : ''}" ${clickable(m) ? `data-user="${esc(m.author)}"` : ''}>${esc(m.author)}</span>
+              <span class="mmc-msg-author${clickable(m) ? ' mmc-msg-author--clickable' : ''}" ${clickable(m) ? `data-user="${esc(m.author)}"` : ''}>${esc(displayName(m.author))}</span>
               <span class="mmc-msg-time">${fmtTime(m.ts)}${editLabel}</span>
             </div>
             ${replyQuote}
@@ -2987,7 +2988,7 @@ function renderMessagesInto(root, box, msgs, empty, groupCtx = null, prevReadTs 
       replyBar.innerHTML = `
         <div class="mmc-reply-bar-inner">
           <span class="mmc-reply-bar-icon">↩</span>
-          <div class="mmc-reply-bar-text">Antwort an <strong>${esc(replyingTo.author)}</strong>: <em>${esc(replyingTo.text.slice(0, 60))}${replyingTo.text.length > 60 ? '…' : ''}</em></div>
+          <div class="mmc-reply-bar-text">Antwort an <strong>${esc(displayName(replyingTo.author))}</strong>: <em>${esc(replyingTo.text.slice(0, 60))}${replyingTo.text.length > 60 ? '…' : ''}</em></div>
           <button class="mmc-reply-bar-close" id="mmc-reply-cancel" title="Abbrechen">✕</button>
         </div>`
       replyBar.querySelector('#mmc-reply-cancel')?.addEventListener('click', () => {
@@ -3092,10 +3093,10 @@ function renderMessagesInto(root, box, msgs, empty, groupCtx = null, prevReadTs 
     expanded.className = 'mmc-msg mmc-msg--blocked-expanded'
     expanded.dataset.msgId = m.id
     expanded.innerHTML = `
-      <div class="mmc-avatar mmc-avatar--sm ${clickable ? 'mmc-avatar--clickable' : ''}" ${clickable ? `data-user="${esc(m.author)}"` : ''} style="background:${colorFor(m.author)};opacity:.55">${initials(m.author)}</div>
+      <div class="mmc-avatar mmc-avatar--sm ${clickable ? 'mmc-avatar--clickable' : ''}" ${clickable ? `data-user="${esc(m.author)}"` : ''} style="background:${avatarColor(m.author)};opacity:.55">${avatarInner(m.author)}</div>
       <div class="mmc-msg-body" style="opacity:.65">
         <div class="mmc-msg-head">
-          <span class="mmc-msg-author">${esc(m.author)}</span>
+          <span class="mmc-msg-author">${esc(displayName(m.author))}</span>
           <span class="mmc-msg-time">${fmtTime(m.ts)}</span>
         </div>
         <div class="mmc-msg-text">${renderText(m.text)}</div>

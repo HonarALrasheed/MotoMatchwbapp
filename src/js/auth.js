@@ -12,16 +12,22 @@
  */
 
 import { supabase, OFFLINE_MODE } from './supabase.js'
-import { initCommunityData, unsubscribeAll } from './community-api.js'
+import { initCommunityData, unsubscribeAll, setMyProfile } from './community-api.js'
 
 const LS_USERS   = 'mm_auth_users_v1'    // [{ username, password, name, email, bio, avatar, joinedAt, notif, theme, provider }]
 const LS_SESSION = 'mm_auth_session_v1'  // { username } | { username:'Gast', guest:true } | null
 const LS_GUEST   = 'mm_auth_guest_v1'    // Profil-Overrides für Gast
+const LS_ONLINE_PROFILES = 'mm_auth_online_profiles_v1'  // { [uid]: Profil-Overrides } für Supabase-User (Felder ohne DB-Spalte, z. B. Avatar/Bio/Alter)
 
 /* ── Supabase-Session-Cache (sync-lesbar) ─────────────────────────
    Wird durch onAuthStateChange und initSupabaseAuth() befüllt.
    Solange null, ist niemand angemeldet (oder Supabase noch am Init). */
 let _sbSession = null  // { username, uid } | { username:'Gast', guest:true } | null
+
+/* Während register() legt bereits der Aufrufer selbst das Profil an —
+   der onAuthStateChange-Listener soll in dem Fenster nicht parallel
+   ein zweites (kollidierendes) Profil anlegen. */
+let _registering = false
 
 /**
  * Muss einmal beim App-Start aufgerufen werden (OFFLINE_MODE-agnostisch).
@@ -43,10 +49,12 @@ export async function initSupabaseAuth() {
   const { data: { session } } = await supabase.auth.getSession()
   if (session) {
     await _onSignedIn(session)
+    notify()
   }
 
   supabase.auth.onAuthStateChange(async (event, session) => {
     if (event === 'SIGNED_IN' && session) {
+      if (_registering) return // register() ruft _onSignedIn() selbst auf, nachdem das Profil steht
       await _onSignedIn(session)
       notify()
     } else if (event === 'SIGNED_OUT') {
@@ -64,10 +72,24 @@ export async function initSupabaseAuth() {
 
 async function _onSignedIn(session) {
   const uid = session.user.id
-  // Profil laden, um den Username zu bekommen
-  const { data: profile } = await supabase.from('profiles').select('username').eq('id', uid).single()
-  const username = profile?.username || session.user.email || uid
+  const { data: profile } = await supabase.from('profiles').select('username').eq('id', uid).maybeSingle()
+  let username = profile?.username
+  if (!username) {
+    // Neuer Social-Login-User: Username aus E-Mail ableiten und Profil anlegen
+    const base = (session.user.email || uid).split('@')[0].replace(/[^a-zA-Z0-9_]/g, '_').slice(0, 30)
+    username = base || `user_${uid.slice(0, 8)}`
+    // Eindeutigkeit sicherstellen
+    const { data: conflict } = await supabase.from('profiles').select('id').eq('username', username).maybeSingle()
+    if (conflict) username = `${username}_${uid.slice(0, 4)}`
+    await supabase.from('profiles').insert({ id: uid, username })
+  }
   _sbSession = { username, uid }
+  // Beitrittsdatum einmalig aus der Auth-Session übernehmen (auth.users.created_at)
+  const overrides = read(LS_ONLINE_PROFILES, {})
+  if (!overrides[uid]) {
+    overrides[uid] = { joinedAt: session.user.created_at ? new Date(session.user.created_at).getTime() : Date.now() }
+    write(LS_ONLINE_PROFILES, overrides)
+  }
   await initCommunityData(uid, username)
 }
 
@@ -118,30 +140,37 @@ function loginOrRegisterFromProvider(provider, { sub, email, name, avatar }) {
 }
 
 /**
- * Startet den "Mit Google anmelden"-Flow über Google Identity Services.
- * Rendert Googles eigenen, offiziell gestalteten Button in `container`.
- * Erfordert eine echte Client-ID (siehe VITE_GOOGLE_CLIENT_ID) — ohne
- * diese wird ein Hinweis statt des Buttons angezeigt.
+ * Rendert einen "Mit Google anmelden"-Button, der Supabase OAuth nutzt.
+ * Supabase übernimmt den kompletten Redirect-Flow; kein Google-Script nötig.
+ * Nach dem Callback feuert onAuthStateChange → _onSignedIn → notify().
  */
-export async function renderGoogleButton(container, onDone, theme = 'filled_black') {
-  if (!GOOGLE_CLIENT_ID) {
-    container.innerHTML = `<div class="mmc-social-unconfigured">Google-Login noch nicht eingerichtet (VITE_GOOGLE_CLIENT_ID fehlt)</div>`
-    return
-  }
-  try {
-    await loadScriptOnce('https://accounts.google.com/gsi/client', 'mm-google-gsi')
-    window.google.accounts.id.initialize({
-      client_id: GOOGLE_CLIENT_ID,
-      callback: (resp) => {
-        const payload = decodeJwtPayload(resp.credential)
-        loginOrRegisterFromProvider('google', { sub: payload.sub, email: payload.email, name: payload.name, avatar: payload.picture })
-        if (typeof onDone === 'function') onDone()
-      },
+export function renderGoogleButton(container, onDone, _theme) {
+  const btn = document.createElement('button')
+  btn.type = 'button'
+  btn.className = 'p-auth-google-btn'
+  btn.innerHTML = `
+    <svg width="18" height="18" viewBox="0 0 18 18" xmlns="http://www.w3.org/2000/svg">
+      <path d="M17.64 9.2c0-.637-.057-1.251-.164-1.84H9v3.481h4.844c-.209 1.125-.843 2.078-1.796 2.716v2.259h2.908c1.702-1.567 2.684-3.875 2.684-6.615z" fill="#4285F4"/>
+      <path d="M9 18c2.43 0 4.467-.806 5.956-2.184l-2.908-2.259c-.806.54-1.837.86-3.048.86-2.344 0-4.328-1.584-5.036-3.711H.957v2.332A8.997 8.997 0 0 0 9 18z" fill="#34A853"/>
+      <path d="M3.964 10.706A5.41 5.41 0 0 1 3.682 9c0-.593.102-1.17.282-1.706V4.962H.957A8.996 8.996 0 0 0 0 9c0 1.452.348 2.827.957 4.038l3.007-2.332z" fill="#FBBC05"/>
+      <path d="M9 3.58c1.321 0 2.508.454 3.44 1.345l2.582-2.58C13.463.891 11.426 0 9 0A8.997 8.997 0 0 0 .957 4.962L3.964 6.294C4.672 4.169 6.656 3.58 9 3.58z" fill="#EA4335"/>
+    </svg>
+    Weiter mit Google`
+  btn.addEventListener('click', async () => {
+    btn.disabled = true
+    const { error } = await supabase.auth.signInWithOAuth({
+      provider: 'google',
+      options: { redirectTo: window.location.origin + window.location.pathname },
     })
-    window.google.accounts.id.renderButton(container, { theme, size: 'large', width: 280, text: 'continue_with', shape: 'rectangular' })
-  } catch (err) {
-    container.innerHTML = `<div class="mmc-social-unconfigured">Google-Login aktuell nicht verfügbar</div>`
-  }
+    if (error) {
+      btn.disabled = false
+      const errEl = document.getElementById('mm-am-error')
+      if (errEl) { errEl.textContent = error.message; errEl.removeAttribute('hidden') }
+    }
+    // Bei Erfolg: Supabase leitet weiter → onAuthStateChange feuert nach Rückkehr
+  })
+  container.innerHTML = ''
+  container.appendChild(btn)
 }
 
 /**
@@ -215,6 +244,12 @@ export function findUserByUsername(username) {
   return u ? { username: u.username } : null
 }
 
+/** Name/Avatar/Bio eines beliebigen Nutzers (nur Offline-Modus, dort liegt die volle User-DB lokal vor). */
+export function getUserRecord(username) {
+  const u = getUsers().find(x => x.username.toLowerCase() === (username || '').trim().toLowerCase())
+  return u ? { name: u.name || u.username, avatar: u.avatar || null, bio: u.bio } : null
+}
+
 /** Live-Suche: Benutzernamen, die mit query beginnen/enthalten (max. 8 Treffer). */
 export function searchUsers(query, { exclude = [] } = {}) {
   const q = (query || '').trim().toLowerCase()
@@ -238,7 +273,14 @@ export function currentUser() {
   const s = getSession(); if (!s) return null
   if (s.guest) return { username: 'Gast', guest: true, ...DEFAULT_PROFILE, name: 'Gast', joinedAt: Date.now(), ...read(LS_GUEST, {}) }
   const u = getUsers().find(x => x.username.toLowerCase() === s.username.toLowerCase())
-  return u ? { ...DEFAULT_PROFILE, ...u, name: u.name || u.username } : null
+  if (u) return { ...DEFAULT_PROFILE, ...u, name: u.name || u.username }
+  // Online-Modus: User ist in Supabase, nicht im lokalen Store → Basis-Profil aus Session
+  // + lokale Overrides für Felder ohne DB-Spalte (Avatar, Bio, Alter, Notif-Einstellungen, …)
+  if (!OFFLINE_MODE && s.username) {
+    const overrides = s.uid ? read(LS_ONLINE_PROFILES, {})[s.uid] : null
+    return { ...DEFAULT_PROFILE, username: s.username, name: s.username, ...overrides }
+  }
+  return null
 }
 
 /* ── Aktionen ──────────────────────────────────────────────────── */
@@ -253,18 +295,12 @@ export async function login(identifier, password) {
   if (identifier.length < 2) return { ok: false, error: 'Benutzername oder E-Mail ist zu kurz.' }
 
   if (!OFFLINE_MODE) {
-    // Benutzername → E-Mail nachschlagen
+    // Benutzername → E-Mail nachschlagen (per RPC, da profiles keine E-Mail-Spalte hat)
     let email = identifier
     if (!identifier.includes('@')) {
-      const { data } = await supabase
-        .from('profiles')
-        .select('id')
-        .ilike('username', identifier)
-        .single()
-      if (!data) return { ok: false, error: 'Kein Konto mit diesem Benutzernamen gefunden.' }
-      // Supabase Auth braucht die E-Mail, die ist in auth.users gespeichert
-      // → wir versuchen es direkt mit der E-Mail aus dem Formular-Hinweis
-      // Fallback: wir lassen Supabase den Fehler zurückgeben
+      const { data: resolvedEmail } = await supabase.rpc('email_for_username', { uname: identifier })
+      if (!resolvedEmail) return { ok: false, error: 'Kein Konto mit diesem Benutzernamen gefunden.' }
+      email = resolvedEmail
     }
     const { data, error } = await supabase.auth.signInWithPassword({ email, password })
     if (error || !data.session) {
@@ -306,29 +342,37 @@ export async function register({ username, password, password2, email = '', age 
       .from('profiles').select('id').ilike('username', username).maybeSingle()
     if (existing) return { ok: false, error: 'Dieser Benutzername ist bereits vergeben.' }
 
-    const { data, error } = await supabase.auth.signUp({ email, password })
-    if (error) {
-      if (error.message.includes('already registered'))
-        return { ok: false, error: 'Diese E-Mail-Adresse wird bereits verwendet.' }
-      return { ok: false, error: error.message }
-    }
-    const uid = data.user?.id
-    if (!uid) return { ok: false, error: 'Registrierung fehlgeschlagen.' }
+    _registering = true
+    try {
+      const { data, error } = await supabase.auth.signUp({ email, password })
+      if (error) {
+        if (error.message.includes('already registered'))
+          return { ok: false, error: 'Diese E-Mail-Adresse wird bereits verwendet.' }
+        return { ok: false, error: error.message }
+      }
+      const uid = data.user?.id
+      if (!uid) return { ok: false, error: 'Registrierung fehlgeschlagen.' }
 
-    // Profil anlegen
-    const { error: profErr } = await supabase.from('profiles').insert({
-      id: uid, username, bio: DEFAULT_PROFILE.bio,
-    })
-    if (profErr) {
-      if (profErr.message.includes('unique')) return { ok: false, error: 'Dieser Benutzername ist bereits vergeben.' }
-      return { ok: false, error: profErr.message }
-    }
+      // Session setzen, damit auth.uid() für die RLS-Policy verfügbar ist
+      if (data.session) await supabase.auth.setSession(data.session)
 
-    if (data.session) {
-      await _onSignedIn(data.session)
-      notify()
+      // Profil anlegen
+      const { error: profErr } = await supabase.from('profiles').insert({
+        id: uid, username, bio: DEFAULT_PROFILE.bio,
+      })
+      if (profErr) {
+        if (profErr.message.includes('unique')) return { ok: false, error: 'Dieser Benutzername ist bereits vergeben.' }
+        return { ok: false, error: profErr.message }
+      }
+
+      if (data.session) {
+        await _onSignedIn(data.session)
+        notify()
+      }
+      return { ok: true, user: { username } }
+    } finally {
+      _registering = false
     }
-    return { ok: true, user: { username } }
   }
 
   // Offline-Modus
@@ -381,17 +425,45 @@ export async function logout() {
 export function updateProfile(patch) {
   const s = getSession(); if (!s) return
   if (s.guest) { write(LS_GUEST, { ...read(LS_GUEST, {}), ...patch }); notify(); return }
+
+  // Name/Bio/Avatar sind dieselbe Identität wie im Community-Profil (dort als
+  // displayName/bio/avatarImg gecacht) — hier spiegeln, sonst zeigt die Community
+  // weiterhin den rohen Benutzernamen statt des im Konto gesetzten Namens.
+  const commPatch = {}
+  if ('name'   in patch) commPatch.displayName = patch.name
+  if ('bio'    in patch) commPatch.bio = patch.bio
+  if ('avatar' in patch) commPatch.avatarImg = patch.avatar
+  if (Object.keys(commPatch).length) setMyProfile(commPatch)
+
+  if (!OFFLINE_MODE && s.uid) {
+    const all = read(LS_ONLINE_PROFILES, {})
+    all[s.uid] = { ...all[s.uid], ...patch }
+    write(LS_ONLINE_PROFILES, all)
+    notify()
+    return
+  }
   const users = getUsers()
   const u = users.find(x => x.username.toLowerCase() === s.username.toLowerCase())
   if (u) { Object.assign(u, patch); saveUsers(users); notify() }
 }
 
 /** Benutzernamen des aktuellen Nutzers ändern (inkl. Session-Update). */
-export function changeUsername(newUsername) {
+export async function changeUsername(newUsername) {
   const s = getSession(); if (!s || s.guest) return { ok: false, error: 'Als Gast nicht möglich.' }
   newUsername = (newUsername || '').trim()
   if (newUsername.length < 2) return { ok: false, error: 'Benutzername ist zu kurz.' }
   if (newUsername.toLowerCase() === s.username.toLowerCase()) return { ok: true }
+
+  if (!OFFLINE_MODE) {
+    const { data: existing } = await supabase.from('profiles').select('id').ilike('username', newUsername).maybeSingle()
+    if (existing) return { ok: false, error: 'Dieser Benutzername ist bereits vergeben.' }
+    const { error } = await supabase.from('profiles').update({ username: newUsername }).eq('id', s.uid)
+    if (error) return { ok: false, error: error.message.includes('unique') ? 'Dieser Benutzername ist bereits vergeben.' : error.message }
+    _sbSession = { ...s, username: newUsername }
+    notify()
+    return { ok: true }
+  }
+
   const users = getUsers()
   if (users.some(x => x.username.toLowerCase() === newUsername.toLowerCase()))
     return { ok: false, error: 'Dieser Benutzername ist bereits vergeben.' }
@@ -405,22 +477,44 @@ export function changeUsername(newUsername) {
 }
 
 /** Passwort des aktuellen Nutzers ändern (prüft das aktuelle Passwort). */
-export function changePassword(currentPassword, newPassword) {
+export async function changePassword(currentPassword, newPassword) {
   const s = getSession(); if (!s || s.guest) return { ok: false, error: 'Als Gast nicht möglich.' }
+  if ((newPassword || '').length < 4) return { ok: false, error: 'Neues Passwort muss mindestens 4 Zeichen haben.' }
+
+  if (!OFFLINE_MODE) {
+    // Aktuelles Passwort über einen Re-Login-Versuch verifizieren
+    const { data: { user } } = await supabase.auth.getUser()
+    const email = user?.email
+    if (!email) return { ok: false, error: 'Dieses Konto ist über Google verknüpft — kein lokales Passwort.' }
+    const { error: verifyErr } = await supabase.auth.signInWithPassword({ email, password: currentPassword })
+    if (verifyErr) return { ok: false, error: 'Aktuelles Passwort ist falsch.' }
+    const { error } = await supabase.auth.updateUser({ password: newPassword })
+    if (error) return { ok: false, error: error.message }
+    return { ok: true }
+  }
+
   const users = getUsers()
   const u = users.find(x => x.username.toLowerCase() === s.username.toLowerCase())
   if (!u) return { ok: false, error: 'Nutzer nicht gefunden.' }
   if (u.password === null) return { ok: false, error: 'Dieses Konto ist über Google verknüpft — kein lokales Passwort.' }
   if (u.password !== currentPassword) return { ok: false, error: 'Aktuelles Passwort ist falsch.' }
-  if ((newPassword || '').length < 4) return { ok: false, error: 'Neues Passwort muss mindestens 4 Zeichen haben.' }
   u.password = newPassword
   saveUsers(users)
   return { ok: true }
 }
 
 /** Konto endgültig löschen (Nutzer aus der DB entfernen + abmelden). */
-export function deleteAccount() {
+export async function deleteAccount() {
   const s = getSession(); if (!s || s.guest) return { ok: false, error: 'Als Gast nicht möglich.' }
+
+  if (!OFFLINE_MODE) {
+    // Echtes Löschen des auth.users-Datensatzes erfordert den Supabase Service-Role-Key
+    // (Admin-API) und ist im Frontend aus Sicherheitsgründen nicht möglich — noch kein
+    // Backend-Endpunkt dafür vorhanden. Bis dahin: nur abmelden, ehrlich fehlschlagen.
+    await logout()
+    return { ok: false, error: 'Konto-Löschung ist in der Beta noch nicht verfügbar. Du wurdest abgemeldet — bitte kontaktiere uns, falls dein Konto entfernt werden soll.' }
+  }
+
   const users = getUsers().filter(x => x.username.toLowerCase() !== s.username.toLowerCase())
   saveUsers(users)
   setSessionRaw(null)
@@ -519,20 +613,22 @@ export function openAuthModal(onDone) {
     overlay.querySelector('#mm-am-cancel').addEventListener('click', () => close(false))
     overlay.querySelector('#mm-am-toggle').addEventListener('click', () => { mode = isLogin ? 'register' : 'login'; render() })
     renderGoogleButton(overlay.querySelector('#mm-am-google-btn'), () => close(true), 'outline')
-    overlay.querySelector('#mm-am-form').addEventListener('submit', e => {
+    overlay.querySelector('#mm-am-form').addEventListener('submit', async e => {
       e.preventDefault()
+      const submitBtn = overlay.querySelector('button[type="submit"]')
+      submitBtn.disabled = true
       const username = overlay.querySelector('#mm-am-user').value
       const password = overlay.querySelector('#mm-am-pass').value
       const res = isLogin
-        ? login(username, password)
-        : register({
+        ? await login(username, password)
+        : await register({
             username, password,
             password2: overlay.querySelector('#mm-am-pass2').value,
             email: overlay.querySelector('#mm-am-email').value,
             age: overlay.querySelector('#mm-am-age').value,
             license: overlay.querySelector('#mm-am-license').value,
           })
-      if (!res.ok) { render(res.error) } else { close(true) }
+      if (!res.ok) { submitBtn.disabled = false; render(res.error) } else { close(true) }
     })
     requestAnimationFrame(() => overlay.querySelector('#mm-am-user')?.focus())
   }

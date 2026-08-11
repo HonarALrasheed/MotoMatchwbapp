@@ -257,3 +257,51 @@ Consent-Klärung + Realtime-Chat-Verifikation warten.
 
 _Erzeugt automatisch von_ `scratchpad/harness/run.mjs` _am_
 `2026-08-11` _—_ Rohdaten in `scratchpad/harness/results.json`
+
+---
+
+## T3.2 — Fix-Runde (2026-08-11)
+
+Priorisierung aus T3.1 abgearbeitet in Reihenfolge P1 → P2 → P3. Jeder Fix
+ein Commit mit `fix(...)`-Prefix bzw. `docs(smoketest)` für Doc-only-Korrekturen.
+
+### Ergebnis pro Punkt
+
+| Punkt | Prio | Ergebnis | Commit |
+|---|---|---|---|
+| P1.1 Garage öffnet nicht via Drawer | P1 | 🟢 War kein Bug — Drawer öffnet designgemäß `#acc-overlay`, mein T3.1-Selector-Check war falsch | `44fe1c5` |
+| P1.2 Karte ohne DSGVO-Consent | P1 | ✅ **Gefixt** — Inline-Placeholder mit "Karte laden"-Button; 0 Requests an `maps.googleapis.com` vor Consent | `4f0cf0f` |
+| P2.1 Impressum-Modal ignoriert Escape | P2 | 🟢 War kein Bug — Impressum/Datenschutz sind static HTML-Seiten, kein Modal | `f939c12` |
+| P2.2 `hero.mp4 → ERR_ABORTED` | P2 | 🟢 War kein Bug — normales Verhalten für autoplay+loop-Video-Range-Requests | `8ff4b86` |
+| P3.1 favicon.ico 404 | P3 | ✅ **Gefixt** — 70-Byte 1×1 valides ICO in `public/favicon.ico` | `9055e94` |
+| P3.2 THREE.Clock deprecated | P3 | ✅ **Gefixt** — auf `THREE.Timer` migriert | `84cc8dd` |
+| P3.3 Google Maps ohne loading=async | P3 | ✅ **Gefixt** — `&loading=async` an Script-URL angehängt | `8c5254d` |
+
+### Zusammenfassung
+
+- **Bugs gefixt:** 4 (P1.2, P3.1, P3.2, P3.3)
+- **Falsch als Bug gemeldet (T3.1-Missdiagnosen):** 3 (P1.1, P2.1, P2.2)
+  — jeweils Doc-Only-Korrektur committed
+- **Noch offen:** 0 aus der T3.1-Fix-Liste
+- **Neue Bugs während der Fix-Runde entdeckt:** 0
+- **Keine Refactorings** — jeder Fix minimal-invasiv, ein Commit pro Fix
+
+### Beta-Launch aus technischer Sicht
+
+**Ja, technisch möglich.** Alle P1-Bugs sind weg:
+- DSGVO-Karten-Consent implementiert und verifiziert
+- Kein Beta-Blocker mehr offen
+
+**Vor dem tatsächlichen Beta-Launch bleiben die T3.1-Manual-QA-Punkte** (die
+sind kein Bug, sondern nicht-automatisierte Verifikationen — sollten aber
+menschlich einmal durchgespielt werden):
+1. Quiz komplett durchklicken → KI-Ergebnis + Match-Cards
+2. Bike-Detail → 3D-Modell + Tabs + "In Garage speichern"
+3. Garage → Wartungseintrag hinzufügen
+4. Karte → Consent akzeptieren + Marker-Popup
+5. Community → Realtime-Chat mit zweitem User + Freund adden + DM
+6. Passwort-Reset komplett via Mail
+7. Feedback-Row in Supabase `beta_feedback` sichten
+
+_T3.2 abgeschlossen — 7 Commits (4× fix, 3× docs)_
+

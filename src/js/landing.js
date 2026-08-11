@@ -359,40 +359,10 @@ export function initLanding() {
         <p class="p-footer-noch">Noch hier</p>
       </div>
       <div class="p-footer-cols">
-        <div class="p-footer-col">
-          <a href="/datenschutz.html" class="p-footer-link">Datenschutz / Cookies</a>
-          <a href="/impressum.html" class="p-footer-link">Impressum</a>
-          <!-- TODO: Zielseite für "Kontakt" noch nicht angelegt -->
-          <span class="p-footer-link p-footer-link--disabled">Kontakt</span>
-          <!-- TODO: Zielseite für "Karriere" noch nicht angelegt -->
-          <span class="p-footer-link p-footer-link--disabled">Karriere</span>
-          <!-- TODO: Zielseite für "Newsroom & Presse" noch nicht angelegt -->
-          <span class="p-footer-link p-footer-link--disabled">Newsroom &amp; Presse</span>
-        </div>
-        <div class="p-footer-col">
-          <!-- TODO: Zielseite für "Investor Relations" noch nicht angelegt -->
-          <span class="p-footer-link p-footer-link--disabled">Investor Relations</span>
-          <!-- TODO: Zielseite für "MotoMatch AG" noch nicht angelegt -->
-          <span class="p-footer-link p-footer-link--disabled">MotoMatch AG</span>
-          <!-- TODO: Zielseite für "Motorrad-Konfigurator" noch nicht angelegt -->
-          <span class="p-footer-link p-footer-link--disabled">Motorrad-Konfigurator</span>
-          <!-- TODO: Zielseite für "Händler finden" noch nicht angelegt -->
-          <span class="p-footer-link p-footer-link--disabled">Händler finden</span>
-          <!-- TODO: Zielseite für "MotoMatch Connect" noch nicht angelegt -->
-          <span class="p-footer-link p-footer-link--disabled">MotoMatch Connect</span>
-        </div>
-        <div class="p-footer-col">
-          <!-- TODO: Zielseite für "MotoMatch Homepage" noch nicht angelegt -->
-          <span class="p-footer-link p-footer-link--disabled">MotoMatch Homepage</span>
-          <!-- TODO: Zielseite für "Motorrad kaufen" noch nicht angelegt -->
-          <span class="p-footer-link p-footer-link--disabled">Motorrad kaufen</span>
-          <!-- TODO: Zielseite für "Motorrad verkaufen" noch nicht angelegt -->
-          <span class="p-footer-link p-footer-link--disabled">Motorrad verkaufen</span>
-          <!-- TODO: Zielseite für "Marktplatz" noch nicht angelegt -->
-          <span class="p-footer-link p-footer-link--disabled">Marktplatz</span>
-          <!-- TODO: Zielseite für "MotoMatch Contact" noch nicht angelegt -->
-          <span class="p-footer-link p-footer-link--disabled">MotoMatch Contact</span>
-        </div>
+        <a href="/impressum.html" class="p-footer-link">Impressum</a>
+        <a href="/datenschutz.html" class="p-footer-link">Datenschutz</a>
+        <a href="mailto:salamhonar2020@gmail.com" class="p-footer-link">Kontakt</a>
+        <a href="mailto:salamhonar2020@gmail.com?subject=MotoMatch%20Beta-Feedback" class="p-footer-link">Feedback</a>
       </div>
       <div class="p-footer-bottom">
         <span class="p-footer-copy">© 2026 MotoMatch AG. Alle Rechte vorbehalten.</span>

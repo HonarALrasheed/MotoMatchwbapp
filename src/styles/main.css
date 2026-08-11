@@ -856,12 +856,11 @@ select.p-auth-input {
   text-transform: uppercase; color: rgba(255,255,255,0.28);
 }
 .p-footer-cols {
-  display: grid; grid-template-columns: repeat(3, 1fr);
-  gap: var(--p-lg);
-  padding: var(--p-sm) clamp(24px, 5vw, 80px) var(--p-lg);
+  display: flex; flex-wrap: wrap; justify-content: center;
+  gap: var(--p-md) var(--p-lg);
+  padding: var(--p-md) clamp(24px, 5vw, 80px) var(--p-lg);
   border-top: 1px solid rgba(255,255,255,0.08);
 }
-.p-footer-col { display: flex; flex-direction: column; gap: 11px; }
 .p-footer-link {
   font-size: 13px; font-weight: 400;
   color: rgba(255,255,255,0.45); text-decoration: none;
@@ -922,9 +921,7 @@ select.p-auth-input {
     overflow: hidden;
   }
 
-  /* Footer: 2 Spalten statt einer langen Linkliste; letzte Spalte spannt voll */
-  .p-footer-cols { grid-template-columns: repeat(2, 1fr); gap: var(--p-md) var(--p-lg); }
-  .p-footer-col:nth-child(3) { grid-column: 1 / -1; }
+  .p-footer-cols { gap: var(--p-sm) var(--p-md); }
 }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {

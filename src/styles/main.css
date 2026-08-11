@@ -9979,3 +9979,76 @@ select.mmc-input option { background: #111; color: #fff; }
 /* ── Ignored users ──────────────────────────────────────────────── */
 .mmc-dm--ignored { opacity: 0.5; }
 .mmc-friend-row--ignored { opacity: 0.45; }
+
+/* ═══════════════════════════════════════════
+   LANDING — repositioned (new & existing riders)
+   ═══════════════════════════════════════════ */
+.p-hero-ctas {
+  display: flex; flex-wrap: wrap; gap: 12px;
+}
+.p-hero-btn--primary {
+  background: #fff; color: #111;
+  border-color: #fff;
+}
+.p-hero-btn--primary:hover {
+  background: rgba(255,255,255,0.88);
+  border-color: #fff;
+}
+.p-hero-btn--secondary {
+  background: transparent; color: #fff;
+  border-color: rgba(255,255,255,0.7);
+}
+.p-hero-btn--secondary:hover {
+  background: rgba(255,255,255,0.12);
+  border-color: #fff;
+}
+
+.p-lifestyle-cards--4 { grid-template-columns: repeat(4, 1fr); }
+.p-lifestyle-cards--4 .p-lifestyle-card { cursor: pointer; }
+@media (max-width: 900px) {
+  .p-lifestyle-cards--4 { grid-template-columns: repeat(2, 1fr); }
+}
+
+/* Chooser overlay */
+.p-chooser-overlay {
+  position: fixed; inset: 0; z-index: 9998;
+  background: rgba(0,0,0,0.55);
+  display: flex; align-items: center; justify-content: center;
+  opacity: 0; pointer-events: none;
+  transition: opacity 0.2s ease;
+}
+.p-chooser-overlay.open { opacity: 1; pointer-events: auto; }
+.p-chooser-panel {
+  position: relative;
+  background: #fff; color: #111;
+  width: min(92vw, 380px);
+  padding: 28px 24px 20px;
+  border-radius: 4px;
+  box-shadow: 0 24px 60px rgba(0,0,0,0.35);
+  transform: translateY(8px);
+  transition: transform 0.2s ease;
+}
+.p-chooser-overlay.open .p-chooser-panel { transform: translateY(0); }
+.p-chooser-close {
+  position: absolute; top: 6px; right: 10px;
+  background: transparent; border: 0; font-size: 26px;
+  color: #666; cursor: pointer; line-height: 1;
+}
+.p-chooser-title {
+  font-family: var(--p-font);
+  font-size: 15px; font-weight: 500;
+  letter-spacing: 0.08em; text-transform: uppercase;
+  margin-bottom: 16px; color: #111;
+}
+.p-chooser-list { display: flex; flex-direction: column; gap: 8px; }
+.p-chooser-item {
+  text-align: left; padding: 14px 16px;
+  background: #f5f5f5; color: #111;
+  border: 1px solid transparent;
+  font-family: var(--p-font); font-size: 14px;
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+.p-chooser-item:hover {
+  background: #ececec; border-color: #d0d0d0;
+}

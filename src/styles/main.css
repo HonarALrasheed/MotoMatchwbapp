@@ -2167,7 +2167,9 @@ select.p-auth-input {
 }
 .tb-bar {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
+  justify-content: center;
   gap: clamp(1px, 0.6vw, 10px);
   background: #fff;
   border-radius: 18px;
@@ -2214,10 +2216,7 @@ select.p-auth-input {
   border-radius: 12px;
   cursor: pointer;
   white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  flex: 1;
-  min-width: 0;
+  flex: 1 1 auto;
   text-align: center;
   letter-spacing: 0.01em;
   transition: background 0.4s cubic-bezier(0.4,0,0.2,1), color 0.4s cubic-bezier(0.4,0,0.2,1);

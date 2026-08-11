@@ -111,18 +111,16 @@ neue Regressionen vermieden werden).
 
 | Step | Status | Screenshot | Notiz |
 |---|---|---|---|
-| E01 Drawer → "Karte" | ✅ | `T3.1-E-01-open-map.png` | Kartenscreen öffnet |
-| E02 Map-Container prüfen | ✅ | `T3.1-E-02-check-map-container.png` | `.leaflet-container` **oder** ähnliches vorhanden (mapEl=true), **kein Consent-Button erschien** |
+| E01 Karte öffnen (Hub-Bereich) | ✅ | `T3.2-E-01-consent-placeholder.png` | **T3.2-Fix:** Consent-Placeholder erscheint, 0 Requests an `maps.googleapis.com` |
+| E02 Consent akzeptieren | ✅ | `T3.2-E-02-consent-accepted.png` | **T3.2-Fix:** Klick auf "Karte laden" → Google Maps wird geladen (2 Requests), `mm_maps_consent_v1=1` persistiert |
 
-- ⚠️ **Consent-Modal fehlt / greift nicht:** Task-Spec verlangt "Karte
-  öffnen → Consent akzeptieren → Marker". Automation fand keinen Consent-
-  Button. Zwei Möglichkeiten:
-  - Consent wurde bereits automatisch gesetzt (z.B. Google-Maps-Loader ohne
-    User-Zustimmung geladen) — dann **DSGVO-Risiko** vor Launch prüfen.
-  - Consent-Modal ist implementiert, aber via anderem Selektor. Manuell
-    verifizieren.
+- ✅ **DSGVO-Gate implementiert** (T3.2 Commit): Vor jedem Google-Maps-Load
+  fragt jetzt ein Inline-Placeholder um Zustimmung. Preloads in
+  `openBikeGarage`/`openBikeGarageWithMatches` sind ebenfalls hinter dem
+  Consent-Gate. Zustimmung wird in `localStorage.mm_maps_consent_v1`
+  persistiert.
 - 🧪 Marker-Klick + Popup: nicht automatisiert. Vor Beta manuell testen.
-- ⚠️ Google-Maps-Warning (async-Loading, siehe global).
+- ⚠️ Google-Maps-Warning (async-Loading, siehe global — separater P3-Fix).
 
 ---
 

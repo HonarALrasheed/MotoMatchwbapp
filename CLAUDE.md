@@ -1,8 +1,17 @@
 # MotoMatch — CLAUDE.md
 
+## Aktueller Fokus (2026-08-11)
+Ziel ist eine **geschlossene Beta für 10–30 Bekannte** aus dem Motorrad-Umfeld
+mit **0 € Fixkosten** (nur Free-Tiers), Zeitbudget ~20 h/Woche.
+- Ist-Zustand und Feature-Inventar: [docs/STATUS.md](docs/STATUS.md)
+- Aufgabenliste, Meilensteine, was raus- und was rein muss: [docs/ROADMAP-BETA.md](docs/ROADMAP-BETA.md)
+- Bewusst aus Beta-Scope: Voice/Talks, Marketplace, Shop, Quests, QR-Login, OAuth
+- Beta-Blocker mit höchster Priorität: Git-Hygiene (nur 2 Commits, 16 dirty files),
+  Sentry, Google-Maps-Key-Restriction, Rate-Limit auf `api/*`, Passwort-Reset-Flow
+
 ## Projekt
 Web-App für Motorradfahrer:innen: passendes Bike finden (Quiz + Matching), Modelle vergleichen (3D-Ansicht), Ausrüstung, Karte (Händler/Werkstätten), Community im Discord-Stil.
-**Status:** Frontend-Prototyp ohne Backend — alle Daten liegen in `localStorage`.
+**Status:** Frontend + Supabase-Backend (Auth, Postgres, Realtime) live-fähig; `OFFLINE_MODE`-Fallback auf `localStorage` bleibt für Dev ohne Keys. Ziel: Closed Beta.
 
 ## Tech-Stack
 | Bereich | Technologie |
@@ -80,3 +89,13 @@ Wichtigste Module in `src/js/`:
 
 ## Arbeitsregeln
 - **Beim Kompaktieren immer die Liste geänderter Dateien und offene TODOs erhalten.**
+- Bei Zweifel zu Scope oder Priorisierung: erst [docs/ROADMAP-BETA.md](docs/ROADMAP-BETA.md) lesen, dann handeln.
+- Keine neuen Features vor Abschluss von **Phase 0 (Sicherheitsnetz)** in der Roadmap.
+- Vor jedem Beginn: `git status` — wenn dirty, erst committen. Nie mehr als eine Aufgabe pro Commit sammeln.
+
+## Bekannte Karteileichen (nicht auf denen aufbauen)
+- [`src/js/map-view.js`](src/js/map-view.js) — nirgendwo importiert, wird gelöscht (T1.1 in Roadmap)
+- `CLAUDE.md.backup` — alt, wird gelöscht
+- Windows-Asset-Kopie in [`vite.config.js`](vite.config.js) L6–70 — inert auf macOS, wird entfernt
+- localStorage-Duplikate: `mm_gear_favs`/`mm_kv_favs`, `mm_comm_friends_v1`/`v2`, `mm_comm_prefs`/`_v1` (T1.4)
+- 13 Footer-TODO-Links in [`src/js/landing.js`](src/js/landing.js) L365–393 (T1.2)

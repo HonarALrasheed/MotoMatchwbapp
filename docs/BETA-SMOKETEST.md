@@ -195,7 +195,7 @@ neue Regressionen vermieden werden).
 
 ---
 
-## Flow J — Landing + Footer ⚠️
+## Flow J — Landing + Footer ✅
 
 | Step | Status | Screenshot | Notiz |
 |---|---|---|---|
@@ -203,12 +203,7 @@ neue Regressionen vermieden werden).
 | J02 Onboarding skippen | ✅ | `T3.1-J-02-kill-onboarding.png` | Overlay entfernt |
 | J03 Zum Footer scrollen | ✅ | `T3.1-J-03-footer-visible.png` | `Impressum`, `Datenschutz`, `Kontakt`, `Feedback` als `.p-footer-link` sichtbar |
 | J04 Impressum öffnen | ✅ | `T3.1-J-04-open-impressum.png` | Overlay mit Impressum-Inhalt lädt |
-| J05 Datenschutz öffnen | ⚠️ | `T3.1-J-05-open-datenschutz.png` | Impressum-Modal blockiert Nachfolgeklick — `Escape` schließt es nicht |
-
-- ⚠️ **Bug (klein):** Das Impressum-Overlay lässt sich per `Escape`-Taste
-  nicht schließen. User muss explizit den Close-Button verwenden. Erwartetes
-  Verhalten: `Escape` schließt Modals (Konvention). Non-blocking, aber
-  Accessibility-Papercut. Prüfen ob Datenschutz-Modal dasselbe Verhalten hat.
+| J05 Datenschutz öffnen | ✅ | `T3.1-J-05-open-datenschutz.png` | Beide Legal-Links sind static HTML (`public/impressum.html`, `public/datenschutz.html` — beide HTTP 200). Kein Modal, kein Escape-Handling nötig. T3.1-Warnung war Automations-Artefakt (nach Impressum-Klick war Puppeteer auf einer anderen Seite). |
 - ⚠️ **Cookies-/Consent-Banner** wurde bei keinem Landing-Load beobachtet
   — falls die App Third-Party-Ressourcen (Google Fonts, Google Maps, YouTube
   Embeds) lädt, könnte das ein **DSGVO-Problem** vor Launch sein. Manuell

@@ -1,0 +1,367 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Datenschutz & Cookies – MotoMatch</title>
+  <style>
+    @font-face { font-family: 'Barlow'; font-style: normal; font-weight: 400; font-display: swap; src: url('/fonts/barlow-400.woff2') format('woff2'); }
+    @font-face { font-family: 'Barlow'; font-style: normal; font-weight: 600; font-display: swap; src: url('/fonts/barlow-600.woff2') format('woff2'); }
+    @font-face { font-family: 'Barlow'; font-style: normal; font-weight: 700; font-display: swap; src: url('/fonts/barlow-700.woff2') format('woff2'); }
+
+    :root {
+      --bg: #0a0a0a;
+      --surface: #111111;
+      --border: rgba(255,255,255,0.06);
+      --gold: #c9a84c;
+      --text: #ffffff;
+      --text-dim: rgba(255,255,255,0.45);
+      --font: "Barlow", "Arial Narrow", Arial, sans-serif;
+    }
+
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: var(--font);
+      font-size: 15px;
+      line-height: 1.7;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+    }
+
+    /* ── Nav ── */
+    .nav {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 20px clamp(24px, 5vw, 80px);
+      border-bottom: 1px solid var(--border);
+      background: rgba(10,10,10,0.95);
+      position: sticky;
+      top: 0;
+      z-index: 10;
+      backdrop-filter: blur(20px);
+    }
+    .nav-logo {
+      font-size: 13px;
+      font-weight: 700;
+      letter-spacing: 0.28em;
+      text-transform: uppercase;
+      color: rgba(255,255,255,0.9);
+      text-decoration: none;
+    }
+    .nav-back {
+      font-size: 12px;
+      font-weight: 400;
+      letter-spacing: 0.08em;
+      color: var(--text-dim);
+      text-decoration: none;
+      text-transform: uppercase;
+      transition: color 0.2s;
+    }
+    .nav-back:hover { color: #fff; }
+
+    /* ── Main ── */
+    main {
+      flex: 1;
+      max-width: 760px;
+      width: 100%;
+      margin: 0 auto;
+      padding: clamp(40px, 7vw, 96px) clamp(24px, 5vw, 48px);
+    }
+
+    .page-label {
+      font-size: 11px;
+      font-weight: 600;
+      letter-spacing: 0.15em;
+      text-transform: uppercase;
+      color: var(--gold);
+      margin-bottom: 16px;
+    }
+
+    h1 {
+      font-size: clamp(28px, 4vw, 44px);
+      font-weight: 700;
+      letter-spacing: 0.02em;
+      line-height: 1.15;
+      margin-bottom: 48px;
+    }
+
+    section {
+      margin-bottom: 40px;
+      padding-bottom: 40px;
+      border-bottom: 1px solid var(--border);
+    }
+    section:last-child {
+      border-bottom: none;
+    }
+
+    h2 {
+      font-size: 13px;
+      font-weight: 600;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      color: rgba(255,255,255,0.5);
+      margin-bottom: 16px;
+    }
+
+    h3 {
+      font-size: 14px;
+      font-weight: 600;
+      color: rgba(255,255,255,0.8);
+      margin: 20px 0 8px;
+    }
+
+    p {
+      color: rgba(255,255,255,0.75);
+      margin-bottom: 10px;
+    }
+    p:last-child { margin-bottom: 0; }
+
+    ul {
+      color: rgba(255,255,255,0.75);
+      padding-left: 20px;
+      margin-bottom: 10px;
+    }
+    li { margin-bottom: 6px; }
+
+    .placeholder {
+      display: inline;
+      background: rgba(201,168,76,0.15);
+      border: 1px solid rgba(201,168,76,0.4);
+      border-radius: 3px;
+      color: var(--gold);
+      font-weight: 600;
+      padding: 1px 6px;
+      font-size: 0.9em;
+    }
+
+    .service-card {
+      background: #111;
+      border: 1px solid rgba(255,255,255,0.08);
+      border-radius: 8px;
+      padding: 16px 20px;
+      margin-bottom: 12px;
+    }
+    .service-card h3 { margin-top: 0; }
+    .service-card p { font-size: 13px; }
+
+    a {
+      color: var(--gold);
+      text-decoration: none;
+      transition: opacity 0.2s;
+    }
+    a:hover { opacity: 0.75; }
+
+    /* ── Footer ── */
+    footer {
+      background: #1a1a1a;
+      padding: 24px clamp(24px, 5vw, 80px);
+      border-top: 1px solid rgba(255,255,255,0.08);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 16px;
+      flex-wrap: wrap;
+    }
+    .footer-copy {
+      font-size: 12px;
+      color: rgba(255,255,255,0.22);
+    }
+    .footer-links {
+      display: flex;
+      gap: 24px;
+    }
+    .footer-links a {
+      font-size: 12px;
+      color: rgba(255,255,255,0.4);
+      text-decoration: none;
+      transition: color 0.2s;
+    }
+    .footer-links a:hover { color: #fff; }
+    .footer-links a[aria-current="page"] {
+      color: rgba(255,255,255,0.7);
+    }
+  </style>
+</head>
+<body>
+
+  <nav class="nav">
+    <a href="/" class="nav-logo">MotoMatch</a>
+    <a href="/" class="nav-back">← Zurück</a>
+  </nav>
+
+  <main>
+    <p class="page-label">Rechtliches</p>
+    <h1>Datenschutz & Cookies</h1>
+
+    <section>
+      <h2>1. Verantwortliche Stelle</h2>
+      <p>
+        Verantwortlich für die Datenverarbeitung auf dieser Website ist:<br><br>
+        <span class="placeholder">[Name des Betreibers / der Gesellschaft]</span><br>
+        <span class="placeholder">[Straße und Hausnummer]</span><br>
+        <span class="placeholder">[PLZ Ort]</span><br>
+        E-Mail: <span class="placeholder">[datenschutz@example.com]</span>
+      </p>
+    </section>
+
+    <section>
+      <h2>2. Allgemeines zur Datenverarbeitung</h2>
+      <p>
+        Wir verarbeiten personenbezogene Daten unserer Nutzer grundsätzlich nur, soweit dies
+        zur Bereitstellung einer funktionsfähigen Website sowie unserer Inhalte und Leistungen
+        erforderlich ist. Die Verarbeitung personenbezogener Daten erfolgt regelmäßig nur nach
+        Einwilligung des Nutzers. Eine Ausnahme gilt in solchen Fällen, in denen eine
+        vorherige Einholung einer Einwilligung aus tatsächlichen Gründen nicht möglich ist und
+        die Verarbeitung der Daten durch gesetzliche Vorschriften gestattet ist.
+      </p>
+      <p>Rechtsgrundlagen: Art. 6 Abs. 1 lit. a, b, f DSGVO.</p>
+    </section>
+
+    <section>
+      <h2>3. Eingesetzte Dienste & Drittanbieter</h2>
+      <p>
+        MotoMatch nutzt folgende externe Dienste. Bitte ersetze diese Liste durch die tatsächlich
+        im Produktionsbetrieb aktiven Dienste und prüfe, ob Einwilligungen (Consent) erforderlich sind.
+      </p>
+
+      <div class="service-card">
+        <h3>Supabase</h3>
+        <p>
+          Betreiber: Supabase Inc., San Francisco, CA, USA.<br>
+          Zweck: Authentifizierung, Datenbankabfragen (Nutzerdaten, Favoriten, Sitzungen).<br>
+          Datenschutzerklärung: <a href="https://supabase.com/privacy" target="_blank" rel="noopener">supabase.com/privacy</a><br>
+          Rechtsgrundlage: Art. 6 Abs. 1 lit. b DSGVO (Vertragserfüllung).
+        </p>
+      </div>
+
+      <div class="service-card">
+        <h3>OpenAI API</h3>
+        <p>
+          Betreiber: OpenAI, L.L.C., San Francisco, CA, USA.<br>
+          Zweck: KI-gestützte Motorrad-Empfehlungen und Chatfunktion.<br>
+          Datenschutzerklärung: <a href="https://openai.com/privacy" target="_blank" rel="noopener">openai.com/privacy</a><br>
+          Rechtsgrundlage: Art. 6 Abs. 1 lit. f DSGVO (berechtigtes Interesse).<br>
+          <span class="placeholder">[Prüfen: Werden Nutzereingaben an OpenAI übermittelt? Falls ja, Hinweis und ggf. Einwilligung erforderlich.]</span>
+        </p>
+      </div>
+
+      <div class="service-card">
+        <h3>Tavily Search API</h3>
+        <p>
+          Betreiber: <span class="placeholder">[Tavily Inc. – Betreiberangaben prüfen]</span>.<br>
+          Zweck: Echtzeit-Websuche für Motorradinformationen.<br>
+          Datenschutzerklärung: <span class="placeholder">[Link zur Datenschutzerklärung von Tavily einfügen]</span>.<br>
+          Rechtsgrundlage: Art. 6 Abs. 1 lit. f DSGVO.
+        </p>
+      </div>
+
+      <div class="service-card">
+        <h3>Google Maps / Maps Embed API</h3>
+        <p>
+          Betreiber: Google Ireland Limited, Gordon House, Barrow Street, Dublin 4, Irland.<br>
+          Zweck: Anzeige von Händlerstandorten und Kartenansichten.<br>
+          Datenschutzerklärung: <a href="https://policies.google.com/privacy" target="_blank" rel="noopener">policies.google.com/privacy</a><br>
+          Rechtsgrundlage: Art. 6 Abs. 1 lit. a DSGVO (Einwilligung).<br>
+          <span class="placeholder">[Hinweis: Google Maps überträgt beim Laden die IP-Adresse des Nutzers an Google. Ggf. 2-Klick-Lösung oder Consent-Gate implementieren.]</span>
+        </p>
+      </div>
+
+      <div class="service-card">
+        <h3>Open-Meteo</h3>
+        <p>
+          Betreiber: Open-Meteo GmbH, Schweiz (Open-Source-Wetter-API).<br>
+          Zweck: Anzeige von Wetterdaten (z. B. für Routenplanung).<br>
+          Datenschutzerklärung: <a href="https://open-meteo.com/en/terms" target="_blank" rel="noopener">open-meteo.com/en/terms</a><br>
+          Rechtsgrundlage: Art. 6 Abs. 1 lit. f DSGVO.<br>
+          <span class="placeholder">[Prüfen: Wird der Standort des Nutzers übertragen? Falls ja, Einwilligung oder zumindest Hinweis erforderlich.]</span>
+        </p>
+      </div>
+
+      <div class="service-card">
+        <h3>Google Fonts (lokal)</h3>
+        <p>
+          Die Schriftarten (Barlow, Bebas Neue u. a.) werden lokal vom eigenen Server ausgeliefert
+          — es findet keine Verbindung zu Google-Servern statt.<br>
+          <span class="placeholder">[Prüfen: Sind tatsächlich ALLE Fonts lokal eingebunden? Falls Google Fonts noch remote geladen werden, hier entsprechend anpassen und Einwilligung vorsehen.]</span>
+        </p>
+      </div>
+
+      <div class="service-card">
+        <h3><span class="placeholder">[Weiterer Dienst]</span></h3>
+        <p>
+          <span class="placeholder">[Betreiber, Zweck, Datenschutzerklärung und Rechtsgrundlage eintragen.]</span>
+        </p>
+      </div>
+    </section>
+
+    <section>
+      <h2>4. Hosting & Server-Logfiles</h2>
+      <p>
+        Diese Website wird gehostet bei: <span class="placeholder">[Hosting-Anbieter, z. B. Vercel Inc., 340 Pine Street, San Francisco, CA 94104, USA]</span>.
+      </p>
+      <p>
+        Der Hosting-Anbieter erhebt automatisch sog. Server-Logfiles, die Ihr Browser übermittelt.
+        Dies sind u. a.: Browsertyp und -version, verwendetes Betriebssystem, Referrer-URL,
+        Hostname des zugreifenden Rechners, Uhrzeit der Serveranfrage und IP-Adresse.
+        Eine Zusammenführung dieser Daten mit anderen Datenquellen wird nicht vorgenommen.
+        Rechtsgrundlage: Art. 6 Abs. 1 lit. f DSGVO.
+      </p>
+    </section>
+
+    <section>
+      <h2>5. Cookies</h2>
+      <p>
+        MotoMatch verwendet technisch notwendige Cookies (z. B. für die Sitzungsverwaltung via Supabase).
+        Diese Cookies sind für den Betrieb der Website erforderlich und können nicht deaktiviert werden.
+      </p>
+      <p>
+        <span class="placeholder">[Falls weitere Cookies (Analytics, Marketing) eingesetzt werden, hier aufführen und ein Consent-Banner implementieren.]</span>
+      </p>
+    </section>
+
+    <section>
+      <h2>6. Nutzerrechte</h2>
+      <p>Sie haben gegenüber uns folgende Rechte hinsichtlich der Sie betreffenden personenbezogenen Daten:</p>
+      <ul>
+        <li>Recht auf Auskunft (Art. 15 DSGVO)</li>
+        <li>Recht auf Berichtigung (Art. 16 DSGVO)</li>
+        <li>Recht auf Löschung (Art. 17 DSGVO)</li>
+        <li>Recht auf Einschränkung der Verarbeitung (Art. 18 DSGVO)</li>
+        <li>Recht auf Datenübertragbarkeit (Art. 20 DSGVO)</li>
+        <li>Recht auf Widerspruch gegen die Verarbeitung (Art. 21 DSGVO)</li>
+      </ul>
+      <p>
+        Zur Geltendmachung Ihrer Rechte wenden Sie sich bitte an:
+        <span class="placeholder">[datenschutz@example.com]</span>
+      </p>
+      <p>
+        Sie haben zudem das Recht, sich bei einer Datenschutz-Aufsichtsbehörde zu beschweren.
+        Die zuständige Behörde richtet sich nach Ihrem Wohnort bzw. dem Sitz des Unternehmens.
+      </p>
+    </section>
+
+    <section>
+      <h2>7. Aktualität dieser Datenschutzerklärung</h2>
+      <p>
+        Stand: <span class="placeholder">[Datum eintragen, z. B. August 2026]</span><br>
+        Wir behalten uns vor, diese Datenschutzerklärung bei Bedarf zu aktualisieren,
+        um sie an geänderte Rechtslagen oder Änderungen unserer Dienste anzupassen.
+      </p>
+    </section>
+  </main>
+
+  <footer>
+    <span class="footer-copy">© 2026 MotoMatch. Alle Rechte vorbehalten.</span>
+    <div class="footer-links">
+      <a href="/impressum.html">Impressum</a>
+      <a href="/datenschutz.html" aria-current="page">Datenschutz</a>
+    </div>
+  </footer>
+
+</body>
+</html>

@@ -1,0 +1,262 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Impressum – MotoMatch</title>
+  <style>
+    @font-face { font-family: 'Barlow'; font-style: normal; font-weight: 400; font-display: swap; src: url('/fonts/barlow-400.woff2') format('woff2'); }
+    @font-face { font-family: 'Barlow'; font-style: normal; font-weight: 600; font-display: swap; src: url('/fonts/barlow-600.woff2') format('woff2'); }
+    @font-face { font-family: 'Barlow'; font-style: normal; font-weight: 700; font-display: swap; src: url('/fonts/barlow-700.woff2') format('woff2'); }
+
+    :root {
+      --bg: #0a0a0a;
+      --surface: #111111;
+      --border: rgba(255,255,255,0.06);
+      --gold: #c9a84c;
+      --text: #ffffff;
+      --text-dim: rgba(255,255,255,0.45);
+      --font: "Barlow", "Arial Narrow", Arial, sans-serif;
+    }
+
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: var(--font);
+      font-size: 15px;
+      line-height: 1.7;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+    }
+
+    /* ── Nav ── */
+    .nav {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 20px clamp(24px, 5vw, 80px);
+      border-bottom: 1px solid var(--border);
+      background: rgba(10,10,10,0.95);
+      position: sticky;
+      top: 0;
+      z-index: 10;
+      backdrop-filter: blur(20px);
+    }
+    .nav-logo {
+      font-size: 13px;
+      font-weight: 700;
+      letter-spacing: 0.28em;
+      text-transform: uppercase;
+      color: rgba(255,255,255,0.9);
+      text-decoration: none;
+    }
+    .nav-back {
+      font-size: 12px;
+      font-weight: 400;
+      letter-spacing: 0.08em;
+      color: var(--text-dim);
+      text-decoration: none;
+      text-transform: uppercase;
+      transition: color 0.2s;
+    }
+    .nav-back:hover { color: #fff; }
+
+    /* ── Main ── */
+    main {
+      flex: 1;
+      max-width: 760px;
+      width: 100%;
+      margin: 0 auto;
+      padding: clamp(40px, 7vw, 96px) clamp(24px, 5vw, 48px);
+    }
+
+    .page-label {
+      font-size: 11px;
+      font-weight: 600;
+      letter-spacing: 0.15em;
+      text-transform: uppercase;
+      color: var(--gold);
+      margin-bottom: 16px;
+    }
+
+    h1 {
+      font-size: clamp(28px, 4vw, 44px);
+      font-weight: 700;
+      letter-spacing: 0.02em;
+      line-height: 1.15;
+      margin-bottom: 48px;
+    }
+
+    section {
+      margin-bottom: 40px;
+      padding-bottom: 40px;
+      border-bottom: 1px solid var(--border);
+    }
+    section:last-child {
+      border-bottom: none;
+    }
+
+    h2 {
+      font-size: 13px;
+      font-weight: 600;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      color: rgba(255,255,255,0.5);
+      margin-bottom: 16px;
+    }
+
+    p {
+      color: rgba(255,255,255,0.75);
+      margin-bottom: 10px;
+    }
+    p:last-child { margin-bottom: 0; }
+
+    .placeholder {
+      display: inline;
+      background: rgba(201,168,76,0.15);
+      border: 1px solid rgba(201,168,76,0.4);
+      border-radius: 3px;
+      color: var(--gold);
+      font-weight: 600;
+      padding: 1px 6px;
+      font-size: 0.9em;
+    }
+
+    a {
+      color: var(--gold);
+      text-decoration: none;
+      transition: opacity 0.2s;
+    }
+    a:hover { opacity: 0.75; }
+
+    /* ── Footer ── */
+    footer {
+      background: #1a1a1a;
+      padding: 24px clamp(24px, 5vw, 80px);
+      border-top: 1px solid rgba(255,255,255,0.08);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 16px;
+      flex-wrap: wrap;
+    }
+    .footer-copy {
+      font-size: 12px;
+      color: rgba(255,255,255,0.22);
+    }
+    .footer-links {
+      display: flex;
+      gap: 24px;
+    }
+    .footer-links a {
+      font-size: 12px;
+      color: rgba(255,255,255,0.4);
+      text-decoration: none;
+      transition: color 0.2s;
+    }
+    .footer-links a:hover { color: #fff; }
+    .footer-links a[aria-current="page"] {
+      color: rgba(255,255,255,0.7);
+    }
+  </style>
+</head>
+<body>
+
+  <nav class="nav">
+    <a href="/" class="nav-logo">MotoMatch</a>
+    <a href="/" class="nav-back">← Zurück</a>
+  </nav>
+
+  <main>
+    <p class="page-label">Rechtliches</p>
+    <h1>Impressum</h1>
+
+    <section>
+      <h2>Angaben gemäß § 5 TMG</h2>
+      <p>
+        <span class="placeholder">[Name des Betreibers / der Gesellschaft]</span><br>
+        <span class="placeholder">[Straße und Hausnummer]</span><br>
+        <span class="placeholder">[PLZ Ort]</span><br>
+        <span class="placeholder">[Land]</span>
+      </p>
+    </section>
+
+    <section>
+      <h2>Kontakt</h2>
+      <p>
+        Telefon: <span class="placeholder">[+49 ...]</span><br>
+        E-Mail: <span class="placeholder">[kontakt@example.com]</span>
+      </p>
+    </section>
+
+    <section>
+      <h2>Vertretungsberechtigte Person(en)</h2>
+      <p>
+        <span class="placeholder">[Vor- und Nachname der vertretungsberechtigten Person(en)]</span>
+      </p>
+    </section>
+
+    <section>
+      <h2>Registereintrag</h2>
+      <p>
+        Handelsregister: <span class="placeholder">[Amtsgericht ...]</span><br>
+        Registernummer: <span class="placeholder">[HRB ...]</span>
+      </p>
+      <p><em>Entfällt dieser Abschnitt, falls kein Handelsregistereintrag besteht.</em></p>
+    </section>
+
+    <section>
+      <h2>Umsatzsteuer-ID</h2>
+      <p>
+        Umsatzsteuer-Identifikationsnummer gemäß § 27 a Umsatzsteuergesetz:<br>
+        <span class="placeholder">[DE ...]</span>
+      </p>
+      <p><em>Entfällt, falls nicht umsatzsteuerpflichtig.</em></p>
+    </section>
+
+    <section>
+      <h2>Verantwortlich für den Inhalt nach § 55 Abs. 2 RStV</h2>
+      <p>
+        <span class="placeholder">[Vor- und Nachname]</span><br>
+        <span class="placeholder">[Straße und Hausnummer]</span><br>
+        <span class="placeholder">[PLZ Ort]</span>
+      </p>
+    </section>
+
+    <section>
+      <h2>Streitschlichtung</h2>
+      <p>
+        Die Europäische Kommission stellt eine Plattform zur Online-Streitbeilegung (OS) bereit:
+        <a href="https://ec.europa.eu/consumers/odr/" target="_blank" rel="noopener">https://ec.europa.eu/consumers/odr/</a>
+      </p>
+      <p>
+        Unsere E-Mail-Adresse finden Sie oben im Impressum. Wir sind nicht bereit oder verpflichtet,
+        an Streitbeilegungsverfahren vor einer Verbraucherschlichtungsstelle teilzunehmen.
+      </p>
+    </section>
+
+    <section>
+      <h2>Haftung für Inhalte</h2>
+      <p>
+        Als Diensteanbieter sind wir gemäß § 7 Abs. 1 TMG für eigene Inhalte auf diesen Seiten
+        nach den allgemeinen Gesetzen verantwortlich. Nach §§ 8 bis 10 TMG sind wir als
+        Diensteanbieter jedoch nicht unter der Verpflichtung, übermittelte oder gespeicherte
+        fremde Informationen zu überwachen oder nach Umständen zu forschen, die auf eine
+        rechtswidrige Tätigkeit hinweisen.
+      </p>
+    </section>
+  </main>
+
+  <footer>
+    <span class="footer-copy">© 2026 MotoMatch. Alle Rechte vorbehalten.</span>
+    <div class="footer-links">
+      <a href="/impressum.html" aria-current="page">Impressum</a>
+      <a href="/datenschutz.html">Datenschutz</a>
+    </div>
+  </footer>
+
+</body>
+</html>

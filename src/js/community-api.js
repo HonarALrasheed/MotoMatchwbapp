@@ -65,7 +65,8 @@ let _msgReports     = []
 let _userReports    = []
 
 /* Aktive Realtime-Subscriptions */
-let _realtimeSubs = []
+let _realtimeSubs = []   // per-Chat (wechseln beim Öffnen eines anderen Chats)
+let _globalSubs   = []   // Inbox-weit (bleiben aktiv, solange eingeloggt)
 
 /* Callback-Hook für community.js, um auf neue Nachrichten zu reagieren */
 let _onNewMessage = null
@@ -101,7 +102,10 @@ export async function initCommunityData(uid, username) {
   } catch (err) {
     console.error('[API] Init-Fehler, falle auf localStorage zurück:', err)
     _loadFromLocalStorage()
+    return
   }
+
+  _subscribeGlobalInbox()
 }
 
 function _loadFromLocalStorage() {
@@ -320,51 +324,58 @@ let _activeDMThread  = null  // dm_thread-String des offenen DMs
 export function subscribeToChannel(channelId, dmThread) {
   _activeChannelId = channelId
   _activeDMThread  = dmThread
+  // Nachrichten-Live-Push läuft komplett über das globale Inbox-Abo
+  // (_subscribeGlobalInbox). Diese Funktion bleibt als API-Signal,
+  // welcher Chat gerade offen ist (z. B. für UI-Fokus / gelesen-Marker).
+}
 
-  if (OFFLINE_MODE || !supabase) return
+/**
+ * Globales Abo für ALLE für mich relevanten Message-Inserts.
+ * RLS filtert bereits serverseitig auf Zeilen, die ich sehen darf
+ * (msg_select_channel / msg_select_dm), sodass ein Filter-loses Abo
+ * hier keine fremden Nachrichten liefert.
+ * Wird einmal beim Login gestartet, überlebt Chat-Wechsel.
+ */
+function _subscribeGlobalInbox() {
+  if (OFFLINE_MODE || !supabase || !_myUid) return
 
-  // Alte Subs abräumen
-  unsubscribeAll()
+  // Falls bereits aktiv (z. B. Re-Init nach Reconnect): erst abräumen
+  for (const sub of _globalSubs) {
+    try { supabase.removeChannel(sub) } catch {}
+  }
+  _globalSubs = []
 
-  const filter = channelId
-    ? `channel_id=eq.${channelId}`
-    : `dm_thread=eq.${dmThread}`
-
-  const msgSub = supabase.channel('messages-' + (channelId || dmThread))
+  const msgSub = supabase.channel('inbox-messages-' + _myUid)
     .on('postgres_changes', {
       event:  'INSERT',
       schema: 'public',
       table:  'messages',
-      filter,
     }, payload => {
       _handleNewMessage(payload.new)
     })
     .subscribe()
+  _globalSubs.push(msgSub)
 
-  _realtimeSubs.push(msgSub)
-
-  // Freundschaftsanfragen
-  if (_myUid) {
-    const freqSub = supabase.channel('friend_requests-' + _myUid)
-      .on('postgres_changes', {
-        event:  'INSERT',
-        schema: 'public',
-        table:  'friend_requests',
-        filter: `to_user=eq.${_myUid}`,
-      }, payload => {
-        _handleNewFriendRequest(payload.new)
-      })
-      .subscribe()
-    _realtimeSubs.push(freqSub)
-  }
+  const freqSub = supabase.channel('inbox-freq-' + _myUid)
+    .on('postgres_changes', {
+      event:  'INSERT',
+      schema: 'public',
+      table:  'friend_requests',
+      filter: `to_user=eq.${_myUid}`,
+    }, payload => {
+      _handleNewFriendRequest(payload.new)
+    })
+    .subscribe()
+  _globalSubs.push(freqSub)
 }
 
 export function unsubscribeAll() {
   if (!supabase) return
-  for (const sub of _realtimeSubs) {
+  for (const sub of [..._realtimeSubs, ..._globalSubs]) {
     try { supabase.removeChannel(sub) } catch {}
   }
   _realtimeSubs = []
+  _globalSubs   = []
 }
 
 async function _handleNewMessage(row) {
@@ -397,8 +408,16 @@ async function _handleNewMessage(row) {
     const aName = _uidToUsername(parts[0])
     const bName = _uidToUsername(parts[1])
     if (aName && bName) {
-      ;(_dms[aName] ||= {})[bName] = [...((_dms[aName])[bName] || []), msg]
-      ;(_dms[bName] ||= {})[aName] = [...((_dms[bName])[aName] || []), msg]
+      const aArr = (_dms[aName] ||= {})[bName] || []
+      const bArr = (_dms[bName] ||= {})[aName] || []
+      if (!aArr.some(m => m.id === msg.id)) _dms[aName][bName] = [...aArr, msg]
+      if (!bArr.some(m => m.id === msg.id)) _dms[bName][aName] = [...bArr, msg]
+      // Unread-Cache setzen, wenn ich der Empfänger bin
+      if (row.author_id !== _myUid) {
+        const fromName = row.author_id === _usernameToUid(aName) ? aName : bName
+        const toName   = fromName === aName ? bName : aName
+        if (toName === _myUsername) _markUnreadCache(_myUsername, fromName)
+      }
     }
   }
 

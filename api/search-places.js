@@ -1,4 +1,19 @@
+import * as Sentry from "@sentry/node";
+import { checkOriginAndRate } from "./_shared.js";
+
+if (process.env.SENTRY_DSN && !Sentry.getClient()) {
+  Sentry.init({ dsn: process.env.SENTRY_DSN, tracesSampleRate: 0, sendDefaultPii: false });
+}
+
+function report(err, extra) {
+  if (process.env.SENTRY_DSN) {
+    Sentry.captureException(err, { extra });
+  }
+}
+
 export default async function handler(req, res) {
+  if (checkOriginAndRate(req, res)) return;
+
   if (req.method !== "POST") {
     return res.status(405).json({ error: "Method Not Allowed" });
   }
@@ -30,6 +45,7 @@ export default async function handler(req, res) {
 
     if (!upstream.ok) {
       const err = await upstream.text();
+      report(new Error(`Tavily upstream ${upstream.status}`), { body: err });
       return res.status(500).json({ error: `Tavily error: ${err}` });
     }
 
@@ -43,6 +59,7 @@ export default async function handler(req, res) {
 
     return res.status(200).json({ items });
   } catch (err) {
+    report(err);
     return res.status(500).json({ error: err.message });
   }
 }

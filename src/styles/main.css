@@ -188,6 +188,7 @@ html.has-landing body {
 .tb-bar.tb-bar--vertical {
   flex-direction: column;
   align-items: stretch;
+  justify-content: flex-start;
   gap: 4px;
   background: rgba(255, 255, 255, 0.03);
   border-color: rgba(255, 255, 255, 0.08);
@@ -648,7 +649,7 @@ select.p-auth-input {
   transform: scale3d(1.05, 1.05, 1.05);
 }
 .p-lifestyle-card-label {
-  display: block; padding: 14px 18px;
+  display: block; padding: 14px 18px; text-align: center;
   font-family: var(--p-font); font-size: 14px; font-weight: 500;
   color: #000; border-top: 1px solid #eee;
 }
@@ -2170,10 +2171,10 @@ select.p-auth-input {
   flex-wrap: wrap;
   align-items: center;
   justify-content: center;
-  gap: clamp(1px, 0.6vw, 10px);
+  gap: 4px;
   background: #fff;
-  border-radius: 18px;
-  padding: clamp(3px, 1vw, 8px);
+  border-radius: 14px;
+  padding: 6px 8px;
   box-shadow: 0 2px 12px rgba(0, 0, 0, 0.06);
   border: 1px solid rgba(0, 0, 0, 0.08);
   pointer-events: auto;
@@ -2182,15 +2183,13 @@ select.p-auth-input {
 }
 .tb-wrap.scrolled .tb-bar {
   gap: 4px;
-  background: rgba(30, 30, 30, 0.92);
+  background: rgba(20, 20, 20, 0.72);
   backdrop-filter: blur(20px);
   -webkit-backdrop-filter: blur(20px);
-  border-radius: 12px;
-  padding: 4px;
+  border-radius: 14px;
+  padding: 6px 8px;
   border-color: transparent;
-  box-shadow:
-    0 4px 24px rgba(0, 0, 0, 0.25),
-    inset 0 0.5px 0 rgba(255, 255, 255, 0.06);
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.06);
 }
 
 /* Hinweis-Puls: läuft weiter, bis der Nutzer einen Tab anklickt */
@@ -2210,10 +2209,10 @@ select.p-auth-input {
   background: #f0f0f0;
   border: none;
   color: #444;
-  font-size: clamp(8.5px, 2.3vw, 15px);
+  font-size: 13px;
   font-weight: 500;
-  padding: clamp(8px, 2.4vw, 16px) clamp(1px, 0.6vw, 32px);
-  border-radius: 12px;
+  padding: 8px 16px;
+  border-radius: 8px;
   cursor: pointer;
   white-space: nowrap;
   flex: 1 1 auto;
@@ -2238,8 +2237,8 @@ select.p-auth-input {
 .tb-wrap.scrolled .tb-btn {
   background: rgba(255, 255, 255, 0.08);
   color: rgba(255, 255, 255, 0.6);
-  font-size: clamp(8.5px, 2.3vw, 13px);
-  padding: clamp(6px, 1.8vw, 8px) clamp(1px, 0.6vw, 16px);
+  font-size: 13px;
+  padding: 8px 16px;
   border-radius: 8px;
 }
 .tb-wrap.scrolled .tb-btn:hover {
@@ -2579,6 +2578,26 @@ select.p-auth-input {
   padding-top: 64px !important;
 }
 
+/* Karte: sticky filter + radius bars, hide on scroll down like Ausrüstung */
+.konf-split--karte .konf-karte-hub .hub-filters {
+  position: sticky;
+  top: 4px;
+  z-index: 199;
+  transition: transform 0.28s cubic-bezier(0.4,0,0.2,1), opacity 0.2s ease;
+}
+.konf-split--karte .konf-karte-hub .kv-toolbar:not(.kv-toolbar--sidebar) {
+  position: sticky;
+  top: 60px;
+  z-index: 198;
+  transition: transform 0.28s cubic-bezier(0.4,0,0.2,1), opacity 0.2s ease;
+}
+.konf-split--karte.konf-bars-hidden .konf-karte-hub .hub-filters,
+.konf-split--karte.konf-bars-hidden .konf-karte-hub .kv-toolbar:not(.kv-toolbar--sidebar) {
+  transform: translateY(-220%);
+  opacity: 0;
+  pointer-events: none;
+}
+
 /* Hide both bars on scroll down */
 .konf-split--fullscreen.konf-bars-hidden .gear-filter-bar {
   transform: translateX(-50%) translateY(-200%);
@@ -2598,81 +2617,123 @@ select.p-auth-input {
   transition: padding-top 0.28s cubic-bezier(0.4,0,0.2,1);
 }
 
-/* ── Dark theme for gear page ── */
+/* ── Dark theme for gear page — glass look matching filter bar ── */
 .konf-split--fullscreen .gear-price-row {
-  background: rgba(28,28,28,0.92) !important;
+  background: rgba(20,20,20,0.72) !important;
   backdrop-filter: blur(20px);
   -webkit-backdrop-filter: blur(20px);
-  border: 1.5px solid #404040 !important;
-  border-radius: 12px !important;
+  border: 1px solid rgba(255,255,255,0.08) !important;
+  border-radius: 14px !important;
   display: flex !important;
   flex-direction: column !important;
-  height: 45.5px !important;
-  min-height: 45.5px !important;
-  max-height: 45.5px !important;
+  height: 46px !important;
+  min-height: 46px !important;
+  max-height: 46px !important;
   box-sizing: border-box;
+  box-shadow: 0 4px 24px rgba(0,0,0,0.25);
 }
 .konf-split--fullscreen .gear-price-top {
   display: flex !important;
   align-items: center !important;
-  justify-content: space-between !important;
-  padding: 4px 14px !important;
+  gap: 6px;
+  padding: 0 10px !important;
   height: 100% !important;
   box-sizing: border-box;
 }
-.konf-split--fullscreen .gear-price-divider {
-  display: block !important;
-  height: 1px !important;
-  min-height: 1px;
-  background: #404040 !important;
-  flex-shrink: 0;
+.konf-split--fullscreen .gear-price-divider { display: none !important; }
+.konf-split--fullscreen .gear-price-inputs {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: auto;
 }
-.konf-split--fullscreen .gear-price-bottom {
-  display: flex !important;
-  align-items: center !important;
-  justify-content: space-between !important;
-  padding: 8px 14px !important;
-  min-height: 36px;
-  box-sizing: border-box;
-  gap: 8px;
+
+/* Unified pill button — matches gear-filter-btn aesthetic */
+.gear-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: rgba(255,255,255,0.06);
+  border: 1px solid rgba(255,255,255,0.08);
+  color: rgba(255,255,255,0.7);
+  border-radius: 10px;
+  padding: 6px 12px;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
 }
-.konf-split--fullscreen .gear-price-bottom-right {
-  display: flex !important;
-  align-items: center !important;
-  gap: 8px;
+.gear-pill:hover {
+  background: rgba(255,255,255,0.12);
+  color: #fff;
 }
-.konf-split--fullscreen .gear-price-label { color: #888; }
+.gear-pill .gear-pill-icon { font-size: 12px; line-height: 1; }
+.gear-pill .gear-pill-count { color: rgba(255,255,255,0.55); font-weight: 700; }
+
+/* Active states — subtle color tint, not chunky */
+.gear-fav-toggle { color: #ff6b6b; }
+.gear-fav-toggle[data-active="true"] {
+  background: rgba(255,107,107,0.14);
+  border-color: rgba(255,107,107,0.4);
+}
+.gear-fav-toggle[data-active="true"] .gear-pill-count { color: #fff; }
+
+.gear-deal-toggle[data-active="true"] {
+  background: rgba(255,144,64,0.16);
+  border-color: rgba(255,144,64,0.45);
+  color: #fff;
+}
+.gear-sale-toggle[data-active="true"] {
+  background: rgba(224,64,95,0.16);
+  border-color: rgba(224,64,95,0.45);
+  color: #fff;
+}
+.gear-sort-btn {
+  padding: 6px 10px;
+  font-size: 12px;
+  font-weight: 700;
+  color: #fff;
+  letter-spacing: 0.02em;
+}
+.gear-sort-btn:hover { background: rgba(255,255,255,0.06); color: #fff; }
+
+/* Price input fields — glass to match pills */
 .konf-split--fullscreen .gear-price-field {
   display: flex !important;
   align-items: center !important;
   gap: 4px;
-  background: #2a2a2a;
-  border: 1px solid #404040;
-  border-radius: 6px;
-  padding: 5px 8px;
+  background: rgba(255,255,255,0.06);
+  border: 1px solid rgba(255,255,255,0.08);
+  border-radius: 10px;
+  padding: 6px 10px;
+  transition: border-color 0.15s ease;
 }
-.konf-split--fullscreen .gear-price-field-label { color: #666; }
-.konf-split--fullscreen .gear-price-input { color: #fff; }
-.konf-split--fullscreen .gear-price-field-unit { color: #666; }
-.konf-split--fullscreen .gear-price-sep { color: #555; }
-/* Budget range & results inside box */
-.konf-split--fullscreen .gear-budget-range { color: #666; white-space: nowrap; }
-.konf-split--fullscreen .gear-budget-range span { color: #e0e0e0; }
-.konf-split--fullscreen .gear-results-label { color: #666; }
+.konf-split--fullscreen .gear-price-field:focus-within {
+  border-color: rgba(255,255,255,0.22);
+}
+.konf-split--fullscreen .gear-price-field-label {
+  color: rgba(255,255,255,0.4);
+  font-size: 9.5px;
+  letter-spacing: 0.06em;
+}
+.konf-split--fullscreen .gear-price-input { color: #fff; font-size: 12px; width: 48px; }
+.konf-split--fullscreen .gear-price-field-unit { color: rgba(255,255,255,0.4); font-size: 11px; }
+.konf-split--fullscreen .gear-price-sep { color: rgba(255,255,255,0.25); margin: 0 2px; }
+
 .konf-split--fullscreen .gear-count-badge {
   display: inline-flex !important;
-  background: #333;
-  color: #fff;
-  border: 1px solid #444;
+  align-items: center;
+  background: transparent;
+  color: rgba(255,255,255,0.55);
+  border: none;
+  padding: 0 6px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
 }
 .konf-split--fullscreen .gear-fav-badge { display: inline-flex; }
-.konf-split--fullscreen .gear-sort-btn {
-  display: flex !important;
-  background: rgba(255,255,255,0.07);
-  border-color: #444;
-  color: #999;
-}
-.konf-split--fullscreen .gear-sort-btn:hover { background: rgba(255,255,255,0.13); color: #fff; }
 
 /* gear-grid fills the full width inside dark konf-right */
 .konf-split--fullscreen .gear-grid {
@@ -5412,7 +5473,7 @@ select.p-auth-input {
 
 /* ─── Bike-Detail "Karte" tab overrides — same dimensions as landing/garage ─── */
 .konf-karte-hub {
-  padding: 12px 0 60px;
+  padding: 4px 0 60px;
   background: transparent;
 }
 .konf-karte-hub .hub-inner {
@@ -5420,7 +5481,12 @@ select.p-auth-input {
   margin: 0 auto;
   padding: 0;
   text-align: center;
+  display: flex;
+  flex-direction: column;
 }
+.konf-karte-hub .hub-inner > .kv-toolbar { order: 2; }
+.konf-karte-hub .hub-inner > .hub-filters { order: 1; }
+.konf-karte-hub .hub-inner > .kv-layout { order: 3; }
 .konf-karte-hub .hub-title {
   font-size: clamp(36px, 6vw, 80px);
   color: #fff;
@@ -5433,29 +5499,49 @@ select.p-auth-input {
 }
 .konf-karte-hub .hub-filters {
   display: flex;
-  justify-content: center;
-  margin-bottom: 48px;
-  padding: 0 24px;
-  flex-wrap: wrap;
-  gap: 8px;
-}
-.konf-karte-hub .hub-pill {
-  background: rgba(255,255,255,0.06);
+  align-items: center;
+  justify-content: flex-start;
+  gap: 4px;
+  width: fit-content;
+  max-width: calc(100vw - 32px);
+  margin: 0 auto 12px;
+  padding: 6px 8px;
+  background: rgba(20,20,20,0.72);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
   border: 1px solid rgba(255,255,255,0.08);
-  color: #aaa;
-  font-size: 15px;
-  font-weight: 400;
-  padding: 10px 24px;
-  border-radius: 40px;
+  border-radius: 14px;
+  box-shadow: 0 4px 24px rgba(0,0,0,0.25);
+  overflow-x: auto;
+  scrollbar-width: none;
+  -webkit-overflow-scrolling: touch;
+  box-sizing: border-box;
+}
+.konf-karte-hub .hub-filters::-webkit-scrollbar { display: none; }
+.konf-karte-hub .hub-pill {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: rgba(255,255,255,0.08);
+  border: none;
+  color: rgba(255,255,255,0.6);
+  font-size: 13px;
+  font-weight: 500;
+  padding: 8px 16px;
+  border-radius: 8px;
+  line-height: 1;
+  white-space: nowrap;
+  letter-spacing: 0.01em;
+  transition: background 0.2s, color 0.2s;
 }
 .konf-karte-hub .hub-pill:hover {
-  background: rgba(255,255,255,0.10);
+  background: rgba(255,255,255,0.14);
   color: #fff;
 }
 .konf-karte-hub .hub-pill.active {
-  background: #fff;
-  color: #000;
-  border-color: #fff;
+  background: rgba(255,255,255,0.22);
+  color: #fff;
   font-weight: 600;
 }
 .konf-karte-hub .hub-map-wrap {
@@ -5492,11 +5578,41 @@ select.p-auth-input {
   margin: 0 auto 16px;
   padding: 0 24px;
 }
+.kv-toolbar.kv-toolbar--sidebar {
+  margin: 8px 8px 8px;
+  padding: 0;
+  max-width: none;
+}
+.kv-toolbar.kv-toolbar--sidebar .kv-search-row {
+  min-height: 44px;
+  padding: 4px 8px;
+  flex-wrap: nowrap;
+}
+.kv-toolbar.kv-toolbar--sidebar .kv-radius-group {
+  overflow-x: auto;
+  scrollbar-width: none;
+  -webkit-overflow-scrolling: touch;
+}
+.kv-toolbar.kv-toolbar--sidebar .kv-radius-group::-webkit-scrollbar { display: none; }
+.kv-toolbar.kv-toolbar--sidebar .kv-radius-pills {
+  overflow: visible;
+  flex-shrink: 0;
+}
+.kv-toolbar.kv-toolbar--sidebar .kv-search-wrap { flex-shrink: 0; }
 .kv-search-row {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 14px;
+  gap: 10px;
+  background: rgba(20,20,20,0.72);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid rgba(255,255,255,0.08);
+  border-radius: 14px;
+  padding: 6px 10px;
+  min-height: 46px;
+  box-sizing: border-box;
+  box-shadow: 0 4px 24px rgba(0,0,0,0.25);
 }
 /* Collapsed search: a lupe toggle that expands into the PLZ/Ort field on demand */
 .kv-search-wrap {
@@ -5549,6 +5665,57 @@ select.p-auth-input {
   transform: translateY(0);
   pointer-events: auto;
 }
+
+/* Collapsed km-pills + inline search field when searching — animated */
+.kv-radius-pill {
+  max-width: 70px;
+  overflow: hidden;
+  white-space: nowrap;
+  transition: max-width 0.28s cubic-bezier(0.4, 0, 0.2, 1),
+              padding 0.28s cubic-bezier(0.4, 0, 0.2, 1),
+              margin 0.28s cubic-bezier(0.4, 0, 0.2, 1),
+              opacity 0.18s ease,
+              background 0.15s, color 0.15s;
+}
+.kv-search-row.kv-searching .kv-radius-pill:not(.kv-radius-pill--active) {
+  max-width: 0;
+  padding-left: 0;
+  padding-right: 0;
+  margin: 0;
+  opacity: 0;
+  pointer-events: none;
+}
+.kv-radius-group {
+  transition: flex-grow 0.32s cubic-bezier(0.4, 0, 0.2, 1);
+}
+.kv-search-row.kv-searching .kv-radius-group {
+  flex: 0 0 auto;
+}
+.kv-search-row.kv-searching .kv-search-wrap {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.kv-search-row.kv-searching .kv-search-toggle {
+  order: 2;
+}
+.kv-search-row.kv-searching .kv-search-field.kv-search-field--open {
+  position: relative;
+  top: auto;
+  right: auto;
+  width: auto;
+  flex: 1;
+  min-width: 0;
+  box-shadow: none;
+  background: rgba(255,255,255,0.06);
+  border-radius: 10px;
+  padding: 4px 10px 4px 12px;
+  order: 1;
+  transform: none;
+  transition: opacity 0.2s ease 0.08s, background 0.15s;
+}
 .kv-search-field:focus-within {
   border-color: rgba(255,255,255,0.3);
 }
@@ -5585,10 +5752,11 @@ select.p-auth-input {
   display: flex;
   align-items: center;
   gap: 10px;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   min-width: 0;
   flex: 1;
 }
+.kv-radius-pills { overflow: hidden; }
 .kv-radius-label {
   font-size: 11px;
   font-weight: 700;
@@ -5636,7 +5804,7 @@ select.p-auth-input {
 /* ─── Karte: layout map + sidebar ─── */
 .kv-layout {
   display: grid;
-  grid-template-columns: minmax(0, 1.7fr) minmax(280px, 1fr);
+  grid-template-columns: minmax(0, 1.25fr) minmax(380px, 1fr);
   gap: 20px;
   max-width: 1400px;
   margin: 0 auto;
@@ -5698,40 +5866,56 @@ select.p-auth-input {
   border: 1px solid rgba(255,255,255,0.06);
   border-radius: 16px;
   overflow: hidden;
-  max-height: 70vh;
+  height: 70vh;
   min-height: 460px;
+  position: sticky;
+  top: 16px;
+  align-self: start;
 }
 .kv-sidebar-head {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 10px;
-  padding: 14px 16px;
-  border-bottom: 1px solid rgba(255,255,255,0.06);
+  margin: 0 8px 8px;
+  padding: 6px 10px 6px 16px;
+  min-height: 46px;
+  box-sizing: border-box;
+  background: linear-gradient(180deg, rgba(255,255,255,0.055), rgba(255,255,255,0.025));
+  border: 1px solid rgba(255,255,255,0.12);
+  border-radius: 14px;
+  box-shadow: 0 1px 0 rgba(255,255,255,0.04) inset, 0 6px 20px rgba(0,0,0,0.35);
   flex-shrink: 0;
 }
 .kv-sidebar-title {
-  font-size: 14px;
+  font-size: 13px;
   font-weight: 800;
   color: #fff;
   margin: 0;
   letter-spacing: 0.01em;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
 }
 .kv-result-count {
-  display: inline-block;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 22px;
+  height: 22px;
   background: #fff;
   color: #000;
   font-size: 11px;
   font-weight: 800;
-  padding: 2px 8px;
-  border-radius: 12px;
-  margin-left: 6px;
+  padding: 0 7px;
+  border-radius: 11px;
+  font-variant-numeric: tabular-nums;
 }
 .kv-sort-select {
-  background: rgba(255,255,255,0.07);
-  border: 1px solid rgba(255,255,255,0.10);
+  background: rgba(255,255,255,0.05);
+  border: 1px solid rgba(255,255,255,0.08);
   color: #ddd;
-  border-radius: 8px;
+  border-radius: 14px;
   padding: 6px 10px;
   font-size: 12px;
   font-weight: 600;
@@ -10002,10 +10186,10 @@ select.mmc-input option { background: #111; color: #fff; }
   border-color: #fff;
 }
 
-.p-lifestyle-cards--4 { grid-template-columns: repeat(4, 1fr); }
-.p-lifestyle-cards--4 .p-lifestyle-card { cursor: pointer; }
+.p-lifestyle-cards--3 { grid-template-columns: repeat(3, 1fr); }
+.p-lifestyle-cards--3 .p-lifestyle-card { cursor: pointer; }
 @media (max-width: 900px) {
-  .p-lifestyle-cards--4 { grid-template-columns: repeat(2, 1fr); }
+  .p-lifestyle-cards--3 { grid-template-columns: repeat(2, 1fr); }
 }
 
 /* Chooser overlay */

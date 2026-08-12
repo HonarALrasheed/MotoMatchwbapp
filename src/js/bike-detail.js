@@ -1249,13 +1249,7 @@ function buildAnsichtView(data) {
 }
 
 function buildAusstattungView(data) {
-  const tip = STYLE_TIPS[data.style] || STYLE_TIPS.Naked
   return `
-    <div class="gear-style-banner">
-      <span class="gear-style-icon">${tip.icon}</span>
-      <span class="gear-style-tip">${tip.text}</span>
-    </div>
-
     <div class="gear-filter-bar">
       <button class="gear-filter-btn gear-filter-btn--active" data-filter="all">Alle</button>
       <button class="gear-filter-btn" data-filter="helmet">Helm</button>
@@ -1271,10 +1265,17 @@ function buildAusstattungView(data) {
     <div class="gear-price-row">
 
       <div class="gear-price-top">
-        <button class="gear-fav-toggle" id="gear-fav-toggle" data-active="false" style="display:flex;align-items:center;gap:6px;background:#2a2a2a;border:1px solid #404040;color:#e05555;border-radius:8px;padding:5px 10px;font-size:11px;font-weight:700;cursor:pointer;white-space:nowrap;transition:all 0.15s;line-height:1;">
-          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg>
-          <span id="gear-fav-toggle-count" style="color:#888;">0</span>
+        <button class="gear-pill gear-fav-toggle" id="gear-fav-toggle" data-active="false" aria-label="Favoriten">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg>
+          <span class="gear-pill-count" id="gear-fav-toggle-count">0</span>
         </button>
+        <button class="gear-pill gear-deal-toggle" id="gear-deal-toggle" data-active="false">
+          <span class="gear-pill-icon">🔥</span><span>Hot Deals</span>
+        </button>
+        <button class="gear-pill gear-sale-toggle" id="gear-sale-toggle" data-active="false">
+          <span class="gear-pill-icon">%</span><span>Sales</span>
+        </button>
+        <span class="gear-count-badge" id="gear-count-badge">0 Artikel</span>
         <div class="gear-price-inputs">
           <div class="gear-price-field">
             <span class="gear-price-field-label">Min</span>
@@ -1287,23 +1288,9 @@ function buildAusstattungView(data) {
             <input class="gear-price-input" id="gear-price-max" type="number" min="0" max="2000" step="10" value="1000" placeholder="1000">
             <span class="gear-price-field-unit">\u20ac</span>
           </div>
-          <button class="gear-sort-btn" id="gear-sort-btn" data-dir="none" style="display:flex;align-items:center;gap:4px;background:#2a2a2a;border:1px solid #404040;color:#aaa;border-radius:8px;padding:5px 10px;font-size:11px;font-weight:700;cursor:pointer;letter-spacing:0.02em;white-space:nowrap;margin-left:4px;line-height:1;">
+          <button class="gear-pill gear-sort-btn" id="gear-sort-btn" data-dir="none">
             <span class="gear-sort-label">Preis \u2191</span>
           </button>
-        </div>
-      </div>
-
-      <div class="gear-price-divider"></div>
-      <div class="gear-price-bottom">
-        <div class="gear-results-row">
-          <div class="gear-results-left">
-            <span class="gear-count-badge" id="gear-count-badge">0 Artikel</span>
-          </div>
-          <span class="gear-fav-badge" id="gear-fav-count" style="display:none">0 \u2665</span>
-        </div>
-        <div class="gear-price-bottom-right">
-          <span class="gear-price-label">Budget</span>
-          <span class="gear-budget-range" id="gear-budget-range">\u2014</span>
         </div>
       </div>
 
@@ -1438,34 +1425,6 @@ function buildKarteView(data) {
   return `
     <section class="hub-section konf-karte-hub" id="gr-hub-section">
       <div class="hub-inner">
-        <!-- Search + radius -->
-        <div class="kv-toolbar">
-          <div class="kv-search-row">
-            <div class="kv-radius-group" role="group" aria-label="Suchradius">
-              <span class="kv-radius-label">Umkreis</span>
-              <div class="kv-radius-pills">
-                <button class="kv-radius-pill" data-radius="2000">2 km</button>
-                <button class="kv-radius-pill kv-radius-pill--active" data-radius="5000">5 km</button>
-                <button class="kv-radius-pill" data-radius="10000">10 km</button>
-                <button class="kv-radius-pill" data-radius="25000">25 km</button>
-                <button class="kv-radius-pill" data-radius="50000">50 km</button>
-              </div>
-            </div>
-            <div class="kv-search-wrap">
-              <button class="kv-search-toggle" id="kv-search-toggle" aria-label="Ort suchen" aria-expanded="false" title="Ort suchen">
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>
-              </button>
-              <div class="kv-search-field" id="kv-search-field">
-                <svg class="kv-search-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>
-                <input type="text" class="kv-search-input" id="kv-search-input" placeholder="PLZ oder Ort eingeben\u2026">
-                <button class="kv-recenter-btn" id="kv-recenter-btn" aria-label="Mein Standort" title="Mein Standort">
-                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M12 1v4M12 19v4M1 12h4M19 12h4"/></svg>
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-
         <!-- Category pills -->
         <div class="hub-filters kv-filters">
           <button class="hub-pill active" data-query="Motorradwerkstatt">
@@ -1519,6 +1478,32 @@ function buildKarteView(data) {
           </div>
 
           <aside class="kv-sidebar">
+            <div class="kv-toolbar kv-toolbar--sidebar">
+              <div class="kv-search-row">
+                <div class="kv-radius-group" role="group" aria-label="Suchradius">
+                  <span class="kv-radius-label">Umkreis</span>
+                  <div class="kv-radius-pills">
+                    <button class="kv-radius-pill" data-radius="2000">2 km</button>
+                    <button class="kv-radius-pill kv-radius-pill--active" data-radius="5000">5 km</button>
+                    <button class="kv-radius-pill" data-radius="10000">10 km</button>
+                    <button class="kv-radius-pill" data-radius="25000">25 km</button>
+                    <button class="kv-radius-pill" data-radius="50000">50 km</button>
+                  </div>
+                </div>
+                <div class="kv-search-wrap">
+                  <button class="kv-search-toggle" id="kv-search-toggle" aria-label="Ort suchen" aria-expanded="false" title="Ort suchen">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>
+                  </button>
+                  <div class="kv-search-field" id="kv-search-field">
+                    <svg class="kv-search-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>
+                    <input type="text" class="kv-search-input" id="kv-search-input" placeholder="PLZ oder Ort eingeben…">
+                    <button class="kv-recenter-btn" id="kv-recenter-btn" aria-label="Mein Standort" title="Mein Standort">
+                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M12 1v4M12 19v4M1 12h4M19 12h4"/></svg>
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
             <div class="kv-sidebar-head">
               <h3 class="kv-sidebar-title">Ergebnisse <span class="kv-result-count" id="kv-result-count">0</span></h3>
               <select class="kv-sort-select" id="kv-sort-select">
@@ -1760,13 +1745,16 @@ function bindKarteViewEvents() {
   const searchToggle = document.getElementById('kv-search-toggle')
   const searchField = document.getElementById('kv-search-field')
   const searchWrap = searchToggle?.closest('.kv-search-wrap')
+  const searchRow = searchToggle?.closest('.kv-search-row')
   const openSearch = () => {
     searchField?.classList.add('kv-search-field--open')
+    searchRow?.classList.add('kv-searching')
     searchToggle?.setAttribute('aria-expanded', 'true')
     setTimeout(() => document.getElementById('kv-search-input')?.focus(), 10)
   }
   const closeSearch = () => {
     searchField?.classList.remove('kv-search-field--open')
+    searchRow?.classList.remove('kv-searching')
     searchToggle?.setAttribute('aria-expanded', 'false')
     document.getElementById('mm-recent-dd')?.remove()
   }
@@ -2135,6 +2123,8 @@ function initKonfiguratorAnimations() {
     const maxPrice = maxInput ? (parseInt(maxInput.value) || 9999) : 9999
     const favToggle = document.getElementById('gear-fav-toggle')
     const favOnly = favToggle?.dataset.active === 'true'
+    const dealOnly = document.getElementById('gear-deal-toggle')?.dataset.active === 'true'
+    const saleOnly = document.getElementById('gear-sale-toggle')?.dataset.active === 'true'
     const items = document.querySelectorAll('.gear-card')
     let visible = 0, budgetMin = 0, budgetMax = 0
     items.forEach(item => {
@@ -2143,8 +2133,10 @@ function initKonfiguratorAnimations() {
       const itemMax = parseInt(item.dataset.priceMax) || 9999
       const priceMatch = itemMin <= maxPrice && itemMax >= minPrice
       const favMatch = !favOnly || item.querySelector('.gear-card-heart--active')
+      const dealMatch = !dealOnly || item.dataset.deal === '1'
+      const saleMatch = !saleOnly || item.dataset.sale === '1'
       const searchMatch = item.dataset.searchHidden !== '1'
-      const show = catMatch && priceMatch && favMatch && searchMatch
+      const show = catMatch && priceMatch && favMatch && dealMatch && saleMatch && searchMatch
       if (show) {
         if (item.style.display === 'none') {
           item.style.display = ''
@@ -2294,25 +2286,49 @@ function initKonfiguratorAnimations() {
   // Favorites toggle (middle of price-top row) — show only favorites
   document.getElementById('gear-fav-toggle')?.addEventListener('click', () => {
     const toggle = document.getElementById('gear-fav-toggle')
-    const countEl = document.getElementById('gear-fav-toggle-count')
-    const isActive = toggle.dataset.active === 'true'
-    toggle.dataset.active = isActive ? 'false' : 'true'
-    if (!isActive) {
-      // Activate: subtle red tint
-      toggle.style.background = 'rgba(224,85,85,0.15)'
-      toggle.style.borderColor = 'rgba(224,85,85,0.5)'
-      if (countEl) countEl.style.color = '#fff'
-    } else {
-      // Deactivate: neutral dark
-      toggle.style.background = '#2a2a2a'
-      toggle.style.borderColor = '#404040'
-      if (countEl) countEl.style.color = '#888'
-    }
+    toggle.dataset.active = toggle.dataset.active === 'true' ? 'false' : 'true'
     applyGearFilters()
   })
 
+  // Tag Hot Deals (cheapest 25%) and Sales (random ~20%) once
+  function tagDealsAndSales() {
+    const cards = Array.from(document.querySelectorAll('.gear-card'))
+    if (!cards.length) return
+    const sorted = [...cards].sort((a, b) =>
+      (parseInt(a.dataset.priceMin) || 0) - (parseInt(b.dataset.priceMin) || 0))
+    const dealCount = Math.max(1, Math.round(sorted.length * 0.25))
+    sorted.slice(0, dealCount).forEach(c => c.dataset.deal = '1')
+    cards.forEach(c => {
+      if (Math.random() < 0.20) {
+        c.dataset.sale = '1'
+        const img = c.querySelector('.gear-card-img')
+        if (img && !img.querySelector('.gear-card-sale-badge')) {
+          const badge = document.createElement('span')
+          badge.className = 'gear-card-sale-badge'
+          badge.textContent = '-20%'
+          badge.style.cssText = 'position:absolute;top:8px;left:8px;background:#e0405f;color:#fff;font-size:10px;font-weight:800;padding:3px 6px;border-radius:5px;letter-spacing:0.03em;z-index:2;'
+          img.appendChild(badge)
+        }
+      }
+    })
+  }
+
+  function bindGearToggle(id) {
+    const btn = document.getElementById(id)
+    if (!btn) return
+    btn.addEventListener('click', () => {
+      btn.dataset.active = btn.dataset.active === 'true' ? 'false' : 'true'
+      applyGearFilters()
+    })
+  }
+  bindGearToggle('gear-deal-toggle')
+  bindGearToggle('gear-sale-toggle')
+
   // Initial budget calculation (on first load of Ausrüstung tab)
-  if (document.getElementById('gear-fav-toggle')) applyGearFilters()
+  if (document.getElementById('gear-fav-toggle')) {
+    tagDealsAndSales()
+    applyGearFilters()
+  }
 
   // ── Community: Like buttons ──
   document.querySelectorAll('.cc-like').forEach(btn => {
@@ -2952,14 +2968,11 @@ function initKonfiguratorAnimations() {
       requestAnimationFrame(() => {
         const y = konfRightEl.scrollTop
         const delta = y - lastY
-        if (y < 40) {
-          // Always show near the top
+        if (y < 4) {
           splitEl.classList.remove('konf-bars-hidden')
-        } else if (delta > 6) {
-          // Scrolling down
+        } else if (delta > 1) {
           splitEl.classList.add('konf-bars-hidden')
-        } else if (delta < -6) {
-          // Scrolling up
+        } else if (delta < -1) {
           splitEl.classList.remove('konf-bars-hidden')
         }
         lastY = y

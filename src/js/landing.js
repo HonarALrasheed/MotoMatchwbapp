@@ -17,9 +17,8 @@ const LC_INFO = {
 // Nutzungs-Sektionen unter dem Hero — adressieren neue und Bestandsfahrer.
 const USE_SECTIONS = [
   { id: "lc-quiz",      label: "Finde dein perfektes Bike", img: "/quiz-lifestyle.jpeg",      action: "quiz"      },
-  { id: "lc-garage",    label: "Deine Garage im Blick",     img: "/hero-lifestyle.jpeg",      action: "garage"    },
+  { id: "lc-garage",    label: "Deine Garage im Blick",     img: "/dealer-lifestyle.jpeg",    action: "garage"    },
   { id: "lc-community", label: "Fahr nicht allein",         img: "/community-lifestyle.jpeg", action: "community" },
-  { id: "lc-ride",      label: "Alles fürs Fahren",         img: "/dealer-lifestyle.jpeg",   action: "ride"      },
 ];
 
 function esc(s) {
@@ -375,13 +374,12 @@ export function initLanding() {
       <div class="p-hero-gradient-bottom"></div>
       <div class="p-hero-content">
         <h1 class="p-hero-title">
-          <span class="hw">MotoMatch.</span><br>
           <span class="hw">Alles fürs Motorrad,</span><br>
           <span class="hw">an einem Ort.</span>
         </h1>
         <div class="p-hero-ctas anim-p delay-1">
           <button id="hero-cta" class="p-hero-btn p-hero-btn--primary">Passendes Bike finden</button>
-          <button id="hero-cta-existing" class="p-hero-btn p-hero-btn--secondary">Ich hab schon eins →</button>
+          <button id="hero-cta-existing" class="p-hero-btn p-hero-btn--secondary">Ich hab schon eins</button>
         </div>
       </div>
     </section>
@@ -392,14 +390,14 @@ export function initLanding() {
     </div>
 
     <!-- ═══ USE SECTIONS ═══ -->
-    <div class="p-lifestyle-cards p-lifestyle-cards--4">
+    <div class="p-lifestyle-cards p-lifestyle-cards--3">
       ${USE_SECTIONS.map(s => `
         <article class="p-lifestyle-card" id="${esc(s.id)}" data-action="${esc(s.action)}">
           <div class="p-lifestyle-card-img">
             <img src="${esc(s.img)}" alt="${esc(s.label)}">
             <div class="p-lc-info"><p class="p-lc-info-text">${esc(LC_INFO[s.id] || "")}</p></div>
           </div>
-          <span class="p-lifestyle-card-label">${esc(s.label)} →</span>
+          <span class="p-lifestyle-card-label">${esc(s.label)}</span>
         </article>
       `).join("")}
     </div>

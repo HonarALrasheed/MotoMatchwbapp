@@ -53,6 +53,10 @@ export async function initSupabaseAuth() {
   }
 
   supabase.auth.onAuthStateChange(async (event, session) => {
+    if (event === 'PASSWORD_RECOVERY') {
+      openPasswordResetScreen()
+      return
+    }
     if (event === 'SIGNED_IN' && session) {
       if (_registering) return // register() ruft _onSignedIn() selbst auf, nachdem das Profil steht
       await _onSignedIn(session)
@@ -503,6 +507,30 @@ export async function changePassword(currentPassword, newPassword) {
   return { ok: true }
 }
 
+/**
+ * Startet den öffentlichen Passwort-vergessen-Flow: Supabase schickt eine
+ * Reset-Mail mit Link, der zurück zur App führt (`?reset=1`). Aus Datenschutz-
+ * gründen liefern wir hier keine Info darüber, ob die E-Mail existiert.
+ */
+export async function requestPasswordReset(email) {
+  email = (email || '').trim()
+  if (!/^\S+@\S+\.\S+$/.test(email)) return { ok: false, error: 'Bitte eine gültige E-Mail-Adresse angeben.' }
+  if (OFFLINE_MODE) return { ok: false, error: 'Passwort-Reset ist im Offline-Modus nicht verfügbar.' }
+  const redirectTo = `${window.location.origin}${window.location.pathname}?reset=1`
+  const { error } = await supabase.auth.resetPasswordForEmail(email, { redirectTo })
+  if (error) return { ok: false, error: error.message }
+  return { ok: true }
+}
+
+/** Setzt das Passwort des aktuell (per Recovery-Link) angemeldeten Nutzers. */
+export async function updatePasswordDirect(newPassword) {
+  if ((newPassword || '').length < 4) return { ok: false, error: 'Neues Passwort muss mindestens 4 Zeichen haben.' }
+  if (OFFLINE_MODE) return { ok: false, error: 'Passwort-Reset ist im Offline-Modus nicht verfügbar.' }
+  const { error } = await supabase.auth.updateUser({ password: newPassword })
+  if (error) return { ok: false, error: error.message }
+  return { ok: true }
+}
+
 /** Konto endgültig löschen (Nutzer aus der DB entfernen + abmelden). */
 export async function deleteAccount() {
   const s = getSession(); if (!s || s.guest) return { ok: false, error: 'Als Gast nicht möglich.' }
@@ -550,8 +578,50 @@ export function openAuthModal(onDone) {
     if (done && typeof onDone === 'function') onDone()
   }
 
-  const render = (error = '') => {
+  const render = (error = '', info = '') => {
     const isLogin = mode === 'login'
+    const isForgot = mode === 'forgot'
+    if (isForgot) {
+      overlay.innerHTML = `
+      <div class="p-auth-backdrop" id="mm-am-backdrop"></div>
+      <div class="p-auth-card">
+        <div class="p-auth-brand">MOTOMATCH</div>
+        <h3 class="p-auth-title">Passwort vergessen</h3>
+        <p class="p-auth-sub">Gib deine E-Mail an — wir schicken dir einen Link zum Zurücksetzen.</p>
+        <form id="mm-am-form" autocomplete="off">
+          <label class="p-auth-field">
+            <span class="p-auth-label">E-Mail</span>
+            <input class="p-auth-input" id="mm-am-email" type="email" placeholder="du@mail.de" required>
+          </label>
+          <div class="p-auth-error" id="mm-am-error" ${error ? '' : 'hidden'}>${esc(error)}</div>
+          ${info ? `<div class="p-auth-sub" style="color:#0a0;margin:8px 0 4px">${esc(info)}</div>` : ''}
+          <div class="p-auth-actions">
+            <button type="button" class="p-auth-cancel" id="mm-am-back">Zurück</button>
+            <button type="submit" class="p-auth-submit" id="mm-am-submit">Reset-Link senden</button>
+          </div>
+        </form>
+      </div>`
+      overlay.querySelector('#mm-am-backdrop').addEventListener('click', () => close(false))
+      overlay.querySelector('#mm-am-back').addEventListener('click', () => { mode = 'login'; render() })
+      overlay.querySelector('#mm-am-form').addEventListener('submit', async e => {
+        e.preventDefault()
+        const btn = overlay.querySelector('#mm-am-submit')
+        btn.disabled = true
+        btn.textContent = 'Senden…'
+        const email = overlay.querySelector('#mm-am-email').value
+        const res = await requestPasswordReset(email)
+        // Kein Leak: Erfolgsmeldung auch bei Fehler zeigen, außer bei Format-Fehler
+        if (!res.ok && /gültige E-Mail/.test(res.error)) {
+          btn.disabled = false
+          btn.textContent = 'Reset-Link senden'
+          render(res.error)
+        } else {
+          render('', 'Falls diese E-Mail registriert ist, hast du eine Mail bekommen.')
+        }
+      })
+      requestAnimationFrame(() => overlay.querySelector('#mm-am-email')?.focus())
+      return
+    }
     overlay.innerHTML = `
       <div class="p-auth-backdrop" id="mm-am-backdrop"></div>
       <div class="p-auth-card">
@@ -576,6 +646,10 @@ export function openAuthModal(onDone) {
             <span class="p-auth-label">Passwort</span>
             <input class="p-auth-input" id="mm-am-pass" type="password" minlength="4" placeholder="••••••••" required>
           </label>
+          ${isLogin && !OFFLINE_MODE ? `
+          <div style="margin:-8px 0 12px;text-align:right">
+            <button type="button" class="p-auth-toggle" id="mm-am-forgot">Passwort vergessen?</button>
+          </div>` : ''}
           ${isLogin ? '' : `
           <label class="p-auth-field">
             <span class="p-auth-label">Passwort bestätigen</span>
@@ -612,6 +686,7 @@ export function openAuthModal(onDone) {
     overlay.querySelector('#mm-am-backdrop').addEventListener('click', () => close(false))
     overlay.querySelector('#mm-am-cancel').addEventListener('click', () => close(false))
     overlay.querySelector('#mm-am-toggle').addEventListener('click', () => { mode = isLogin ? 'register' : 'login'; render() })
+    overlay.querySelector('#mm-am-forgot')?.addEventListener('click', () => { mode = 'forgot'; render() })
     renderGoogleButton(overlay.querySelector('#mm-am-google-btn'), () => close(true), 'outline')
     overlay.querySelector('#mm-am-form').addEventListener('submit', async e => {
       e.preventDefault()
@@ -631,6 +706,80 @@ export function openAuthModal(onDone) {
       if (!res.ok) { submitBtn.disabled = false; render(res.error) } else { close(true) }
     })
     requestAnimationFrame(() => overlay.querySelector('#mm-am-user')?.focus())
+  }
+
+  render()
+  requestAnimationFrame(() => overlay.classList.add('p-auth-overlay--open'))
+}
+
+/**
+ * Reset-Screen für Nutzer, die per Recovery-Link zurückkommen. Wird von
+ * onAuthStateChange (Event PASSWORD_RECOVERY) sowie beim App-Start bei
+ * `?reset=1` aufgerufen. Nach Erfolg: URL bereinigen und schließen.
+ */
+export function openPasswordResetScreen() {
+  if (document.getElementById('mm-resetmodal')) return
+  const overlay = document.createElement('div')
+  overlay.id = 'mm-resetmodal'
+  overlay.className = 'p-auth-overlay'
+  document.body.appendChild(overlay)
+
+  const close = () => {
+    overlay.classList.remove('p-auth-overlay--open')
+    setTimeout(() => overlay.remove(), 200)
+  }
+
+  const clearResetParam = () => {
+    try {
+      const url = new URL(window.location.href)
+      url.searchParams.delete('reset')
+      window.history.replaceState({}, '', url.pathname + (url.search ? url.search : '') + url.hash)
+    } catch {}
+  }
+
+  const render = (error = '', info = '') => {
+    overlay.innerHTML = `
+      <div class="p-auth-backdrop"></div>
+      <div class="p-auth-card">
+        <div class="p-auth-brand">MOTOMATCH</div>
+        <h3 class="p-auth-title">Neues Passwort setzen</h3>
+        <p class="p-auth-sub">Wähle ein neues Passwort für dein Konto.</p>
+        <form id="mm-rm-form" autocomplete="off">
+          <label class="p-auth-field">
+            <span class="p-auth-label">Neues Passwort</span>
+            <input class="p-auth-input" id="mm-rm-p1" type="password" minlength="4" autocomplete="new-password" placeholder="••••••••" required>
+          </label>
+          <label class="p-auth-field">
+            <span class="p-auth-label">Neues Passwort bestätigen</span>
+            <input class="p-auth-input" id="mm-rm-p2" type="password" minlength="4" autocomplete="new-password" placeholder="••••••••" required>
+          </label>
+          <div class="p-auth-error" id="mm-rm-error" ${error ? '' : 'hidden'}>${esc(error)}</div>
+          ${info ? `<div class="p-auth-sub" style="color:#0a0;margin:8px 0 4px">${esc(info)}</div>` : ''}
+          <div class="p-auth-actions">
+            <button type="submit" class="p-auth-submit" id="mm-rm-submit">Neues Passwort speichern</button>
+          </div>
+        </form>
+      </div>`
+    overlay.querySelector('#mm-rm-form').addEventListener('submit', async e => {
+      e.preventDefault()
+      const btn = overlay.querySelector('#mm-rm-submit')
+      const p1 = overlay.querySelector('#mm-rm-p1').value
+      const p2 = overlay.querySelector('#mm-rm-p2').value
+      if (p1 !== p2) { render('Passwörter stimmen nicht überein.'); return }
+      btn.disabled = true
+      btn.textContent = 'Speichern…'
+      const res = await updatePasswordDirect(p1)
+      if (!res.ok) {
+        btn.disabled = false
+        btn.textContent = 'Neues Passwort speichern'
+        render(res.error)
+        return
+      }
+      clearResetParam()
+      render('', 'Passwort erfolgreich geändert.')
+      setTimeout(close, 1500)
+    })
+    requestAnimationFrame(() => overlay.querySelector('#mm-rm-p1')?.focus())
   }
 
   render()

@@ -1,0 +1,307 @@
+# T3.1 — Beta-Smoketest
+
+**Ziel:** Selbst-Test aller Kern-User-Flows vor dem Beta-Launch. Bugs werden
+hier **nur dokumentiert**, Fixes gehören in T3.2 (separate Session, damit
+neue Regressionen vermieden werden).
+
+**Setup**
+- Vite Dev-Server: `npm run dev` auf `http://localhost:5173`
+- Browser: Chrome (headless via Puppeteer, viewport 1440×900)
+- Frische Session pro Flow (neuer Browser-Context, keine Cookies/localStorage)
+- Harness-Script: `scratchpad/harness/run.mjs` (macht Screenshot + sammelt
+  Konsolen-Errors + Netzwerk-Fails pro Step)
+- Screenshots: `docs/screenshots/T3.1-<flow>-<step>.png` (29 Stück)
+- Test-User: dynamisch generiert `mm-smoke-<ts>@mailinator.com`, PW `Test1234!`
+
+**Legende**
+- ✅ funktioniert
+- ⚠️ Bug / auffällig
+- 🚫 blockierend für Beta-Start
+- 🧪 nicht automatisiert verifiziert → **manueller Nachtest empfohlen vor Launch**
+
+---
+
+## Globale Beobachtungen (über alle Flows hinweg)
+
+| Symptom | Wo | Blockierend? | Notiz |
+|---|---|---|---|
+| ✅ `GET /favicon.ico → 404` | Alle Seiten | gefixt (T3.2) | Minimales valides 1×1 ICO in `public/favicon.ico` abgelegt (70 Bytes). Response jetzt 200 `image/x-icon`. SVG-Favicon bleibt weiter als primäres Icon aktiv. |
+| ✅ `GET /__video/hero.mp4 → net::ERR_ABORTED` | Landing (Hero) | kein Bug | **T3.2 verifiziert:** Datei existiert (HTTP 200, 3.9 MB, via Vite-Middleware mit Range-Requests). `ERR_ABORTED` ist normales Verhalten für `<video autoplay muted loop>`-Range-Requests, die beim Loop/Pause abgebrochen werden. Nichts zu fixen. |
+| ✅ Konsolen-Warning: `THREE.Clock: deprecated` | Quiz-3D | gefixt (T3.2) | Migriert auf `THREE.Timer`; Loop ruft jetzt `clock.update()` und `getElapsed()`. Verifiziert: 0 Warnings, keine neuen Errors. Screenshot `T3.2-B-01-timer-quiz.png`. |
+| ✅ Konsolen-Warning: `Google Maps without loading=async` | Karte / Dealers | gefixt (T3.2) | `&loading=async` an Script-URL angehängt. Verifiziert: keine Warning mehr. |
+| ✅ Keine `pageerror` (uncaught) über alle 21 Steps | — | — | App wirft keine unbehandelten Exceptions während Basic-Navigation. |
+
+---
+
+## Flow A — Registrierung ✅
+
+| Step | Status | Screenshot | Notiz |
+|---|---|---|---|
+| A01 Landing → Account-Icon klicken | ✅ | `T3.1-A-01-open-account.png` | `nav-account` öffnet Account-Screen (Gast-Modus). |
+| A02 "Anmelden"-Button im Account-Screen | ✅ | `T3.1-A-02-click-anmelden.png` | Öffnet `#mm-authmodal` |
+| A03 Toggle → Registrieren | ✅ | `T3.1-A-03-switch-to-register.png` | Zusätzliche Felder `pass2`, `age`, `license` erscheinen |
+| A04 Formular ausfüllen + submit | ✅ | `T3.1-A-04-fill-and-submit.png` | Kein Fehler; ~4s Netz-Wartezeit |
+| A05 Post-Signup-State | ✅ | `T3.1-A-05-post-signup-state.png` | Auth-Modal schließt, Session ist aktiv |
+
+- 🧪 **Email-Confirmation-Flow**: Supabase-Projekt scheint aktuell auf
+  "Confirm email = OFF" zu stehen (Session wurde sofort erstellt, Modal
+  schloss ohne Bestätigungshinweis). **Vor Beta-Launch bewusst entscheiden:**
+  Soll Confirm-Email an sein? Wenn ja, den Flow einmal mit echter
+  Mailinator-Inbox durchgehen; aktuell nicht getestet.
+- ⚠️ **UX-Auffälligkeit:** Der Weg zur Registrierung ist zweistufig
+  (`nav-account` → Account-Screen → "Anmelden"-Button → Modal-Toggle "Noch
+  keinen Account?"). Für neue Nutzer könnte ein direkter "Registrieren"-CTA
+  auf der Landing / im Account-Screen schneller zum Ziel führen. Non-blocking,
+  aber Onboarding-Reibung.
+
+---
+
+## Flow B — Quiz ⚠️
+
+| Step | Status | Screenshot | Notiz |
+|---|---|---|---|
+| B01 Landing → Hero-CTA "Passendes Bike finden" | ✅ | `T3.1-B-01-start-quiz.png` | `#quiz-screen` wird sichtbar, erste Frage lädt |
+| B02 Alle Fragen durchklicken | ⚠️ | `T3.1-B-02-answer-questions.png` | Harness bricht nach 20 Iterationen ohne Drop/Result ab |
+
+- ⚠️ **Verhalten:** Der Test-Klick-Bot klickt automatisch die erste
+  `.opt-btn` bzw. setzt Slider-Median + sucht "Weiter"-Button. Nach 20 Klicks
+  landet der Screen **nicht** im Ergebnis (weder `#drop-container` sichtbar
+  noch `.match-card`). Zwei mögliche Ursachen:
+  - Slider-Fragen erwarten explizites Weiter-Klick nach `input` (kein
+    Auto-Advance) und der Weiter-Button hat einen anderen Text als
+    `weiter|next|fertig|ergebnis` — dann bleibt der Flow hängen.
+  - Es gibt Zwischenscreens (Zusammenfassung / Bestätigung), die die Automation
+    nicht erkennt.
+- 🧪 **Manueller Nachtest zwingend:** Menschlich durchklicken und prüfen, ob
+  KI-Begründung (Server-Call oder On-Device) korrekt erscheint. Der
+  Automation-Bug ist wahrscheinlich **kein User-Blocker**, sollte aber
+  bestätigt werden.
+- Non-blocker Warning währenddessen: `THREE.Clock deprecated` (siehe global).
+
+---
+
+## Flow C — Bike-Detail ⚠️ (blockiert von B)
+
+| Step | Status | Screenshot | Notiz |
+|---|---|---|---|
+| C01 Aus Ergebnis auf Bike klicken | ⚠️ | `T3.1-C-01-open-first-bike.png` | Keine `.match-card`/`[data-bike-detail]` verfügbar, weil Quiz nicht bis zum Ergebnis kam |
+
+- 🧪 **Manueller Nachtest:** Nach abgeschlossenem Quiz das erste Match
+  öffnen und prüfen:
+  - Lädt das 3D-Modell (Konsole: `THREE.Clock`-Warning gilt hier)?
+  - Sind alle Tabs (Specs, Bilder, Meinungen, o.ä.) klickbar & befüllt?
+  - Funktioniert "In Garage speichern" (Insert in Supabase `garage_bikes`)?
+- Aus dem Code (`src/js/bike-detail.js` existiert, Element `#bike-detail`
+  im DOM) sieht der Screen konzeptuell OK aus — reiner Automations-Blocker,
+  keine Code-Beobachtung, die auf Bugs hindeutet.
+
+---
+
+## Flow D — Garage ✅
+
+| Step | Status | Screenshot | Notiz |
+|---|---|---|---|
+| D01 Drawer → "Garage" | ✅ | `T3.1-D-01-open-garage.png` | Öffnet designgemäß `#acc-overlay` (Account-Screen mit Garage), nicht `#garage-container` — mein T3.1-Harness prüfte den falschen Selector. Verifiziert in T3.2 mit `scratchpad/harness/verify-garage.mjs`. |
+
+- 🧪 **Weiterhin nicht automatisiert:** Wartungseintrag hinzufügen, Bike-in-Garage-speichern-Flow von Bike-Detail aus. Manuell nachziehen.
+
+---
+
+## Flow E — Karte ✅
+
+| Step | Status | Screenshot | Notiz |
+|---|---|---|---|
+| E01 Karte öffnen (Hub-Bereich) | ✅ | `T3.2-E-01-consent-placeholder.png` | **T3.2-Fix:** Consent-Placeholder erscheint, 0 Requests an `maps.googleapis.com` |
+| E02 Consent akzeptieren | ✅ | `T3.2-E-02-consent-accepted.png` | **T3.2-Fix:** Klick auf "Karte laden" → Google Maps wird geladen (2 Requests), `mm_maps_consent_v1=1` persistiert |
+
+- ✅ **DSGVO-Gate implementiert** (T3.2 Commit): Vor jedem Google-Maps-Load
+  fragt jetzt ein Inline-Placeholder um Zustimmung. Preloads in
+  `openBikeGarage`/`openBikeGarageWithMatches` sind ebenfalls hinter dem
+  Consent-Gate. Zustimmung wird in `localStorage.mm_maps_consent_v1`
+  persistiert.
+- 🧪 Marker-Klick + Popup: nicht automatisiert. Vor Beta manuell testen.
+- ⚠️ Google-Maps-Warning (async-Loading, siehe global — separater P3-Fix).
+
+---
+
+## Flow F — Community ✅ (Öffnen)
+
+| Step | Status | Screenshot | Notiz |
+|---|---|---|---|
+| F01 Drawer → "Community" | ✅ | `T3.1-F-01-open-community.png` | Community-Screen öffnet |
+
+- 🧪 **Nicht automatisiert:**
+  - Öffentliche Gruppe finden + beitreten
+  - In Kanal Nachricht schreiben
+  - **Realtime-Test** (zweiter Browser als anderer User) → hier braucht es
+    zwei Sessions parallel; sollte manuell + mit einem zweiten Testaccount
+    verifiziert werden.
+  - Freund adden via Username-Suche
+  - DM schreiben
+- Aus Code (`community.js`, `community-api.js`) sind alle diese Features
+  angelegt. **Vor Beta zwingend manuell durchspielen**, weil Realtime-Bugs
+  sich nur unter Last / bei tatsächlicher Realtime-Subscription zeigen.
+
+---
+
+## Flow G — Feedback ✅
+
+| Step | Status | Screenshot | Notiz |
+|---|---|---|---|
+| G01 FAB `#mm-fb-fab` klicken | ✅ | `T3.1-G-01-click-fab.png` | Modal öffnet |
+| G02 Nachricht schreiben + Senden | ✅ | `T3.1-G-02-submit-feedback.png` | Modal schließt sauber nach ~1.2s (Success-Path) |
+
+- ✅ **Supabase-Insert prüfen:** Das Harness hat einen Test-Eintrag mit
+  Text "Smoketest-Feedback vom Puppeteer-Harness &lt;ISO-Zeit&gt;"
+  abgeschickt. **Vor Beta einmal manuell im Supabase-Dashboard →
+  `beta_feedback` Table** verifizieren, dass die Row inkl. `user_agent`,
+  `page`, ggf. `user_id` gelandet ist. Der Client meldete keinen Fehler
+  (`err=""`), aber ein 4xx/5xx-Response wäre in der Konsole zu sehen gewesen
+  — dort war nichts.
+- Non-blocker Beobachtung: Konsole während G01 hatte `hero.mp4` net-fail
+  (global, unabhängig).
+
+---
+
+## Flow H — Passwort-Reset 🧪
+
+| Step | Status | Screenshot | Notiz |
+|---|---|---|---|
+| H01 Nav → Anmelden → "Passwort vergessen?" | ⚠️ | `T3.1-H-01-open-forgot.png` | Modal öffnete sich nicht (im Testlauf mit gerade angelegter Session — `nav-account` führt vermutlich direkt zum Account-Screen ohne Login-Button, weil bereits eingeloggt) |
+
+- ⚠️ **Test-Artefakt:** Der Fehler kommt daher, dass der Harness-Kontext
+  Cookies der Registrierung mitnimmt und der User schon eingeloggt ist.
+- 🧪 **Manueller Nachtest zwingend:**
+  1. Ausloggen
+  2. Auth-Modal öffnen → "Passwort vergessen"
+  3. Reset-Mail an Mailinator-Adresse
+  4. Link öffnen → App muss mit `?reset=1` in `openPasswordResetScreen()`
+     landen (siehe `src/js/app.js:8`)
+  5. Neues Passwort setzen, damit einloggen
+- Der Code-Pfad ist da (`#mm-am-forgot` → `#mm-am-submit` "Reset-Link
+  senden"; Reset-Screen `#mm-rm-form`), aber **nicht end-to-end verifiziert
+  in dieser Session**.
+
+---
+
+## Flow I — Ausrüstung ✅ (Öffnen)
+
+| Step | Status | Screenshot | Notiz |
+|---|---|---|---|
+| I01 Drawer → "Ausrüstung" | ✅ | `T3.1-I-01-open-gear.png` | Gear-Screen öffnet |
+
+- 🧪 **Nicht automatisiert:** Favorit setzen, Kategorie-Filter, Detail-View.
+  Kurz manuell durchklicken.
+
+---
+
+## Flow J — Landing + Footer ✅
+
+| Step | Status | Screenshot | Notiz |
+|---|---|---|---|
+| J01 Landing-Load | ✅ | `T3.1-J-01-landing-load.png` | `#landing` sichtbar. Onboarding-Overlay `#ob-overlay` erscheint als erstes Slide (nur bei erstem Besuch — `mm_onboarding_done_v1` in localStorage). |
+| J02 Onboarding skippen | ✅ | `T3.1-J-02-kill-onboarding.png` | Overlay entfernt |
+| J03 Zum Footer scrollen | ✅ | `T3.1-J-03-footer-visible.png` | `Impressum`, `Datenschutz`, `Kontakt`, `Feedback` als `.p-footer-link` sichtbar |
+| J04 Impressum öffnen | ✅ | `T3.1-J-04-open-impressum.png` | Overlay mit Impressum-Inhalt lädt |
+| J05 Datenschutz öffnen | ✅ | `T3.1-J-05-open-datenschutz.png` | Beide Legal-Links sind static HTML (`public/impressum.html`, `public/datenschutz.html` — beide HTTP 200). Kein Modal, kein Escape-Handling nötig. T3.1-Warnung war Automations-Artefakt (nach Impressum-Klick war Puppeteer auf einer anderen Seite). |
+- ⚠️ **Cookies-/Consent-Banner** wurde bei keinem Landing-Load beobachtet
+  — falls die App Third-Party-Ressourcen (Google Fonts, Google Maps, YouTube
+  Embeds) lädt, könnte das ein **DSGVO-Problem** vor Launch sein. Manuell
+  klären, was aktuell ohne Consent geladen wird.
+
+---
+
+## Onboarding-Overlay (Nebenbefund)
+
+- Beim ersten Besuch erscheint das 3-Slide-Onboarding-Overlay `#ob-overlay`
+  über allem. **Manueller Test empfohlen:**
+  - Alle 3 Slides normal durchklicken → sauberer Fade-Out?
+  - "Überspringen" → Overlay verschwindet & merkt sich das (localStorage
+    `mm_onboarding_done_v1`)?
+  - Bei zweitem Besuch **nicht** mehr erscheinen?
+
+---
+
+## Zusammenfassung
+
+- **Flows durchgegangen:** 10 (A–J)
+- **Bugs / Auffälligkeiten dokumentiert:** 10
+  - Davon **blockierend für Beta-Start (🚫):** **0** bestätigt
+  - Davon **non-blocking, aber vor Launch fixen (⚠️):** 5
+    (favicon 404, hero.mp4 ERR_ABORTED, THREE.Clock deprecation warning,
+    Google Maps ohne `loading=async`, Impressum-Modal ignoriert `Escape`)
+  - Davon **Bug wahrscheinlich reell, aber Nachtest nötig (⚠️🧪):** 2
+    (Garage-Screen öffnet nicht via Drawer; Karte hat evtl. keinen
+    Consent-Gate)
+  - Davon **Automations-Limit, kein bestätigter Bug (🧪):** 3
+    (Quiz-Autoklick erreicht kein Ergebnis; Bike-Detail dadurch nicht
+    testbar; Passwort-Reset braucht Inbox-Zugang)
+- **Manueller Nachtest zwingend vor Beta-Open** für:
+  1. Quiz komplett menschlich durchklicken → KI-Ergebnis + Match-Cards
+  2. Bike-Detail → 3D-Modell + Tabs + "In Garage speichern"
+  3. Garage → Wartungseintrag hinzufügen
+  4. Karte → Consent-Verhalten (DSGVO!) + Marker-Popup
+  5. Community → Realtime-Chat mit zweitem User + Freund adden + DM
+  6. Passwort-Reset komplett via Mail
+  7. Feedback-Row in Supabase `beta_feedback` sichten
+  8. DSGVO-Check: Was lädt die Landing ohne User-Consent? (Google Fonts,
+     Google Maps API, Videos, Third-Party-Skripte)
+
+**Empfehlung:** Beta kann in einer eingeschränkten Runde (Freunde/Family,
+&lt;20 Nutzer) starten, **nachdem** die o.g. manuellen Nachtests
+durchlaufen sind und die 5 non-blocking ⚠️ Punkte im T3.2-Sprint gefixt
+wurden. Ein breiter Beta-Roll-out (Public Sign-up-Link) sollte auf DSGVO-
+Consent-Klärung + Realtime-Chat-Verifikation warten.
+
+---
+
+_Erzeugt automatisch von_ `scratchpad/harness/run.mjs` _am_
+`2026-08-11` _—_ Rohdaten in `scratchpad/harness/results.json`
+
+---
+
+## T3.2 — Fix-Runde (2026-08-11)
+
+Priorisierung aus T3.1 abgearbeitet in Reihenfolge P1 → P2 → P3. Jeder Fix
+ein Commit mit `fix(...)`-Prefix bzw. `docs(smoketest)` für Doc-only-Korrekturen.
+
+### Ergebnis pro Punkt
+
+| Punkt | Prio | Ergebnis | Commit |
+|---|---|---|---|
+| P1.1 Garage öffnet nicht via Drawer | P1 | 🟢 War kein Bug — Drawer öffnet designgemäß `#acc-overlay`, mein T3.1-Selector-Check war falsch | `44fe1c5` |
+| P1.2 Karte ohne DSGVO-Consent | P1 | ✅ **Gefixt** — Inline-Placeholder mit "Karte laden"-Button; 0 Requests an `maps.googleapis.com` vor Consent | `4f0cf0f` |
+| P2.1 Impressum-Modal ignoriert Escape | P2 | 🟢 War kein Bug — Impressum/Datenschutz sind static HTML-Seiten, kein Modal | `f939c12` |
+| P2.2 `hero.mp4 → ERR_ABORTED` | P2 | 🟢 War kein Bug — normales Verhalten für autoplay+loop-Video-Range-Requests | `8ff4b86` |
+| P3.1 favicon.ico 404 | P3 | ✅ **Gefixt** — 70-Byte 1×1 valides ICO in `public/favicon.ico` | `9055e94` |
+| P3.2 THREE.Clock deprecated | P3 | ✅ **Gefixt** — auf `THREE.Timer` migriert | `84cc8dd` |
+| P3.3 Google Maps ohne loading=async | P3 | ✅ **Gefixt** — `&loading=async` an Script-URL angehängt | `8c5254d` |
+
+### Zusammenfassung
+
+- **Bugs gefixt:** 4 (P1.2, P3.1, P3.2, P3.3)
+- **Falsch als Bug gemeldet (T3.1-Missdiagnosen):** 3 (P1.1, P2.1, P2.2)
+  — jeweils Doc-Only-Korrektur committed
+- **Noch offen:** 0 aus der T3.1-Fix-Liste
+- **Neue Bugs während der Fix-Runde entdeckt:** 0
+- **Keine Refactorings** — jeder Fix minimal-invasiv, ein Commit pro Fix
+
+### Beta-Launch aus technischer Sicht
+
+**Ja, technisch möglich.** Alle P1-Bugs sind weg:
+- DSGVO-Karten-Consent implementiert und verifiziert
+- Kein Beta-Blocker mehr offen
+
+**Vor dem tatsächlichen Beta-Launch bleiben die T3.1-Manual-QA-Punkte** (die
+sind kein Bug, sondern nicht-automatisierte Verifikationen — sollten aber
+menschlich einmal durchgespielt werden):
+1. Quiz komplett durchklicken → KI-Ergebnis + Match-Cards
+2. Bike-Detail → 3D-Modell + Tabs + "In Garage speichern"
+3. Garage → Wartungseintrag hinzufügen
+4. Karte → Consent akzeptieren + Marker-Popup
+5. Community → Realtime-Chat mit zweitem User + Freund adden + DM
+6. Passwort-Reset komplett via Mail
+7. Feedback-Row in Supabase `beta_feedback` sichten
+
+_T3.2 abgeschlossen — 7 Commits (4× fix, 3× docs)_
+

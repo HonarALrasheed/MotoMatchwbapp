@@ -42,11 +42,11 @@ Keine Tests und kein Linter konfiguriert.
 | `src/styles/main.css` | gesamtes Styling (dunkles, Porsche-inspiriertes Design) |
 | `public/` | statische Assets, ~220 MB (Bike-Bilder, 3D-Modelle, HDRI, Video) |
 | `vite.config.js` | Base-Pfad, Asset-Kopie von `D:/MotoMatch/...` (nur alte Windows-Dev-Maschine, auf macOS inert) |
-| `.env` | `VITE_OPENAI_KEY`, `VITE_TAVILY_KEY`, `VITE_GMAPS_KEY` — alle optional, Features degradieren ohne Keys |
+| `.env` | `VITE_SUPABASE_URL/ANON_KEY`, `VITE_GMAPS_KEY`, `VITE_SENTRY_DSN` (client) sowie serverseitig `OPENAI_KEY`, `TAVILY_KEY`, `SENTRY_DSN` — alle optional, Features degradieren ohne Keys. Server-Keys **nie** mit `VITE_`-Prefix. |
 
 Wichtigste Module in `src/js/`:
 - `app.js` — Bootstrapping/Router zwischen Bildschirmen
-- `auth.js` — **zentrale** Auth (eine Session plattformweit); API: `login`, `register`, `logout`, `loginGuest`, `currentUser`, `updateProfile`, `getSession`, `isLoggedIn`, `openAuthModal`; Event `mm:auth-changed`
+- `auth.js` — **zentrale** Auth (eine Session plattformweit); API: `login`, `register`, `logout`, `loginGuest`, `currentUser`, `updateProfile`, `getSession`, `isLoggedIn`, `openAuthModal`, `requestPasswordReset`, `updatePasswordDirect`, `openPasswordResetScreen`; Event `mm:auth-changed`
 - `bike-detail.js` — größtes Modul: Konfigurator, 3D-Viewer, Tabs
 - `community.js` — Discord-artige Community (Gruppen, Talks, DMs)
 - `quiz.js` / `matching.js` — Match-Quiz + Empfehlungslogik
@@ -77,6 +77,19 @@ Wichtigste Module in `src/js/`:
 - **Achtung:** `public/models/` und `public/__video/` sind gitignored ("too big for GitHub"). Ein Deploy über die Git-Integration hätte daher **keine 3D-Modelle/kein Hero-Video** — deployen über die `vercel` CLI vom lokalen Rechner, die lädt `public/` vollständig hoch.
 - Im Build gilt Base-Pfad `/app/` — absolute Asset-Pfade im Code (z. B. `/models/…`) funktionieren nur, weil Vite sie beim Build umschreibt bzw. die Assets unter `/app/` landen; bei 404s in Produktion zuerst hier suchen.
 
+## API-Schutz
+- Beide Serverless-Endpoints (`api/ai-match.js`, `api/search-places.js`) rufen als Erstes `checkOriginAndRate(req, res)` aus [`api/_shared.js`](api/_shared.js) auf. Gibt der Helper `true` zurück, hat er bereits geantwortet und der Handler muss sofort `return`en.
+- **Origin-Check:** `req.headers.origin` muss exakt auf der Allowlist aus `ALLOWED_ORIGINS` (kommagetrennt, Env-Var in Vercel setzen) stehen. Kein Match → 403. Keine Wildcards; für Vercel-Preview-Deploys die konkrete Preview-URL ergänzen oder die Deploys akzeptieren, dass die Endpoints geblockt werden.
+- **Rate-Limit:** 10 Requests pro 60 s pro IP, in-memory Map im Modul-Scope, zero-dependency. Über Limit → 429 mit `Retry-After`-Header. IP aus `x-forwarded-for` (erster Wert), Fallback `x-real-ip`.
+- **Cold-Start-Reset ist bewusst akzeptiert:** Jede neue Vercel-Serverless-Instanz startet mit leerer Map. Das ist für die Beta ausreichend — Ziel ist Missbrauchsschutz, nicht perfekte Buchhaltung. Für echte Quoten später Upstash o. Ä.
+
+## Fehler-Monitoring (Sentry)
+- Frontend-Init in [`src/js/monitoring.js`](src/js/monitoring.js), aufgerufen als erstes in `startApp()` ([`src/js/app.js`](src/js/app.js)). DSN aus `VITE_SENTRY_DSN` — ohne DSN no-op mit Konsolen-Info (wie `OFFLINE_MODE` in `supabase.js`).
+- Backend: `@sentry/node` in [`api/ai-match.js`](api/ai-match.js) und [`api/search-places.js`](api/search-places.js). Init lazy, DSN aus `SENTRY_DSN` (ohne `VITE_`). Jeder gefangene Fehler wird zusätzlich an Sentry gemeldet, das bestehende JSON-Error-Response bleibt unverändert.
+- PII-Scrubbing: `beforeSend` filtert E-Mails, Passwörter, Tokens, Cookies aus Events (Frontend).
+- **Test-Empfang verifizieren:** temporär eine bewusst kaputte Zeile einbauen, z. B. in `src/js/monitoring.js` nach `Sentry.init(...)`: `setTimeout(() => { throw new Error('Sentry test error') }, 1000)`. Für Backend: `throw new Error('Sentry backend test')` am Anfang des `try`-Blocks in `api/ai-match.js`. Nach Verifikation im Sentry-Dashboard sofort wieder entfernen — **nicht committen**.
+- **Source-Maps-Upload** (später, nicht in dieser Session): `npm i -D @sentry/cli`, dann in Post-Build-Step `sentry-cli sourcemaps inject ./dist && sentry-cli sourcemaps upload --org <org> --project moto-match ./dist`. Auth-Token via `SENTRY_AUTH_TOKEN` in CI/Vercel.
+
 ## Browser-Verifikation nach UI-Änderungen
 - Dev-Server **immer** über die Browser-Preview starten (`.claude/launch.json`, Konfiguration `moto-match`, Port 5173) — nie per Bash.
 - Nach Änderungen an UI/Styling: Seite laden, Konsole auf Fehler prüfen, Screenshot machen und selbst vergleichen. Nicht den Nutzer manuell prüfen lassen.
@@ -85,7 +98,33 @@ Wichtigste Module in `src/js/`:
 ## Bekannte Einschränkungen
 - Passwörter im Klartext in localStorage — nur Prototyp, kein Security-Fix nötig, aber nichts darauf aufbauen
 - Talks/Sprachkanäle: nur UI, kein echtes Audio (WebRTC = Roadmap)
-- QR-Login, Shop, Quests, Passwort-Reset sind Platzhalter
+- QR-Login, Shop, Quests sind Platzhalter
+
+## Passwort-Reset-Flow
+Öffentlicher "Passwort vergessen"-Weg im Auth-Modal (`openAuthModal` → Link
+"Passwort vergessen?" im Login-Modus, im `OFFLINE_MODE` ausgeblendet). Nutzt
+Supabase `resetPasswordForEmail` mit `redirectTo = <origin>/?reset=1`. Nach
+Klick auf den Mail-Link öffnet `startApp()` bzw. der `PASSWORD_RECOVERY`-Event
+in `initSupabaseAuth` den Reset-Screen (`openPasswordResetScreen`), der per
+`supabase.auth.updateUser({ password })` das neue Passwort setzt und den
+`?reset=1`-Param wieder entfernt.
+
+**Wichtig für Betrieb:** Das Reset-Mail-Template muss im Supabase-Dashboard auf
+Deutsch angepasst werden (**Authentication → Email Templates → "Reset Password"**),
+sonst kommt die Standard-englische Vorlage. Ebenso `Site URL` und
+`Additional Redirect URLs` unter **Authentication → URL Configuration** um die
+produktive Domain (mit `/?reset=1`) ergänzen.
+
+## Beta-Feedback-Kanal
+Floating Action Button (💬 „Feedback") rechts unten auf allen Screens, init in
+`startApp()` via [`src/js/feedback.js`](src/js/feedback.js). Submit schreibt in
+Tabelle `beta_feedback` (Supabase, siehe `supabase/schema.sql` — Migration
+einmalig im SQL-Editor ausführen). Im `OFFLINE_MODE` Fallback in
+localStorage-Key `mm_beta_feedback_local`.
+
+**Feedback einsehen:** Supabase-Dashboard → **Table Editor → `beta_feedback`**,
+Spalte `created_at` absteigend sortieren. Kein SELECT-Policy für User, d. h.
+niemand außer über das Dashboard (Service-Role) kann die Einträge lesen.
 
 ## Arbeitsregeln
 - **Beim Kompaktieren immer die Liste geänderter Dateien und offene TODOs erhalten.**

@@ -119,9 +119,11 @@ export function loadGarage(answers) {
 
   console.info(`[garage] Matched: ${bikeData.name}`);
 
-  // Preload Google Maps + geolocation in background
-  loadGoogleMapsScript();
-  getUserLocation();
+  // Preload Google Maps + geolocation in background — only after consent
+  if (hasMapsConsent()) {
+    loadGoogleMapsScript();
+    getUserLocation();
+  }
 
   // Build the full page
   container.innerHTML = buildPage(bikeData);
@@ -180,8 +182,10 @@ export function openBikeGarage(shortName) {
     if (landing) landing.style.display = "none";
     container.style.display = "block";
 
-    loadGoogleMapsScript();
-    getUserLocation();
+    if (hasMapsConsent()) {
+      loadGoogleMapsScript();
+      getUserLocation();
+    }
 
     container.innerHTML = buildPage(bikeData, false);
     container.scrollTop = 0;
@@ -828,12 +832,42 @@ let hubMapInstance = null;
 let hubMarkers = [];
 let hubInfoWindow = null;
 
+const MAPS_CONSENT_KEY = 'mm_maps_consent_v1';
+function hasMapsConsent() {
+  try { return localStorage.getItem(MAPS_CONSENT_KEY) === '1'; } catch { return false; }
+}
+function setMapsConsent() {
+  try { localStorage.setItem(MAPS_CONSENT_KEY, '1'); } catch {}
+}
+function renderMapsConsentPlaceholder(el) {
+  el.innerHTML = `
+    <div class="hub-map-consent" id="hub-map-consent" style="display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;padding:24px;text-align:center;height:100%;box-sizing:border-box;">
+      <p style="max-width:420px;margin:0;font-size:14px;line-height:1.5;color:#e5e5e5;">
+        Die Karte lädt Daten von <strong>Google Maps</strong>. Dabei wird deine
+        IP-Adresse an Google übertragen. Details in der
+        <a href="#" data-open-legal="datenschutz" style="color:inherit;text-decoration:underline;">Datenschutzerklärung</a>.
+      </p>
+      <button type="button" id="hub-map-consent-btn" class="tb-btn" style="padding:10px 18px;font-weight:600;cursor:pointer;">
+        Karte laden
+      </button>
+    </div>`;
+  el.querySelector('#hub-map-consent-btn')?.addEventListener('click', () => {
+    setMapsConsent();
+    el.innerHTML = `
+      <div class="hub-map-loading" id="hub-map-loading">
+        <span class="hub-map-spinner"></span>
+        <span>Standort wird ermittelt…</span>
+      </div>`;
+    initHubMap();
+  });
+}
+
 function loadGoogleMapsScript() {
   if (window.google?.maps) return Promise.resolve();
   if (gmapsLoadPromise) return gmapsLoadPromise;
   gmapsLoadPromise = new Promise((resolve, reject) => {
     const s = document.createElement("script");
-    s.src = `https://maps.googleapis.com/maps/api/js?key=${GMAPS_KEY}&libraries=places`;
+    s.src = `https://maps.googleapis.com/maps/api/js?key=${GMAPS_KEY}&libraries=places&loading=async`;
     s.async = true;
     const timer = setTimeout(() => {
       gmapsLoadPromise = null; // nächster Klick darf einen frischen Versuch starten
@@ -1195,6 +1229,11 @@ let hubMapInitToken = 0;
 export async function initHubMap() {
   const el = document.getElementById("hub-gmap");
   if (!el) return;
+  // DSGVO: kein Google-Maps-Load ohne User-Consent
+  if (!hasMapsConsent()) {
+    renderMapsConsentPlaceholder(el);
+    return;
+  }
   // Reset stale instance if its DOM element is no longer in the document
   if (hubMapInstance && !document.body.contains(hubMapInstance.getDiv?.())) {
     hubMapInstance = null;

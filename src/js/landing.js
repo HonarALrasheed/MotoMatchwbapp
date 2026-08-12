@@ -9,9 +9,23 @@ let _scrollHandler = null;
 // Funktioniert auf Touch-Geräten genauso über :hover-Emulation beim Tippen.
 const LC_INFO = {
   "lc-quiz": "Beantworte ein paar Fragen zu deinem Fahrstil — wir finden dein perfektes Motorrad.",
-  "lc-dealer": "Vergleiche Preise, Ausstattung und finde Händler mit Beratung in deiner Nähe.",
-  "lc-community": "Entdecke Modelle nach Stil, tausch dich mit anderen aus und finde passendes Gear.",
+  "lc-garage": "Behalte deine Bikes, Wartung und Kilometerstand im Blick — alles an einem Ort.",
+  "lc-community": "Finde Fahrer in deiner Nähe, tausch dich aus und plane gemeinsame Touren.",
+  "lc-ride": "Ausrüstung, Werkstätten und Tank-Spots — alles was du unterwegs brauchst.",
 };
+
+// Nutzungs-Sektionen unter dem Hero — adressieren neue und Bestandsfahrer.
+const USE_SECTIONS = [
+  { id: "lc-quiz",      label: "Finde dein perfektes Bike", img: "/quiz-lifestyle.jpeg",      action: "quiz"      },
+  { id: "lc-garage",    label: "Deine Garage im Blick",     img: "/dealer-lifestyle.jpeg",    action: "garage"    },
+  { id: "lc-community", label: "Fahr nicht allein",         img: "/community-lifestyle.jpeg", action: "community" },
+];
+
+function esc(s) {
+  return String(s ?? "").replace(/[&<>"']/g, (c) => ({
+    "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;",
+  }[c]));
+}
 
 const FEATURED_BIKES = [
   {
@@ -224,6 +238,79 @@ function ensureGlobalListeners() {
   });
 }
 
+// ── Chooser overlay for existing riders ──────────────────
+const CHOOSER_ITEMS = [
+  { label: "Freunde zum Fahren finden", action: "community" },
+  { label: "Meine Bikes verwalten",     action: "garage"    },
+  { label: "Karte & Werkstätten",       action: "karte"     },
+  { label: "Nur umschauen",             action: "close"     },
+];
+
+function openExistingRiderChooser() {
+  let overlay = document.getElementById("p-chooser-overlay");
+  if (overlay) { overlay.classList.add("open"); return; }
+
+  overlay = document.createElement("div");
+  overlay.id = "p-chooser-overlay";
+  overlay.className = "p-chooser-overlay";
+  overlay.innerHTML = `
+    <div class="p-chooser-panel" role="dialog" aria-label="Wohin möchtest du?">
+      <button class="p-chooser-close" id="p-chooser-close" aria-label="Schließen">×</button>
+      <div class="p-chooser-title">Wohin möchtest du?</div>
+      <div class="p-chooser-list">
+        ${CHOOSER_ITEMS.map(i => `
+          <button class="p-chooser-item" data-action="${esc(i.action)}">${esc(i.label)}</button>
+        `).join("")}
+      </div>
+    </div>
+  `;
+  document.body.appendChild(overlay);
+
+  const close = () => overlay.classList.remove("open");
+  overlay.addEventListener("click", (e) => { if (e.target === overlay) close(); });
+  overlay.querySelector("#p-chooser-close").addEventListener("click", close);
+  overlay.querySelectorAll(".p-chooser-item").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const action = btn.dataset.action;
+      close();
+      if (action === "close") return;
+      runLandingAction(action);
+    });
+  });
+  document.addEventListener("keydown", function onKey(e) {
+    if (e.key === "Escape") { close(); document.removeEventListener("keydown", onKey); }
+  });
+  requestAnimationFrame(() => overlay.classList.add("open"));
+}
+
+async function runLandingAction(action) {
+  if (action === "quiz") {
+    const btn = document.getElementById("hero-cta");
+    if (btn) btn.click();
+    return;
+  }
+  if (action === "garage") {
+    const { openAccount } = await import("./account.js");
+    openAccount();
+    return;
+  }
+  if (action === "community") {
+    window.dispatchEvent(new CustomEvent("mm:open-community"));
+    return;
+  }
+  if (action === "karte") {
+    window.dispatchEvent(new CustomEvent("mm:open-karte", { detail: {} }));
+    return;
+  }
+  if (action === "ride") {
+    // "Alles fürs Fahren" → Ausrüstungs-Tab des Konfigurators
+    const { openKonfigurator } = await import("./bike-detail.js");
+    const def = FEATURED_BIKES[0];
+    openKonfigurator(resolveFeaturedBike(def), null, "ausstattung");
+    return;
+  }
+}
+
 // ── initLanding ───────────────────────────────────────────
 export function initLanding() {
   if (landingObserver) { landingObserver.disconnect(); landingObserver = null; }
@@ -245,11 +332,12 @@ export function initLanding() {
         </div>
         <p class="p-drawer-sub">Entdecke MotoMatch</p>
         <nav class="p-drawer-nav tb-bar tb-bar--vertical">
-          <button class="p-drawer-item tb-btn" data-tab="ansicht">Ansicht</button>
+          <button class="p-drawer-item tb-btn" data-tab="ansicht">Bikes</button>
           <button class="p-drawer-item tb-btn" data-tab="ausstattung">Ausrüstung</button>
-          <button class="p-drawer-item tb-btn" data-tab="match">Match finden</button>
+          <button class="p-drawer-item tb-btn" data-tab="match">Match</button>
           <button class="p-drawer-item tb-btn" data-tab="community">Community</button>
           <button class="p-drawer-item tb-btn" data-tab="karte">Karte</button>
+          <button class="p-drawer-item tb-btn" data-action="garage">Garage</button>
         </nav>
         <div class="p-drawer-foot">
           <span class="p-drawer-foot-text">© MotoMatch 2026</span>
@@ -286,10 +374,13 @@ export function initLanding() {
       <div class="p-hero-gradient-bottom"></div>
       <div class="p-hero-content">
         <h1 class="p-hero-title">
-          <span class="hw">Finde dein</span><br>
-          <span class="hw">perfektes Bike.</span>
+          <span class="hw">Alles fürs Motorrad,</span><br>
+          <span class="hw">an einem Ort.</span>
         </h1>
-        <button id="hero-cta" class="p-hero-btn anim-p delay-1">MATCH FINDEN</button>
+        <div class="p-hero-ctas anim-p delay-1">
+          <button id="hero-cta" class="p-hero-btn p-hero-btn--primary">Passendes Bike finden</button>
+          <button id="hero-cta-existing" class="p-hero-btn p-hero-btn--secondary">Ich hab schon eins</button>
+        </div>
       </div>
     </section>
 
@@ -298,29 +389,17 @@ export function initLanding() {
       <img src="/hero-lifestyle.jpeg" alt="Fahrerlebnis" />
     </div>
 
-    <!-- ═══ LIFESTYLE CARDS ═══ -->
-    <div class="p-lifestyle-cards">
-      <article class="p-lifestyle-card" id="lc-quiz">
-        <div class="p-lifestyle-card-img">
-          <img src="/quiz-lifestyle.jpeg" alt="Quiz &amp; Matching">
-          <div class="p-lc-info"><p class="p-lc-info-text">${LC_INFO["lc-quiz"]}</p></div>
-        </div>
-        <span class="p-lifestyle-card-label">Quiz &amp; Matching</span>
-      </article>
-      <article class="p-lifestyle-card" id="lc-dealer">
-        <div class="p-lifestyle-card-img">
-          <img src="/dealer-lifestyle.jpeg" alt="Händler &amp; Beratung">
-          <div class="p-lc-info"><p class="p-lc-info-text">${LC_INFO["lc-dealer"]}</p></div>
-        </div>
-        <span class="p-lifestyle-card-label">Händler &amp; Beratung</span>
-      </article>
-      <article class="p-lifestyle-card" id="lc-community">
-        <div class="p-lifestyle-card-img">
-          <img src="/community-lifestyle.jpeg" alt="Community &amp; Gear">
-          <div class="p-lc-info"><p class="p-lc-info-text">${LC_INFO["lc-community"]}</p></div>
-        </div>
-        <span class="p-lifestyle-card-label">Community &amp; Gear</span>
-      </article>
+    <!-- ═══ USE SECTIONS ═══ -->
+    <div class="p-lifestyle-cards p-lifestyle-cards--3">
+      ${USE_SECTIONS.map(s => `
+        <article class="p-lifestyle-card" id="${esc(s.id)}" data-action="${esc(s.action)}">
+          <div class="p-lifestyle-card-img">
+            <img src="${esc(s.img)}" alt="${esc(s.label)}">
+            <div class="p-lc-info"><p class="p-lc-info-text">${esc(LC_INFO[s.id] || "")}</p></div>
+          </div>
+          <span class="p-lifestyle-card-label">${esc(s.label)}</span>
+        </article>
+      `).join("")}
     </div>
 
     <!-- ═══ DISCOVER ═══ -->
@@ -359,43 +438,13 @@ export function initLanding() {
         <p class="p-footer-noch">Noch hier</p>
       </div>
       <div class="p-footer-cols">
-        <div class="p-footer-col">
-          <a href="/datenschutz.html" class="p-footer-link">Datenschutz / Cookies</a>
-          <a href="/impressum.html" class="p-footer-link">Impressum</a>
-          <!-- TODO: Zielseite für "Kontakt" noch nicht angelegt -->
-          <span class="p-footer-link p-footer-link--disabled">Kontakt</span>
-          <!-- TODO: Zielseite für "Karriere" noch nicht angelegt -->
-          <span class="p-footer-link p-footer-link--disabled">Karriere</span>
-          <!-- TODO: Zielseite für "Newsroom & Presse" noch nicht angelegt -->
-          <span class="p-footer-link p-footer-link--disabled">Newsroom &amp; Presse</span>
-        </div>
-        <div class="p-footer-col">
-          <!-- TODO: Zielseite für "Investor Relations" noch nicht angelegt -->
-          <span class="p-footer-link p-footer-link--disabled">Investor Relations</span>
-          <!-- TODO: Zielseite für "MotoMatch AG" noch nicht angelegt -->
-          <span class="p-footer-link p-footer-link--disabled">MotoMatch AG</span>
-          <!-- TODO: Zielseite für "Motorrad-Konfigurator" noch nicht angelegt -->
-          <span class="p-footer-link p-footer-link--disabled">Motorrad-Konfigurator</span>
-          <!-- TODO: Zielseite für "Händler finden" noch nicht angelegt -->
-          <span class="p-footer-link p-footer-link--disabled">Händler finden</span>
-          <!-- TODO: Zielseite für "MotoMatch Connect" noch nicht angelegt -->
-          <span class="p-footer-link p-footer-link--disabled">MotoMatch Connect</span>
-        </div>
-        <div class="p-footer-col">
-          <!-- TODO: Zielseite für "MotoMatch Homepage" noch nicht angelegt -->
-          <span class="p-footer-link p-footer-link--disabled">MotoMatch Homepage</span>
-          <!-- TODO: Zielseite für "Motorrad kaufen" noch nicht angelegt -->
-          <span class="p-footer-link p-footer-link--disabled">Motorrad kaufen</span>
-          <!-- TODO: Zielseite für "Motorrad verkaufen" noch nicht angelegt -->
-          <span class="p-footer-link p-footer-link--disabled">Motorrad verkaufen</span>
-          <!-- TODO: Zielseite für "Marktplatz" noch nicht angelegt -->
-          <span class="p-footer-link p-footer-link--disabled">Marktplatz</span>
-          <!-- TODO: Zielseite für "MotoMatch Contact" noch nicht angelegt -->
-          <span class="p-footer-link p-footer-link--disabled">MotoMatch Contact</span>
-        </div>
+        <a href="/impressum.html" class="p-footer-link">Impressum</a>
+        <a href="/datenschutz.html" class="p-footer-link">Datenschutz</a>
+        <a href="mailto:salamhonar2020@gmail.com" class="p-footer-link">Kontakt</a>
+        <a href="mailto:salamhonar2020@gmail.com?subject=MotoMatch%20Beta-Feedback" class="p-footer-link">Feedback</a>
       </div>
       <div class="p-footer-bottom">
-        <span class="p-footer-copy">© 2026 MotoMatch AG. Alle Rechte vorbehalten.</span>
+        <span class="p-footer-copy">© 2026 MotoMatch. Alle Rechte vorbehalten.</span>
         <span class="p-footer-logo">MotoMatch</span>
       </div>
     </footer>
@@ -417,8 +466,12 @@ export function initLanding() {
   };
 
   document.getElementById("hero-cta").addEventListener("click", startQuiz);
-  // Die drei Lifestyle-Karten haben bewusst keine Klick-Funktion mehr —
-  // sie zeigen beim Hovern/Antippen nur die kurze Vorschau-Info (siehe CSS).
+  document.getElementById("hero-cta-existing").addEventListener("click", openExistingRiderChooser);
+
+  // ── Use-section cards → passenden Screen ────────────────
+  landing.querySelectorAll(".p-lifestyle-card[data-action]").forEach((card) => {
+    card.addEventListener("click", () => runLandingAction(card.dataset.action));
+  });
 
   // ── Discover category cards → Garage ───────────────────
   landing.querySelectorAll(".p-discover-cat").forEach((cat) => {
@@ -477,11 +530,18 @@ export function initLanding() {
     if (e.key === "Escape" && drawer?.classList.contains("p-drawer--open")) closeDrawer();
   });
 
-  // Drawer item click → open default bike on chosen tab
+  // Drawer item click → open default bike on chosen tab (or Garage → Account)
   document.querySelectorAll(".p-drawer-item").forEach((btn) => {
     btn.addEventListener("click", async () => {
       const tab = btn.dataset.tab;
+      const action = btn.dataset.action;
       closeDrawer();
+
+      if (action === "garage") {
+        const { openAccount } = await import("./account.js");
+        openAccount();
+        return;
+      }
 
       // Startseite sauber ausblenden — sonst bleibt sie unsichtbar im
       // Hintergrund aktiv (Menü/Scroll-Handler etc.), während der

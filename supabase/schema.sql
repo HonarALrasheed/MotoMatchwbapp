@@ -339,6 +339,22 @@ $$;
 REVOKE ALL ON FUNCTION email_for_username(text) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION email_for_username(text) TO anon, authenticated;
 
+-- ── Beta-Feedback ─────────────────────────────────────────────────
+-- Niedrigschwelliger Kanal für Tester-Feedback (FAB rechts unten).
+-- Kein SELECT-Policy: Feedback wird nur im Supabase-Dashboard gelesen
+-- (Table Editor → beta_feedback → sort by created_at desc).
+CREATE TABLE IF NOT EXISTS beta_feedback (
+  id          uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id     uuid REFERENCES profiles(id) ON DELETE SET NULL,
+  text        text NOT NULL,
+  page        text,
+  user_agent  text,
+  created_at  timestamptz DEFAULT now()
+);
+ALTER TABLE beta_feedback ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "bf_insert_auth" ON beta_feedback FOR INSERT
+  WITH CHECK (user_id = auth.uid() OR user_id IS NULL);
+
 -- ══════════════════════════════════════════════════════════════════
 --  Realtime aktivieren (einmalig im Supabase-Dashboard unter
 --  Database → Replication → Tables):

@@ -2077,8 +2077,6 @@ function openSettingsPanel(root) {
       const primary = localStorage.getItem('mm_primary_bike')
       if (primary) bikes.push(primary)
       const answers = JSON.parse(localStorage.getItem('motoMatchAnswers') || 'null')
-      // answers is an array; matched bike name is usually in a separate key
-      // also check mm_comm_prefs for any stored bike name
     } catch {}
     return [...new Set(bikes)].filter(Boolean)
   }

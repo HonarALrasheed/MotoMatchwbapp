@@ -214,7 +214,7 @@ export function initQuiz() {
   setupGauge();
   setupMouse();
 
-  clock = new THREE.Clock();
+  clock = new THREE.Timer();
   animId = requestAnimationFrame(loop);
 
   showQuestion(0);
@@ -561,8 +561,9 @@ function onResize() {
 /* ═══ Animation Loop ═══ */
 function loop() {
   animId = requestAnimationFrame(loop);
+  clock.update();
   const dt = Math.min(clock.getDelta(), 0.05);
-  const elapsed = clock.elapsedTime;
+  const elapsed = clock.getElapsed();
 
   // Speed
   speed += (targetSpeed - speed) * (exiting ? 0.06 : 0.025);

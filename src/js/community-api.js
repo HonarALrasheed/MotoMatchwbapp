@@ -163,7 +163,7 @@ async function _loadGroups() {
       created_by:profiles!groups_created_by_fkey(username),
       channels(id, name, position),
       group_members(user_id, role, profiles(username)),
-      group_bans(user_id, profiles(username))
+      group_bans(user_id, profiles!group_bans_user_id_fkey(username))
     `)
     .order('created_at', { ascending: false })
   if (!groups) return
@@ -376,20 +376,22 @@ function _subscribeGlobalInbox() {
     .subscribe()
   _globalSubs.push(freqSub)
 
-  // Neue Gruppen live anzeigen: wir lauschen auf neue Channels statt auf
-  // groups-INSERTs direkt, weil createGroup() erst die Gruppe, dann die
-  // Owner-Mitgliedschaft und zuletzt den Channel anlegt — zum Zeitpunkt
-  // des Channel-Inserts ist die Gruppe also bereits vollständig ladbar.
-  const chanSub = supabase.channel('inbox-newchannels-' + _myUid)
+  // Neue Gruppen live anzeigen: wir lauschen auf group_members-INSERTs
+  // (nicht auf groups/channels direkt — nur messages, friend_requests und
+  // group_members sind in der Supabase-Replication-Publication aktiviert,
+  // siehe Kommentar am Ende dieser Datei bzw. in supabase/schema.sql).
+  // role === 'owner' markiert genau den Moment, in dem createGroup() eine
+  // neue Gruppe fertigstellt (jeder normale Beitritt hat role 'member').
+  const gmSub = supabase.channel('inbox-newgroups-' + _myUid)
     .on('postgres_changes', {
       event:  'INSERT',
       schema: 'public',
-      table:  'channels',
+      table:  'group_members',
     }, payload => {
-      _handleNewChannelInsert(payload.new)
+      if (payload.new.role === 'owner') _handleNewOwnedGroup(payload.new.group_id)
     })
     .subscribe()
-  _globalSubs.push(chanSub)
+  _globalSubs.push(gmSub)
 }
 
 /**
@@ -516,24 +518,18 @@ async function _handleNewFriendRequest(row) {
 }
 
 /**
- * Reagiert auf einen neuen Channel-Insert. Zwei Fälle:
- * - Gruppe ist mir schon bekannt (z. B. eigene Gruppe, oder ein zusätzlicher
- *   Kanal in einer bestehenden Gruppe): Kanal einfach ergänzen.
- * - Gruppe ist neu (von jemand anderem gerade erstellt): komplette Gruppe
- *   inkl. Mitgliedern nachladen und in den Cache aufnehmen.
- * RLS (channels_select) liefert den Row-Event nur, wenn ich die Gruppe
- * überhaupt sehen darf (Mitglied oder offene Gruppe) — kein Extra-Filter nötig.
+ * Reagiert auf eine neue Owner-Mitgliedschaft (= eine neue Gruppe wurde
+ * gerade fertig erstellt, egal von wem). Lädt die komplette Gruppe nach
+ * und fügt sie in den Cache ein. RLS (groups_select_public) erlaubt SELECT
+ * für alle — kein Extra-Filter nötig.
+ *
+ * createGroup() legt den Channel unmittelbar NACH der Owner-Mitgliedschaft
+ * an; da wir hier keinen Realtime-Event auf 'channels' bekommen (nur
+ * messages/friend_requests/group_members sind repliziert), pollen wir mit
+ * kurzen Retries, bis der Channel in der Query auftaucht.
  */
-async function _handleNewChannelInsert(row) {
-  const existing = _groups.find(g => g.id === row.group_id)
-  if (existing) {
-    groupDefaultsForApi(existing)
-    if (!existing.channels.some(c => c.id === row.id)) {
-      existing.channels.push({ id: row.id, name: row.name, messages: [] })
-    }
-    if (_onNewGroup) _onNewGroup(existing.id, false)
-    return
-  }
+async function _handleNewOwnedGroup(groupId, attempt = 0) {
+  if (_groups.some(g => g.id === groupId)) return
 
   const { data: g } = await supabase
     .from('groups')
@@ -542,11 +538,16 @@ async function _handleNewChannelInsert(row) {
       created_by:profiles!groups_created_by_fkey(username),
       channels(id, name, position),
       group_members(user_id, role, profiles(username)),
-      group_bans(user_id, profiles(username))
+      group_bans(user_id, profiles!group_bans_user_id_fkey(username))
     `)
-    .eq('id', row.group_id)
+    .eq('id', groupId)
     .maybeSingle()
-  if (!g || _groups.some(x => x.id === g.id)) return
+  if (!g) return
+  if (!g.channels?.length && attempt < 5) {
+    setTimeout(() => _handleNewOwnedGroup(groupId, attempt + 1), 400)
+    return
+  }
+  if (_groups.some(x => x.id === g.id)) return
 
   const newGroup = {
     id:         g.id,
@@ -567,7 +568,6 @@ async function _handleNewChannelInsert(row) {
   _groups.unshift(newGroup)
   if (_onNewGroup) _onNewGroup(newGroup.id, true)
 }
-function groupDefaultsForApi(g) { if (!g.channels) g.channels = [] }
 
 /* ══════════════════════════════════════════════════════════════════
    PROFIL

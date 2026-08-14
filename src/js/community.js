@@ -57,6 +57,8 @@ import {
   seedGroupsIfEmpty, seedFriendPairs,
   // Realtime
   subscribeToChannel, unsubscribeAll, onNewMessage, onFriendRequest,
+  // Presence ("Jetzt aktiv")
+  subscribeToPresence, updatePresenceStatus, onPresenceChange, getOnlinePresence, unsubscribePresence,
 } from './community-api.js'
 
 /* ── Avatar-Farbpalette (wählbare Profilfarben) ──────────────────── */
@@ -442,6 +444,10 @@ export async function mountCommunity(root) {
   })
 
   onFriendRequest(() => refreshFriendsChrome(root))
+
+  // "Jetzt aktiv": Presence-Channel abonnieren (Gäste tracken sich nicht)
+  onPresenceChange(() => { if (typeof refreshFriendsChrome === 'function') refreshFriendsChrome(root) })
+  if (session && !session.guest) subscribeToPresence(getPrefs().status || 'online')
 
   if (session) renderApp(root)
   else renderAuth(root)
@@ -1176,6 +1182,7 @@ function openUserMenu(root) {
     requestAnimationFrame(() => flyout.classList.add('is-open'))
     flyout.querySelectorAll('[data-status]').forEach(b => b.addEventListener('click', () => {
       const p = getPrefs(); p.status = b.dataset.status; setPrefs(p)
+      updatePresenceStatus(p.status)
       close()
       const bar = root.querySelector('.mmc-userbar')
       if (bar) bar.outerHTML = userbarHtml(getSession(), getPrefs())
@@ -3300,12 +3307,42 @@ function fillActive(root) {
     return
   }
   mmc?.classList.remove('mmc--noactive')
+
+  const presence = getOnlinePresence()
+  const onlineFriends = getFriends().filter(f => presence[f] && presence[f] !== 'invisible')
+
+  if (!onlineFriends.length) {
+    el.innerHTML = `
+      <h3 class="mmc-active-title">Jetzt aktiv</h3>
+      <div class="mmc-active-empty">
+        <h4>Bisher ist alles ruhig …</h4>
+        <p>Wenn ein Freund aktiv wird, siehst du es hier.</p>
+      </div>`
+    return
+  }
+
   el.innerHTML = `
     <h3 class="mmc-active-title">Jetzt aktiv</h3>
-    <div class="mmc-active-empty">
-      <h4>Bisher ist alles ruhig …</h4>
-      <p>Wenn ein Freund aktiv wird, siehst du es hier.</p>
+    <div class="mmc-active-list">
+      ${onlineFriends.map(f => {
+        const st = statusMeta(presence[f])
+        return `
+        <button class="mmc-active-item" data-active-friend="${esc(f)}">
+          <div class="mmc-avatar mmc-avatar--sm" style="background:${avatarColor(f)}">${avatarInner(f)}<span class="mmc-presence" style="background:${st.color}"></span></div>
+          <div class="mmc-active-item-meta">
+            <div class="mmc-active-item-name">${esc(displayName(f))}</div>
+            <div class="mmc-active-item-status">${esc(st.label)}</div>
+          </div>
+        </button>`
+      }).join('')}
     </div>`
+
+  el.querySelectorAll('[data-active-friend]').forEach(btn => btn.addEventListener('click', () => {
+    activeDM = btn.dataset.activeFriend
+    clearUnread(activeDM)
+    subscribeToChannel(null, activeDM)
+    fillHomeColumn(root); fillMain(root); fillActive(root)
+  }))
 }
 
 /* ── Mute-Popover ───────────────────────────────────────────────── */

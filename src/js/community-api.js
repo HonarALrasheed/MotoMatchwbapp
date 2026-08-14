@@ -68,11 +68,17 @@ let _userReports    = []
 let _realtimeSubs = []   // per-Chat (wechseln beim Öffnen eines anderen Chats)
 let _globalSubs   = []   // Inbox-weit (bleiben aktiv, solange eingeloggt)
 
+/* Presence: wer ist gerade online (per Supabase-Realtime-Presence-Channel) */
+let _presenceChannel = null
+let _onlinePresence   = {}   // { [username]: statusString }
+
 /* Callback-Hook für community.js, um auf neue Nachrichten zu reagieren */
 let _onNewMessage = null
 let _onFriendRequest = null
+let _onPresenceChange = null
 
 export function onNewMessage(fn) { _onNewMessage = fn }
+export function onPresenceChange(fn) { _onPresenceChange = fn }
 export function onFriendRequest(fn) { _onFriendRequest = fn }
 
 /* ══════════════════════════════════════════════════════════════════
@@ -369,8 +375,56 @@ function _subscribeGlobalInbox() {
   _globalSubs.push(freqSub)
 }
 
+/**
+ * Presence-Channel abonnieren: meldet mich selbst als „online" (mit Status)
+ * und liefert per Callback die Liste aller gerade verbundenen Nutzer.
+ * status === 'invisible' → ich tracke mich nicht (erscheine für andere offline).
+ */
+export function subscribeToPresence(status = 'online') {
+  if (OFFLINE_MODE || !supabase || !_myUid || !_myUsername) return
+  if (_presenceChannel) { try { supabase.removeChannel(_presenceChannel) } catch {} }
+
+  _presenceChannel = supabase.channel('community-presence', {
+    config: { presence: { key: _myUid } },
+  })
+  _presenceChannel.on('presence', { event: 'sync' }, () => {
+    const state = _presenceChannel.presenceState()
+    const online = {}
+    Object.values(state).forEach(entries => {
+      entries.forEach(e => { if (e.username) online[e.username] = e.status || 'online' })
+    })
+    _onlinePresence = online
+    if (_onPresenceChange) _onPresenceChange(_onlinePresence)
+  })
+  _presenceChannel.subscribe(async subStatus => {
+    if (subStatus === 'SUBSCRIBED' && status !== 'invisible') {
+      await _presenceChannel.track({ username: _myUsername, status })
+    }
+  })
+}
+
+/** Eigenen Status im Presence-Channel aktualisieren (z. B. bei Statuswechsel im Menü). */
+export function updatePresenceStatus(status) {
+  if (OFFLINE_MODE || !_presenceChannel) return
+  if (status === 'invisible') {
+    _presenceChannel.untrack()
+  } else {
+    _presenceChannel.track({ username: _myUsername, status })
+  }
+}
+
+/** Map { username: status } aller gerade verbundenen Nutzer (nur Online-Modus). */
+export function getOnlinePresence() { return _onlinePresence }
+
+export function unsubscribePresence() {
+  if (_presenceChannel) { try { supabase.removeChannel(_presenceChannel) } catch {} }
+  _presenceChannel = null
+  _onlinePresence = {}
+}
+
 export function unsubscribeAll() {
   if (!supabase) return
+  unsubscribePresence()
   for (const sub of [..._realtimeSubs, ..._globalSubs]) {
     try { supabase.removeChannel(sub) } catch {}
   }

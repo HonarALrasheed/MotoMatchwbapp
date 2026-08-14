@@ -9149,6 +9149,12 @@ select.mmc-input option { background: #111; color: #fff; }
 .mmc-active-empty { background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.06); border-radius: 8px; padding: 22px 18px; text-align: center; }
 .mmc-active-empty h4 { font-family: var(--p-font); font-size: 15px; font-weight: 700; color: #fff; margin: 0 0 8px; }
 .mmc-active-empty p { font-family: var(--p-font); font-size: 13px; color: rgba(255,255,255,0.45); margin: 0; line-height: 1.5; }
+.mmc-active-list { display: flex; flex-direction: column; gap: 4px; }
+.mmc-active-item { display: flex; align-items: center; gap: 10px; width: 100%; padding: 8px; background: none; border: none; border-radius: 8px; cursor: pointer; text-align: left; transition: background .12s; }
+.mmc-active-item:hover { background: rgba(255,255,255,0.06); }
+.mmc-active-item-meta { min-width: 0; }
+.mmc-active-item-name { font-family: var(--p-font); font-size: 14px; font-weight: 600; color: #fff; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.mmc-active-item-status { font-family: var(--p-font); font-size: 12px; color: rgba(255,255,255,0.45); }
 
 /* Toast */
 .mmc-toast {

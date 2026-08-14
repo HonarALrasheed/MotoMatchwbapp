@@ -593,13 +593,17 @@ export async function createGroup({ name, desc, category, joinMode, eventAt, mee
   }).select().single()
   if (gErr) return { ok: false, error: gErr.message }
 
-  const { data: cRow } = await supabase.from('channels').insert({
-    group_id: gRow.id, name: 'allgemein', position: 0,
-  }).select().single()
-
-  await supabase.from('group_members').insert({
+  // Muss VOR dem Channel-Insert passieren: die "channels_insert"-RLS-Policy verlangt
+  // bereits einen group_members-Eintrag mit Rolle owner/mod für diese Gruppe.
+  const { error: gmErr } = await supabase.from('group_members').insert({
     group_id: gRow.id, user_id: _myUid, role: 'owner',
   })
+  if (gmErr) { await supabase.from('groups').delete().eq('id', gRow.id); return { ok: false, error: gmErr.message } }
+
+  const { data: cRow, error: cErr } = await supabase.from('channels').insert({
+    group_id: gRow.id, name: 'allgemein', position: 0,
+  }).select().single()
+  if (cErr) { await supabase.from('groups').delete().eq('id', gRow.id); return { ok: false, error: cErr.message } }
 
   const g = {
     id: gRow.id, name, desc, category, joinMode: joinMode || 'open',

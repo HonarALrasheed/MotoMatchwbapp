@@ -426,11 +426,11 @@ export async function mountCommunity(root) {
 
   // Realtime-Callbacks für community.js anmelden
   onNewMessage((msg, channelId, dmThread) => {
+    // Neue Nachricht direkt anhängen, wenn der betreffende Chat gerade offen ist
     if (channelId && activeGroup && activeChannel === channelId) {
-      const g = getGroups().find(x => x.id === activeGroup)
-      if (g) { groupDefaults(g); _refreshGroupChat(root) }
-    } else if (dmThread && activeDM) {
-      _refreshDMChat(root)
+      _appendMessageToGroupChat(root, msg)
+    } else if (dmThread && activeDM && dmThread.includes(activeDM)) {
+      _appendMessageToDMChat(root, msg)
     }
     // Ungelesen-Badges aktualisieren
     if (typeof refreshFriendsChrome === 'function') refreshFriendsChrome(root)
@@ -648,6 +648,180 @@ function _refreshDMChat(root) {
   const empt = (root || _rootRef)?.querySelector('#mmc-chat-empty')
   if (!box || !activeDM) return
   renderMessagesInto(root || _rootRef, box, getDMs()[activeDM] || [], empt, null)
+}
+
+/** Neue Nachricht direkt an den Gruppen-Chat anhängen (ohne komplette Neurendition) */
+function _appendMessageToGroupChat(root, msg) {
+  const box = (root || _rootRef)?.querySelector('#mmc-chat-box')
+  if (!box || !activeGroup) return
+  const g = getGroups().find(x => x.id === activeGroup)
+  if (!g) return
+  groupDefaults(g)
+
+  const myName = me()
+  const clickable = !msg.system && msg.author.toLowerCase() !== myName.toLowerCase()
+  const isOwn = !msg.system && msg.author.toLowerCase() === myName.toLowerCase()
+  const del = !msg.system && (msg.author.toLowerCase() === myName.toLowerCase() || canManage(g))
+
+  const actions = !msg.system ? `
+    <div class="mmc-msg-actions">
+      <button class="mmc-msg-act mmc-msg-act--react" data-react-open="${esc(msg.id)}" title="Reaktion hinzufügen">${ICON.react}</button>
+      ${!isOwn ? `<button class="mmc-msg-act mmc-msg-act--reply" data-reply-msg="${esc(msg.id)}" data-reply-author="${esc(msg.author)}" data-reply-text="${esc(msg.text)}" title="Antworten">${ICON.reply}</button>` : ''}
+      ${isOwn ? `<button class="mmc-msg-act mmc-msg-act--edit" data-edit-msg="${esc(msg.id)}" title="Bearbeiten">${ICON.pencil}</button>` : ''}
+      ${del ? `<button class="mmc-msg-act mmc-msg-act--del" data-del-msg="${esc(msg.id)}" title="Nachricht löschen">${ICON.trash}</button>` : ''}
+    </div>` : ''
+
+  const pills = reactionPillsHtml(msg.reactions, myName)
+  const imgHtml = msg.image ? `<img class="mmc-msg-image" src="${esc(msg.image)}" alt="Anhang" loading="lazy" data-img-src="${esc(msg.image)}">` : ''
+  const replyQuote = msg.replyTo ? `
+    <div class="mmc-reply-quote" data-reply-to="${esc(msg.replyTo.id)}">
+      <span class="mmc-reply-quote-author">${esc(displayName(msg.replyTo.author))}</span>
+      <span class="mmc-reply-quote-text">${esc((msg.replyTo.text || '').slice(0, 80))}${(msg.replyTo.text || '').length > 80 ? '…' : ''}</span>
+    </div>` : ''
+
+  const msgHtml = `
+    <div class="mmc-msg${msg.system ? ' mmc-msg--system' : ''}" data-msg-id="${esc(msg.id)}">
+      <div class="mmc-avatar mmc-avatar--sm ${clickable ? 'mmc-avatar--clickable' : ''}" ${clickable ? `data-user="${esc(msg.author)}"` : ''} style="background:${avatarColor(msg.author)}">${avatarInner(msg.author)}</div>
+      <div class="mmc-msg-body">
+        <div class="mmc-msg-head">
+          <span class="mmc-msg-author${clickable ? ' mmc-msg-author--clickable' : ''}" ${clickable ? `data-user="${esc(msg.author)}"` : ''}>${esc(displayName(msg.author))}</span>
+          <span class="mmc-msg-time">${fmtTime(msg.ts)}</span>
+        </div>
+        ${replyQuote}
+        <div class="mmc-msg-text">${renderText(msg.text)}</div>
+        ${imgHtml}
+        ${pills}
+      </div>
+      ${actions}
+    </div>`
+
+  box.insertAdjacentHTML('beforeend', msgHtml)
+
+  // Event-Listener für die neue Nachricht binden
+  const newMsgEl = box.querySelector(`[data-msg-id="${msg.id}"]`)
+  if (newMsgEl) {
+    newMsgEl.querySelector('[data-user]')?.addEventListener('click', e => {
+      e.stopPropagation(); openUserProfile(root || _rootRef, newMsgEl.querySelector('[data-user]').dataset.user)
+    })
+    newMsgEl.querySelector('[data-img-src]')?.addEventListener('click', function() {
+      const ov = document.createElement('div')
+      ov.className = 'mmc-img-lightbox'
+      ov.innerHTML = `<div class="mmc-img-lightbox-backdrop"></div><img class="mmc-img-lightbox-img" src="${esc(this.dataset.imgSrc)}" alt="">`
+      document.body.appendChild(ov)
+      requestAnimationFrame(() => ov.classList.add('is-open'))
+      const close = () => { ov.classList.remove('is-open'); setTimeout(() => ov.remove(), 200) }
+      ov.querySelector('.mmc-img-lightbox-backdrop').addEventListener('click', close)
+      ov.querySelector('.mmc-img-lightbox-img').addEventListener('click', e => e.stopPropagation())
+      document.addEventListener('keydown', function onKey(e) { if (e.key === 'Escape') { close(); document.removeEventListener('keydown', onKey) } })
+    })
+    newMsgEl.querySelector('[data-react-open]')?.addEventListener('click', e => {
+      e.stopPropagation()
+      const msgs = channelMsgs(g, activeChannel)
+      const empty = { title: g.channels?.find(c => c.id === activeChannel)?.name || '', text: '', avatar: g.name, hash: true }
+      openReactPicker(root || _rootRef, box, e.currentTarget, e.currentTarget.dataset.reactOpen, msgs, empty, g)
+    })
+    newMsgEl.querySelector('[data-del-msg]')?.addEventListener('click', async e => {
+      e.stopPropagation()
+      await deleteGroupMessage(g.id, msg.id)
+      const updated = getGroups().find(x => x.id === g.id)
+      if (updated) { groupDefaults(updated); renderMessagesInto(root || _rootRef, box, channelMsgs(updated, activeChannel), empty, updated) }
+    })
+    newMsgEl.querySelector('[data-reply-msg]')?.addEventListener('click', e => {
+      e.stopPropagation()
+      replyingTo = { id: msg.id, author: msg.author, text: msg.text }
+      const replyBar = box.parentElement?.querySelector('#mmc-reply-bar')
+      if (replyBar) {
+        replyBar.hidden = false
+        replyBar.innerHTML = `
+          <div class="mmc-reply-bar-inner">
+            <span class="mmc-reply-bar-icon">↩</span>
+            <div class="mmc-reply-bar-text">Antwort an <strong>${esc(displayName(msg.author))}</strong>: <em>${esc(msg.text.slice(0, 60))}${msg.text.length > 60 ? '…' : ''}</em></div>
+            <button class="mmc-reply-bar-close" id="mmc-reply-cancel" title="Abbrechen">✕</button>
+          </div>`
+        replyBar.querySelector('#mmc-reply-cancel')?.addEventListener('click', () => {
+          replyingTo = null; replyBar.hidden = true; replyBar.innerHTML = ''
+        })
+      }
+      box.parentElement?.querySelector('#mmc-compose-input')?.focus()
+    })
+  }
+
+  // Automatisch nach unten scrollen
+  box.scrollTop = box.scrollHeight
+}
+
+/** Neue Nachricht direkt an den DM-Chat anhängen (ohne komplette Neurendition) */
+function _appendMessageToDMChat(root, msg) {
+  const box = (root || _rootRef)?.querySelector('#mmc-chat-box')
+  if (!box || !activeDM) return
+
+  const myName = me()
+  const clickable = !msg.system && msg.author.toLowerCase() !== myName.toLowerCase()
+  const isOwn = !msg.system && msg.author.toLowerCase() === myName.toLowerCase()
+
+  const actions = !msg.system ? `
+    <div class="mmc-msg-actions">
+      <button class="mmc-msg-act mmc-msg-act--react" data-react-open="${esc(msg.id)}" title="Reaktion hinzufügen">${ICON.react}</button>
+      ${!isOwn ? `<button class="mmc-msg-act mmc-msg-act--reply" data-reply-msg="${esc(msg.id)}" data-reply-author="${esc(msg.author)}" data-reply-text="${esc(msg.text)}" title="Antworten">${ICON.reply}</button>` : ''}
+      ${isOwn ? `<button class="mmc-msg-act mmc-msg-act--edit" data-edit-msg="${esc(msg.id)}" title="Bearbeiten">${ICON.pencil}</button>` : ''}
+      ${isOwn ? `<button class="mmc-msg-act mmc-msg-act--del" data-del-msg="${esc(msg.id)}" title="Nachricht löschen">${ICON.trash}</button>` : ''}
+    </div>` : ''
+
+  const pills = reactionPillsHtml(msg.reactions, myName)
+  const imgHtml = msg.image ? `<img class="mmc-msg-image" src="${esc(msg.image)}" alt="Anhang" loading="lazy" data-img-src="${esc(msg.image)}">` : ''
+
+  const msgHtml = `
+    <div class="mmc-msg${msg.system ? ' mmc-msg--system' : ''}" data-msg-id="${esc(msg.id)}">
+      <div class="mmc-avatar mmc-avatar--sm ${clickable ? 'mmc-avatar--clickable' : ''}" ${clickable ? `data-user="${esc(msg.author)}"` : ''} style="background:${avatarColor(msg.author)}">${avatarInner(msg.author)}</div>
+      <div class="mmc-msg-body">
+        <div class="mmc-msg-head">
+          <span class="mmc-msg-author${clickable ? ' mmc-msg-author--clickable' : ''}" ${clickable ? `data-user="${esc(msg.author)}"` : ''}>${esc(displayName(msg.author))}</span>
+          <span class="mmc-msg-time">${fmtTime(msg.ts)}</span>
+        </div>
+        <div class="mmc-msg-text">${renderText(msg.text)}</div>
+        ${imgHtml}
+        ${pills}
+      </div>
+      ${actions}
+    </div>`
+
+  box.insertAdjacentHTML('beforeend', msgHtml)
+
+  // Event-Listener für die neue Nachricht binden
+  const newMsgEl = box.querySelector(`[data-msg-id="${msg.id}"]`)
+  if (newMsgEl) {
+    newMsgEl.querySelector('[data-user]')?.addEventListener('click', e => {
+      e.stopPropagation(); openUserProfile(root || _rootRef, newMsgEl.querySelector('[data-user]').dataset.user)
+    })
+    newMsgEl.querySelector('[data-img-src]')?.addEventListener('click', function() {
+      const ov = document.createElement('div')
+      ov.className = 'mmc-img-lightbox'
+      ov.innerHTML = `<div class="mmc-img-lightbox-backdrop"></div><img class="mmc-img-lightbox-img" src="${esc(this.dataset.imgSrc)}" alt="">`
+      document.body.appendChild(ov)
+      requestAnimationFrame(() => ov.classList.add('is-open'))
+      const close = () => { ov.classList.remove('is-open'); setTimeout(() => ov.remove(), 200) }
+      ov.querySelector('.mmc-img-lightbox-backdrop').addEventListener('click', close)
+      ov.querySelector('.mmc-img-lightbox-img').addEventListener('click', e => e.stopPropagation())
+      document.addEventListener('keydown', function onKey(e) { if (e.key === 'Escape') { close(); document.removeEventListener('keydown', onKey) } })
+    })
+    newMsgEl.querySelector('[data-del-msg]')?.addEventListener('click', e => {
+      e.stopPropagation()
+      const msgId = msg.id
+      openConfirmModal(root || _rootRef, {
+        title: 'Nachricht löschen?',
+        text: 'Diese Aktion kann nicht rückgängig gemacht werden.',
+        confirmLabel: 'Löschen',
+        isDanger: true,
+        onConfirm: async () => {
+          await deleteDMMessage(activeDM, msgId)
+          renderMessagesInto(root || _rootRef, box, getDMs()[activeDM] || [], { title: displayName(activeDM), text: '', avatar: activeDM }, null)
+        },
+      })
+    })
+  }
+
+  // Automatisch nach unten scrollen
+  box.scrollTop = box.scrollHeight
 }
 
 /* Shared compose bar: attachment (left) + input + emoji (right of input) + send */

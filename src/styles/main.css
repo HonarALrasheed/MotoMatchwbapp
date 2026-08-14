@@ -8657,6 +8657,14 @@ select.mmc-input option { background: #111; color: #fff; }
 .mmc-vc-ic { display: flex; color: rgba(255,255,255,0.4); flex-shrink: 0; }
 .mmc-vc-name { flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .mmc-vc-count { font-size: 11px; color: rgba(255,255,255,0.4); }
+.mmc-vc-joinlabel {
+  font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .03em;
+  padding: 2px 7px; border-radius: 4px; color: #6fbf73; border: 1px solid rgba(111,191,115,0.4);
+  opacity: 0; transition: opacity 0.12s;
+}
+.mmc-vc-row:hover .mmc-vc-joinlabel { opacity: 1; }
+.mmc-vc-joinlabel--in { color: #e05555; border-color: rgba(224,85,85,0.4); }
+.mmc-vc-row.is-full .mmc-vc-joinlabel { color: rgba(255,255,255,0.4); border-color: rgba(255,255,255,0.2); }
 .mmc-vc-member {
   display: flex; align-items: center; gap: 8px; padding: 4px 8px 4px 24px;
   font-family: var(--p-font); font-size: 13px; color: rgba(255,255,255,0.6);

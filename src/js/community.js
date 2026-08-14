@@ -2162,12 +2162,14 @@ function voiceChannelHtml(r, myName) {
   const full = r.members.length >= r.capacity
   const mine = r.members.includes(myName)
   const activeRoom = currentRoomId() === r.id
+  const joinLabel = mine ? 'Verlassen' : (full ? 'Voll' : 'Beitreten')
   return `
     <div class="mmc-vc ${mine ? 'is-in' : ''}" data-vc-room="${r.id}">
-      <div class="mmc-vc-row ${full && !mine ? 'is-full' : ''}" data-vc="${r.id}" title="${mine ? 'Talk verlassen' : (full ? 'Talk ist voll' : 'Talk beitreten')}">
+      <div class="mmc-vc-row ${full && !mine ? 'is-full' : ''}" data-vc="${r.id}" title="${mine ? 'Talk verlassen' : (full ? 'Talk ist voll' : 'Talk beitreten — Mikrofonzugriff wird benötigt')}">
         <span class="mmc-vc-ic">${ICON.speaker}</span>
         <span class="mmc-vc-name">${esc(r.title)}</span>
         <span class="mmc-vc-count">${r.members.length}/${r.capacity}</span>
+        <span class="mmc-vc-joinlabel${mine ? ' mmc-vc-joinlabel--in' : ''}">${joinLabel}</span>
       </div>
       ${r.members.map(m => {
         const vp = r.voiceParticipants?.[m] || {}
@@ -2220,7 +2222,8 @@ async function toggleVoiceRoom(root, roomId) {
   })
 
   if (!res.ok) {
-    toast(root, res.error || 'Mikrofon-Zugriff fehlgeschlagen.')
+    openInfoModal(root, 'Talk beitreten fehlgeschlagen',
+      res.error || 'Mikrofon-Zugriff fehlgeschlagen. Bitte erlaube den Mikrofonzugriff für diese Seite in deinen Browser-Einstellungen und versuche es erneut.')
     return
   }
 
@@ -2978,6 +2981,27 @@ function openConfirmModal(root, opts) {
       if (e.key === 'Escape') { e.preventDefault(); close() }
     })
   }
+}
+
+/* ── Info-Hinweis (nur "Verstanden", bleibt bis zum Wegklicken sichtbar) ── */
+function openInfoModal(root, title, text) {
+  document.querySelectorAll('#mmc-info-modal').forEach(x => x.remove())
+  const overlay = document.createElement('div')
+  overlay.className = 'mmc-modal'; overlay.id = 'mmc-info-modal'
+  overlay.innerHTML = `
+    <div class="mmc-modal-backdrop" id="mmc-info-backdrop"></div>
+    <div class="mmc-modal-card">
+      <h3 class="mmc-modal-title">${esc(title)}</h3>
+      <p class="mmc-modal-sub">${esc(text)}</p>
+      <div class="mmc-modal-actions">
+        <button type="button" class="mmc-auth-submit mmc-auth-submit--sm" id="mmc-info-ok">Verstanden</button>
+      </div>
+    </div>`
+  root.appendChild(overlay)
+  requestAnimationFrame(() => overlay.classList.add('mmc-modal--open'))
+  const close = () => { overlay.classList.remove('mmc-modal--open'); setTimeout(() => overlay.remove(), 200) }
+  overlay.querySelector('#mmc-info-backdrop')?.addEventListener('click', close)
+  overlay.querySelector('#mmc-info-ok')?.addEventListener('click', close)
 }
 
 /* ── Textkanal erstellen ────────────────────────────────────────── */

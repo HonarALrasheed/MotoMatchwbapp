@@ -156,16 +156,27 @@ async function _loadProfiles() {
 }
 
 async function _loadGroups() {
-  const { data: groups } = await supabase
+  const baseSelect = `
+    id, name, description, category, join_mode, created_at,
+    created_by:profiles!groups_created_by_fkey(username),
+    channels(id, name, position),
+    group_members(user_id, role, profiles(username)),
+    group_bans(user_id, profiles!group_bans_user_id_fkey(username))
+  `
+  // voice_rooms wird per Migration nachgerüstet (supabase/schema.sql) — falls die
+  // Tabelle in dieser Supabase-Instanz noch fehlt, fällt der Embed sauber zurück,
+  // statt das komplette Gruppen-Laden zu blockieren (siehe früherer group_bans-Bug).
+  let { data: groups, error } = await supabase
     .from('groups')
-    .select(`
-      id, name, description, category, join_mode, created_at,
-      created_by:profiles!groups_created_by_fkey(username),
-      channels(id, name, position),
-      group_members(user_id, role, profiles(username)),
-      group_bans(user_id, profiles!group_bans_user_id_fkey(username))
-    `)
+    .select(baseSelect + ', voice_rooms(id, title, capacity)')
     .order('created_at', { ascending: false })
+  if (error) {
+    ;({ data: groups } = await supabase
+      .from('groups')
+      .select(baseSelect)
+      .order('created_at', { ascending: false }))
+    console.warn('[API] voice_rooms nicht ladbar (Tabelle fehlt evtl. noch — Migration ausführen):', error.message)
+  }
   if (!groups) return
 
   const allMsgs = {}
@@ -201,6 +212,9 @@ async function _loadGroups() {
         name:     c.name,
         messages: allMsgs[c.id] || [],
       })),
+    voiceRooms: (g.voice_rooms || []).map(v => ({
+      id: v.id, title: v.title, capacity: v.capacity, members: [],
+    })),
     messages:   [],
   }))
 }
@@ -694,6 +708,38 @@ export async function deleteGroup(groupId) {
   _groups = _groups.filter(g => g.id !== groupId)
   if (OFFLINE_MODE || !_myUid) { lsWrite(LS_GROUPS, _groups); return }
   await supabase.from('groups').delete().eq('id', groupId)
+}
+
+/**
+ * Sprachkanal ("Talk") in einer Gruppe erstellen — persistiert in der DB,
+ * damit ihn auch andere Mitglieder sehen (nicht nur lokal beim Ersteller).
+ */
+export async function createVoiceRoom(groupId, title, capacity) {
+  const g = _groups.find(x => x.id === groupId)
+  if (!g) return { ok: false, error: 'Gruppe nicht gefunden.' }
+
+  if (OFFLINE_MODE || !_myUid) {
+    const room = { id: 'vr-' + Date.now(), title, capacity, members: [] }
+    ;(g.voiceRooms ||= []).push(room)
+    lsWrite(LS_GROUPS, _groups)
+    return { ok: true, room }
+  }
+
+  const { data, error } = await supabase.from('voice_rooms').insert({
+    group_id: groupId, title, capacity, created_by: _myUid,
+  }).select().single()
+  if (error) return { ok: false, error: error.message }
+
+  const room = { id: data.id, title: data.title, capacity: data.capacity, members: [] }
+  ;(g.voiceRooms ||= []).push(room)
+  return { ok: true, room }
+}
+
+export async function deleteVoiceRoom(groupId, roomId) {
+  const g = _groups.find(x => x.id === groupId)
+  if (g) g.voiceRooms = (g.voiceRooms || []).filter(r => r.id !== roomId)
+  if (OFFLINE_MODE || !_myUid) { lsWrite(LS_GROUPS, _groups); return }
+  await supabase.from('voice_rooms').delete().eq('id', roomId)
 }
 
 export async function updateGroup(groupId, patch) {

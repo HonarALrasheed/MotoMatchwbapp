@@ -159,6 +159,35 @@ CREATE POLICY "channels_delete" ON channels FOR DELETE
     AND user_id = auth.uid() AND role IN ('owner','mod')
   ));
 
+-- ── Voice rooms (Sprachkanäle) ────────────────────────────────────
+-- Nur Metadaten (Titel, Kapazität) werden persistiert. Wer gerade live im
+-- Raum ist, läuft komplett über einen ephemeren Supabase-Realtime-Presence-
+-- Channel (`voice:<room_id>`, siehe src/js/voice.js) — keine DB-Zeile nötig.
+CREATE TABLE IF NOT EXISTS voice_rooms (
+  id         uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  group_id   uuid NOT NULL REFERENCES groups(id) ON DELETE CASCADE,
+  title      text NOT NULL,
+  capacity   int NOT NULL DEFAULT 4,
+  created_by uuid NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
+  created_at timestamptz DEFAULT now()
+);
+ALTER TABLE voice_rooms ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "vr_select" ON voice_rooms FOR SELECT
+  USING (EXISTS (
+    SELECT 1 FROM group_members WHERE group_id = voice_rooms.group_id AND user_id = auth.uid()
+  ) OR EXISTS (
+    SELECT 1 FROM groups WHERE id = voice_rooms.group_id AND join_mode = 'open'
+  ));
+CREATE POLICY "vr_insert" ON voice_rooms FOR INSERT
+  WITH CHECK (created_by = auth.uid() AND EXISTS (
+    SELECT 1 FROM group_members WHERE group_id = voice_rooms.group_id AND user_id = auth.uid()
+  ));
+CREATE POLICY "vr_delete" ON voice_rooms FOR DELETE
+  USING (created_by = auth.uid() OR EXISTS (
+    SELECT 1 FROM group_members WHERE group_id = voice_rooms.group_id
+    AND user_id = auth.uid() AND role IN ('owner','mod')
+  ));
+
 -- ── Messages ─────────────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS messages (
   id          uuid PRIMARY KEY DEFAULT gen_random_uuid(),

@@ -110,6 +110,9 @@ export async function leaveVoiceRoom() {
 export function toggleVoiceMute(muted) {
   _applyMute(muted)
   _broadcast({ type: 'muted', from: _myId, muted })
+  // Presence neu tracken, damit auch reine Watcher (watchVoiceRoom) den
+  // aktuellen Mute-Status sehen, nicht nur aktive WebRTC-Peers.
+  _sigChannel?.track?.({ username: _myUsername, muted })
 }
 
 /** Kopfhörer deafen/undeafen (muted aller Remote-Streams + eigenes Mikro). */
@@ -117,11 +120,58 @@ export function toggleVoiceDeafen(deafened, muted) {
   _applyDeafen(deafened)
   _applyMute(muted)
   _broadcast({ type: 'muted', from: _myId, muted })
+  _sigChannel?.track?.({ username: _myUsername, muted })
 }
 
 /** Sind wir aktuell in einem Raum? */
 export function inVoiceRoom() { return !!_roomId }
 export function currentRoomId() { return _roomId }
+
+/* ── Reine Beobachtung eines Voice-Rooms (kein Mikrofon, kein WebRTC) ──
+   Nutzt denselben Presence-Channel wie ein echter Beitritt, tritt ihm aber
+   nur passiv bei (kein .track()), damit auch Nicht-Teilnehmer live sehen,
+   wer gerade im Call ist — z. B. während sie nur die Gruppenansicht offen
+   haben. Mehrere Räume können gleichzeitig beobachtet werden. */
+let _watchers = {}  // { [roomId]: { channel, bcChannel } }
+
+/**
+ * Live-Teilnehmerliste eines Voice-Rooms beobachten, ohne selbst beizutreten.
+ * @param {string} roomId
+ * @param {Function} onUpdate - callback([{username, muted}])
+ * @returns {Function} cleanup — muss beim Verlassen der Ansicht aufgerufen werden
+ */
+export function watchVoiceRoom(roomId, onUpdate) {
+  if (_watchers[roomId]) _watchers[roomId].cleanup()
+
+  const emit = state => {
+    const participants = Object.values(state).flat().map(p => ({
+      username: p.username, muted: !!p.muted,
+    }))
+    onUpdate(participants)
+  }
+
+  if (!OFFLINE_MODE && supabase) {
+    const channel = supabase.channel(`voice:${roomId}`, {
+      config: { presence: { key: 'watch-' + Math.random().toString(36).slice(2) } },
+    })
+    channel.on('presence', { event: 'sync' }, () => emit(channel.presenceState()))
+    channel.subscribe()
+    const cleanup = () => { try { supabase.removeChannel(channel) } catch {}; delete _watchers[roomId] }
+    _watchers[roomId] = { cleanup }
+    return cleanup
+  }
+
+  // Offline-Fallback: BroadcastChannel liefert keine Presence-Snapshot-API,
+  // daher nur "leer" melden (Voice-Rooms sind im Demo-Modus ohnehin nur lokal).
+  onUpdate([])
+  return () => {}
+}
+
+/** Alle aktiven Watcher aufräumen (z. B. beim Gruppen-/Ansichtswechsel). */
+export function unwatchAllVoiceRooms() {
+  for (const w of Object.values(_watchers)) w.cleanup()
+  _watchers = {}
+}
 
 /**
  * Verfügbare Audio-Geräte auflisten.

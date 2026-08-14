@@ -16,6 +16,7 @@ import { esc } from './util.js'
 import {
   joinVoiceRoom, leaveVoiceRoom, toggleVoiceMute, toggleVoiceDeafen,
   inVoiceRoom, currentRoomId, listAudioDevices, switchMicrophone, switchSpeaker,
+  watchVoiceRoom, unwatchAllVoiceRooms,
 } from './voice.js'
 // Zentrale, plattformweite Authentifizierung (geteilt mit der Haupt-Website)
 import { getSession, login, register, loginGuest, logout, ensureDemoUsers, renderGoogleButton, initSupabaseAuth } from './auth.js'
@@ -37,7 +38,7 @@ import {
   // Gruppen
   getGroups, setGroups, createGroup, deleteGroup, updateGroup, toggleRsvp,
   joinGroup, leaveGroup, kickMember, banMember, unbanMember, toggleMod, isGroupBanned,
-  createChannel, deleteChannel,
+  createChannel, deleteChannel, createVoiceRoom, deleteVoiceRoom,
   // Gruppen-Anfragen
   getGroupRequests, groupRequestsFor, myGroupRequest,
   sendJoinRequest, acceptGroupRequest, declineGroupRequest,
@@ -596,6 +597,7 @@ let activeGroup = null       // group id when a group chat is open
 let activeChannel = null     // channel id within activeGroup
 let friendsMode = false      // true → Freunde-Seite statt Kategorie-Übersicht
 let replyingTo = null        // { id, author, text } der Nachricht, auf die geantwortet wird
+let _voiceWatchers = {}      // { [roomId]: cleanupFn } — live "wer ist im Talk"-Beobachtung
 
 /** Navigations-Zustand auf Standard zurücksetzen — wichtig beim Konto-Wechsel
  *  (Login/Logout) im selben Tab, damit der neue Nutzer nicht in der Navigation
@@ -966,6 +968,11 @@ function renderApp(root) {
   const session = getSession()
   const prefs = getPrefs()
   if (activeGroup && !getGroups().find(g => g.id === activeGroup)) activeGroup = null
+
+  // Voice-Room-Watcher gehören nur zur "In-Gruppe"-Ansicht — überall sonst aufräumen
+  if (!activeGroup && Object.keys(_voiceWatchers).length) {
+    unwatchAllVoiceRooms(); _voiceWatchers = {}
+  }
 
   if (activeGroup) {
     // In einer Gruppe: 3 Spalten (Kategorie-Icons | Talks+Kanal | Chat)
@@ -1932,6 +1939,36 @@ async function _leaveGroupUI(root) {
   renderApp(root)
 }
 
+/**
+ * Hält die Live-Beobachtung ("wer ist gerade im Talk") pro Voice-Room
+ * synchron mit der aktuellen Raumliste: startet Watcher für neue/fremde
+ * Räume, stoppt sie für gelöschte Räume und für den Raum, dem man selbst
+ * gerade beigetreten ist (dessen Mitgliederliste kommt dann direkt aus
+ * dem joinVoiceRoom()-Callback in toggleVoiceRoom).
+ */
+function _syncVoiceWatchers(root, g) {
+  const rooms = g.voiceRooms || []
+  const roomIds = new Set(rooms.map(r => r.id))
+
+  for (const id of Object.keys(_voiceWatchers)) {
+    if (!roomIds.has(id) || currentRoomId() === id) {
+      _voiceWatchers[id](); delete _voiceWatchers[id]
+    }
+  }
+
+  for (const r of rooms) {
+    if (currentRoomId() === r.id || _voiceWatchers[r.id]) continue
+    _voiceWatchers[r.id] = watchVoiceRoom(r.id, participants => {
+      const gs = getGroups(); const gCur = gs.find(x => x.id === activeGroup); if (!gCur) return
+      const rCur = (gCur.voiceRooms || []).find(x => x.id === r.id); if (!rCur) return
+      rCur.members = participants.map(p => p.username)
+      rCur.voiceParticipants = {}
+      for (const p of participants) rCur.voiceParticipants[p.username] = { muted: p.muted, speaking: false }
+      if (activeGroup === gCur.id) fillGroupChannels(root)
+    })
+  }
+}
+
 function fillGroupChannels(root) {
   const box = root.querySelector('#mmc-col2-body'); if (!box) return
   const g = getGroups().find(x => x.id === activeGroup); if (!g) return
@@ -1940,6 +1977,7 @@ function fillGroupChannels(root) {
   if (!activeChannel || !g.channels.find(c => c.id === activeChannel)) {
     activeChannel = g.channels[0]?.id || null
   }
+  _syncVoiceWatchers(root, g)
   const myName = getSession().username
   const cat = catById(g.category)
   const rooms = g.voiceRooms || []
@@ -2883,15 +2921,14 @@ function openVoiceRoom(root) {
   const close = () => { overlay.classList.remove('mmc-modal--open'); setTimeout(() => overlay.remove(), 200) }
   overlay.querySelector('#mmc-modal-backdrop')?.addEventListener('click', close)
   overlay.querySelector('#mmc-modal-cancel')?.addEventListener('click', close)
-  overlay.querySelector('#mmc-modal-form')?.addEventListener('submit', e => {
+  overlay.querySelector('#mmc-modal-form')?.addEventListener('submit', async e => {
     e.preventDefault()
     const title = overlay.querySelector('#mmc-vr-name').value.trim()
     const capacity = parseInt(overlay.querySelector('#mmc-vr-cap').value, 10) || 4
     const errEl = overlay.querySelector('#mmc-modal-error')
     if (title.length < 2) { errEl.hidden = false; errEl.textContent = 'Bitte gib einen Namen ein.'; return }
-    const groups = getGroups(); const g = groups.find(x => x.id === activeGroup); if (!g) return
-    ;(g.voiceRooms ||= []).push({ id: 'vr-' + Date.now(), title, capacity, members: [getSession().username] })
-    setGroups(groups)
+    const res = await createVoiceRoom(activeGroup, title, capacity)
+    if (!res.ok) { errEl.hidden = false; errEl.textContent = res.error || 'Fehler beim Erstellen.'; return }
     close()
     fillGroupChannels(root)
   })

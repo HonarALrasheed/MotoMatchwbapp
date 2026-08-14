@@ -669,7 +669,7 @@ export async function createGroup({ name, desc, category, joinMode, eventAt, mee
       ...(meetingPoint ? { meetingPoint } : {}),
       rsvp: [],
     }
-    _groups.push(g); lsWrite(LS_GROUPS, _groups)
+    _groups.unshift(g); lsWrite(LS_GROUPS, _groups)
     return { ok: true, group: g }
   }
   // TODO: eventAt, meetingPoint, rsvp are not yet mapped to the Supabase DB schema — add columns + insert/update mapping here
@@ -700,7 +700,7 @@ export async function createGroup({ name, desc, category, joinMode, eventAt, mee
     ...(meetingPoint ? { meetingPoint } : {}),
     rsvp: [],
   }
-  _groups.push(g)
+  _groups.unshift(g)
   return { ok: true, group: g }
 }
 

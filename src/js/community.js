@@ -641,24 +641,17 @@ const ICON = {
 
 /* ── Realtime-Re-Render-Helfer ──────────────────────────────────── */
 let _rootRef = null  // wird in renderApp gesetzt
-function _refreshGroupChat(root) {
-  const box  = (root || _rootRef)?.querySelector('#mmc-chat-box')
-  const empt = (root || _rootRef)?.querySelector('#mmc-chat-empty')
-  if (!box || !activeGroup) return
-  const g = getGroups().find(x => x.id === activeGroup)
-  if (g) { groupDefaults(g); renderMessagesInto(root || _rootRef, box, channelMsgs(g, activeChannel), empt, g) }
-}
-function _refreshDMChat(root) {
-  const box  = (root || _rootRef)?.querySelector('#mmc-chat-box')
-  const empt = (root || _rootRef)?.querySelector('#mmc-chat-empty')
-  if (!box || !activeDM) return
-  renderMessagesInto(root || _rootRef, box, getDMs()[activeDM] || [], empt, null)
+
+/** Entfernt den "Noch keine Nachrichten"-Platzhalter, falls vorhanden (vor dem Anhängen der ersten Live-Nachricht) */
+function _clearEmptyState(box) {
+  box.querySelector('.mmc-empty')?.remove()
 }
 
 /** Neue Nachricht direkt an den Gruppen-Chat anhängen (ohne komplette Neurendition) */
 function _appendMessageToGroupChat(root, msg) {
-  const box = (root || _rootRef)?.querySelector('#mmc-chat-box')
+  const box = (root || _rootRef)?.querySelector('#mmc-messages')
   if (!box || !activeGroup) return
+  _clearEmptyState(box)
   const g = getGroups().find(x => x.id === activeGroup)
   if (!g) return
   groupDefaults(g)
@@ -757,8 +750,9 @@ function _appendMessageToGroupChat(root, msg) {
 
 /** Neue Nachricht direkt an den DM-Chat anhängen (ohne komplette Neurendition) */
 function _appendMessageToDMChat(root, msg) {
-  const box = (root || _rootRef)?.querySelector('#mmc-chat-box')
+  const box = (root || _rootRef)?.querySelector('#mmc-messages')
   if (!box || !activeDM) return
+  _clearEmptyState(box)
 
   const myName = me()
   const clickable = !msg.system && msg.author.toLowerCase() !== myName.toLowerCase()

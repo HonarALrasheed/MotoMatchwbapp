@@ -421,7 +421,17 @@ async function _handleNewMessage(row) {
     }
   }
 
-  if (_onNewMessage) _onNewMessage(msg, row.channel_id, row.dm_thread)
+  if (_onNewMessage) {
+    // Für DMs: übergebe die beiden Usernames statt der dmThread-ID
+    let dmUsers = null
+    if (row.dm_thread) {
+      const parts = row.dm_thread.split(':')
+      const aName = _uidToUsername(parts[0])
+      const bName = _uidToUsername(parts[1])
+      if (aName && bName) dmUsers = { user1: aName, user2: bName }
+    }
+    _onNewMessage(msg, row.channel_id, dmUsers)
+  }
 }
 
 async function _handleNewFriendRequest(row) {

@@ -425,12 +425,17 @@ export async function mountCommunity(root) {
   seedDefaults()  // Offline: Demo-Daten wenn leer; Online: no-op
 
   // Realtime-Callbacks für community.js anmelden
-  onNewMessage((msg, channelId, dmThread) => {
+  onNewMessage((msg, channelId, dmUsers) => {
     // Neue Nachricht direkt anhängen, wenn der betreffende Chat gerade offen ist
     if (channelId && activeGroup && activeChannel === channelId) {
       _appendMessageToGroupChat(root, msg)
-    } else if (dmThread && activeDM && dmThread.includes(activeDM)) {
-      _appendMessageToDMChat(root, msg)
+    } else if (dmUsers && activeDM) {
+      // Prüfe ob dieser DM aktiv ist: activeDM muss einer der beiden Benutzer sein
+      const isThisDM = (activeDM.toLowerCase() === dmUsers.user1.toLowerCase()) ||
+                       (activeDM.toLowerCase() === dmUsers.user2.toLowerCase())
+      if (isThisDM) {
+        _appendMessageToDMChat(root, msg)
+      }
     }
     // Ungelesen-Badges aktualisieren
     if (typeof refreshFriendsChrome === 'function') refreshFriendsChrome(root)

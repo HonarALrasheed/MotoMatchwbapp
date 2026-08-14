@@ -76,10 +76,12 @@ let _onlinePresence   = {}   // { [username]: statusString }
 let _onNewMessage = null
 let _onFriendRequest = null
 let _onPresenceChange = null
+let _onNewGroup = null
 
 export function onNewMessage(fn) { _onNewMessage = fn }
 export function onPresenceChange(fn) { _onPresenceChange = fn }
 export function onFriendRequest(fn) { _onFriendRequest = fn }
+export function onNewGroup(fn) { _onNewGroup = fn }
 
 /* ══════════════════════════════════════════════════════════════════
    INIT — wird einmal nach dem Login aufgerufen
@@ -373,6 +375,21 @@ function _subscribeGlobalInbox() {
     })
     .subscribe()
   _globalSubs.push(freqSub)
+
+  // Neue Gruppen live anzeigen: wir lauschen auf neue Channels statt auf
+  // groups-INSERTs direkt, weil createGroup() erst die Gruppe, dann die
+  // Owner-Mitgliedschaft und zuletzt den Channel anlegt — zum Zeitpunkt
+  // des Channel-Inserts ist die Gruppe also bereits vollständig ladbar.
+  const chanSub = supabase.channel('inbox-newchannels-' + _myUid)
+    .on('postgres_changes', {
+      event:  'INSERT',
+      schema: 'public',
+      table:  'channels',
+    }, payload => {
+      _handleNewChannelInsert(payload.new)
+    })
+    .subscribe()
+  _globalSubs.push(chanSub)
 }
 
 /**
@@ -497,6 +514,60 @@ async function _handleNewFriendRequest(row) {
   }
   if (_onFriendRequest) _onFriendRequest()
 }
+
+/**
+ * Reagiert auf einen neuen Channel-Insert. Zwei Fälle:
+ * - Gruppe ist mir schon bekannt (z. B. eigene Gruppe, oder ein zusätzlicher
+ *   Kanal in einer bestehenden Gruppe): Kanal einfach ergänzen.
+ * - Gruppe ist neu (von jemand anderem gerade erstellt): komplette Gruppe
+ *   inkl. Mitgliedern nachladen und in den Cache aufnehmen.
+ * RLS (channels_select) liefert den Row-Event nur, wenn ich die Gruppe
+ * überhaupt sehen darf (Mitglied oder offene Gruppe) — kein Extra-Filter nötig.
+ */
+async function _handleNewChannelInsert(row) {
+  const existing = _groups.find(g => g.id === row.group_id)
+  if (existing) {
+    groupDefaultsForApi(existing)
+    if (!existing.channels.some(c => c.id === row.id)) {
+      existing.channels.push({ id: row.id, name: row.name, messages: [] })
+    }
+    if (_onNewGroup) _onNewGroup(existing.id, false)
+    return
+  }
+
+  const { data: g } = await supabase
+    .from('groups')
+    .select(`
+      id, name, description, category, join_mode, created_at,
+      created_by:profiles!groups_created_by_fkey(username),
+      channels(id, name, position),
+      group_members(user_id, role, profiles(username)),
+      group_bans(user_id, profiles(username))
+    `)
+    .eq('id', row.group_id)
+    .maybeSingle()
+  if (!g || _groups.some(x => x.id === g.id)) return
+
+  const newGroup = {
+    id:         g.id,
+    name:       g.name,
+    desc:       g.description,
+    category:   g.category,
+    joinMode:   g.join_mode,
+    createdBy:  g.created_by?.username || '',
+    createdAt:  new Date(g.created_at).getTime(),
+    members:    (g.group_members || []).map(m => m.profiles?.username).filter(Boolean),
+    moderators: (g.group_members || []).filter(m => m.role === 'mod').map(m => m.profiles?.username).filter(Boolean),
+    banned:     (g.group_bans   || []).map(b => b.profiles?.username).filter(Boolean),
+    channels:   (g.channels || [])
+      .sort((a, b) => a.position - b.position)
+      .map(c => ({ id: c.id, name: c.name, messages: [] })),
+    messages:   [],
+  }
+  _groups.unshift(newGroup)
+  if (_onNewGroup) _onNewGroup(newGroup.id, true)
+}
+function groupDefaultsForApi(g) { if (!g.channels) g.channels = [] }
 
 /* ══════════════════════════════════════════════════════════════════
    PROFIL

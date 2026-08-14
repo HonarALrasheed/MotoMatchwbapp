@@ -56,7 +56,7 @@ import {
   // Seed (Offline)
   seedGroupsIfEmpty, seedFriendPairs,
   // Realtime
-  subscribeToChannel, unsubscribeAll, onNewMessage, onFriendRequest,
+  subscribeToChannel, unsubscribeAll, onNewMessage, onFriendRequest, onNewGroup,
   // Presence ("Jetzt aktiv")
   subscribeToPresence, updatePresenceStatus, onPresenceChange, getOnlinePresence, unsubscribePresence,
 } from './community-api.js'
@@ -444,6 +444,11 @@ export async function mountCommunity(root) {
   })
 
   onFriendRequest(() => refreshFriendsChrome(root))
+
+  // Neue Gruppe (von mir oder jemand anderem erstellt): Übersicht sofort aktualisieren
+  onNewGroup(() => {
+    if (!activeGroup && !friendsMode) { fillCol2(root); fillMain(root) }
+  })
 
   // "Jetzt aktiv": Presence-Channel abonnieren (Gäste tracken sich nicht)
   onPresenceChange(() => { if (typeof refreshFriendsChrome === 'function') refreshFriendsChrome(root) })

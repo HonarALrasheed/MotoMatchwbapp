@@ -5,7 +5,7 @@ Ziel ist eine **geschlossene Beta für 10–30 Bekannte** aus dem Motorrad-Umfel
 mit **0 € Fixkosten** (nur Free-Tiers), Zeitbudget ~20 h/Woche.
 - Ist-Zustand und Feature-Inventar: [docs/STATUS.md](docs/STATUS.md)
 - Aufgabenliste, Meilensteine, was raus- und was rein muss: [docs/ROADMAP-BETA.md](docs/ROADMAP-BETA.md)
-- Bewusst aus Beta-Scope: Voice/Talks, Marketplace, Shop, Quests, QR-Login, OAuth
+- Bewusst aus Beta-Scope: Marketplace, Shop, Quests, QR-Login, OAuth (Voice/Talks ist seit heute in Arbeit, s. u.)
 - Beta-Blocker mit höchster Priorität: Git-Hygiene (nur 2 Commits, 16 dirty files),
   Sentry, Google-Maps-Key-Restriction, Rate-Limit auf `api/*`, Passwort-Reset-Flow
 
@@ -97,8 +97,27 @@ Wichtigste Module in `src/js/`:
 
 ## Bekannte Einschränkungen
 - Passwörter im Klartext in localStorage — nur Prototyp, kein Security-Fix nötig, aber nichts darauf aufbauen
-- Talks/Sprachkanäle: nur UI, kein echtes Audio (WebRTC = Roadmap)
 - QR-Login, Shop, Quests sind Platzhalter
+
+## Sprachkanäle (LiveKit)
+Echtes Audio über LiveKit (SFU statt des früheren selbstgebauten
+RTCPeerConnection-Mesh ohne TURN-Server — funktionierte dadurch hinter
+symmetrischem NAT nicht zuverlässig). Serverseitiges Token-Minting in
+[`api/livekit-token.js`](api/livekit-token.js) (Muster wie `api/ai-match.js`:
+`checkOriginAndRate` zuerst, danach Supabase-Session verifizieren und prüfen,
+dass der Nutzer Mitglied der Gruppe ist bzw. die Gruppe offen ist — spiegelt
+die `vr_select`-RLS-Policy). Client-Logik in
+[`src/js/voice.js`](src/js/voice.js), exportierte Funktionssignaturen
+unverändert gegenüber vorher, `community.js` musste dafür nicht angepasst
+werden. Die "wer ist im Raum, ohne beizutreten"-Anzeige läuft weiterhin über
+Supabase-Realtime-Presence, unabhängig vom Audio-Transport.
+**Setup nötig:** kostenloses Projekt auf cloud.livekit.io anlegen,
+`VITE_LIVEKIT_URL` in `.env` sowie `LIVEKIT_API_KEY`/`LIVEKIT_API_SECRET`
+(ohne `VITE_`-Prefix) lokal in `.env` und in Vercel als Server-Env-Var setzen
+— siehe `.env.example`. Ohne diese Vars liefert `joinVoiceRoom()` einen
+sprechenden Fehler statt einer stillen Fehlfunktion.
+Bildschirmfreigabe ist auf Transport-Ebene fertig (`toggleScreenShare()` in
+`voice.js`), aber noch ohne eigene Video-Kachel-UI — folgt separat.
 
 ## Passwort-Reset-Flow
 Öffentlicher "Passwort vergessen"-Weg im Auth-Modal (`openAuthModal` → Link

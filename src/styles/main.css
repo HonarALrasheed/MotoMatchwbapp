@@ -8665,6 +8665,7 @@ select.mmc-input option { background: #111; color: #fff; }
 .mmc-vc-row:hover .mmc-vc-joinlabel { opacity: 1; }
 .mmc-vc-joinlabel--in { color: #e05555; border-color: rgba(224,85,85,0.4); }
 .mmc-vc-row.is-full .mmc-vc-joinlabel { color: rgba(255,255,255,0.4); border-color: rgba(255,255,255,0.2); }
+.mmc-vc-row:hover .mmc-tc-more { opacity: 1; }
 .mmc-vc-member {
   display: flex; align-items: center; gap: 8px; padding: 4px 8px 4px 24px;
   font-family: var(--p-font); font-size: 13px; color: rgba(255,255,255,0.6);

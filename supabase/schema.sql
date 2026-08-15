@@ -89,13 +89,15 @@ CREATE POLICY "ignores_delete" ON ignores FOR DELETE USING (ignorer = auth.uid()
 
 -- ── Groups ───────────────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS groups (
-  id          uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  name        text NOT NULL,
-  description text,
-  category    text NOT NULL DEFAULT 'gruppen',
-  join_mode   text NOT NULL DEFAULT 'open',  -- 'open' | 'request' | 'invite'
-  created_by  uuid NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
-  created_at  timestamptz DEFAULT now()
+  id            uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  name          text NOT NULL,
+  description   text,
+  category      text NOT NULL DEFAULT 'gruppen',
+  join_mode     text NOT NULL DEFAULT 'open',  -- 'open' | 'request' | 'invite'
+  event_at      timestamptz,                   -- Termin der Tour (optional)
+  meeting_point text,                          -- Treffpunkt-Text, max. 80 Zeichen im UI (optional)
+  created_by    uuid NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
+  created_at    timestamptz DEFAULT now()
 );
 ALTER TABLE groups ENABLE ROW LEVEL SECURITY;
 CREATE POLICY "groups_select_public" ON groups FOR SELECT USING (true);
@@ -105,6 +107,28 @@ CREATE POLICY "groups_update" ON groups FOR UPDATE
     SELECT 1 FROM group_members WHERE group_id = groups.id AND user_id = auth.uid() AND role = 'mod'
   ));
 CREATE POLICY "groups_delete" ON groups FOR DELETE USING (created_by = auth.uid());
+
+-- Migration für bereits bestehende Datenbanken (obiges CREATE TABLE ist dort ein No-Op,
+-- da die Tabelle schon existiert) — einmalig im SQL-Editor ausführen:
+-- ALTER TABLE groups ADD COLUMN IF NOT EXISTS event_at timestamptz;
+-- ALTER TABLE groups ADD COLUMN IF NOT EXISTS meeting_point text;
+
+-- ── Group RSVPs ("Ich fahre mit" für Touren mit Termin) ────────────
+CREATE TABLE IF NOT EXISTS group_rsvps (
+  group_id   uuid NOT NULL REFERENCES groups(id) ON DELETE CASCADE,
+  user_id    uuid NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
+  created_at timestamptz DEFAULT now(),
+  PRIMARY KEY (group_id, user_id)
+);
+ALTER TABLE group_rsvps ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "rsvp_select" ON group_rsvps FOR SELECT
+  USING (EXISTS (
+    SELECT 1 FROM group_members WHERE group_id = group_rsvps.group_id AND user_id = auth.uid()
+  ) OR EXISTS (
+    SELECT 1 FROM groups WHERE id = group_rsvps.group_id AND join_mode = 'open'
+  ));
+CREATE POLICY "rsvp_insert" ON group_rsvps FOR INSERT WITH CHECK (user_id = auth.uid());
+CREATE POLICY "rsvp_delete" ON group_rsvps FOR DELETE USING (user_id = auth.uid());
 
 -- ── Group members ─────────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS group_members (

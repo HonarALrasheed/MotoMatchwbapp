@@ -72,13 +72,20 @@ let _globalSubs   = []   // Inbox-weit (bleiben aktiv, solange eingeloggt)
 let _presenceChannel = null
 let _onlinePresence   = {}   // { [username]: statusString }
 
+/* Live-Broadcast für neu erstellte/gelöschte Kanäle/Talks einer Gruppe, siehe
+   subscribeGroupLiveUpdates weiter unten. */
+let _groupLiveChan        = null
+let _groupLiveChanGroupId = null
+
 /* Callback-Hook für community.js, um auf neue Nachrichten zu reagieren */
 let _onNewMessage = null
+let _onMessageChanged = null  // Bearbeitung/Löschung/Reaktion einer bestehenden Nachricht
 let _onFriendRequest = null
 let _onPresenceChange = null
 let _onNewGroup = null
 
 export function onNewMessage(fn) { _onNewMessage = fn }
+export function onMessageChanged(fn) { _onMessageChanged = fn }
 export function onPresenceChange(fn) { _onPresenceChange = fn }
 export function onFriendRequest(fn) { _onFriendRequest = fn }
 export function onNewGroup(fn) { _onNewGroup = fn }
@@ -163,19 +170,23 @@ async function _loadGroups() {
     group_members(user_id, role, profiles(username)),
     group_bans(user_id, profiles!group_bans_user_id_fkey(username))
   `
-  // voice_rooms wird per Migration nachgerüstet (supabase/schema.sql) — falls die
-  // Tabelle in dieser Supabase-Instanz noch fehlt, fällt der Embed sauber zurück,
-  // statt das komplette Gruppen-Laden zu blockieren (siehe früherer group_bans-Bug).
+  const voiceSelect = baseSelect + ', voice_rooms(id, title, capacity)'
+  const eventSelect = voiceSelect + ', event_at, meeting_point, group_rsvps(profiles(username))'
+  // event_at/meeting_point/group_rsvps und voice_rooms werden per Migration nachgerüstet
+  // (supabase/schema.sql) — falls sie in dieser Supabase-Instanz noch fehlen, fällt der
+  // Embed stufenweise sauber zurück, statt das komplette Gruppen-Laden zu blockieren
+  // (siehe früherer group_bans-Bug).
   let { data: groups, error } = await supabase
-    .from('groups')
-    .select(baseSelect + ', voice_rooms(id, title, capacity)')
-    .order('created_at', { ascending: false })
+    .from('groups').select(eventSelect).order('created_at', { ascending: false })
   if (error) {
-    ;({ data: groups } = await supabase
-      .from('groups')
-      .select(baseSelect)
-      .order('created_at', { ascending: false }))
+    console.warn('[API] event_at/meeting_point/group_rsvps nicht ladbar (Migration evtl. noch nicht ausgeführt):', error.message)
+    ;({ data: groups, error } = await supabase
+      .from('groups').select(voiceSelect).order('created_at', { ascending: false }))
+  }
+  if (error) {
     console.warn('[API] voice_rooms nicht ladbar (Tabelle fehlt evtl. noch — Migration ausführen):', error.message)
+    ;({ data: groups } = await supabase
+      .from('groups').select(baseSelect).order('created_at', { ascending: false }))
   }
   if (!groups) return
 
@@ -215,6 +226,9 @@ async function _loadGroups() {
     voiceRooms: (g.voice_rooms || []).map(v => ({
       id: v.id, title: v.title, capacity: v.capacity, members: [],
     })),
+    ...(g.event_at     ? { eventAt: new Date(g.event_at).getTime() } : {}),
+    ...(g.meeting_point ? { meetingPoint: g.meeting_point } : {}),
+    rsvp:       (g.group_rsvps || []).map(r => r.profiles?.username).filter(Boolean),
     messages:   [],
   }))
 }
@@ -375,6 +389,20 @@ function _subscribeGlobalInbox() {
     }, payload => {
       _handleNewMessage(payload.new)
     })
+    .on('postgres_changes', {
+      event:  'UPDATE',
+      schema: 'public',
+      table:  'messages',
+    }, payload => {
+      _handleMessageUpdate(payload.new)
+    })
+    .on('postgres_changes', {
+      event:  'DELETE',
+      schema: 'public',
+      table:  'messages',
+    }, payload => {
+      _handleMessageDelete(payload.old)
+    })
     .subscribe()
   _globalSubs.push(msgSub)
 
@@ -455,9 +483,53 @@ export function unsubscribePresence() {
   _onlinePresence = {}
 }
 
+/**
+ * Live-Updates für eine Gruppe abonnieren: Sprach-/Textkanäle, die ein anderes
+ * Mitglied erstellt oder löscht, poppen sofort auf/weg statt erst nach einem
+ * Reload sichtbar zu werden — und Nachrichten in einem frisch erstellten Kanal
+ * landen nicht mehr im Nichts (_handleNewMessage findet sonst keinen passenden
+ * Kanal und verwirft sie stillschweigend). Broadcast statt postgres_changes,
+ * weil weder channels noch voice_rooms in der Supabase-Replication-Publication
+ * stehen — Broadcast braucht keine Dashboard-Konfiguration.
+ * onEvent(type, payload) mit type ∈ 'room_created'|'room_deleted'|'channel_created'|'channel_deleted'.
+ * Idempotent: erneuter Aufruf mit derselben groupId ist ein No-op.
+ */
+export function subscribeGroupLiveUpdates(groupId, onEvent) {
+  if (OFFLINE_MODE || !supabase) return
+  if (_groupLiveChanGroupId === groupId) return
+  unsubscribeGroupLiveUpdates()
+
+  _groupLiveChan = supabase.channel(`group-live:${groupId}`, {
+    config: { broadcast: { self: false } },
+  })
+  for (const type of ['room_created', 'room_deleted', 'channel_created', 'channel_deleted']) {
+    _groupLiveChan.on('broadcast', { event: type }, ({ payload }) => onEvent(type, payload))
+  }
+  _groupLiveChan.subscribe()
+  _groupLiveChanGroupId = groupId
+}
+
+export function unsubscribeGroupLiveUpdates() {
+  if (_groupLiveChan) { try { supabase.removeChannel(_groupLiveChan) } catch {} }
+  _groupLiveChan = null
+  _groupLiveChanGroupId = null
+}
+
+/** An alle anderen gerade zuschauenden Mitglieder senden, dass sich Kanäle/Talks geändert haben. */
+async function _broadcastGroupLiveEvent(groupId, event, payload) {
+  if (OFFLINE_MODE || !supabase) return
+  const reused = _groupLiveChanGroupId === groupId
+  const chan = reused ? _groupLiveChan : supabase.channel(`group-live:${groupId}`, {
+    config: { broadcast: { self: false } },
+  })
+  try { await chan.send({ type: 'broadcast', event, payload }) } catch {}
+  if (!reused) { try { supabase.removeChannel(chan) } catch {} }
+}
+
 export function unsubscribeAll() {
   if (!supabase) return
   unsubscribePresence()
+  unsubscribeGroupLiveUpdates()
   for (const sub of [..._realtimeSubs, ..._globalSubs]) {
     try { supabase.removeChannel(sub) } catch {}
   }
@@ -519,6 +591,74 @@ async function _handleNewMessage(row) {
     }
     _onNewMessage(msg, row.channel_id, dmUsers)
   }
+}
+
+/**
+ * Bearbeitung einer bestehenden Nachricht (Text, Reaktionen) live nachziehen —
+ * ohne das sieht ein anderes Mitglied eine Bearbeitung/Reaktion erst nach
+ * einem Reload. row = payload.new eines UPDATE-Events, enthält immer die
+ * volle neue Zeile (unabhängig von REPLICA IDENTITY).
+ */
+async function _handleMessageUpdate(row) {
+  const patch = {
+    text: row.text,
+    reactions: row.reactions || {},
+    ...(row.edited_at ? { editedTs: new Date(row.edited_at).getTime() } : {}),
+  }
+  let found = false
+  if (row.channel_id) {
+    for (const g of _groups) {
+      const ch = g.channels?.find(c => c.id === row.channel_id)
+      const msg = ch?.messages.find(m => m.id === row.id)
+      if (msg) { Object.assign(msg, patch); found = true; break }
+    }
+  } else if (row.dm_thread) {
+    const parts = row.dm_thread.split(':')
+    const aName = _uidToUsername(parts[0])
+    const bName = _uidToUsername(parts[1])
+    if (aName && bName) {
+      const aMsg = _dms[aName]?.[bName]?.find(m => m.id === row.id)
+      if (aMsg) { Object.assign(aMsg, patch); found = true }
+      const bMsg = _dms[bName]?.[aName]?.find(m => m.id === row.id)
+      if (bMsg) Object.assign(bMsg, patch)
+    }
+  }
+  if (!found || !_onMessageChanged) return
+  let dmUsers = null
+  if (row.dm_thread) {
+    const parts = row.dm_thread.split(':')
+    const aName = _uidToUsername(parts[0])
+    const bName = _uidToUsername(parts[1])
+    if (aName && bName) dmUsers = { user1: aName, user2: bName }
+  }
+  _onMessageChanged(row.channel_id, dmUsers)
+}
+
+/**
+ * Löschung einer Nachricht live nachziehen. row = payload.old eines
+ * DELETE-Events — enthält ohne REPLICA IDENTITY FULL nur die id, daher wird
+ * hier bewusst überall gesucht statt sich auf channel_id/dm_thread zu
+ * verlassen (dieselbe Strategie wie deleteGroupMessage/deleteDMMessage lokal).
+ */
+async function _handleMessageDelete(row) {
+  const msgId = row.id
+  let removedChannelId = null
+  let removedDM = null
+  for (const g of _groups) {
+    for (const ch of (g.channels || [])) {
+      const before = ch.messages.length
+      ch.messages = ch.messages.filter(m => m.id !== msgId)
+      if (ch.messages.length !== before) removedChannelId = ch.id
+    }
+  }
+  for (const aName of Object.keys(_dms)) {
+    for (const bName of Object.keys(_dms[aName])) {
+      const before = _dms[aName][bName].length
+      _dms[aName][bName] = _dms[aName][bName].filter(m => m.id !== msgId)
+      if (_dms[aName][bName].length !== before) removedDM = { user1: aName, user2: bName }
+    }
+  }
+  if ((removedChannelId || removedDM) && _onMessageChanged) _onMessageChanged(removedChannelId, removedDM)
 }
 
 async function _handleNewFriendRequest(row) {
@@ -672,10 +812,19 @@ export async function createGroup({ name, desc, category, joinMode, eventAt, mee
     _groups.unshift(g); lsWrite(LS_GROUPS, _groups)
     return { ok: true, group: g }
   }
-  // TODO: eventAt, meetingPoint, rsvp are not yet mapped to the Supabase DB schema — add columns + insert/update mapping here
-  const { data: gRow, error: gErr } = await supabase.from('groups').insert({
+  let { data: gRow, error: gErr } = await supabase.from('groups').insert({
     name, description: desc, category, join_mode: joinMode || 'open', created_by: _myUid,
+    event_at: eventAt ? new Date(eventAt).toISOString() : null,
+    meeting_point: meetingPoint || null,
   }).select().single()
+  if (gErr) {
+    // Migration (event_at/meeting_point-Spalten) evtl. noch nicht ausgeführt — ohne die
+    // Felder nochmal versuchen, statt die komplette Gruppenerstellung zu blockieren.
+    ;({ data: gRow, error: gErr } = await supabase.from('groups').insert({
+      name, description: desc, category, join_mode: joinMode || 'open', created_by: _myUid,
+    }).select().single())
+    if (!gErr) console.warn('[API] event_at/meeting_point nicht gespeichert (Migration evtl. noch nicht ausgeführt):', 'siehe supabase/schema.sql')
+  }
   if (gErr) return { ok: false, error: gErr.message }
 
   // Muss VOR dem Channel-Insert passieren: die "channels_insert"-RLS-Policy verlangt
@@ -732,6 +881,7 @@ export async function createVoiceRoom(groupId, title, capacity) {
 
   const room = { id: data.id, title: data.title, capacity: data.capacity, members: [] }
   ;(g.voiceRooms ||= []).push(room)
+  _broadcastGroupLiveEvent(groupId, 'room_created', { room: { id: room.id, title: room.title, capacity: room.capacity } })
   return { ok: true, room }
 }
 
@@ -740,6 +890,7 @@ export async function deleteVoiceRoom(groupId, roomId) {
   if (g) g.voiceRooms = (g.voiceRooms || []).filter(r => r.id !== roomId)
   if (OFFLINE_MODE || !_myUid) { lsWrite(LS_GROUPS, _groups); return }
   await supabase.from('voice_rooms').delete().eq('id', roomId)
+  _broadcastGroupLiveEvent(groupId, 'room_deleted', { roomId })
 }
 
 export async function updateGroup(groupId, patch) {
@@ -747,13 +898,22 @@ export async function updateGroup(groupId, patch) {
   if (!g) return
   Object.assign(g, patch)
   if (OFFLINE_MODE || !_myUid) { lsWrite(LS_GROUPS, _groups); return }
-  // TODO: eventAt, meetingPoint, rsvp are not yet mapped to the Supabase DB schema — add columns + update mapping here
   const dbPatch = {}
-  if ('name'     in patch) dbPatch.name        = patch.name
-  if ('desc'     in patch) dbPatch.description = patch.desc
-  if ('joinMode' in patch) dbPatch.join_mode   = patch.joinMode
-  if (Object.keys(dbPatch).length)
-    await supabase.from('groups').update(dbPatch).eq('id', groupId)
+  if ('name'         in patch) dbPatch.name          = patch.name
+  if ('desc'         in patch) dbPatch.description   = patch.desc
+  if ('joinMode'     in patch) dbPatch.join_mode      = patch.joinMode
+  if ('eventAt'      in patch) dbPatch.event_at       = patch.eventAt ? new Date(patch.eventAt).toISOString() : null
+  if ('meetingPoint' in patch) dbPatch.meeting_point  = patch.meetingPoint || null
+  if (!Object.keys(dbPatch).length) return
+
+  const { error } = await supabase.from('groups').update(dbPatch).eq('id', groupId)
+  if (error && ('event_at' in dbPatch || 'meeting_point' in dbPatch)) {
+    // Migration (event_at/meeting_point-Spalten) evtl. noch nicht ausgeführt — Rest der
+    // Änderung (Name/Beschreibung/Beitrittsmodus) trotzdem speichern.
+    delete dbPatch.event_at; delete dbPatch.meeting_point
+    console.warn('[API] event_at/meeting_point nicht gespeichert (Migration evtl. noch nicht ausgeführt):', 'siehe supabase/schema.sql')
+    if (Object.keys(dbPatch).length) await supabase.from('groups').update(dbPatch).eq('id', groupId)
+  }
 }
 
 export async function joinGroup(groupId) {
@@ -829,11 +989,18 @@ export async function toggleRsvp(groupId) {
   const g = _groups.find(x => x.id === groupId); if (!g) return
   g.rsvp = g.rsvp || []
   const idx = g.rsvp.findIndex(u => u.toLowerCase() === myName.toLowerCase())
-  if (idx >= 0) g.rsvp.splice(idx, 1)
+  const wasOn = idx >= 0
+  if (wasOn) g.rsvp.splice(idx, 1)
   else g.rsvp.push(myName)
   if (OFFLINE_MODE || !_myUid) { lsWrite(LS_GROUPS, _groups); return }
-  // Online: stored as part of group metadata — no dedicated table yet
-  lsWrite(LS_GROUPS, _groups)
+
+  if (wasOn) {
+    const { error } = await supabase.from('group_rsvps').delete().eq('group_id', groupId).eq('user_id', _myUid)
+    if (error) console.warn('[API] RSVP nicht gespeichert (group_rsvps evtl. noch nicht migriert):', error.message)
+  } else {
+    const { error } = await supabase.from('group_rsvps').insert({ group_id: groupId, user_id: _myUid })
+    if (error) console.warn('[API] RSVP nicht gespeichert (group_rsvps evtl. noch nicht migriert):', error.message)
+  }
 }
 
 /* ── Kanäle ──────────────────────────────────────────────────────── */
@@ -851,6 +1018,7 @@ export async function createChannel(groupId, name) {
   if (error) return { ok: false, error: error.message }
   const ch = { id: data.id, name, messages: [] }
   ;(g.channels ||= []).push(ch)
+  _broadcastGroupLiveEvent(groupId, 'channel_created', { channel: { id: ch.id, name: ch.name } })
   return { ok: true, channel: ch }
 }
 
@@ -859,6 +1027,7 @@ export async function deleteChannel(groupId, channelId) {
   g.channels = (g.channels || []).filter(c => c.id !== channelId)
   if (OFFLINE_MODE || !_myUid) { lsWrite(LS_GROUPS, _groups); return }
   await supabase.from('channels').delete().eq('id', channelId)
+  _broadcastGroupLiveEvent(groupId, 'channel_deleted', { channelId })
 }
 
 /* ── Nachrichten in Gruppen ──────────────────────────────────────── */

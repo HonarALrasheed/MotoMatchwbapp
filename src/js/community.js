@@ -57,9 +57,11 @@ import {
   // Seed (Offline)
   seedGroupsIfEmpty, seedFriendPairs,
   // Realtime
-  subscribeToChannel, unsubscribeAll, onNewMessage, onFriendRequest, onNewGroup,
+  subscribeToChannel, unsubscribeAll, onNewMessage, onMessageChanged, onFriendRequest, onNewGroup,
   // Presence ("Jetzt aktiv")
   subscribeToPresence, updatePresenceStatus, onPresenceChange, getOnlinePresence, unsubscribePresence,
+  // Kanal-/Talk-Liste einer Gruppe live halten (wer hat was erstellt/gelöscht)
+  subscribeGroupLiveUpdates, unsubscribeGroupLiveUpdates,
 } from './community-api.js'
 
 /* ── Avatar-Farbpalette (wählbare Profilfarben) ──────────────────── */
@@ -444,6 +446,27 @@ export async function mountCommunity(root) {
     if (typeof refreshFriendsChrome === 'function') refreshFriendsChrome(root)
   })
 
+  // Bearbeitung/Löschung/Reaktion einer Nachricht: nur den offenen Chat neu zeichnen
+  // (nicht den ganzen Header/Compose neu bauen — das würde "gelesen"-Markierungen
+  // unnötig erneut auslösen).
+  onMessageChanged((channelId, dmUsers) => {
+    const main = root.querySelector('#mmc-main'); if (!main) return
+    const box = main.querySelector('#mmc-messages'); if (!box) return
+    if (channelId && activeGroup && activeChannel === channelId) {
+      const g = getGroups().find(x => x.id === activeGroup); if (!g) return
+      groupDefaults(g)
+      const ch = g.channels.find(c => c.id === channelId); if (!ch) return
+      const emptyCtx = { title: ch.name, text: `Das ist der Anfang von #${ch.name}. Sag Hallo 👋`, avatar: g.name, hash: true }
+      renderMessagesInto(root, box, ch.messages, emptyCtx, g)
+    } else if (dmUsers && activeDM) {
+      const isThisDM = (activeDM.toLowerCase() === dmUsers.user1.toLowerCase()) ||
+                       (activeDM.toLowerCase() === dmUsers.user2.toLowerCase())
+      if (isThisDM) {
+        renderMessagesInto(root, box, getDMs()[activeDM] || [], { title: displayName(activeDM), text: '', avatar: activeDM }, null)
+      }
+    }
+  })
+
   onFriendRequest(() => refreshFriendsChrome(root))
 
   // Neue Gruppe (von mir oder jemand anderem erstellt): Übersicht sofort aktualisieren
@@ -664,6 +687,9 @@ function _clearEmptyState(box) {
 function _appendMessageToGroupChat(root, msg) {
   const box = (root || _rootRef)?.querySelector('#mmc-messages')
   if (!box || !activeGroup) return
+  // Eigene Nachrichten werden schon optimistisch per renderMessagesInto() gezeigt;
+  // das Realtime-Echo des eigenen INSERTs würde sie sonst ein zweites Mal anhängen.
+  if (box.querySelector(`[data-msg-id="${msg.id}"]`)) return
   _clearEmptyState(box)
   const g = getGroups().find(x => x.id === activeGroup)
   if (!g) return
@@ -711,6 +737,7 @@ function _appendMessageToGroupChat(root, msg) {
   // Event-Listener für die neue Nachricht binden
   const newMsgEl = box.querySelector(`[data-msg-id="${msg.id}"]`)
   if (newMsgEl) {
+    const emptyCtx = { title: g.channels?.find(c => c.id === activeChannel)?.name || '', text: '', avatar: g.name, hash: true }
     newMsgEl.querySelector('[data-user]')?.addEventListener('click', e => {
       e.stopPropagation(); openUserProfile(root || _rootRef, newMsgEl.querySelector('[data-user]').dataset.user)
     })
@@ -728,14 +755,40 @@ function _appendMessageToGroupChat(root, msg) {
     newMsgEl.querySelector('[data-react-open]')?.addEventListener('click', e => {
       e.stopPropagation()
       const msgs = channelMsgs(g, activeChannel)
-      const empty = { title: g.channels?.find(c => c.id === activeChannel)?.name || '', text: '', avatar: g.name, hash: true }
-      openReactPicker(root || _rootRef, box, e.currentTarget, e.currentTarget.dataset.reactOpen, msgs, empty, g)
+      openReactPicker(root || _rootRef, box, e.currentTarget, e.currentTarget.dataset.reactOpen, msgs, emptyCtx, g)
     })
     newMsgEl.querySelector('[data-del-msg]')?.addEventListener('click', async e => {
       e.stopPropagation()
       await deleteGroupMessage(g.id, msg.id)
       const updated = getGroups().find(x => x.id === g.id)
-      if (updated) { groupDefaults(updated); renderMessagesInto(root || _rootRef, box, channelMsgs(updated, activeChannel), empty, updated) }
+      if (updated) { groupDefaults(updated); renderMessagesInto(root || _rootRef, box, channelMsgs(updated, activeChannel), emptyCtx, updated) }
+    })
+    newMsgEl.querySelector('[data-edit-msg]')?.addEventListener('click', e => {
+      e.stopPropagation()
+      const textEl = newMsgEl.querySelector('.mmc-msg-text')
+      const actionsEl = newMsgEl.querySelector('.mmc-msg-actions')
+      if (!textEl) return
+      if (actionsEl) actionsEl.style.display = 'none'
+      const ta = document.createElement('textarea')
+      ta.className = 'mmc-edit-input'; ta.value = msg.text
+      textEl.replaceWith(ta); ta.focus(); ta.select()
+      const cancel = () => {
+        const div = document.createElement('div')
+        div.className = 'mmc-msg-text'; div.innerHTML = renderText(msg.text)
+        ta.replaceWith(div)
+        if (actionsEl) actionsEl.style.removeProperty('display')
+      }
+      const save = async () => {
+        const newText = ta.value.trim()
+        if (!newText || newText === msg.text) { cancel(); return }
+        await editMessageInGroup(g.id, msg.id, newText)
+        const updated = getGroups().find(x => x.id === g.id)
+        if (updated) { groupDefaults(updated); renderMessagesInto(root || _rootRef, box, channelMsgs(updated, activeChannel), emptyCtx, updated) }
+      }
+      ta.addEventListener('keydown', ev => {
+        if (ev.key === 'Enter' && !ev.shiftKey) { ev.preventDefault(); save() }
+        if (ev.key === 'Escape') { ev.preventDefault(); cancel() }
+      })
     })
     newMsgEl.querySelector('[data-reply-msg]')?.addEventListener('click', e => {
       e.stopPropagation()
@@ -765,6 +818,9 @@ function _appendMessageToGroupChat(root, msg) {
 function _appendMessageToDMChat(root, msg) {
   const box = (root || _rootRef)?.querySelector('#mmc-messages')
   if (!box || !activeDM) return
+  // Eigene Nachrichten werden schon optimistisch per renderMessagesInto() gezeigt;
+  // das Realtime-Echo des eigenen INSERTs würde sie sonst ein zweites Mal anhängen.
+  if (box.querySelector(`[data-msg-id="${msg.id}"]`)) return
   _clearEmptyState(box)
 
   const myName = me()
@@ -828,6 +884,32 @@ function _appendMessageToDMChat(root, msg) {
           await deleteDMMessage(activeDM, msgId)
           renderMessagesInto(root || _rootRef, box, getDMs()[activeDM] || [], { title: displayName(activeDM), text: '', avatar: activeDM }, null)
         },
+      })
+    })
+    newMsgEl.querySelector('[data-edit-msg]')?.addEventListener('click', e => {
+      e.stopPropagation()
+      const textEl = newMsgEl.querySelector('.mmc-msg-text')
+      const actionsEl = newMsgEl.querySelector('.mmc-msg-actions')
+      if (!textEl) return
+      if (actionsEl) actionsEl.style.display = 'none'
+      const ta = document.createElement('textarea')
+      ta.className = 'mmc-edit-input'; ta.value = msg.text
+      textEl.replaceWith(ta); ta.focus(); ta.select()
+      const cancel = () => {
+        const div = document.createElement('div')
+        div.className = 'mmc-msg-text'; div.innerHTML = renderText(msg.text)
+        ta.replaceWith(div)
+        if (actionsEl) actionsEl.style.removeProperty('display')
+      }
+      const save = async () => {
+        const newText = ta.value.trim()
+        if (!newText || newText === msg.text) { cancel(); return }
+        await editMessageInDM(activeDM, msg.id, newText)
+        renderMessagesInto(root || _rootRef, box, getDMs()[activeDM] || [], { title: displayName(activeDM), text: '', avatar: activeDM }, null)
+      }
+      ta.addEventListener('keydown', ev => {
+        if (ev.key === 'Enter' && !ev.shiftKey) { ev.preventDefault(); save() }
+        if (ev.key === 'Escape') { ev.preventDefault(); cancel() }
       })
     })
   }
@@ -970,8 +1052,9 @@ function renderApp(root) {
   if (activeGroup && !getGroups().find(g => g.id === activeGroup)) activeGroup = null
 
   // Voice-Room-Watcher gehören nur zur "In-Gruppe"-Ansicht — überall sonst aufräumen
-  if (!activeGroup && Object.keys(_voiceWatchers).length) {
-    unwatchAllVoiceRooms(); _voiceWatchers = {}
+  if (!activeGroup) {
+    if (Object.keys(_voiceWatchers).length) { unwatchAllVoiceRooms(); _voiceWatchers = {} }
+    unsubscribeGroupLiveUpdates()
   }
 
   if (activeGroup) {
@@ -1969,6 +2052,55 @@ function _syncVoiceWatchers(root, g) {
   }
 }
 
+/**
+ * Hält Kanal-/Talk-LISTE einer Gruppe live: wenn ein anderes Mitglied einen
+ * Text- oder Sprachkanal erstellt oder löscht, poppt er auch bei mir sofort
+ * auf/weg, statt erst nach einem Reload sichtbar zu werden (siehe
+ * subscribeGroupLiveUpdates in community-api.js — weder channels noch
+ * voice_rooms haben postgres_changes-Replikation). Ohne das würden Nachrichten
+ * in einem frisch erstellten, mir noch unbekannten Kanal auch stillschweigend
+ * verworfen (_handleNewMessage findet keinen passenden Kanal).
+ */
+function _syncGroupLiveUpdates(root, g) {
+  subscribeGroupLiveUpdates(g.id, (type, payload) => {
+    const gCur = getGroups().find(x => x.id === g.id); if (!gCur) return
+    switch (type) {
+      case 'room_created': {
+        gCur.voiceRooms ||= []
+        if (gCur.voiceRooms.some(r => r.id === payload.room.id)) return
+        gCur.voiceRooms.push({ ...payload.room, members: [] })
+        break
+      }
+      case 'room_deleted': {
+        const before = (gCur.voiceRooms || []).length
+        gCur.voiceRooms = (gCur.voiceRooms || []).filter(r => r.id !== payload.roomId)
+        // Falls ich selbst gerade drin war (Talk von Host/Mod gelöscht): Mikro/Peers aufräumen.
+        if (currentRoomId() === payload.roomId) leaveVoiceRoom()
+        if (gCur.voiceRooms.length === before) return
+        break
+      }
+      case 'channel_created': {
+        gCur.channels ||= []
+        if (gCur.channels.some(c => c.id === payload.channel.id)) return
+        gCur.channels.push({ ...payload.channel, messages: [] })
+        break
+      }
+      case 'channel_deleted': {
+        const before = (gCur.channels || []).length
+        gCur.channels = (gCur.channels || []).filter(c => c.id !== payload.channelId)
+        if (gCur.channels.length === before) return
+        if (activeGroup === gCur.id && activeChannel === payload.channelId) {
+          activeChannel = gCur.channels[0]?.id || null
+          if (activeChannel) renderGroupChatMain(root)
+        }
+        break
+      }
+      default: return
+    }
+    if (activeGroup === gCur.id) fillGroupChannels(root)
+  })
+}
+
 function fillGroupChannels(root) {
   const box = root.querySelector('#mmc-col2-body'); if (!box) return
   const g = getGroups().find(x => x.id === activeGroup); if (!g) return
@@ -1978,6 +2110,7 @@ function fillGroupChannels(root) {
     activeChannel = g.channels[0]?.id || null
   }
   _syncVoiceWatchers(root, g)
+  _syncGroupLiveUpdates(root, g)
   const myName = getSession().username
   const cat = catById(g.category)
   const rooms = g.voiceRooms || []
@@ -2051,7 +2184,7 @@ function fillGroupChannels(root) {
     </div>
     <div class="mmc-chan-head"><span>Sprachkanäle</span><button class="mmc-chan-add" id="mmc-voice-open" title="Talk öffnen">+</button></div>
     <div class="mmc-vc-list">
-      ${rooms.length ? rooms.map(r => voiceChannelHtml(r, myName)).join('')
+      ${rooms.length ? rooms.map(r => voiceChannelHtml(r, myName, managing)).join('')
         : '<div class="mmc-dm-empty">Noch kein Talk offen — mit + starten</div>'}
     </div>
     ${roleActions}`
@@ -2150,15 +2283,35 @@ function fillGroupChannels(root) {
     })
   }))
 
-  box.querySelectorAll('.mmc-vc-row[data-vc]').forEach(row => row.addEventListener('click', () => toggleVoiceRoom(root, row.dataset.vc)))
+  box.querySelectorAll('.mmc-vc-row[data-vc]').forEach(row => row.addEventListener('click', e => {
+    if (e.target.closest('[data-vc-more]')) return
+    toggleVoiceRoom(root, row.dataset.vc)
+  }))
   box.querySelectorAll('.mmc-vc-member[data-user]').forEach(el => el.addEventListener('click', e => {
     e.stopPropagation(); openUserProfile(root, el.dataset.user)
+  }))
+  box.querySelectorAll('[data-vc-more]').forEach(btn => btn.addEventListener('click', e => {
+    e.stopPropagation()
+    const roomId = btn.dataset.vcMore
+    const gCur = getGroups().find(x => x.id === activeGroup); if (!gCur) return
+    const r = (gCur.voiceRooms || []).find(x => x.id === roomId); if (!r) return
+    openConfirmModal(root, {
+      title: `Talk „${r.title}" löschen?`,
+      text: r.members.length ? 'Aktive Teilnehmer werden aus dem Talk geworfen.' : undefined,
+      confirmLabel: 'Löschen',
+      isDanger: true,
+      onConfirm: async () => {
+        if (currentRoomId() === roomId) await leaveVoiceRoom()
+        await deleteVoiceRoom(activeGroup, roomId)
+        fillGroupChannels(root)
+      },
+    })
   }))
 }
 
 const MIC_OFF_ICON = `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="1" y1="1" x2="23" y2="23"/><path d="M9 9v3a3 3 0 0 0 5.12 2.12M15 9.34V4a3 3 0 0 0-5.94-.6"/><path d="M17 16.95A7 7 0 0 1 5 12v-2m14 0v2a7 7 0 0 1-.11 1.23M12 19v4M8 23h8"/></svg>`
 
-function voiceChannelHtml(r, myName) {
+function voiceChannelHtml(r, myName, managing) {
   const full = r.members.length >= r.capacity
   const mine = r.members.includes(myName)
   const activeRoom = currentRoomId() === r.id
@@ -2170,6 +2323,7 @@ function voiceChannelHtml(r, myName) {
         <span class="mmc-vc-name">${esc(r.title)}</span>
         <span class="mmc-vc-count">${r.members.length}/${r.capacity}</span>
         <span class="mmc-vc-joinlabel${mine ? ' mmc-vc-joinlabel--in' : ''}">${joinLabel}</span>
+        ${managing ? `<button class="mmc-tc-more" data-vc-more="${esc(r.id)}" title="Talk löschen">⋯</button>` : ''}
       </div>
       ${r.members.map(m => {
         const vp = r.voiceParticipants?.[m] || {}

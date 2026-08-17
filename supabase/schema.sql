@@ -408,6 +408,41 @@ ALTER TABLE beta_feedback ENABLE ROW LEVEL SECURITY;
 CREATE POLICY "bf_insert_auth" ON beta_feedback FOR INSERT
   WITH CHECK (user_id = auth.uid() OR user_id IS NULL);
 
+-- ── Push-Subscriptions (Web Push) ───────────────────────────────────
+-- Ein Browser/Gerät pro Zeile (endpoint ist pro Browser-Installation
+-- eindeutig). api/push-trigger.js liest diese Tabelle per Service-Role
+-- (umgeht RLS bewusst, da es für beliebige Empfänger nachschlagen muss),
+-- der Client selbst greift nur über seine eigene RLS-Sicht zu.
+CREATE TABLE IF NOT EXISTS push_subscriptions (
+  id         uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id    uuid NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
+  endpoint   text NOT NULL UNIQUE,
+  p256dh     text NOT NULL,
+  auth       text NOT NULL,
+  created_at timestamptz DEFAULT now()
+);
+ALTER TABLE push_subscriptions ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "push_sub_select" ON push_subscriptions FOR SELECT USING (user_id = auth.uid());
+CREATE POLICY "push_sub_insert" ON push_subscriptions FOR INSERT WITH CHECK (user_id = auth.uid());
+CREATE POLICY "push_sub_delete" ON push_subscriptions FOR DELETE USING (user_id = auth.uid());
+
+-- ── Notification-Mutes (serverseitige Sicht auf lokale Mutes) ───────
+-- Spiegelt community.js' isMuted()-Logik (localStorage mm_comm_mutes_v1,
+-- Keys: Gruppen-ID oder 'dm/<username>') serverseitig, damit
+-- api/push-trigger.js gemutete Chats nicht anstößt. until = NULL heißt
+-- für immer gemutet, sonst Zeitpunkt bis zu dem gemutet ist.
+CREATE TABLE IF NOT EXISTS notification_mutes (
+  user_id   uuid NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
+  mute_key  text NOT NULL,
+  until     timestamptz,
+  PRIMARY KEY (user_id, mute_key)
+);
+ALTER TABLE notification_mutes ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "notif_mutes_select" ON notification_mutes FOR SELECT USING (user_id = auth.uid());
+CREATE POLICY "notif_mutes_upsert" ON notification_mutes FOR INSERT WITH CHECK (user_id = auth.uid());
+CREATE POLICY "notif_mutes_update" ON notification_mutes FOR UPDATE USING (user_id = auth.uid());
+CREATE POLICY "notif_mutes_delete" ON notification_mutes FOR DELETE USING (user_id = auth.uid());
+
 -- ══════════════════════════════════════════════════════════════════
 --  Realtime aktivieren (einmalig im Supabase-Dashboard unter
 --  Database → Replication → Tables):

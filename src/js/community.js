@@ -18,10 +18,11 @@ import {
   inVoiceRoom, currentRoomId, listAudioDevices, switchMicrophone, switchSpeaker,
   watchVoiceRoom, unwatchAllVoiceRooms,
 } from './voice.js'
+import { enablePushNotifications, disablePushNotifications } from './push.js'
 // Zentrale, plattformweite Authentifizierung (geteilt mit der Haupt-Website)
 import { getSession, login, register, loginGuest, logout, ensureDemoUsers, renderGoogleButton, initSupabaseAuth } from './auth.js'
 import { openAccount } from './account.js'
-import { OFFLINE_MODE } from './supabase.js'
+import { supabase, OFFLINE_MODE } from './supabase.js'
 import {
   // Profil
   getProfile, getMyProfile, setMyProfile,
@@ -184,11 +185,34 @@ function setMute(key, untilTs) {
   const mutes = getMutes()
   mutes[key] = untilTs
   setMutes(mutes)
+  _syncMuteToServer(key, untilTs)
 }
 function removeMute(key) {
   const mutes = getMutes()
   delete mutes[key]
   setMutes(mutes)
+  _unsyncMuteFromServer(key)
+}
+
+/**
+ * Mute-Zustand zusätzlich serverseitig spiegeln (notification_mutes), damit
+ * api/push-trigger.js gemutete DMs/Gruppen nicht anstößt — der lokale
+ * localStorage-Lesepfad für die UI bleibt unverändert, das hier ist nur ein
+ * Nebenher-Schreiben (fire-and-forget, blockiert die UI nicht).
+ */
+function _syncMuteToServer(key, untilTs) {
+  if (OFFLINE_MODE || !supabase) return
+  const session = getSession(); if (!session?.id) return
+  supabase.from('notification_mutes').upsert({
+    user_id: session.id,
+    mute_key: key,
+    until: untilTs === 'forever' ? null : new Date(untilTs).toISOString(),
+  }, { onConflict: 'user_id,mute_key' }).then(() => {})
+}
+function _unsyncMuteFromServer(key) {
+  if (OFFLINE_MODE || !supabase) return
+  const session = getSession(); if (!session?.id) return
+  supabase.from('notification_mutes').delete().eq('user_id', session.id).eq('mute_key', key).then(() => {})
 }
 
 /* ── Reaktionen — jetzt in community-api.js; UI-Helfer bleiben ──── */
@@ -477,6 +501,21 @@ export async function mountCommunity(root) {
   // "Jetzt aktiv": Presence-Channel abonnieren (Gäste tracken sich nicht)
   onPresenceChange(() => { if (typeof refreshFriendsChrome === 'function') refreshFriendsChrome(root) })
   if (session && !session.guest) subscribeToPresence(getPrefs().status || 'online')
+
+  // Deep-Link aus einer Push-Benachrichtigung (?dm=<username>): die richtige
+  // Unterhaltung direkt öffnen, statt nur auf der Übersicht zu landen.
+  if (session) {
+    const dmParam = new URLSearchParams(window.location.search).get('dm')
+    if (dmParam) {
+      friendsMode = true; homeSection = 'friends'; activeGroup = null
+      activeDM = dmParam
+      clearUnread(activeDM)
+      subscribeToChannel(null, activeDM)
+      const url = new URL(window.location.href)
+      url.searchParams.delete('dm')
+      window.history.replaceState({}, '', url)
+    }
+  }
 
   if (session) renderApp(root)
   else renderAuth(root)
@@ -2585,12 +2624,12 @@ function openSettingsPanel(root) {
           <input type="checkbox" class="mmc-sp-toggle" id="mmc-sp-sounds" disabled${prefs.notifySounds !== false ? ' checked' : ''}>
         </label>
         <div class="mmc-sp-section-label" style="margin-top:16px">Desktop-Benachrichtigungen</div>
-        <label class="mmc-sp-toggle-row" style="opacity:.5;pointer-events:none" title="Kommt bald">
+        <label class="mmc-sp-toggle-row">
           <div>
             <span>Desktop-Benachrichtigungen</span>
-            <div style="font-size:12px;opacity:.7;margin-top:2px">kommt bald</div>
+            <div style="font-size:12px;opacity:.7;margin-top:2px">Für neue DMs und Freundschaftsanfragen, auch wenn der Tab zu ist</div>
           </div>
-          <input type="checkbox" class="mmc-sp-toggle" id="mmc-sp-desktop" disabled${prefs.notifyDesktop !== false ? ' checked' : ''}>
+          <input type="checkbox" class="mmc-sp-toggle" id="mmc-sp-desktop"${prefs.notifyDesktop !== false ? ' checked' : ''}>
         </label>
         ${hasMutes ? `
         <div class="mmc-sp-section-label" style="margin-top:20px">Stummgeschaltete Chats</div>
@@ -2715,11 +2754,19 @@ function openSettingsPanel(root) {
       overlay.querySelectorAll('[data-unmute]').forEach(btn => {
         btn.addEventListener('click', () => { removeMute(btn.dataset.unmute); toast(root, 'Stummschaltung aufgehoben.'); renderPanel() })
       })
-      overlay.querySelector('#mmc-sp-notif-save')?.addEventListener('click', () => {
+      overlay.querySelector('#mmc-sp-notif-save')?.addEventListener('click', async () => {
         const p = getPrefs()
         p.notifySounds = overlay.querySelector('#mmc-sp-sounds')?.checked !== false
-        p.notifyDesktop = overlay.querySelector('#mmc-sp-desktop')?.checked !== false
+        const wantsDesktop = overlay.querySelector('#mmc-sp-desktop')?.checked !== false
+        p.notifyDesktop = wantsDesktop
         setPrefs(p)
+
+        if (wantsDesktop) {
+          const res = await enablePushNotifications()
+          if (!res.ok) { toast(root, res.error || 'Desktop-Benachrichtigungen konnten nicht aktiviert werden.'); return }
+        } else {
+          await disablePushNotifications()
+        }
         toast(root, 'Benachrichtigungseinstellungen gespeichert.')
       })
     }

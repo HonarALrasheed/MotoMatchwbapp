@@ -119,6 +119,30 @@ sprechenden Fehler statt einer stillen Fehlfunktion.
 Bildschirmfreigabe ist auf Transport-Ebene fertig (`toggleScreenShare()` in
 `voice.js`), aber noch ohne eigene Video-Kachel-UI — folgt separat.
 
+## Push-Benachrichtigungen (Web Push)
+Desktop-Benachrichtigungen für DMs + Freundschaftsanfragen (Scope V1 bewusst
+klein gehalten — Gruppennachrichten sind ein Fast-Follow, kein Teil davon).
+Service Worker [`public/sw.js`](public/sw.js), Client-Logik
+[`src/js/push.js`](src/js/push.js) (Registrierung, Subscribe/Unsubscribe,
+speichert in `push_subscriptions`). Versand serverseitig in
+[`api/push-trigger.js`](api/push-trigger.js), ausgelöst per **Supabase
+Database Webhook** (kein Browser-Origin, daher kein `checkOriginAndRate`,
+sondern ein geteiltes Secret im Header `x-webhook-secret` gegen
+`SUPABASE_WEBHOOK_SECRET`). Der Endpoint braucht `SUPABASE_SERVICE_ROLE_KEY`
+(umgeht RLS, da er für beliebige Empfänger nachschlagen muss) — sensibelster
+Key im Projekt bisher, niemals mit `VITE_`-Prefix.
+Mute-Status wird zusätzlich zur lokalen `isMuted()`/localStorage-Logik in
+`notification_mutes` gespiegelt (Dual-Write in `setMute`/`removeMute` in
+`community.js`), damit der Server gemutete DMs nicht anstößt.
+Deep-Link beim Notification-Klick: `?dm=<username>` wird von `mountCommunity()`
+beim Start gelesen und öffnet die richtige Unterhaltung direkt.
+**Setup nötig:** VAPID-Keys selbst generiert (`npx web-push generate-vapid-keys`,
+kein Account nötig) — `VITE_VAPID_PUBLIC_KEY`/`VAPID_PRIVATE_KEY`/
+`VAPID_SUBJECT` in `.env` + Vercel setzen. Zusätzlich im **Supabase Dashboard
+→ Database → Webhooks** einen Webhook auf `friend_requests`-INSERT anlegen,
+Ziel `.../api/push-trigger`, Header `x-webhook-secret` = `SUPABASE_WEBHOOK_SECRET`.
+Ohne diese Vars liefert `enablePushNotifications()` einen sprechenden Fehler.
+
 ## Passwort-Reset-Flow
 Öffentlicher "Passwort vergessen"-Weg im Auth-Modal (`openAuthModal` → Link
 "Passwort vergessen?" im Login-Modus, im `OFFLINE_MODE` ausgeblendet). Nutzt

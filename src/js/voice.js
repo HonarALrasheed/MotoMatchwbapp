@@ -34,6 +34,7 @@ let _remoteVideoEls = new Map() // identity -> HTMLVideoElement (Screen-Share)
 let _localVideoEl = null        // eigener Screen-Share-Preview
 let _preferredMicId = null
 let _preferredSinkId = null
+let _outVolume = 1              // 0…1, gilt für alle Remote-Audio-Elemente
 
 /* ── Öffentliche API ────────────────────────────────────────────────── */
 
@@ -128,6 +129,7 @@ export async function joinVoiceRoom(roomId, userId, username, prefs, onUpdate) {
         const el = track.attach()
         el.style.display = 'none'
         el.muted = _deafened
+        el.volume = _outVolume
         document.body.appendChild(el)
         _remoteAudioEls.set(participant.identity, el)
         _notifyUpdate()
@@ -167,6 +169,11 @@ export async function joinVoiceRoom(roomId, userId, username, prefs, onUpdate) {
 
   _room = room
 
+  // Mit dem Beitritt ist die Mikrofon-Freigabe erteilt: ab jetzt liefert
+  // enumerateDevices() echte Gerätenamen, der Cache von vorher enthält noch
+  // die namenlosen Einträge.
+  invalidateAudioDeviceCache()
+
   // Leichter Presence-Eintrag auf demselben Kanal, den watchVoiceRoom() (Sidebar
   // ohne Beitritt) beobachtet — unabhängig vom LiveKit-Transport.
   _presenceChan = supabase.channel(`voice:${roomId}`, { config: { presence: { key: userId } } })
@@ -190,6 +197,15 @@ export function toggleVoiceMute(muted) {
     deviceId: _preferredMicId ? { ideal: _preferredMicId } : undefined,
   })
   _presenceChan?.track?.({ username: _myUsername, muted })
+}
+
+/**
+ * Wiedergabelautstärke der anderen Teilnehmer setzen (0…100). Wirkt sofort auf
+ * alle laufenden Streams und gilt auch für später dazukommende.
+ */
+export function setOutputVolume(percent) {
+  _outVolume = Math.max(0, Math.min(100, Number(percent) || 0)) / 100
+  for (const el of _remoteAudioEls.values()) el.volume = _outVolume
 }
 
 /** Kopfhörer deafen/undeafen (muted aller Remote-Streams + eigenes Mikro). */
@@ -275,19 +291,34 @@ export function unwatchAllVoiceRooms() {
   _watchers = {}
 }
 
+/* Gerätelisten-Cache. enumerateDevices() selbst ist billig (~2 ms), aber
+   LiveKits getLocalDevices() ruft bei fehlenden Gerätenamen intern
+   getUserMedia() auf — das öffnet die Mikrofon-Abfrage und kostet spürbar
+   Zeit, und zwar auch beim Ausgabegeräte-Menü. Das darf ein bloßes
+   Menü-Öffnen nicht auslösen, deshalb wird ohne Berechtigungsanfrage
+   gelesen und das Ergebnis gecacht. */
+let _deviceCache = null
+navigator.mediaDevices?.addEventListener?.('devicechange', () => { _deviceCache = null })
+
+/** Cache verwerfen, z. B. nachdem die Mikrofon-Freigabe erteilt wurde (dann gibt es Namen). */
+export function invalidateAudioDeviceCache() { _deviceCache = null }
+
 /**
- * Verfügbare Audio-Geräte auflisten. Nutzt LiveKits Helfer statt roher
- * enumerateDevices() — fragt bei Bedarf Berechtigungen an und filtert
- * Dummy-Geräte (leere deviceId vor erteilter Berechtigung).
+ * Verfügbare Audio-Geräte auflisten.
+ * @param {{prompt?: boolean}} [opts] - prompt: true fordert die Berechtigung
+ *   aktiv an (nur auf ausdrückliche Nutzeraktion), damit Gerätenamen sichtbar
+ *   werden. Standard false: liefert sofort, ohne Berechtigungsdialog.
  * @returns {Promise<{inputs: MediaDeviceInfo[], outputs: MediaDeviceInfo[]}>}
  */
-export async function listAudioDevices() {
+export async function listAudioDevices({ prompt = false } = {}) {
+  if (_deviceCache && !prompt) return _deviceCache
   try {
-    const [inputs, outputs] = await Promise.all([
-      Room.getLocalDevices('audioinput'),
-      Room.getLocalDevices('audiooutput'),
-    ])
-    return { inputs, outputs }
+    // Nacheinander statt parallel: zwei gleichzeitige getLocalDevices mit
+    // prompt=true können zwei Berechtigungsabfragen auslösen.
+    const inputs  = await Room.getLocalDevices('audioinput', prompt)
+    const outputs = await Room.getLocalDevices('audiooutput', prompt)
+    _deviceCache = { inputs, outputs }
+    return _deviceCache
   } catch {
     return { inputs: [], outputs: [] }
   }

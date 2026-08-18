@@ -21,7 +21,7 @@ import commBg from '../assets/community-bg.jpeg'
 import { esc } from './util.js'
 import {
   joinVoiceRoom, leaveVoiceRoom, toggleVoiceMute, toggleVoiceDeafen,
-  inVoiceRoom, currentRoomId, listAudioDevices, switchMicrophone, switchSpeaker,
+  inVoiceRoom, currentRoomId, listAudioDevices, switchMicrophone, switchSpeaker, setOutputVolume,
   watchVoiceRoom, unwatchAllVoiceRooms, toggleScreenShare, getScreenShareEl,
 } from './voice.js'
 import { enablePushNotifications, disablePushNotifications } from './push.js'
@@ -1414,8 +1414,20 @@ function openAudioMenu(root, type) {
 
   const prefs = getPrefs()
   const isIn = type === 'input'
-  const vol = isIn ? (prefs.inVol ?? 80) : (prefs.outVol ?? 60)
   const selectedDevId = isIn ? (prefs.micDeviceId || '') : (prefs.sinkDeviceId || '')
+
+  // Nur die Ausgabelautstärke ist im Browser tatsächlich regelbar (Lautstärke
+  // der Wiedergabe-Elemente). Für die Eingabe gibt es keine entsprechende
+  // Stellschraube — ein Regler dafür schrieb bisher nur einen Wert in die
+  // Einstellungen, ohne das Mikrofon zu beeinflussen, und wird deshalb nicht
+  // mehr angeboten (echte Mikrofon-Verstärkung bräuchte einen WebAudio-Gain
+  // in der Publish-Kette).
+  const volSection = isIn ? '' : `
+    <div class="mmc-am-sep"></div>
+    <div class="mmc-am-vol">
+      <div class="mmc-am-title">Ausgabelautstärke</div>
+      <input type="range" class="mmc-am-slider" min="0" max="100" value="${prefs.outVol ?? 100}">
+    </div>`
 
   const pop = document.createElement('div')
   pop.className = 'mmc-audiomenu'; pop.dataset.type = type
@@ -1424,11 +1436,7 @@ function openAudioMenu(root, type) {
     <div class="mmc-am-device-list" id="mmc-am-devlist">
       <div class="mmc-am-sub">Geräte werden geladen …</div>
     </div>
-    <div class="mmc-am-sep"></div>
-    <div class="mmc-am-vol">
-      <div class="mmc-am-title">${isIn ? 'Eingabelautstärke' : 'Ausgabelautstärke'}</div>
-      <input type="range" class="mmc-am-slider" min="0" max="100" value="${vol}">
-    </div>`
+    ${volSection}`
   anchor.appendChild(pop)
   requestAnimationFrame(() => pop.classList.add('is-open'))
 
@@ -1437,22 +1445,41 @@ function openAudioMenu(root, type) {
   setTimeout(() => document.addEventListener('click', onDoc), 0)
 
   pop.querySelector('.mmc-am-slider')?.addEventListener('input', e => {
-    const p = getPrefs(); if (isIn) p.inVol = +e.target.value; else p.outVol = +e.target.value; setPrefs(p)
+    const p = getPrefs(); p.outVol = +e.target.value; setPrefs(p)
+    setOutputVolume(p.outVol)   // sofort hörbar, nicht erst beim nächsten Beitritt
   })
 
-  // Geräteliste laden
-  listAudioDevices().then(({ inputs, outputs }) => {
-    const devices = isIn ? inputs : outputs
+  /**
+   * Geräteliste in das Popover zeichnen. `prompt` nur auf ausdrücklichen Klick:
+   * ohne erteilte Mikrofon-Freigabe liefert der Browser Geräte ohne Namen, und
+   * das Nachfordern der Freigabe öffnet einen Systemdialog — den soll ein
+   * Menü-Öffnen nicht auslösen.
+   */
+  const renderDevices = async ({ prompt = false } = {}) => {
     const devList = pop.querySelector('#mmc-am-devlist')
     if (!devList) return
+    if (prompt) devList.innerHTML = '<div class="mmc-am-sub">Geräte werden geladen …</div>'
+
+    const { inputs, outputs } = await listAudioDevices({ prompt })
+    if (!pop.isConnected) return
+    const devices = isIn ? inputs : outputs
     if (!devices.length) {
       devList.innerHTML = '<div class="mmc-am-sub">Keine Geräte gefunden.</div>'
       return
     }
+
+    // Ohne Freigabe sind alle Namen leer — dann ist die Liste nicht
+    // unterscheidbar, also lieber ehrlich benennen und die Freigabe anbieten.
+    const unnamed = devices.every(d => !d.label)
     devList.innerHTML = devices.map(d => `
       <button class="mmc-am-device${d.deviceId === selectedDevId ? ' is-selected' : ''}" data-dev="${esc(d.deviceId)}">
-        ${d.deviceId === selectedDevId ? '✓ ' : ''}${esc(d.label || (isIn ? 'Mikrofon' : 'Lautsprecher'))}
+        ${d.deviceId === selectedDevId ? '✓ ' : ''}${esc(d.label || (isIn ? 'Standard-Mikrofon' : 'Standard-Ausgabe'))}
       </button>`).join('')
+      + (unnamed
+        ? `<button class="mmc-am-device mmc-am-grant" id="mmc-am-grant">Gerätenamen anzeigen …</button>`
+        : '')
+
+    devList.querySelector('#mmc-am-grant')?.addEventListener('click', () => renderDevices({ prompt: true }))
 
     devList.querySelectorAll('[data-dev]').forEach(btn => btn.addEventListener('click', async () => {
       const devId = btn.dataset.dev
@@ -1467,7 +1494,8 @@ function openAudioMenu(root, type) {
       }
       close()
     }))
-  })
+  }
+  renderDevices()
 }
 
 /* ── Benutzer-Popover (Klick auf Avatar/Name) ──────────────────── */
@@ -2877,6 +2905,9 @@ async function toggleVoiceRoom(root, roomId) {
       res.code === 'auth' ? { label: 'Anmelden', onClick: () => goToAuth(root) } : null)
     return
   }
+
+  // Gespeicherte Wiedergabelautstärke auf den frischen Talk anwenden.
+  setOutputVolume(prefs.outVol ?? 100)
 
   if (!r.members.includes(myName)) r.members.push(myName)
   setGroups(groups)

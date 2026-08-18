@@ -8779,6 +8779,9 @@ select.mmc-input option { background: #111; color: #fff; }
 }
 .mmc-am-device:hover { background: rgba(255,255,255,0.07); color: #fff; }
 .mmc-am-device.is-selected { color: #6fbf73; }
+/* Fordert die Mikrofon-Freigabe an, um Gerätenamen zu zeigen — als
+   zurückhaltende Zeile unter der Liste, kein Hauptbefehl. */
+.mmc-am-grant { color: rgba(255,255,255,0.45); font-size: 12px; }
 .mmc-am-title--head { padding: 4px 12px 8px; font-size: 11px; text-transform: uppercase; letter-spacing: .05em; opacity: .5; }
 
 /* Server rail */

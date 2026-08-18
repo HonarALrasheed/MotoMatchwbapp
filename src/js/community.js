@@ -2193,9 +2193,10 @@ function renderGroupList(main, root) {
     <div class="mmc-main-body">
       <div class="mmc-invite-redeem" id="mmc-invite-redeem-box">
         <form class="mmc-invite-redeem-form" id="mmc-invite-redeem-form" autocomplete="off">
-          <input class="mmc-input mmc-invite-redeem-input" id="mmc-invite-code-input" type="text" maxlength="10" placeholder="Einladungscode einlösen …" autocomplete="off" spellcheck="false">
+          <input class="mmc-input mmc-invite-redeem-input" id="mmc-invite-code-input" type="text" maxlength="48" placeholder="Einladungscode oder Name suchen …" autocomplete="off" spellcheck="false">
           <button type="submit" class="mmc-auth-submit mmc-auth-submit--sm">Einlösen</button>
         </form>
+        <div class="mmc-invite-suggest" id="mmc-invite-suggest"></div>
         <div class="mmc-invite-redeem-msg" id="mmc-invite-redeem-msg" hidden></div>
       </div>
       <p class="mmc-cat-intro">Tritt ${datIndef(cat.gender)} bestehenden ${esc(cat.noun)} bei oder erstelle ${ownPhrase(cat.gender)}.</p>
@@ -2205,25 +2206,91 @@ function renderGroupList(main, root) {
     </div>`
   bindMobileBack(main, root)
 
+  /* ── Einladungscode einlösen ODER nach Gruppennamen suchen ──────────
+   * Dasselbe Feld für beides: Wer einen Code hat, tippt ihn ein und drückt
+   * Einlösen; wer nur den Namen kennt, bekommt schon beim Tippen Treffer
+   * angeboten — über alle Kategorien hinweg, nicht nur die gerade offene,
+   * denn welche Kategorie eine Gruppe hat, weiß man beim Suchen selten. */
+  const inviteInput   = main.querySelector('#mmc-invite-code-input')
+  const inviteMsgEl   = main.querySelector('#mmc-invite-redeem-msg')
+  const inviteSuggest = main.querySelector('#mmc-invite-suggest')
+
+  const showInviteMsg = (text, ok) => {
+    inviteMsgEl.hidden = false
+    inviteMsgEl.className = `mmc-invite-redeem-msg mmc-invite-redeem-msg--${ok ? 'ok' : 'err'}`
+    inviteMsgEl.textContent = text
+  }
+
+  const findGroupsByName = term => {
+    const q = term.trim().toLowerCase()
+    if (q.length < 2) return []
+    return getGroups()
+      .filter(g => g.name.toLowerCase().includes(q))
+      .filter(g => !isGroupBanned(g, myName))
+      .slice(0, 8)
+  }
+
+  const renderInviteSuggestions = matches => {
+    if (!matches.length) { inviteSuggest.innerHTML = ''; return }
+    inviteSuggest.innerHTML = matches.map(g => {
+      const joined = g.members.includes(myName)
+      const gCat = catById(g.category)
+      const action = joined ? 'Öffnen'
+        : g.joinMode === 'invite'  ? 'Nur Einladung'
+        : g.joinMode === 'request' ? 'Anfragen'
+        : 'Beitreten'
+      return `
+        <button type="button" class="mmc-suggest-item" data-found-group="${esc(g.id)}">
+          <span class="mmc-suggest-badge" style="background:${colorFor(g.name)}">${initials(g.name)}</span>
+          <span class="mmc-suggest-main">
+            <span class="mmc-suggest-name">${esc(g.name)}</span>
+            <span class="mmc-suggest-sub">${esc(gCat.name)} · ${g.members.length} ${g.members.length === 1 ? 'Mitglied' : 'Mitglieder'}</span>
+          </span>
+          <span class="mmc-suggest-action">${action}</span>
+        </button>`
+    }).join('')
+
+    inviteSuggest.querySelectorAll('[data-found-group]').forEach(btn => btn.addEventListener('click', async () => {
+      const g = getGroups().find(x => x.id === btn.dataset.foundGroup); if (!g) return
+      // Treffer kann aus einer anderen Kategorie stammen — dorthin mitwechseln,
+      // sonst landet man nach dem Beitritt in einer Liste ohne die Gruppe.
+      serverCategory = g.category
+      if (g.members.includes(myName)) { activeGroup = g.id; renderApp(root) }
+      else await _joinGroupUI(root, g.id)
+    }))
+  }
+
+  inviteInput?.addEventListener('input', () => {
+    inviteMsgEl.hidden = true
+    renderInviteSuggestions(findGroupsByName(inviteInput.value))
+  })
+
   main.querySelector('#mmc-invite-redeem-form')?.addEventListener('submit', async e => {
     e.preventDefault()
-    const input = main.querySelector('#mmc-invite-code-input')
-    const msgEl = main.querySelector('#mmc-invite-redeem-msg')
-    const code = input.value.trim()
-    if (!code) return
-    const res = await redeemInvite(code)
-    msgEl.hidden = false
+    const entry = inviteInput.value.trim()
+    if (!entry) return
+    const res = await redeemInvite(entry)
     if (res.ok) {
-      msgEl.className = 'mmc-invite-redeem-msg mmc-invite-redeem-msg--ok'
-      msgEl.textContent = `Du bist „${res.group.name}" beigetreten.`
-      input.value = ''
+      showInviteMsg(`Du bist „${res.group.name}" beigetreten.`, true)
+      inviteInput.value = ''
+      inviteSuggest.innerHTML = ''
       toast(root, `Du bist „${res.group.name}" beigetreten.`)
       activeGroup = res.group.id
       renderApp(root)
-    } else {
-      msgEl.className = 'mmc-invite-redeem-msg mmc-invite-redeem-msg--err'
-      msgEl.textContent = res.error
+      return
     }
+    // Nur wenn der Code schlicht unbekannt ist, war die Eingabe womöglich ein
+    // Name. Bei abgelaufenen, aufgebrauchten oder gesperrten Codes den genauen
+    // Grund zeigen — sonst hieße es fälschlich „nicht gefunden".
+    if (res.reason !== 'unknown_code') { showInviteMsg(res.error, false); return }
+
+    const matches = findGroupsByName(entry)
+    if (matches.length) {
+      inviteMsgEl.hidden = true
+      renderInviteSuggestions(matches)
+      return
+    }
+    showInviteMsg(`Kein Einladungscode und keine Gruppe zu „${entry}" gefunden.`, false)
   })
 
   main.querySelector('#mmc-group-create')?.addEventListener('click', () => openCreateGroup(root))

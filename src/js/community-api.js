@@ -1263,7 +1263,10 @@ export async function revokeInvite(code) {
 export async function redeemInvite(rawCode) {
   const myName = _myUsername
   const inv = _invites.find(i => i.code.toLowerCase() === rawCode.toLowerCase())
-  if (!inv) return { ok: false, error: 'Einladungscode unbekannt.' }
+  // `reason` erlaubt dem UI, genau diesen Fall von echten Code-Fehlern
+  // (abgelaufen, aufgebraucht, gesperrt, bereits Mitglied) zu unterscheiden:
+  // nur hier war die Eingabe womöglich gar kein Code, sondern ein Gruppenname.
+  if (!inv) return { ok: false, reason: 'unknown_code', error: 'Einladungscode unbekannt.' }
   if (inv.expiresAt && Date.now() > inv.expiresAt) return { ok: false, error: 'Dieser Einladungscode ist abgelaufen.' }
   if (inv.maxUses !== null && inv.uses >= inv.maxUses) return { ok: false, error: 'Dieser Einladungscode wurde bereits zu oft verwendet.' }
   const g = _groups.find(x => x.id === inv.groupId)

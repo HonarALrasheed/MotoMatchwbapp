@@ -2205,6 +2205,10 @@ select.p-auth-input {
 }
 
 /* Unified button style */
+/* Kurzform der Reiter-Beschriftung: nur in der unteren Mobil-Leiste sichtbar
+   (siehe @media max-width:767px), sonst gilt der volle Text. */
+.tb-lbl-kurz { display: none; }
+
 .tb-btn {
   background: #f0f0f0;
   border: none;
@@ -2773,39 +2777,74 @@ select.p-auth-input {
     min-width: max-content;
   }
 }
-/* Community-Tab schmaler als ~768px: der Taskbar hat hier keinen eigenen
-   Platz in der Seite reserviert (er schwebt fix über dem .mmc-Grid, dessen
-   padding-top auf seine Ein-Zeilen-Höhe abgestimmt ist) — bricht er in eine
-   zweite Zeile um, wächst er über diesen reservierten Bereich hinaus und legt
-   sich über den Community-Inhalt. Deshalb hier nicht umbrechen lassen,
-   sondern horizontal scrollbar machen (siehe Aufgabenstellung). Nur für den
-   Community-Tab, damit Ansicht/Ausrüstung/Karte unverändert bleiben. Bei
-   genau 768px muss die Desktop-Ansicht unverändert bleiben (Vorgabe), daher
-   767px statt 768px als Obergrenze. */
+/* ── Mobile: Tab-Leiste unten statt oben ──────────────────────────────
+   Auf Handys sitzt die Navigation dort, wo der Daumen ist — wie in TikTok,
+   Instagram & Co. Die Leiste spannt sich über die volle Breite, alle fünf
+   Tabs teilen sie sich zu gleichen Anteilen.
+
+   Gilt ausdrücklich NUR für Mobil: Bei genau 768px muss die Desktop-Ansicht
+   unverändert bleiben, deshalb 767px als Obergrenze.
+
+   Nebeneffekt, der hier entfällt: Oben überlagerten sich vorher Leiste und
+   der mittig stehende MOTOMATCH-Schriftzug der Hauptkopfzeile — unten ist
+   die Höhe frei, das Logo bleibt sichtbar. */
+:root {
+  /* Höhe der unteren Leiste inkl. iPhone-Home-Indikator. An einer Stelle
+     definiert, damit Leiste und der freizuhaltende Platz nicht auseinanderlaufen. */
+  --tb-mobile-h: calc(45px + env(safe-area-inset-bottom, 0px));
+}
+@keyframes konfBarSlideUp {
+  from { transform: translateY(100%); opacity: 0; }
+  to   { transform: translateY(0); opacity: 1; }
+}
 @media (max-width: 767px) {
-  .konf-tb-wrap--community .tb-bar {
+  .konf-tb-wrap {
+    top: auto !important;
+    bottom: 0 !important;
+    left: 0 !important;
+    right: 0 !important;
+    transform: none !important;
+    width: auto !important;
+    padding: 0 !important;
+    animation-name: konfBarSlideUp;
+  }
+  /* Selektor bewusst mit .tb-wrap.scrolled: die Basisregeln dafür sind
+     spezifischer als ein bloßes .konf-tb-wrap und würden Schriftgröße,
+     Innenabstand und Rundung sonst zurücksetzen. */
+  .tb-wrap.scrolled.konf-tb-wrap .tb-bar {
+    width: 100% !important;
+    max-width: none !important;
     flex-wrap: nowrap;
-    overflow-x: auto;
-    -webkit-overflow-scrolling: touch;
-    scrollbar-width: none;
-    /* justify-content:center (Basisregel) macht bei überlaufendem Flex-Inhalt
-       den Anfang (Tab "Ansicht") unerreichbar, da scrollLeft nicht negativ
-       werden kann — hier links ausrichten, damit alle Tabs scrollbar bleiben. */
-    justify-content: flex-start;
+    gap: 2px;
+    justify-content: space-around;
+    border-radius: 0 !important;
+    border-left: none; border-right: none; border-bottom: none;
+    padding: 5px 4px calc(5px + env(safe-area-inset-bottom, 0px));
   }
-  .konf-tb-wrap--community .tb-bar::-webkit-scrollbar { display: none; }
-  .konf-tb-wrap--community .tb-btn {
-    flex: 0 0 auto;
+  .tb-wrap.scrolled.konf-tb-wrap .tb-btn {
+    /* Gleiche Anteile statt natürlicher Textbreite: sonst nähme "Match finden"
+       doppelt so viel Platz wie "Karte". min-width:0 erlaubt das Schrumpfen
+       unter die Textbreite, sonst sprengt die Zeile die Leiste. */
+    flex: 1 1 0;
+    min-width: 0;
+    /* Gemessen bei 375px Breite (69px je Tab): ab 11px laufen "Ausrüstung",
+       "Community" und "Match finden" über ihr Feld hinaus, bei 10px nur noch
+       "Match finden" — das fängt die Kurzform unten ab. */
+    font-size: 10px;
+    padding: 9px 2px;
+    letter-spacing: 0;
+    border-radius: 8px;
   }
-  /* Das globale MOTOMATCH-Logo in der Hauptkopfzeile (.p-nav, z-index 500,
-     fix und mittig über die volle Breite) liegt in der Höhe genau über
-     diesem Taskbar (z-index 300) — auf Desktop unproblematisch, weil der
-     Taskbar dort schmal genug bleibt, um die Mitte freizulassen. Sobald er
-     hier über die volle Breite scrollt, überlagern sich Logo-Schriftzug und
-     Tab-Beschriftungen ("Ausrüstung"/"Match finden") sichtbar. Logo blenden,
-     solange der Community-Taskbar aktiv ist — die Tabs zeigen "Community"
-     ohnehin schon an. */
-  body:has(.konf-tb-wrap--community) .p-nav-logo { visibility: hidden; }
+  /* "Match finden" ist der einzige Reiter, der auch bei 10px nicht in sein
+     Feld passt — auf Mobil deshalb gekürzt. Desktop zeigt unverändert den
+     vollen Text. */
+  .tb-wrap.scrolled.konf-tb-wrap .tb-lbl-lang { display: none; }
+  .tb-wrap.scrolled.konf-tb-wrap .tb-lbl-kurz { display: inline; }
+
+  /* Platz unten freihalten, damit die Leiste nichts überdeckt. Die Anrufleiste
+     rückt ebenfalls nach oben — das steht bei ihrer eigenen Definition, sonst
+     überschriebe die spätere Regel dort diesen Wert wieder. */
+  .konf-split { padding-bottom: var(--tb-mobile-h); }
 }
 
 /* ── Top: Cinematic 2D Viewer ── */
@@ -5183,19 +5222,11 @@ select.p-auth-input {
   }
 }
 @media (max-width: 600px) {
-  /* Wie bei der Garage-Touchbar: volle Breite statt zentrierter Pille,
-     damit alle 5 Reiter ohne Kürzung lesbar sind. */
-  .konf-tb-wrap {
-    left: 8px !important;
-    right: 8px !important;
-    top: 16px !important;
-    width: auto !important;
-    transform: none !important;
-    padding: 0 !important;
-  }
-  .konf-tb-wrap .tb-bar {
-    width: 100%;
-  }
+  /* Positionierung der Tab-Leiste liegt komplett im Mobil-Block weiter oben
+     (@media max-width:767px, "Tab-Leiste unten statt oben"). Früher stand hier
+     eine oben angeheftete Variante — beides gleichzeitig hieße: zwei Regeln mit
+     !important streiten sich um top/left/right, und die spätere gewinnt
+     zufällig. */
   /* Zurück-Pfeil raus — auf Mobile navigiert man per Swipe-Geste */
   .konf-back-float {
     display: none;
@@ -9385,7 +9416,12 @@ select.mmc-input option { background: #111; color: #fff; }
 .mmc-call-btn--decline { background: #8c2f2f; border-color: #8c2f2f; }
 .mmc-call-btn--decline:hover { background: #a03636; }
 @media (max-width: 767px) {
-  .mmc-callbar { left: 10px; right: 10px; bottom: 10px; transform: translate(0, 16px); max-width: none; }
+  /* Über der unteren Tab-Leiste bleiben, nicht darauf. */
+  .mmc-callbar {
+    left: 10px; right: 10px;
+    bottom: calc(var(--tb-mobile-h) + 10px);
+    transform: translate(0, 16px); max-width: none;
+  }
   .mmc-callbar.is-open { transform: translate(0, 0); }
 }
 @media (prefers-reduced-motion: reduce) {
@@ -9741,7 +9777,10 @@ select.mmc-input option { background: #111; color: #fff; }
 @media (max-width: 767px) {
   .mmc {
     grid-template-columns: minmax(0,1fr) !important;
-    padding: 78px 10px 10px;
+    /* Oben nur noch Platz für die fixe Hauptkopfzeile (.p-nav, 66px) — die
+       Tab-Leiste sitzt jetzt unten und bekommt ihren Platz über das
+       padding-bottom von .konf-split. */
+    padding: 70px 10px 10px;
     gap: 10px;
   }
   .mmc-catrail { display: none !important; }

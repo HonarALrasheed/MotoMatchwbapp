@@ -1877,7 +1877,7 @@ function buildKonfiguratorHTML(data, initialTab = 'ansicht') {
       <nav class="tb-bar">
         <button class="tb-btn${tab === 'ansicht' ? ' tb-btn-active' : ''}" data-tab="ansicht">Ansicht</button>
         <button class="tb-btn${tab === 'ausstattung' ? ' tb-btn-active' : ''}" data-tab="ausstattung">Ausr\u00fcstung</button>
-        <button class="tb-btn${tab === 'match' ? ' tb-btn-active' : ''}" data-tab="match">Match finden</button>
+        <button class="tb-btn${tab === 'match' ? ' tb-btn-active' : ''}" data-tab="match"><span class="tb-lbl-lang">Match finden</span><span class="tb-lbl-kurz">Match</span></button>
         <button class="tb-btn${tab === 'community' ? ' tb-btn-active' : ''}" data-tab="community">Community</button>
         <button class="tb-btn${tab === 'karte' ? ' tb-btn-active' : ''}" data-tab="karte">Karte</button>
       </nav>

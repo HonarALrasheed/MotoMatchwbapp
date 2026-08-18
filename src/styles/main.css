@@ -9347,6 +9347,51 @@ select.mmc-input option { background: #111; color: #fff; }
 }
 .mmc-suggest-item:hover .mmc-suggest-action { color: var(--gold); }
 
+/* ── Anrufleiste (Direktanruf mit Freunden) ──────────────────────────
+   Liegt an document.body statt im Community-Grid: ein Anruf überdauert
+   Ansichtswechsel, und der Auflegen-Knopf muss dabei erreichbar bleiben. */
+.mmc-callbar {
+  position: fixed; z-index: 600;
+  left: 50%; bottom: 24px; transform: translate(-50%, 16px);
+  display: flex; align-items: center; gap: 12px;
+  padding: 10px 14px; border-radius: 14px;
+  background: #16161a; border: 1px solid rgba(255,255,255,0.14);
+  box-shadow: 0 18px 50px rgba(0,0,0,0.6);
+  opacity: 0; transition: opacity .18s var(--p-ease, ease), transform .18s var(--p-ease, ease);
+  max-width: calc(100vw - 24px);
+}
+.mmc-callbar.is-open { opacity: 1; transform: translate(-50%, 0); }
+.mmc-call-meta { display: flex; flex-direction: column; min-width: 0; gap: 1px; }
+.mmc-call-name {
+  font-family: var(--p-font); font-size: 14px; font-weight: 600; color: #fff;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.mmc-call-status {
+  font-family: var(--p-font); font-size: 12px; color: rgba(255,255,255,0.55);
+  font-variant-numeric: tabular-nums;
+}
+.mmc-call-actions { display: flex; gap: 6px; margin-left: 8px; flex-shrink: 0; }
+.mmc-call-btn {
+  padding: 7px 13px; border-radius: 8px; cursor: pointer;
+  font-family: var(--p-font); font-size: 12.5px; font-weight: 600;
+  background: rgba(255,255,255,0.08); color: #fff;
+  border: 1px solid rgba(255,255,255,0.14);
+  transition: background .15s, border-color .15s, color .15s;
+}
+.mmc-call-btn:hover { background: rgba(255,255,255,0.16); }
+.mmc-call-btn.is-active { color: var(--gold); border-color: var(--gold); }
+.mmc-call-btn--accept { background: #2f7d43; border-color: #2f7d43; }
+.mmc-call-btn--accept:hover { background: #388f4d; }
+.mmc-call-btn--decline { background: #8c2f2f; border-color: #8c2f2f; }
+.mmc-call-btn--decline:hover { background: #a03636; }
+@media (max-width: 767px) {
+  .mmc-callbar { left: 10px; right: 10px; bottom: 10px; transform: translate(0, 16px); max-width: none; }
+  .mmc-callbar.is-open { transform: translate(0, 0); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .mmc-callbar { transition: none; }
+}
+
 /* ── Einladen-Tab im Verwaltungspanel ── */
 .mmc-invite-create { margin-bottom: 8px; }
 .mmc-invite-options {

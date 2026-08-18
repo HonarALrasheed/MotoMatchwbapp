@@ -71,6 +71,8 @@ import {
   subscribeGroupLiveUpdates, unsubscribeGroupLiveUpdates,
   // Typing-Indikatoren
   sendChannelTyping, subscribeDMTyping, unsubscribeDMTyping, sendDMTyping,
+  // Direktanrufe (Signalisierung)
+  dmCallRoomId, subscribeToUserEvents, sendUserEvent,
 } from './community-api.js'
 
 /* ── Avatar-Farbpalette (wählbare Profilfarben) ──────────────────── */
@@ -542,7 +544,11 @@ export async function mountCommunity(root) {
 
   // "Jetzt aktiv": Presence-Channel abonnieren (Gäste tracken sich nicht)
   onPresenceChange(() => { if (typeof refreshFriendsChrome === 'function') refreshFriendsChrome(root) })
-  if (session && !session.guest) subscribeToPresence(getPrefs().status || 'online')
+  if (session && !session.guest) {
+    subscribeToPresence(getPrefs().status || 'online')
+    // Anruf-Signale gelten app-weit, nicht nur im offenen Chat.
+    subscribeToUserEvents((type, payload) => _handleCallEvent(root, type, payload))
+  }
 
   // Deep-Link aus einer Push-Benachrichtigung (?dm=<username>): die richtige
   // Unterhaltung direkt öffnen, statt nur auf der Übersicht zu landen.
@@ -809,6 +815,7 @@ const ICON = {
   link:    '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>',
   door:    '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>',
   belloff: '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M13.73 21a2 2 0 0 1-3.46 0"/><path d="M18.63 13A17.89 17.89 0 0 1 18 8"/><path d="M6.26 6.26A5.86 5.86 0 0 0 6 8c0 7-3 9-3 9h14"/><path d="M18 8a6 6 0 0 0-9.33-5"/><line x1="1" y1="1" x2="23" y2="23"/></svg>',
+  phone:   '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6A19.79 19.79 0 0 1 2.12 4.18 2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.13.96.36 1.9.7 2.81a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.9.34 1.85.57 2.81.7A2 2 0 0 1 22 16.92z"/></svg>',
   bell:    '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>',
   reply:   '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 14 4 9 9 4"/><path d="M20 20v-7a4 4 0 0 0-4-4H4"/></svg>',
   pencil:  '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4z"/></svg>',
@@ -2146,12 +2153,14 @@ function renderDMView(main, root) {
       ${mobileBackHtml()}
       <div class="mmc-avatar mmc-avatar--dm" style="background:${avatarColor(name)}">${avatarInner(name)}<span class="mmc-presence"></span></div>
       <span class="mmc-chat-title">${esc(displayName(name))}</span>
+      <button class="mmc-bell-btn" id="mmc-dm-call" title="${esc(displayName(name))} anrufen">${ICON.phone}</button>
       <button class="mmc-bell-btn${dmMuted ? ' is-muted' : ''}" id="mmc-dm-bell" title="${dmMuted ? 'Stummschaltung aufheben' : 'Chat stummschalten'}">${bellIcon}</button>
     </header>
     <div class="mmc-messages" id="mmc-messages"></div>
     ${composeHtml('Nachricht an @' + esc(name))}`
   bindMobileBack(main, root)
   main.querySelector('#mmc-dm-bell')?.addEventListener('click', e => { e.stopPropagation(); openMuteMenu(root, dmKey, true) })
+  main.querySelector('#mmc-dm-call')?.addEventListener('click', e => { e.stopPropagation(); _startCall(root, name) })
   renderMessagesInto(root, main.querySelector('#mmc-messages'), (getDMs()[name]) || [], {
     title: displayName(name), text: `Das ist der Anfang deiner Unterhaltung mit ${displayName(name)}.`, avatar: name,
   }, null, prevReadTs)
@@ -4349,6 +4358,179 @@ function _openMapForPoint(point) {
       }
     }
     setTimeout(fill, 350)
+  }
+}
+
+/* ══════════════════════════════════════════════════════════════════
+   DIREKTANRUFE ZWISCHEN FREUNDEN
+   Der Anruf läuft über denselben LiveKit-Weg wie ein Gruppen-Talk, nur ohne
+   Raum in der Datenbank: die Raum-ID leitet sich aus beiden Nutzer-IDs ab und
+   wird serverseitig gegen die Freundschaft geprüft (api/livekit-token.js).
+   Das Klingeln selbst läuft über `user:<uid>`-Broadcasts, damit ein Anruf auch
+   ankommt, wenn der Chat gerade nicht offen ist.
+   ══════════════════════════════════════════════════════════════════ */
+/** null | { peer, roomId, state: 'outgoing'|'incoming'|'active', since } */
+let _call = null
+let _callBarEl = null
+let _callTickTimer = null
+
+function _callPeerName(peer) { return displayName(peer) }
+
+/** Anrufleiste liegt an document.body, damit sie Ansichtswechsel überlebt. */
+function _renderCallBar(root) {
+  if (!_call) {
+    _callBarEl?.remove(); _callBarEl = null
+    if (_callTickTimer) { clearInterval(_callTickTimer); _callTickTimer = null }
+    return
+  }
+  if (!_callBarEl) {
+    _callBarEl = document.createElement('div')
+    _callBarEl.className = 'mmc-callbar'
+    document.body.appendChild(_callBarEl)
+    requestAnimationFrame(() => _callBarEl?.classList.add('is-open'))
+  }
+
+  const name = esc(_callPeerName(_call.peer))
+  const prefs = getPrefs()
+  let statusText, actions
+  if (_call.state === 'incoming') {
+    statusText = 'Eingehender Anruf'
+    actions = `
+      <button class="mmc-call-btn mmc-call-btn--accept" id="mmc-call-accept">Annehmen</button>
+      <button class="mmc-call-btn mmc-call-btn--decline" id="mmc-call-decline">Ablehnen</button>`
+  } else if (_call.state === 'outgoing') {
+    statusText = 'Klingelt …'
+    actions = `<button class="mmc-call-btn mmc-call-btn--decline" id="mmc-call-hangup">Abbrechen</button>`
+  } else {
+    const secs = Math.max(0, Math.floor((Date.now() - _call.since) / 1000))
+    statusText = `Im Gespräch · ${String(Math.floor(secs / 60)).padStart(2, '0')}:${String(secs % 60).padStart(2, '0')}`
+    actions = `
+      <button class="mmc-call-btn${prefs.muted ? ' is-active' : ''}" id="mmc-call-mute">${prefs.muted ? 'Stumm aus' : 'Stumm'}</button>
+      <button class="mmc-call-btn mmc-call-btn--decline" id="mmc-call-hangup">Auflegen</button>`
+  }
+
+  _callBarEl.innerHTML = `
+    <div class="mmc-avatar mmc-avatar--dm" style="background:${avatarColor(_call.peer)}">${avatarInner(_call.peer)}</div>
+    <div class="mmc-call-meta">
+      <div class="mmc-call-name">${name}</div>
+      <div class="mmc-call-status">${esc(statusText)}</div>
+    </div>
+    <div class="mmc-call-actions">${actions}</div>`
+
+  _callBarEl.querySelector('#mmc-call-accept')?.addEventListener('click', () => _acceptCall(root))
+  _callBarEl.querySelector('#mmc-call-decline')?.addEventListener('click', () => _declineCall(root))
+  _callBarEl.querySelector('#mmc-call-hangup')?.addEventListener('click', () => _endCall(root, true))
+  _callBarEl.querySelector('#mmc-call-mute')?.addEventListener('click', () => {
+    const p = getPrefs(); p.muted = !p.muted; setPrefs(p)
+    toggleVoiceMute(p.muted)
+    _renderCallBar(root)
+  })
+
+  // Gesprächsdauer sekündlich nachziehen, aber nur während eines Gesprächs.
+  if (_call.state === 'active' && !_callTickTimer) {
+    _callTickTimer = setInterval(() => _renderCallBar(root), 1000)
+  } else if (_call.state !== 'active' && _callTickTimer) {
+    clearInterval(_callTickTimer); _callTickTimer = null
+  }
+}
+
+/** Anruf starten (aus dem DM-Kopf). */
+async function _startCall(root, peer) {
+  if (_call) { toast(root, 'Du bist bereits in einem Anruf.'); return }
+  if (!OFFLINE_MODE && getSession()?.guest) {
+    openInfoModal(root, 'Für Anrufe brauchst du ein Konto',
+      'Anrufe laufen über deinen MotoMatch-Account — als Gast lässt sich nicht telefonieren.',
+      { label: 'Anmelden', onClick: () => goToAuth(root) })
+    return
+  }
+  const roomId = dmCallRoomId(peer)
+  if (!roomId) { toast(root, 'Anruf nicht möglich — Konto der Person nicht gefunden.'); return }
+
+  _call = { peer, roomId, state: 'outgoing', since: Date.now() }
+  _renderCallBar(root)
+
+  const res = await joinVoiceRoom(roomId, getSession().id || getSession().username, me(), getPrefs(),
+    participants => _onCallParticipants(root, participants))
+  if (!res.ok) {
+    _call = null; _renderCallBar(root)
+    openInfoModal(root, 'Anruf fehlgeschlagen', res.error || 'Bitte erneut versuchen.',
+      res.code === 'auth' ? { label: 'Anmelden', onClick: () => goToAuth(root) } : null)
+    return
+  }
+  setOutputVolume(getPrefs().outVol ?? 100)
+  await sendUserEvent(peer, 'call_invite', { roomId })
+}
+
+/** Teilnehmerliste des Anrufs — sobald die Gegenseite da ist, läuft das Gespräch. */
+function _onCallParticipants(root, participants) {
+  if (!_call) return
+  const others = participants.filter(p => p.username?.toLowerCase() !== me().toLowerCase())
+  if (others.length && _call.state !== 'active') {
+    _call.state = 'active'; _call.since = Date.now()
+    _renderCallBar(root)
+  } else if (!others.length && _call.state === 'active') {
+    // Gegenseite hat aufgelegt.
+    toast(root, `${_callPeerName(_call.peer)} hat aufgelegt.`)
+    _endCall(root, false)
+  }
+}
+
+async function _acceptCall(root) {
+  if (!_call || _call.state !== 'incoming') return
+  const peer = _call.peer
+  _call.state = 'outgoing'   // verbinden…
+  _renderCallBar(root)
+  const res = await joinVoiceRoom(_call.roomId, getSession().id || getSession().username, me(), getPrefs(),
+    participants => _onCallParticipants(root, participants))
+  if (!res.ok) {
+    _call = null; _renderCallBar(root)
+    openInfoModal(root, 'Anruf fehlgeschlagen', res.error || 'Bitte erneut versuchen.')
+    await sendUserEvent(peer, 'call_decline', {})
+    return
+  }
+  setOutputVolume(getPrefs().outVol ?? 100)
+  _call.state = 'active'; _call.since = Date.now()
+  _renderCallBar(root)
+}
+
+async function _declineCall(root) {
+  if (!_call) return
+  const peer = _call.peer
+  _call = null; _renderCallBar(root)
+  await sendUserEvent(peer, 'call_decline', {})
+}
+
+/** Auflegen. `notify` = der Gegenseite Bescheid geben (bei eigenem Auflegen). */
+async function _endCall(root, notify) {
+  if (!_call) return
+  const { peer, state } = _call
+  _call = null
+  _renderCallBar(root)
+  if (inVoiceRoom()) await leaveVoiceRoom()
+  if (notify) await sendUserEvent(peer, state === 'outgoing' ? 'call_cancel' : 'call_end', {})
+  fillGroupChannels?.(root)
+}
+
+/** Signale der Gegenseite verarbeiten. */
+function _handleCallEvent(root, type, payload) {
+  const from = payload?.from
+  if (!from) return
+  if (type === 'call_invite') {
+    // Schon im Gespräch? Dann besetzt melden, statt den laufenden Anruf zu stören.
+    if (_call) { sendUserEvent(from, 'call_decline', {}); return }
+    _call = { peer: from, roomId: payload.roomId, state: 'incoming', since: Date.now() }
+    _renderCallBar(root)
+    return
+  }
+  if (!_call || _call.peer?.toLowerCase() !== from.toLowerCase()) return
+  if (type === 'call_cancel') {
+    toast(root, `Verpasster Anruf von ${_callPeerName(from)}.`)
+    _call = null; _renderCallBar(root)
+  } else if (type === 'call_decline') {
+    toast(root, `${_callPeerName(from)} hat abgelehnt.`)
+    _endCall(root, false)
+  } else if (type === 'call_end') {
+    _endCall(root, false)
   }
 }
 

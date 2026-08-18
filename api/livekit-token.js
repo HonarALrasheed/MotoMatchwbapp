@@ -65,15 +65,46 @@ export default async function handler(req, res) {
       return res.status(403).json({ error: "No profile" });
     }
 
-    // vr_select-RLS (schema.sql) spiegeln: nur Mitglieder ODER offene Gruppen dürfen
-    // den Raum überhaupt sehen — schlägt select fehl (0 Zeilen), ist der Zugriff verweigert.
-    const { data: room, error: roomErr } = await supabase
-      .from("voice_rooms")
-      .select("id, group_id")
-      .eq("id", roomId)
-      .maybeSingle();
-    if (roomErr || !room) {
-      return res.status(403).json({ error: "Room not found or not accessible" });
+    // Direktanruf zwischen zwei Freunden: Die Raum-ID trägt beide Beteiligten,
+    // aufsteigend sortiert — genauso wie friendships (user_a < user_b). Es gibt
+    // dafür bewusst keine Zeile in voice_rooms: der Raum existiert nur, solange
+    // telefoniert wird. Zugriff bekommt deshalb nur, wer selbst in der ID steht
+    // UND mit dem anderen befreundet ist. Blockieren löst die Freundschaft
+    // (removeFriendPair in toggleBlock), damit fällt auch der Anruf-Zugang weg.
+    // Präfix bewusst nur klein (der Client erzeugt ausschließlich "dm:"), und
+    // echte uuid-Form statt bloß 36 erlaubter Zeichen: sonst gäbe es für
+    // dasselbe Paar mehrere gültige Raumnamen, und Zeichenfolgen wie "------…"
+    // liefen als kaputte uuid in die Datenbankabfrage.
+    const UUID = "[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}";
+    const dmMatch = new RegExp(`^dm:(${UUID}):(${UUID})$`).exec(roomId);
+    if (dmMatch) {
+      const [, first, second] = dmMatch.map(s => (s || "").toLowerCase());
+      if (first >= second) {
+        return res.status(400).json({ error: "Invalid room id" });
+      }
+      if (user.id !== first && user.id !== second) {
+        return res.status(403).json({ error: "Not a participant of this call" });
+      }
+      const { data: friendship } = await supabase
+        .from("friendships")
+        .select("id")
+        .eq("user_a", first)
+        .eq("user_b", second)
+        .maybeSingle();
+      if (!friendship) {
+        return res.status(403).json({ error: "Not friends" });
+      }
+    } else {
+      // vr_select-RLS (schema.sql) spiegeln: nur Mitglieder ODER offene Gruppen dürfen
+      // den Raum überhaupt sehen — schlägt select fehl (0 Zeilen), ist der Zugriff verweigert.
+      const { data: room, error: roomErr } = await supabase
+        .from("voice_rooms")
+        .select("id, group_id")
+        .eq("id", roomId)
+        .maybeSingle();
+      if (roomErr || !room) {
+        return res.status(403).json({ error: "Room not found or not accessible" });
+      }
     }
 
     const token = new AccessToken(LIVEKIT_API_KEY, LIVEKIT_API_SECRET, {

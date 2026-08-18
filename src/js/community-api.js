@@ -575,11 +575,58 @@ async function _broadcastGroupLiveEvent(groupId, event, payload) {
   if (!reused) { try { supabase.removeChannel(chan) } catch {} }
 }
 
+/* ══════════════════════════════════════════════════════════════════
+   DIREKTANRUFE — Signalisierung
+   Ein Kanal je Nutzer (`user:<uid>`), abonniert solange die Community offen
+   ist. Nur darüber erfährt man von einem Anruf, ohne den betreffenden Chat
+   geöffnet zu haben. Der Anruf selbst läuft über LiveKit, hier gehen nur die
+   Klingel-Signale durch.
+   ══════════════════════════════════════════════════════════════════ */
+let _userChan = null
+
+/** Raum-ID eines Direktanrufs: beide uuids aufsteigend sortiert, wie in `friendships`. */
+export function dmCallRoomId(peerUsername) {
+  const other = _usernameToUid(peerUsername)
+  if (!_myUid || !other) return null
+  return 'dm:' + [_myUid, other].sort().join(':')
+}
+
+/** onEvent(type, payload) mit type ∈ 'call_invite'|'call_cancel'|'call_decline'|'call_end'. */
+export function subscribeToUserEvents(onEvent) {
+  if (OFFLINE_MODE || !supabase || !_myUid || _userChan) return
+  _userChan = supabase.channel(`user:${_myUid}`, { config: { broadcast: { self: false } } })
+  for (const type of ['call_invite', 'call_cancel', 'call_decline', 'call_end']) {
+    _userChan.on('broadcast', { event: type }, ({ payload }) => onEvent(type, payload))
+  }
+  _userChan.subscribe()
+}
+
+export function unsubscribeUserEvents() {
+  if (_userChan) { try { supabase.removeChannel(_userChan) } catch {} }
+  _userChan = null
+}
+
+/** Ein Anruf-Signal an eine bestimmte Person schicken. */
+export async function sendUserEvent(toUsername, event, payload = {}) {
+  if (OFFLINE_MODE || !supabase) return
+  const uid = _usernameToUid(toUsername)
+  if (!uid || uid === _myUid) return
+  // Eigener Kanal ist `user:<_myUid>` — hier geht es an ein anderes Topic, es
+  // kann also nicht zur Kollision mit dem eigenen Abo kommen.
+  const chan = supabase.channel(`user:${uid}`)
+  try {
+    await new Promise(resolve => chan.subscribe(status => { if (status === 'SUBSCRIBED') resolve() }))
+    await chan.send({ type: 'broadcast', event, payload: { ...payload, from: _myUsername } })
+  } catch {}
+  try { await supabase.removeChannel(chan) } catch {}
+}
+
 export function unsubscribeAll() {
   if (!supabase) return
   unsubscribePresence()
   unsubscribeGroupLiveUpdates()
   unsubscribeDMTyping()
+  unsubscribeUserEvents()
   for (const sub of [..._realtimeSubs, ..._globalSubs]) {
     try { supabase.removeChannel(sub) } catch {}
   }

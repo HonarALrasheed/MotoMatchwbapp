@@ -9769,11 +9769,11 @@ select.mmc-input option { background: #111; color: #fff; }
    auf einen Navigations-Stack umschalten: immer nur eine Spalte auf voller
    Breite, gesteuert über die Klasse "mmc--detail" (ohne = Liste/Kategorien/
    Kanäle/Freunde, mit = Hauptinhalt/Chat — siehe mobileShowDetail() in
-   community.js). Die schmale Icon-Leiste (Kategorien in einer Gruppe bzw.
-   im Freunde-Modus) entfällt als eigene Stufe; sie bleibt über die
-   Zurück-Kette erreichbar (Chat → Zurück → Liste → Zurück → Übersicht). Bei
-   genau 768px muss die Desktop-Ansicht unverändert bleiben (Vorgabe), daher
-   767px statt 768px als Obergrenze. */
+   community.js). Die schmale Kategorie-Leiste bleibt dabei stehen: sie ist
+   nur Icons breit und der schnellste Weg zwischen den Kategorien — ohne sie
+   führte jeder Wechsel über die Zurück-Kette. Bei genau 768px muss die
+   Desktop-Ansicht unverändert bleiben (Vorgabe), daher 767px statt 768px als
+   Obergrenze. */
 @media (max-width: 767px) {
   .mmc {
     grid-template-columns: minmax(0,1fr) !important;
@@ -9783,7 +9783,12 @@ select.mmc-input option { background: #111; color: #fff; }
     padding: 70px 10px 10px;
     gap: 10px;
   }
-  .mmc-catrail { display: none !important; }
+  /* Nur diese beiden Ansichten haben überhaupt eine Kategorie-Leiste; die
+     Übersicht besteht aus Kategorienliste + Karten und bleibt einspaltig. */
+  .mmc--ingroup, .mmc--friends {
+    grid-template-columns: 54px minmax(0,1fr) !important;
+    gap: 8px;
+  }
   .mmc-col2 { min-width: 0; }
   .mmc-main { display: none; min-width: 0; }
   .mmc--detail .mmc-col2 { display: none; }

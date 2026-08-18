@@ -170,7 +170,7 @@ async function _loadGroups() {
     group_members(user_id, role, profiles(username)),
     group_bans(user_id, profiles!group_bans_user_id_fkey(username))
   `
-  const voiceSelect = baseSelect + ', voice_rooms(id, title, capacity)'
+  const voiceSelect = baseSelect + ', voice_rooms(id, title, capacity, created_by)'
   const eventSelect = voiceSelect + ', event_at, meeting_point, group_rsvps(profiles(username))'
   // event_at/meeting_point/group_rsvps und voice_rooms werden per Migration nachgerüstet
   // (supabase/schema.sql) — falls sie in dieser Supabase-Instanz noch fehlen, fällt der
@@ -235,7 +235,9 @@ async function _loadGroups() {
         messages: allMsgs[c.id] || [],
       })),
     voiceRooms: (g.voice_rooms || []).map(v => ({
-      id: v.id, title: v.title, capacity: v.capacity, members: [],
+      // createdBy wird für das automatische Aufräumen leerer Talks gebraucht:
+      // löschen darf laut RLS nur Ersteller, Host oder Mod (Policy vr_delete).
+      id: v.id, title: v.title, capacity: v.capacity, createdBy: v.created_by, members: [],
     })),
     ...(g.event_at     ? { eventAt: new Date(g.event_at).getTime() } : {}),
     ...(g.meeting_point ? { meetingPoint: g.meeting_point } : {}),
@@ -928,9 +930,11 @@ export async function createVoiceRoom(groupId, title, capacity) {
   }).select().single()
   if (error) return { ok: false, error: error.message }
 
-  const room = { id: data.id, title: data.title, capacity: data.capacity, members: [] }
+  const room = { id: data.id, title: data.title, capacity: data.capacity, createdBy: data.created_by, members: [] }
   ;(g.voiceRooms ||= []).push(room)
-  _broadcastGroupLiveEvent(groupId, 'room_created', { room: { id: room.id, title: room.title, capacity: room.capacity } })
+  _broadcastGroupLiveEvent(groupId, 'room_created', {
+    room: { id: room.id, title: room.title, capacity: room.capacity, createdBy: room.createdBy },
+  })
   return { ok: true, room }
 }
 

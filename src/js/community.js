@@ -1320,7 +1320,7 @@ function renderApp(root) {
 
   // Voice-Room-Watcher gehören nur zur "In-Gruppe"-Ansicht — überall sonst aufräumen
   if (!activeGroup) {
-    if (Object.keys(_voiceWatchers).length) { unwatchAllVoiceRooms(); _voiceWatchers = {} }
+    if (Object.keys(_voiceWatchers).length) { unwatchAllVoiceRooms(); _voiceWatchers = {}; _cancelAllEmptyTalkCleanups() }
     unsubscribeGroupLiveUpdates()
   }
   // DM-Typing-Abo gehört nur zur offenen DM-Ansicht
@@ -2432,6 +2432,8 @@ function _syncVoiceWatchers(entries, onUpdate) {
   for (const id of Object.keys(_voiceWatchers)) {
     if (!wanted.has(id) || currentRoomId() === id) {
       _voiceWatchers[id](); delete _voiceWatchers[id]
+      // Ohne Watcher wüsste der Timer nicht mehr, ob der Talk noch leer ist.
+      _cancelEmptyTalkCleanup(id)
     }
   }
 
@@ -2443,9 +2445,56 @@ function _syncVoiceWatchers(entries, onUpdate) {
       rCur.members = participants.map(p => p.username)
       rCur.voiceParticipants = {}
       for (const p of participants) rCur.voiceParticipants[p.username] = { muted: p.muted, speaking: false }
+      if (rCur.members.length) _cancelEmptyTalkCleanup(roomId)
+      else _scheduleEmptyTalkCleanup(groupId, roomId)
       _onVoiceWatchUpdate()
     })
   }
+}
+
+/* ── Leere Talks räumen sich selbst auf ───────────────────────────
+ * Sonst sammeln sich ungenutzte Sprachkanäle an, die niemand wieder
+ * wegräumt. Gelöscht wird erst nach einer Schonfrist: ein gerade geöffneter
+ * Talk soll nicht verschwinden, bevor überhaupt jemand beitreten konnte, und
+ * ein kurzer Verbindungsabbruch soll ihn nicht kosten. */
+const EMPTY_TALK_TTL_MS = 2 * 60 * 1000
+const _emptyTalkTimers = new Map()   // roomId -> timeoutId
+
+function _cancelEmptyTalkCleanup(roomId) {
+  const t = _emptyTalkTimers.get(roomId)
+  if (t !== undefined) { clearTimeout(t); _emptyTalkTimers.delete(roomId) }
+}
+
+function _cancelAllEmptyTalkCleanups() {
+  for (const t of _emptyTalkTimers.values()) clearTimeout(t)
+  _emptyTalkTimers.clear()
+}
+
+/**
+ * Darf dieser Client den Talk wirklich löschen? Die RLS-Policy `vr_delete`
+ * (supabase/schema.sql) erlaubt es nur Ersteller, Host oder Mod. Jeder andere
+ * würde den Talk zwar lokal entfernen und das auch an alle broadcasten, die
+ * Zeile bliebe aber in der Datenbank — der Talk wäre nach dem nächsten Laden
+ * wieder da. Deshalb hier dieselbe Bedingung wie in der Policy prüfen.
+ */
+function _mayDeleteTalk(g, room) {
+  if (OFFLINE_MODE) return true          // rein lokale Daten, keine RLS im Spiel
+  if (canManage(g)) return true          // Host/Mod
+  return !!room.createdBy && room.createdBy === getSession()?.id
+}
+
+function _scheduleEmptyTalkCleanup(groupId, roomId) {
+  if (_emptyTalkTimers.has(roomId)) return
+  _emptyTalkTimers.set(roomId, setTimeout(async () => {
+    _emptyTalkTimers.delete(roomId)
+    const g = getGroups().find(x => x.id === groupId); if (!g) return
+    const r = (g.voiceRooms || []).find(x => x.id === roomId); if (!r) return
+    // Inzwischen doch wieder jemand drin (oder ich selbst)? Dann bleibt er.
+    if (r.members?.length || currentRoomId() === roomId) return
+    if (!_mayDeleteTalk(g, r)) return
+    await deleteVoiceRoom(groupId, roomId)
+    _onVoiceWatchUpdate()
+  }, EMPTY_TALK_TTL_MS))
 }
 
 /** Wie viele Leute sitzen gerade in den Talks dieser Gruppe? */

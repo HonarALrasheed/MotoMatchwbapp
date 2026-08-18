@@ -174,11 +174,14 @@ export async function joinVoiceRoom(roomId, userId, username, prefs, onUpdate) {
   // die namenlosen Einträge.
   invalidateAudioDeviceCache()
 
-  // Leichter Presence-Eintrag auf demselben Kanal, den watchVoiceRoom() (Sidebar
-  // ohne Beitritt) beobachtet — unabhängig vom LiveKit-Transport.
+  // Leichter Presence-Eintrag auf demselben Topic, das watchVoiceRoom() (Sidebar
+  // ohne Beitritt) beobachtet — unabhängig vom LiveKit-Transport. Das eigene
+  // Beobachter-Abo auf diesen Raum muss vorher weg sein, sonst bekämen wir es
+  // hier zurückgereicht und würden nie in die Presence eintreten (s. _releaseVoiceTopic).
+  await _releaseVoiceTopic(roomId)
   _presenceChan = supabase.channel(`voice:${roomId}`, { config: { presence: { key: userId } } })
   _presenceChan.subscribe(async status => {
-    if (status === 'SUBSCRIBED') await _presenceChan.track({ username, muted: !!prefs.muted })
+    if (status === 'SUBSCRIBED') await _presenceChan?.track({ username, muted: !!prefs.muted })
   })
 
   _notifyUpdate()
@@ -187,7 +190,12 @@ export async function joinVoiceRoom(roomId, userId, username, prefs, onUpdate) {
 
 /** Sprachraum verlassen und alles aufräumen. */
 export async function leaveVoiceRoom() {
+  const roomId = _roomId
   _cleanup()
+  // Erst zurückkehren, wenn das Presence-Topic frei ist: direkt danach baut die
+  // Sidebar wieder einen Beobachter für genau diesen Raum auf, und der bekäme
+  // sonst den noch nicht abgebauten Presence-Kanal zurück (s. _releaseVoiceTopic).
+  if (roomId) await _releaseVoiceTopic(roomId)
 }
 
 /** Mikrofon stumm-/entstumm-schalten. */
@@ -304,6 +312,28 @@ export function watchVoiceRoom(roomId, onUpdate) {
 export function unwatchAllVoiceRooms() {
   for (const w of Object.values(_watchers)) w.cleanup()
   _watchers = {}
+}
+
+/**
+ * Alle offenen Realtime-Kanäle auf `voice:<roomId>` schließen und warten, bis
+ * das Topic wirklich frei ist.
+ *
+ * Nötig, weil supabase.channel(topic) bei bereits vorhandenem Topic das
+ * BESTEHENDE Kanal-Objekt zurückgibt und die übergebene presence-Konfiguration
+ * verwirft — und subscribe() auf einem schon verbundenen Kanal seinen Callback
+ * nicht mehr aufruft. Wer einem Talk beitritt, während die Sidebar denselben
+ * Raum noch beobachtet, bekäme also den Beobachter-Kanal zurück, träte nie per
+ * track() in die Presence ein und wäre für alle anderen unsichtbar.
+ * removeChannel() ist asynchron (erst unsubscribe, dann teardown), deshalb muss
+ * hier gewartet werden, sonst ist das Topic beim nächsten channel()-Aufruf noch
+ * belegt.
+ */
+async function _releaseVoiceTopic(roomId) {
+  delete _watchers[roomId]
+  if (!supabase) return
+  const topic = `realtime:voice:${roomId}`
+  const open = (supabase.getChannels?.() || []).filter(c => c.topic === topic)
+  for (const ch of open) { try { await supabase.removeChannel(ch) } catch {} }
 }
 
 /* Gerätelisten-Cache. enumerateDevices() selbst ist billig (~2 ms), aber

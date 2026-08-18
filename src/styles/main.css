@@ -9401,6 +9401,29 @@ select.mmc-input option { background: #111; color: #fff; }
 .mmc-rsvp-count {
   font-family: var(--p-font); font-size: 11px; color: rgba(255,255,255,0.4);
 }
+/* "Gerade im Talk" auf der Gruppenkarte: grün wie der Sprech-Indikator in der
+   Talk-Liste, damit "da läuft gerade etwas" dieselbe Farbe hat wie im Talk
+   selbst. Der Punkt pulst dezent, um Live-Zustand von statischen Metazeilen
+   (Termin, RSVP) zu unterscheiden. */
+.mmc-group-live {
+  display: flex; align-items: center; gap: 6px;
+  font-family: var(--p-font); font-size: 12px; font-weight: 500;
+  color: #6fbf73;
+}
+.mmc-group-live[hidden] { display: none; }
+.mmc-group-live svg { flex-shrink: 0; }
+.mmc-group-live::before {
+  content: ''; width: 6px; height: 6px; border-radius: 50%;
+  background: #6fbf73; flex-shrink: 0;
+  animation: mmcLivePulse 2s var(--ease-in-out, ease-in-out) infinite;
+}
+@keyframes mmcLivePulse {
+  0%, 100% { opacity: 1; }
+  50%      { opacity: 0.35; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .mmc-group-live::before { animation: none; }
+}
 .mmc-group-actions { display: flex; gap: 6px; flex-wrap: wrap; }
 
 /* ── RSVP-Button ── */

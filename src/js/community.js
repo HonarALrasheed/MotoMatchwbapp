@@ -729,6 +729,13 @@ let friendsMode = false      // true → Freunde-Seite statt Kategorie-Übersich
 let discoverOpen = false     // true → "Server entdecken"-Ansicht statt normalem Freunde-Inhalt (nur relevant bei friendsMode)
 let replyingTo = null        // { id, author, text } der Nachricht, auf die geantwortet wird
 let _voiceWatchers = {}      // { [roomId]: cleanupFn } — live "wer ist im Talk"-Beobachtung
+/* Wie die Presence-Änderung angezeigt wird, hängt an der GERADE sichtbaren
+   Ansicht (Gruppenkarten vs. Kanal-Sidebar), nicht am Watcher: Watcher
+   überleben einen Ansichtswechsel, damit sie nicht bei jedem Klick neu
+   aufgebaut werden. Der Callback wird deshalb hier zentral gehalten und beim
+   Wechsel überschrieben — sonst schriebe ein Watcher aus der Übersicht
+   weiterhin in längst ersetztes DOM. */
+let _onVoiceWatchUpdate = () => {}
 const _vcPrevMembers = new Map() // roomId -> zuletzt gerenderte Mitgliederliste, für Join/Leave-Animation in voiceChannelHtml()
 let _typingUsers = {}        // { username: timeoutId } — wer gerade im aktuell offenen Chat tippt
 let _lastTypingSentAt = 0    // Throttle fürs Senden eigener Typing-Pings
@@ -2089,6 +2096,8 @@ function renderDiscoverView(main, root) {
     e.stopPropagation()
     _openMapForPoint(b.dataset.mappoint)
   }))
+
+  _watchTalksForCards(body, pool)
 }
 
 /* ── DM chat ───────────────────────────────────────────────────── */
@@ -2208,6 +2217,8 @@ function renderGroupList(main, root) {
     e.stopPropagation()
     _openMapForPoint(b.dataset.mappoint)
   }))
+
+  _watchTalksForCards(main, groups)
 }
 
 const JOIN_MODE_META = {
@@ -2252,6 +2263,13 @@ function groupCardHtml(g, myName) {
     ? `<button class="mmc-map-btn" data-mappoint="${esc(g.meetingPoint)}">${ICON.mappin} Auf Karte</button>`
     : ''
 
+  // "Gerade im Talk": Das Element steht immer im Markup (ggf. hidden), damit
+  // _refreshGroupLiveBadges() es bei Presence-Änderungen nur noch ein-/ausblenden
+  // muss, statt die ganze Karte neu zu bauen.
+  const liveCount = talkHeadcount(g)
+  const liveTalk = `<div class="mmc-group-live" data-live-group="${esc(g.id)}"${liveCount ? '' : ' hidden'}>` +
+    `${ICON.speaker}<span>${liveCount === 1 ? '1 Person im Talk' : `${liveCount} Personen im Talk`}</span></div>`
+
   return `
     <div class="mmc-group-card">
       <div class="mmc-group-top">
@@ -2266,6 +2284,7 @@ function groupCardHtml(g, myName) {
         ${muted ? `<span class="mmc-mute-icon" title="Stummgeschaltet">${ICON.belloff}</span>` : ''}
       </div>
       <div class="mmc-group-desc">${esc(g.desc || (last ? last.text : ''))}</div>
+      ${liveTalk}
       ${evt ? `<div class="mmc-group-evt${evt.past ? ' mmc-group-evt--past' : ''}">${ICON.calendar} <span>${esc(evt.text)}</span>${evt.past ? ' <span class="mmc-evt-past-tag">vorbei</span>' : ''}</div>` : ''}
       ${rsvpList.length > 0 ? `<div class="mmc-rsvp-count">${rsvpList.length} ${rsvpList.length === 1 ? 'fährt' : 'fahren'} mit</div>` : ''}
       <div class="mmc-group-actions">${actionBtn}${rsvpBtn}${mapBtn}</div>
@@ -2364,33 +2383,69 @@ async function _leaveGroupUI(root) {
 }
 
 /**
- * Hält die Live-Beobachtung ("wer ist gerade im Talk") pro Voice-Room
- * synchron mit der aktuellen Raumliste: startet Watcher für neue/fremde
- * Räume, stoppt sie für gelöschte Räume und für den Raum, dem man selbst
- * gerade beigetreten ist (dessen Mitgliederliste kommt dann direkt aus
- * dem joinVoiceRoom()-Callback in toggleVoiceRoom).
+ * Hält die Live-Beobachtung ("wer ist gerade im Talk") synchron mit den
+ * gerade sichtbaren Talks: startet Watcher für neu sichtbare Räume, stoppt
+ * sie für verschwundene und für den Raum, dem man selbst beigetreten ist
+ * (dessen Mitgliederliste kommt dann direkt aus dem joinVoiceRoom()-Callback
+ * in toggleVoiceRoom).
+ *
+ * `entries` ist bewusst nicht an eine einzelne Gruppe gebunden: In der
+ * Kategorie-Übersicht werden die Talks mehrerer Gruppen gleichzeitig
+ * beobachtet, damit ein laufender Talk schon auf der Karte sichtbar ist und
+ * nicht erst, nachdem man die Gruppe geöffnet hat.
+ *
+ * @param {{groupId: string, roomId: string}[]} entries - sichtbare Talks
+ * @param {Function} onUpdate - nach jeder Presence-Änderung aufgerufen
  */
-function _syncVoiceWatchers(root, g) {
-  const rooms = g.voiceRooms || []
-  const roomIds = new Set(rooms.map(r => r.id))
+function _syncVoiceWatchers(entries, onUpdate) {
+  _onVoiceWatchUpdate = onUpdate
+  const wanted = new Map(entries.map(e => [e.roomId, e.groupId]))
 
   for (const id of Object.keys(_voiceWatchers)) {
-    if (!roomIds.has(id) || currentRoomId() === id) {
+    if (!wanted.has(id) || currentRoomId() === id) {
       _voiceWatchers[id](); delete _voiceWatchers[id]
     }
   }
 
-  for (const r of rooms) {
-    if (currentRoomId() === r.id || _voiceWatchers[r.id]) continue
-    _voiceWatchers[r.id] = watchVoiceRoom(r.id, participants => {
-      const gs = getGroups(); const gCur = gs.find(x => x.id === activeGroup); if (!gCur) return
-      const rCur = (gCur.voiceRooms || []).find(x => x.id === r.id); if (!rCur) return
+  for (const [roomId, groupId] of wanted) {
+    if (currentRoomId() === roomId || _voiceWatchers[roomId]) continue
+    _voiceWatchers[roomId] = watchVoiceRoom(roomId, participants => {
+      const gCur = getGroups().find(x => x.id === groupId); if (!gCur) return
+      const rCur = (gCur.voiceRooms || []).find(x => x.id === roomId); if (!rCur) return
       rCur.members = participants.map(p => p.username)
       rCur.voiceParticipants = {}
       for (const p of participants) rCur.voiceParticipants[p.username] = { muted: p.muted, speaking: false }
-      if (activeGroup === gCur.id) fillGroupChannels(root)
+      _onVoiceWatchUpdate()
     })
   }
+}
+
+/** Wie viele Leute sitzen gerade in den Talks dieser Gruppe? */
+function talkHeadcount(g) {
+  return (g.voiceRooms || []).reduce((n, r) => n + (r.members?.length || 0), 0)
+}
+
+/**
+ * Aktualisiert nur die "X im Talk"-Anzeigen der Gruppenkarten, statt die
+ * Liste neu zu zeichnen — ein Neuaufbau bei jeder Presence-Änderung würde
+ * Scrollposition und offene Menüs verlieren und sichtbar ruckeln.
+ */
+function _refreshGroupLiveBadges(scope) {
+  for (const el of scope.querySelectorAll('[data-live-group]')) {
+    const g = getGroups().find(x => x.id === el.dataset.liveGroup)
+    const n = g ? talkHeadcount(g) : 0
+    el.hidden = !n
+    const label = el.querySelector('span')
+    if (label) label.textContent = n === 1 ? '1 Person im Talk' : `${n} Personen im Talk`
+  }
+}
+
+/** Talks aller sichtbaren Gruppen beobachten und deren Karten live halten. */
+function _watchTalksForCards(scope, groups) {
+  _syncVoiceWatchers(
+    groups.flatMap(g => (g.voiceRooms || []).map(r => ({ groupId: g.id, roomId: r.id }))),
+    () => _refreshGroupLiveBadges(scope),
+  )
 }
 
 /**
@@ -2456,7 +2511,10 @@ function fillGroupChannels(root) {
   if (!activeChannel || !g.channels.find(c => c.id === activeChannel)) {
     activeChannel = g.channels[0]?.id || null
   }
-  _syncVoiceWatchers(root, g)
+  _syncVoiceWatchers(
+    (g.voiceRooms || []).map(r => ({ groupId: g.id, roomId: r.id })),
+    () => { if (activeGroup === g.id) fillGroupChannels(root) },
+  )
   _syncGroupLiveUpdates(root, g)
   const myName = getSession().username
   const cat = catById(g.category)

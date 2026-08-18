@@ -2773,6 +2773,40 @@ select.p-auth-input {
     min-width: max-content;
   }
 }
+/* Community-Tab schmaler als ~768px: der Taskbar hat hier keinen eigenen
+   Platz in der Seite reserviert (er schwebt fix über dem .mmc-Grid, dessen
+   padding-top auf seine Ein-Zeilen-Höhe abgestimmt ist) — bricht er in eine
+   zweite Zeile um, wächst er über diesen reservierten Bereich hinaus und legt
+   sich über den Community-Inhalt. Deshalb hier nicht umbrechen lassen,
+   sondern horizontal scrollbar machen (siehe Aufgabenstellung). Nur für den
+   Community-Tab, damit Ansicht/Ausrüstung/Karte unverändert bleiben. Bei
+   genau 768px muss die Desktop-Ansicht unverändert bleiben (Vorgabe), daher
+   767px statt 768px als Obergrenze. */
+@media (max-width: 767px) {
+  .konf-tb-wrap--community .tb-bar {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+    /* justify-content:center (Basisregel) macht bei überlaufendem Flex-Inhalt
+       den Anfang (Tab "Ansicht") unerreichbar, da scrollLeft nicht negativ
+       werden kann — hier links ausrichten, damit alle Tabs scrollbar bleiben. */
+    justify-content: flex-start;
+  }
+  .konf-tb-wrap--community .tb-bar::-webkit-scrollbar { display: none; }
+  .konf-tb-wrap--community .tb-btn {
+    flex: 0 0 auto;
+  }
+  /* Das globale MOTOMATCH-Logo in der Hauptkopfzeile (.p-nav, z-index 500,
+     fix und mittig über die volle Breite) liegt in der Höhe genau über
+     diesem Taskbar (z-index 300) — auf Desktop unproblematisch, weil der
+     Taskbar dort schmal genug bleibt, um die Mitte freizulassen. Sobald er
+     hier über die volle Breite scrollt, überlagern sich Logo-Schriftzug und
+     Tab-Beschriftungen ("Ausrüstung"/"Match finden") sichtbar. Logo blenden,
+     solange der Community-Taskbar aktiv ist — die Tabs zeigen "Community"
+     ohnehin schon an. */
+  body:has(.konf-tb-wrap--community) .p-nav-logo { visibility: hidden; }
+}
 
 /* ── Top: Cinematic 2D Viewer ── */
 .konf-left {
@@ -8670,6 +8704,29 @@ select.mmc-input option { background: #111; color: #fff; }
   display: flex; align-items: center; gap: 8px; padding: 4px 8px 4px 24px;
   font-family: var(--p-font); font-size: 13px; color: rgba(255,255,255,0.6);
 }
+@keyframes mmcVcMemberIn {
+  from { opacity: 0; transform: translateY(-4px); }
+  to   { opacity: 1; transform: none; }
+}
+.mmc-vc-member--enter { animation: mmcVcMemberIn 0.2s var(--ease-out) both; }
+@keyframes mmcVcMemberOut {
+  from { opacity: 1; max-height: 32px; }
+  to   { opacity: 0; max-height: 0; padding-top: 0; padding-bottom: 0; }
+}
+.mmc-vc-member--leave {
+  animation: mmcVcMemberOut 0.22s var(--ease-in-out) forwards;
+  pointer-events: none; overflow: hidden;
+}
+@keyframes mmcQualityIn {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+.mmc-vc-quality {
+  display: flex; align-items: center; margin-left: auto;
+  animation: mmcQualityIn 0.2s ease both;
+}
+.mmc-vc-quality--poor { color: #e0b414; }
+.mmc-vc-quality--lost { color: #e05555; }
 .mmc-avatar--xs {
   width: 22px; height: 22px; font-size: 9px; border-radius: 50%; flex-shrink: 0;
   display: flex; align-items: center; justify-content: center; color: #fff; font-weight: 700;
@@ -8677,10 +8734,43 @@ select.mmc-input option { background: #111; color: #fff; }
 }
 .mmc-avatar--speaking {
   box-shadow: 0 0 0 2.5px #6fbf73;
+  animation: mmcSpeakPulse 1.4s var(--ease-in-out) infinite;
+}
+@keyframes mmcSpeakPulse {
+  0%, 100% { box-shadow: 0 0 0 2.5px #6fbf73, 0 0 0 2.5px rgba(111,191,115,0.35); }
+  50%      { box-shadow: 0 0 0 2.5px #6fbf73, 0 0 0 5px rgba(111,191,115,0.15); }
 }
 .mmc-vc-muted {
   display: flex; align-items: center; color: rgba(255,255,255,0.35); margin-left: auto;
 }
+
+/* ── Screen-Share ─────────────────────────────────────────────── */
+.mmc-vc-share { padding: 6px 8px 8px 24px; display: flex; flex-direction: column; gap: 6px; }
+.mmc-vc-share-btn {
+  align-self: flex-start; display: flex; align-items: center; gap: 6px;
+  padding: 6px 10px; border-radius: 6px; cursor: pointer;
+  font-family: var(--p-font); font-size: 12px; font-weight: 500;
+  background: transparent; color: rgba(255,255,255,0.6);
+  border: 1px solid rgba(255,255,255,0.15);
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
+}
+.mmc-vc-share-btn:hover { background: rgba(255,255,255,0.08); color: #fff; }
+.mmc-vc-share-btn.is-active { border-color: rgba(229,115,115,0.5); color: #e57373; }
+.mmc-vc-share-btn.is-active:hover { background: rgba(229,115,115,0.12); border-color: rgba(229,115,115,0.8); }
+.mmc-vc-share-tile {
+  position: relative; width: 100%; aspect-ratio: 16 / 9; border-radius: 6px;
+  overflow: hidden; background: #000; cursor: zoom-in;
+  border: 1px solid rgba(255,255,255,0.1);
+  animation: mmcVcMemberIn 0.2s var(--ease-out) both;
+}
+.mmc-vc-share-tile video { width: 100%; height: 100%; object-fit: contain; display: block; }
+.mmc-vc-share-label {
+  position: absolute; left: 0; right: 0; bottom: 0; padding: 4px 8px;
+  background: linear-gradient(to top, rgba(0,0,0,0.85), transparent);
+  color: rgba(255,255,255,0.9); font-family: var(--p-font); font-size: 10.5px;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; pointer-events: none;
+}
+
 .mmc-am-device-list { display: flex; flex-direction: column; gap: 2px; padding: 0 6px; }
 .mmc-am-device {
   text-align: left; background: none; border: none; cursor: pointer;
@@ -8895,6 +8985,11 @@ select.mmc-input option { background: #111; color: #fff; }
 }
 .mmc-msg:hover { background: rgba(255,255,255,0.025); }
 .mmc-msg--system .mmc-msg-text { color: rgba(255,255,255,0.55); font-style: italic; }
+@keyframes mmcMsgIn {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: none; }
+}
+.mmc-msg--enter { animation: mmcMsgIn 0.25s var(--ease-out) both; }
 .mmc-msg-body { min-width: 0; }
 .mmc-msg-head { display: flex; align-items: baseline; gap: 9px; margin-bottom: 2px; }
 .mmc-msg-author { font-family: var(--p-font); font-size: 14px; font-weight: 600; color: #fff; }
@@ -8960,6 +9055,21 @@ select.mmc-input option { background: #111; color: #fff; }
   transition: background 0.12s;
 }
 .mmc-emoji-item:hover { background: rgba(255,255,255,0.1); }
+
+.mmc-mention-pop {
+  position: absolute; left: 12px; right: 12px; bottom: 60px;
+  max-height: 220px; overflow-y: auto;
+  background: #16161a; border: 1px solid rgba(255,255,255,0.14); border-radius: 8px;
+  box-shadow: 0 12px 40px rgba(0,0,0,0.6); z-index: 50;
+  animation: mmcVcMemberIn 0.15s var(--ease-out) both;
+}
+.mmc-mention-item {
+  display: flex; align-items: center; gap: 8px; width: 100%;
+  background: none; border: none; cursor: pointer; text-align: left;
+  padding: 7px 10px; color: #fff; font-family: var(--p-font); font-size: 13.5px;
+}
+.mmc-mention-item:hover, .mmc-mention-item.is-active { background: rgba(255,255,255,0.08); }
+.mmc-mention-empty { font-family: var(--p-font); font-size: 13px; color: rgba(255,255,255,0.4); padding: 8px 10px; }
 
 /* Chat header action: Sprachraum öffnen */
 .mmc-head-action {
@@ -9083,13 +9193,13 @@ select.mmc-input option { background: #111; color: #fff; }
 }
 .mmc-addfriend-sub { font-family: var(--p-font); font-size: 14px; color: rgba(255,255,255,0.5); margin: 0 0 16px; }
 .mmc-addfriend-form {
-  display: flex; gap: 10px; align-items: center;
+  display: flex; gap: 10px; align-items: center; flex-wrap: wrap;
   background: #060606; border: 1px solid rgba(255,255,255,0.12);
   border-radius: 4px; padding: 6px 6px 6px 16px;
 }
 .mmc-addfriend-form:focus-within { border-color: rgba(255,255,255,0.4); }
 .mmc-addfriend-form input {
-  flex: 1; background: none; border: none; outline: none;
+  flex: 1 1 140px; min-width: 0; background: none; border: none; outline: none;
   color: #fff; font-family: var(--p-font); font-size: 14px; padding: 8px 0;
 }
 .mmc-addfriend-form input::placeholder { color: rgba(255,255,255,0.3); }
@@ -9397,6 +9507,7 @@ select.mmc-input option { background: #111; color: #fff; }
 /* ── Role badges ── */
 .mmc-role-badge {
   display: inline-flex; align-items: center; gap: 4px;
+  align-self: flex-start; width: fit-content;
   font-size: 10px; font-weight: 600; padding: 2px 7px; border-radius: 10px;
   text-transform: uppercase; letter-spacing: .06em;
 }
@@ -9439,6 +9550,11 @@ select.mmc-input option { background: #111; color: #fff; }
   color: var(--gold); text-decoration: none;
 }
 .mmc-link:hover { text-decoration: underline; color: #e0c66a; }
+.mmc-mention {
+  color: var(--gold); background: var(--gold-dim);
+  border-radius: 3px; padding: 0 3px; font-weight: 600;
+}
+.mmc-mention--me { background: rgba(201, 168, 76, 0.3); }
 
 /* ── Nachrichten-Aktionsbuttons (löschen / melden) ── */
 .mmc-msg { position: relative; }
@@ -9473,6 +9589,8 @@ select.mmc-input option { background: #111; color: #fff; }
   margin-right: 2px; transition: color 0.15s, background 0.15s;
 }
 .mmc-back:hover { color: #fff; background: rgba(255,255,255,0.08); }
+/* Mobile-Zurück-Taste (Listen-/Chat-Kopfzeilen): nur unterhalb ~768px sichtbar, siehe Media Query weiter unten */
+.mmc-mback { display: none; }
 
 /* ── Role pill under group name ── */
 .mmc-role-pill {
@@ -9513,11 +9631,52 @@ select.mmc-input option { background: #111; color: #fff; }
   .mmc--friends { grid-template-columns: 68px 240px minmax(0,1fr); }
   .mmc--friends .mmc-active { display: none; }
 }
-@media (max-width: 760px) {
-  .mmc--overview { grid-template-columns: 200px minmax(0,1fr); }
-  .mmc--ingroup { grid-template-columns: 60px 190px minmax(0,1fr); }
-  .mmc--friends { grid-template-columns: 200px minmax(0,1fr); }
-  .mmc--friends .mmc-active { display: none; }
+/* Unter ~768px: Discord-artige Drei-/Vier-Spalten-Grids passen nicht mehr
+   nebeneinander (min-width:auto der Grid-Items sprengt schmale Tracks —
+   Spalten überlappen und Text wird mitten im Wort abgeschnitten). Deshalb
+   auf einen Navigations-Stack umschalten: immer nur eine Spalte auf voller
+   Breite, gesteuert über die Klasse "mmc--detail" (ohne = Liste/Kategorien/
+   Kanäle/Freunde, mit = Hauptinhalt/Chat — siehe mobileShowDetail() in
+   community.js). Die schmale Icon-Leiste (Kategorien in einer Gruppe bzw.
+   im Freunde-Modus) entfällt als eigene Stufe; sie bleibt über die
+   Zurück-Kette erreichbar (Chat → Zurück → Liste → Zurück → Übersicht). Bei
+   genau 768px muss die Desktop-Ansicht unverändert bleiben (Vorgabe), daher
+   767px statt 768px als Obergrenze. */
+@media (max-width: 767px) {
+  .mmc {
+    grid-template-columns: minmax(0,1fr) !important;
+    padding: 78px 10px 10px;
+    gap: 10px;
+  }
+  .mmc-catrail { display: none !important; }
+  .mmc-col2 { min-width: 0; }
+  .mmc-main { display: none; min-width: 0; }
+  .mmc--detail .mmc-col2 { display: none; }
+  .mmc--detail .mmc-main { display: flex; }
+
+  /* Zurück-Pfeil in Listen-/Chat-Kopfzeilen (mobileBackHtml() in
+     community.js) — auf Desktop immer verborgen, hier sichtbar. Die
+     bestehende Zurück-Taste vom Gruppen-Chat zur Übersicht
+     (#mmc-group-back) bleibt unverändert, da sie kein .mmc-mback trägt. */
+  .mmc-mback { display: flex; }
+
+  /* Kopfzeilen: Platz für den neuen Zurück-Pfeil schaffen, lange Titel
+     (Gruppen-/Kanalnamen) abschneiden statt Layout zu sprengen. */
+  .mmc-chat-title, .mmc-main-title {
+    min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .mmc-chat-desc { display: none; }
+
+  /* Modale: etwas mehr Breite für den Inhalt auf schmalen Screens. */
+  .mmc-modal { padding: 10px; }
+
+  /* "Freund hinzufügen"-Formular: Button hat flex-shrink:0 und sein Text
+     ("Freundschaftsanfrage senden") ist breiter als auf Mobilbreite neben
+     dem Eingabefeld Platz ist — lief bisher über den rechten Rand hinaus.
+     Auf schmalen Screens stattdessen untereinander stapeln. */
+  .mmc-addfriend-form { flex-wrap: wrap; padding: 10px; }
+  .mmc-addfriend-form input { flex-basis: 100%; }
+  .mmc-addfriend-form button { flex: 1 1 auto; }
 }
 
 /* ═══════════════════════════════════════════════════
@@ -9860,6 +10019,36 @@ select.mmc-input option { background: #111; color: #fff; }
   border-radius: 8px; box-shadow: 0 8px 40px rgba(0,0,0,0.7);
   object-fit: contain;
 }
+
+/* ── Screen-Share-Lightbox ────────────────────────────────────── */
+.mmc-share-lightbox {
+  position: fixed; inset: 0; z-index: 9999;
+  display: flex; align-items: center; justify-content: center;
+  opacity: 0; transition: opacity 0.18s;
+}
+.mmc-share-lightbox.is-open { opacity: 1; }
+.mmc-share-lightbox-backdrop { position: absolute; inset: 0; background: rgba(0,0,0,0.88); cursor: zoom-out; }
+.mmc-share-lightbox-body {
+  position: relative; display: flex; flex-direction: column; align-items: center; gap: 10px;
+}
+.mmc-share-lightbox-body video {
+  max-width: 90vw; max-height: 84vh;
+  border-radius: 8px; box-shadow: 0 8px 40px rgba(0,0,0,0.7);
+  object-fit: contain; display: block;
+}
+.mmc-share-lightbox-label {
+  color: rgba(255,255,255,0.8); font-family: var(--p-font); font-size: 13px;
+}
+
+/* ── Typing-Indikator (über der Compose-Box) ──────────────────── */
+.mmc-typing {
+  height: 0; overflow: hidden; opacity: 0;
+  white-space: nowrap; text-overflow: ellipsis;
+  transition: height 0.18s var(--ease-out), opacity 0.18s var(--ease-out), margin 0.18s var(--ease-out);
+  font-family: var(--p-font); font-size: 11.5px; font-style: italic;
+  color: rgba(255,255,255,0.45);
+}
+.mmc-typing.is-visible { height: 18px; opacity: 1; margin-bottom: 2px; }
 
 /* ── Reply-Bar (über der Compose-Box) ─────────────────────────── */
 .mmc-reply-bar { background: rgba(255,255,255,0.05); border-left: 3px solid rgba(255,255,255,0.35); border-radius: 0; padding: 0; overflow: hidden; }
@@ -10279,6 +10468,10 @@ select.mmc-input option { background: #111; color: #fff; }
 @media (max-width: 520px) {
   .mm-fb-fab { padding: 12px; }
   .mm-fb-fab-label { display: none; }
+  /* In der Community sitzt unten die Userbar mit Mikro-, Kopfhörer- und
+     Einstellungen-Knopf. Der FAB lag mit z-index 1900 exakt darüber und hat
+     die rechten Knöpfe unantastbar gemacht — deshalb hier eine Etage höher. */
+  body:has(.konf-split--community) .mm-fb-fab { bottom: 76px; }
 }
 .mm-fb-textarea { resize: vertical; min-height: 120px; font-family: var(--p-font); }
 .mm-fb-counter { display: block; text-align: right; margin: 4px 0 0; font-size: 11px; color: #999; }

@@ -14,10 +14,11 @@ function report(err, extra) {
 
 /**
  * Wird von einem Supabase Database Webhook aufgerufen (INSERT auf
- * friend_requests, künftig ggf. messages für DMs) — kein Browser-Origin,
- * daher kein checkOriginAndRate, sondern ein geteiltes Secret im Header.
- * V1-Scope bewusst klein: nur DMs + Freundschaftsanfragen (siehe Plan) —
- * Gruppennachrichten sind ein separater Fast-Follow (Fan-out + Spam-Risiko).
+ * friend_requests, messages) — kein Browser-Origin, daher kein
+ * checkOriginAndRate, sondern ein geteiltes Secret im Header.
+ * Scope: Freundschaftsanfragen, DMs, und @Mentions in Gruppenkanälen (nur
+ * bei tatsächlicher Erwähnung, nicht jede Gruppennachricht — allgemeine
+ * Gruppennachrichten-Pushes bleiben ein separater Fast-Follow, Fan-out-Risiko).
  */
 export default async function handler(req, res) {
   if (req.method !== "POST") {
@@ -67,8 +68,70 @@ export default async function handler(req, res) {
       url = `/?dm=${encodeURIComponent(senderName)}`;
       tag = `dm-${senderName}`;
       muteKey = `dm/${senderName}`;
+    } else if (table === "messages" && record.channel_id && Array.isArray(record.mentions) && record.mentions.length) {
+      // @Mention in einem Gruppenkanal — eigener, in sich abgeschlossener Zweig
+      // (mehrere Empfänger statt einem), daher return statt Fallthrough in den
+      // Single-Recipient-Tail unten.
+      const { data: channel } = await supabase.from("channels").select("group_id").eq("id", record.channel_id).maybeSingle();
+      if (!channel) return res.status(200).json({ skipped: true });
+
+      // Serverseitige Nachvalidierung: record.mentions kommt vom Client (RLS prüft
+      // nur author_id/Mitgliedschaft, nicht den Array-Inhalt) — niemals ungeprüft
+      // an beliebige uids pushen, sonst könnte ein manipulierter Client Fremde
+      // (auch Nicht-Mitglieder) mit selbstgewähltem Text anstupsen lassen.
+      const { data: validMembers } = await supabase
+        .from("group_members")
+        .select("user_id")
+        .eq("group_id", channel.group_id)
+        .in("user_id", record.mentions);
+      const recipients = [...new Set((validMembers || []).map((m) => m.user_id))].filter(
+        (id) => id !== record.author_id
+      );
+      if (!recipients.length) return res.status(200).json({ skipped: true });
+
+      const { data: fromProfile } = await supabase.from("profiles").select("username").eq("id", record.author_id).maybeSingle();
+      const senderName = fromProfile?.username || "Jemand";
+      const mTitle = `${senderName} hat dich erwähnt`;
+      const mBody = (record.text || "").slice(0, 140);
+      const mUrl = `/?group=${channel.group_id}&channel=${record.channel_id}`;
+      const mTag = `mention-${record.channel_id}`;
+
+      let mentionSent = 0;
+      for (const recipientId of recipients) {
+        // Gruppen-Mute unterdrückt auch Mentions — gleiche Konvention wie
+        // _syncMuteToServer() in community.js (mute_key = Gruppen-id), kein
+        // eigener Mention-Mute-Key.
+        const { data: mute } = await supabase
+          .from("notification_mutes")
+          .select("until")
+          .eq("user_id", recipientId)
+          .eq("mute_key", channel.group_id)
+          .maybeSingle();
+        if (mute && (mute.until === null || new Date(mute.until) > new Date())) continue;
+
+        const { data: mSubs } = await supabase
+          .from("push_subscriptions")
+          .select("id, endpoint, p256dh, auth")
+          .eq("user_id", recipientId);
+        for (const sub of mSubs || []) {
+          try {
+            await webpush.sendNotification(
+              { endpoint: sub.endpoint, keys: { p256dh: sub.p256dh, auth: sub.auth } },
+              JSON.stringify({ title: mTitle, body: mBody, url: mUrl, tag: mTag })
+            );
+            mentionSent++;
+          } catch (err) {
+            if (err.statusCode === 404 || err.statusCode === 410) {
+              await supabase.from("push_subscriptions").delete().eq("id", sub.id);
+            } else {
+              report(err, { subId: sub.id });
+            }
+          }
+        }
+      }
+      return res.status(200).json({ sent: mentionSent });
     } else {
-      // Außerhalb des V1-Scopes (z.B. Gruppennachrichten) — kein Fehler, nur nichts zu tun.
+      // Außerhalb des Scopes (z.B. Gruppennachrichten ohne Mention) — kein Fehler, nur nichts zu tun.
       return res.status(200).json({ skipped: true });
     }
 

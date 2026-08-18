@@ -30,6 +30,8 @@ let _onParticipantUpdate = null
 let _presenceChan = null        // leichter Presence-Eintrag für watchVoiceRoom(), s.u.
 let _deafened = false
 let _remoteAudioEls = new Map() // identity -> HTMLAudioElement
+let _remoteVideoEls = new Map() // identity -> HTMLVideoElement (Screen-Share)
+let _localVideoEl = null        // eigener Screen-Share-Preview
 let _preferredMicId = null
 let _preferredSinkId = null
 
@@ -56,8 +58,12 @@ export async function joinVoiceRoom(roomId, userId, username, prefs, onUpdate) {
     return { ok: false, error: 'Sprachchat ist noch nicht konfiguriert.' }
   }
 
+  // Das LiveKit-Token wird serverseitig gegen die Supabase-Session ausgestellt
+  // (api/livekit-token.js) — ohne Session gibt es keinen Talk-Zugang. `code`
+  // mitgeben, damit das UI diesen Fall gezielt behandeln kann (Anmelde-Angebot)
+  // statt die Fehlermeldung nach Text zu erraten.
   const { data: { session } } = await supabase.auth.getSession()
-  if (!session) return { ok: false, error: 'Bitte melde dich an, um einem Talk beizutreten.' }
+  if (!session) return { ok: false, code: 'auth', error: 'Bitte melde dich an, um einem Talk beizutreten.' }
 
   let token
   try {
@@ -67,7 +73,9 @@ export async function joinVoiceRoom(roomId, userId, username, prefs, onUpdate) {
       body: JSON.stringify({ roomId }),
     })
     const body = await res.json().catch(() => ({}))
-    if (!res.ok) return { ok: false, error: body.error || 'Talk-Zugang fehlgeschlagen.' }
+    // Statuscode mitgeben: ohne ihn sah ein 404 (Endpoint gar nicht da) im UI
+    // exakt aus wie ein 403 (kein Zugriff) — beides nur "fehlgeschlagen".
+    if (!res.ok) return { ok: false, error: body.error || `Talk-Zugang fehlgeschlagen (HTTP ${res.status}).` }
     token = body.token
   } catch {
     return { ok: false, error: 'Talk-Zugang fehlgeschlagen (Netzwerkfehler).' }
@@ -84,33 +92,62 @@ export async function joinVoiceRoom(roomId, userId, username, prefs, onUpdate) {
   _onParticipantUpdate = onUpdate
   _deafened = !!prefs.deafened
   _remoteAudioEls = new Map()
+  _remoteVideoEls = new Map()
+  _localVideoEl = null
 
   room
     .on(RoomEvent.ParticipantConnected, _notifyUpdate)
     .on(RoomEvent.ParticipantDisconnected, participant => {
       _remoteAudioEls.get(participant.identity)?.remove()
       _remoteAudioEls.delete(participant.identity)
+      _remoteVideoEls.get(participant.identity)?.remove()
+      _remoteVideoEls.delete(participant.identity)
       _notifyUpdate()
     })
     .on(RoomEvent.ActiveSpeakersChanged, _notifyUpdate)
+    .on(RoomEvent.ConnectionQualityChanged, _notifyUpdate)
     .on(RoomEvent.TrackMuted, _notifyUpdate)
     .on(RoomEvent.TrackUnmuted, _notifyUpdate)
-    .on(RoomEvent.LocalTrackPublished, _notifyUpdate)
-    .on(RoomEvent.LocalTrackUnpublished, _notifyUpdate)
-    .on(RoomEvent.TrackSubscribed, (track, _publication, participant) => {
-      // Nur Audio automatisch abspielen — Video (Screen-Share) hat noch keine
-      // eigene Kachel-UI und wird hier bewusst nicht angehängt.
-      if (track.kind !== Track.Kind.Audio) return
-      const el = track.attach()
-      el.style.display = 'none'
-      el.muted = _deafened
-      document.body.appendChild(el)
-      _remoteAudioEls.set(participant.identity, el)
+    .on(RoomEvent.LocalTrackPublished, publication => {
+      if (publication.source === Track.Source.ScreenShare) {
+        const el = publication.track.attach()
+        el.autoplay = true; el.muted = true; el.playsInline = true
+        _localVideoEl = el
+      }
       _notifyUpdate()
+    })
+    .on(RoomEvent.LocalTrackUnpublished, publication => {
+      if (publication.source === Track.Source.ScreenShare) {
+        publication.track?.detach().forEach(el => el.remove())
+        _localVideoEl = null
+      }
+      _notifyUpdate()
+    })
+    .on(RoomEvent.TrackSubscribed, (track, _publication, participant) => {
+      if (track.kind === Track.Kind.Audio) {
+        const el = track.attach()
+        el.style.display = 'none'
+        el.muted = _deafened
+        document.body.appendChild(el)
+        _remoteAudioEls.set(participant.identity, el)
+        _notifyUpdate()
+        return
+      }
+      if (track.source === Track.Source.ScreenShare) {
+        const el = track.attach()
+        el.autoplay = true; el.playsInline = true
+        _remoteVideoEls.set(participant.identity, el)
+        _notifyUpdate()
+      }
     })
     .on(RoomEvent.TrackUnsubscribed, (track, _publication, participant) => {
       track.detach().forEach(el => el.remove())
-      _remoteAudioEls.delete(participant.identity)
+      if (track.kind === Track.Kind.Audio) {
+        _remoteAudioEls.delete(participant.identity)
+      } else if (track.source === Track.Source.ScreenShare) {
+        _remoteVideoEls.delete(participant.identity)
+        _notifyUpdate()
+      }
     })
     .on(RoomEvent.Disconnected, () => _cleanup())
 
@@ -162,15 +199,28 @@ export function toggleVoiceDeafen(deafened, muted) {
   toggleVoiceMute(muted)
 }
 
-/** Bildschirm teilen an-/ausschalten (Transport ist da — Video-Kachel-UI folgt separat). */
+/** Bildschirm teilen an-/ausschalten. */
 export async function toggleScreenShare(enabled) {
   if (!_room) return { ok: false, error: 'Kein aktiver Talk.' }
   try {
     await _room.localParticipant.setScreenShareEnabled(enabled)
     return { ok: true }
-  } catch {
+  } catch (err) {
+    // Nutzer hat den Browser-Auswahldialog abgebrochen — kein echter Fehler.
+    if (err?.name === 'NotAllowedError') return { ok: false, cancelled: true }
     return { ok: false, error: 'Bildschirmfreigabe fehlgeschlagen.' }
   }
+}
+
+/**
+ * Das <video>-Element für den Screen-Share einer Person holen (zum Einhängen
+ * ins UI). `participantId` ist '__local' für die eigene Freigabe oder die
+ * LiveKit-Identity aus dem onUpdate()-Callback von joinVoiceRoom().
+ * @returns {HTMLVideoElement|null}
+ */
+export function getScreenShareEl(participantId) {
+  if (participantId === '__local') return _localVideoEl
+  return _remoteVideoEls.get(participantId) || null
 }
 
 /** Sind wir aktuell in einem Raum? */
@@ -270,12 +320,16 @@ function _notifyUpdate() {
       username: _myUsername,
       muted: !_room.localParticipant.isMicrophoneEnabled,
       speaking: _room.localParticipant.isSpeaking,
+      quality: _room.localParticipant.connectionQuality,
+      screenSharing: _room.localParticipant.isScreenShareEnabled,
     },
     ...Array.from(_room.remoteParticipants.values()).map(p => ({
       id: p.identity,
       username: p.name || p.identity,
       muted: !p.isMicrophoneEnabled,
       speaking: p.isSpeaking,
+      quality: p.connectionQuality,
+      screenSharing: p.isScreenShareEnabled,
     })),
   ]
   _onParticipantUpdate(participants)
@@ -286,6 +340,10 @@ function _cleanup() {
 
   for (const el of _remoteAudioEls.values()) el.remove()
   _remoteAudioEls.clear()
+  for (const el of _remoteVideoEls.values()) el.remove()
+  _remoteVideoEls.clear()
+  _localVideoEl?.remove()
+  _localVideoEl = null
 
   if (_presenceChan) { try { supabase.removeChannel(_presenceChan) } catch {}; _presenceChan = null }
 

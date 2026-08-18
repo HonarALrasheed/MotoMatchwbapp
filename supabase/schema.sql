@@ -221,6 +221,7 @@ CREATE TABLE IF NOT EXISTS messages (
   text        text NOT NULL,
   reply_to_id uuid REFERENCES messages(id) ON DELETE SET NULL,
   reactions   jsonb DEFAULT '{}',
+  mentions    uuid[] NOT NULL DEFAULT '{}',  -- @mentions (nur Gruppenkanäle), clientseitig aufgelöst — s. api/push-trigger.js für serverseitige Re-Validierung vor Push
   edited_at   timestamptz,
   created_at  timestamptz DEFAULT now(),
   CHECK ((channel_id IS NOT NULL) != (dm_thread IS NOT NULL))
@@ -268,6 +269,10 @@ CREATE POLICY "msg_delete" ON messages FOR DELETE
   ));
 CREATE INDEX IF NOT EXISTS messages_channel_created ON messages(channel_id, created_at);
 CREATE INDEX IF NOT EXISTS messages_dm_created ON messages(dm_thread, created_at);
+
+-- Migration für bereits bestehende Datenbanken (obiges CREATE TABLE ist dort ein No-Op,
+-- da die Tabelle schon existiert) — einmalig im SQL-Editor ausführen:
+-- ALTER TABLE messages ADD COLUMN IF NOT EXISTS mentions uuid[] NOT NULL DEFAULT '{}';
 
 -- ── Group join requests ───────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS group_join_requests (

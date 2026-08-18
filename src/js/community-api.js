@@ -194,11 +194,22 @@ async function _loadGroups() {
   if (groups.length) {
     const channelIds = groups.flatMap(g => (g.channels || []).map(c => c.id))
     if (channelIds.length) {
-      const { data: msgs } = await supabase
+      let { data: msgs, error: msgsError } = await supabase
         .from('messages')
-        .select('id, channel_id, author_id, text, reply_to_id, reactions, edited_at, created_at, profiles(username)')
+        .select('id, channel_id, author_id, text, reply_to_id, reactions, mentions, edited_at, created_at, profiles(username)')
         .in('channel_id', channelIds)
         .order('created_at', { ascending: true })
+      if (msgsError) {
+        // mentions-Spalte evtl. noch nicht migriert (supabase/schema.sql) — ohne
+        // Fallback würde die komplette Nachrichten-Abfrage fehlschlagen, nicht nur
+        // die Mention-Auflösung. Degradiert sauber statt den ganzen Chat leerzuräumen.
+        console.warn('[API] mentions nicht ladbar (Migration evtl. noch nicht ausgeführt):', msgsError.message)
+        ;({ data: msgs } = await supabase
+          .from('messages')
+          .select('id, channel_id, author_id, text, reply_to_id, reactions, edited_at, created_at, profiles(username)')
+          .in('channel_id', channelIds)
+          .order('created_at', { ascending: true }))
+      }
       for (const m of (msgs || [])) {
         (allMsgs[m.channel_id] ||= []).push(_mapMessage(m))
       }
@@ -242,6 +253,11 @@ function _mapMessage(m) {
     reactions: m.reactions || {},
     ...(m.edited_at ? { editedTs: new Date(m.edited_at).getTime() } : {}),
     ...(m.reply_to_id ? { replyTo: { id: m.reply_to_id } } : {}),
+    // Rohe uuids durchreichen, keine Username-Auflösung hier — _loadProfiles()
+    // und _loadGroups() laufen parallel (initCommunityData), Auflösung an dieser
+    // Stelle könnte je nach Timing leer laufen. Hervorhebung im UI nutzt ohnehin
+    // text + aktuelle Mitgliederliste, nicht dieses Feld (s. renderText in community.js).
+    ...(m.mentions?.length ? { mentions: m.mentions } : {}),
   }
 }
 
@@ -348,6 +364,26 @@ function _uidToUsername(uid) {
 }
 function _usernameToUid(username) {
   return _profileCache[username]?._uid || null
+}
+
+/**
+ * @Mentions aus Nachrichtentext extrahieren und gegen `members` (die
+ * tatsächliche Mitgliederliste der Gruppe) auflösen — nur echte Treffer
+ * werden zu uuids. Unicode-Zeichensatz (Buchstaben/Ziffern/_/-, kein
+ * Leerzeichen), da Usernamen keine Zeichensatz-Beschränkung haben (auth.js).
+ */
+function _resolveMentions(text, members) {
+  const re = /(?<![\p{L}\p{N}_@-])@([\p{L}\p{N}_-]{1,32})/gu
+  const lowerMembers = members.map(u => u.toLowerCase())
+  const ids = new Set()
+  let match
+  while ((match = re.exec(text)) !== null) {
+    const idx = lowerMembers.indexOf(match[1].toLowerCase())
+    if (idx === -1) continue
+    const uid = _usernameToUid(members[idx])
+    if (uid) ids.add(uid)
+  }
+  return [...ids]
 }
 
 /* ══════════════════════════════════════════════════════════════════
@@ -491,7 +527,7 @@ export function unsubscribePresence() {
  * Kanal und verwirft sie stillschweigend). Broadcast statt postgres_changes,
  * weil weder channels noch voice_rooms in der Supabase-Replication-Publication
  * stehen — Broadcast braucht keine Dashboard-Konfiguration.
- * onEvent(type, payload) mit type ∈ 'room_created'|'room_deleted'|'channel_created'|'channel_deleted'.
+ * onEvent(type, payload) mit type ∈ 'room_created'|'room_deleted'|'channel_created'|'channel_deleted'|'typing'.
  * Idempotent: erneuter Aufruf mit derselben groupId ist ein No-op.
  */
 export function subscribeGroupLiveUpdates(groupId, onEvent) {
@@ -502,7 +538,7 @@ export function subscribeGroupLiveUpdates(groupId, onEvent) {
   _groupLiveChan = supabase.channel(`group-live:${groupId}`, {
     config: { broadcast: { self: false } },
   })
-  for (const type of ['room_created', 'room_deleted', 'channel_created', 'channel_deleted']) {
+  for (const type of ['room_created', 'room_deleted', 'channel_created', 'channel_deleted', 'typing']) {
     _groupLiveChan.on('broadcast', { event: type }, ({ payload }) => onEvent(type, payload))
   }
   _groupLiveChan.subscribe()
@@ -513,6 +549,17 @@ export function unsubscribeGroupLiveUpdates() {
   if (_groupLiveChan) { try { supabase.removeChannel(_groupLiveChan) } catch {} }
   _groupLiveChan = null
   _groupLiveChanGroupId = null
+}
+
+/**
+ * Signalisiert den anderen Mitgliedern im group-live-Kanal, dass ich gerade in
+ * `channelId` tippe. Läuft nur, während die Gruppe eh schon per
+ * subscribeGroupLiveUpdates() abonniert ist (sonst kein Empfänger) — im
+ * Zweifel einfach ein No-op, Tippen ist rein informativ.
+ */
+export function sendChannelTyping(groupId, channelId) {
+  if (_groupLiveChanGroupId !== groupId) return
+  _broadcastGroupLiveEvent(groupId, 'typing', { channelId, username: _myUsername })
 }
 
 /** An alle anderen gerade zuschauenden Mitglieder senden, dass sich Kanäle/Talks geändert haben. */
@@ -530,6 +577,7 @@ export function unsubscribeAll() {
   if (!supabase) return
   unsubscribePresence()
   unsubscribeGroupLiveUpdates()
+  unsubscribeDMTyping()
   for (const sub of [..._realtimeSubs, ..._globalSubs]) {
     try { supabase.removeChannel(sub) } catch {}
   }
@@ -552,6 +600,7 @@ async function _handleNewMessage(row) {
     ts:        new Date(row.created_at).getTime(),
     reactions: row.reactions || {},
     ...(row.reply_to_id ? { replyTo: { id: row.reply_to_id } } : {}),
+    ...(row.mentions?.length ? { mentions: row.mentions } : {}),
   }
 
   if (row.channel_id) {
@@ -1045,10 +1094,22 @@ export async function sendGroupMessage(groupId, channelId, text, replyTo = null,
     ch.messages.push(msg); lsWrite(LS_GROUPS, _groups)
     return { ok: true, msg }
   }
-  const { data, error } = await supabase.from('messages').insert({
+  let { data, error } = await supabase.from('messages').insert({
     channel_id: ch.id, author_id: _myUid, text,
     reply_to_id: replyTo?.id || null,
+    mentions: _resolveMentions(text, g.members || []),
   }).select().single()
+  if (error?.code === '42703' || error?.code === 'PGRST204') {
+    // mentions-Spalte evtl. noch nicht migriert (supabase/schema.sql) — ohne
+    // Fallback könnte man gar keine Gruppennachrichten mehr senden, nicht nur
+    // Mentions wären betroffen. 42703 = Postgres "undefined column" (SELECT-Pfad),
+    // PGRST204 = PostgRESTs eigener Schema-Cache kennt die Spalte nicht (INSERT-Pfad).
+    console.warn('[API] mentions nicht speicherbar (Migration evtl. noch nicht ausgeführt):', error.message)
+    ;({ data, error } = await supabase.from('messages').insert({
+      channel_id: ch.id, author_id: _myUid, text,
+      reply_to_id: replyTo?.id || null,
+    }).select().single())
+  }
   if (error) return { ok: false, error: error.message }
   const msg = _mapMessage({ ...data, profiles: { username: myName } })
   // Realtime liefert die Nachricht zurück, aber wir fügen sie sofort ein (optimistic)
@@ -1228,6 +1289,36 @@ function _dmThread(aUsername, bUsername) {
   const bUid = _usernameToUid(bUsername)
   if (!aUid || !bUid) return null
   return [aUid, bUid].sort().join(':')
+}
+
+/* ── Typing-Indikator für DMs (eigener Broadcast-Kanal pro Thread,
+   analog zu group-live: Realtime-only, kein Schema/keine Persistenz) ── */
+let _dmTypingChan = null
+let _dmTypingPeer = null
+
+/** Abonnieren, solange ein DM mit `peerUsername` offen ist. Idempotent. */
+export function subscribeDMTyping(peerUsername, onTyping) {
+  if (OFFLINE_MODE || !supabase) return
+  if (_dmTypingPeer === peerUsername) return
+  unsubscribeDMTyping()
+  const thread = _dmThread(_myUsername, peerUsername)
+  if (!thread) return
+  _dmTypingChan = supabase.channel(`dm-typing:${thread}`, { config: { broadcast: { self: false } } })
+  _dmTypingChan.on('broadcast', { event: 'typing' }, ({ payload }) => onTyping(payload.username))
+  _dmTypingChan.subscribe()
+  _dmTypingPeer = peerUsername
+}
+
+export function unsubscribeDMTyping() {
+  if (_dmTypingChan) { try { supabase.removeChannel(_dmTypingChan) } catch {} }
+  _dmTypingChan = null
+  _dmTypingPeer = null
+}
+
+/** Signalisiert dem DM-Partner, dass ich gerade tippe (nur während subscribeDMTyping() für ihn aktiv ist). */
+export function sendDMTyping(peerUsername) {
+  if (OFFLINE_MODE || !supabase || _dmTypingPeer !== peerUsername || !_dmTypingChan) return
+  _dmTypingChan.send({ type: 'broadcast', event: 'typing', payload: { username: _myUsername } }).catch(() => {})
 }
 
 export function canSendDM(sender, recipient) {

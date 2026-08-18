@@ -1,6 +1,7 @@
 import { defineConfig } from 'vite'
 import { existsSync, mkdirSync, readdirSync, copyFileSync, createReadStream, statSync, unlinkSync } from 'fs'
 import { join, resolve } from 'path'
+import devApi from './vite-plugin-dev-api.js'
 
 const __root = resolve('.')
 const isLocal = existsSync('D:/MotoMatch/Bilder')
@@ -77,7 +78,7 @@ export default defineConfig(() => ({
     minify: 'terser'
   },
   publicDir: 'public',
-  plugins: [{
+  plugins: [devApi(), {
     name: 'serve-hero-video',
     configureServer(server) {
       // Only needed for local dev — serves video from external path

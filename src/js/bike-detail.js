@@ -10,7 +10,6 @@ import { DRACOLoader } from 'three/addons/loaders/DRACOLoader.js'
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js'
 import { getGear } from './gear.js'
 import { initHubMap, searchNearby, getHubSearchResults, onHubResults, focusHubResult, recenterHubMap, getUserCoords, searchNearbyAt } from './garage.js'
-import { mountCommunity } from './community.js'
 import { esc } from './util.js'
 
 // Deterministic pseudo-random number from a seed string, returns float in [0,1)
@@ -343,7 +342,7 @@ export function openKonfigurator(bikeData, garageCleanup, initialTab) {
       if (targetTab === 'ansicht') animateBarsOnReveal()
       if (targetTab === 'match') bindMatchViewEvents(data)
       if (targetTab === 'karte') bindKarteViewEvents()
-      if (targetTab === 'community') mountCommunity(document.getElementById('mm-comm-root'))
+      if (targetTab === 'community') import('./community.js').then(m => m.mountCommunity(document.getElementById('mm-comm-root')))
     })
 
     window.scrollTo(0, 0)
@@ -1611,7 +1610,7 @@ function switchTab(tabName, data) {
 
       if (tabName === 'match') bindMatchViewEvents(data)
       if (tabName === 'karte') bindKarteViewEvents()
-      if (tabName === 'community') mountCommunity(document.getElementById('mm-comm-root'))
+      if (tabName === 'community') import('./community.js').then(m => m.mountCommunity(document.getElementById('mm-comm-root')))
     })
   }, 100)
 }
@@ -1874,7 +1873,7 @@ function buildKonfiguratorHTML(data, initialTab = 'ansicht') {
 
   return `
     <!-- Touchbar Navigation -->
-    <div class="tb-wrap scrolled konf-tb-wrap" id="konf-taskbar">
+    <div class="tb-wrap scrolled konf-tb-wrap${tab === 'community' ? ' konf-tb-wrap--community' : ''}" id="konf-taskbar">
       <nav class="tb-bar">
         <button class="tb-btn${tab === 'ansicht' ? ' tb-btn-active' : ''}" data-tab="ansicht">Ansicht</button>
         <button class="tb-btn${tab === 'ausstattung' ? ' tb-btn-active' : ''}" data-tab="ausstattung">Ausr\u00fcstung</button>

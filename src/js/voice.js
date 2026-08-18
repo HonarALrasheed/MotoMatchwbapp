@@ -19,7 +19,7 @@
  * Sprachchat ist daher im Demo-/Offline-Modus nicht verfügbar.
  */
 
-import { Room, RoomEvent, Track } from 'livekit-client'
+import { Room, RoomEvent, Track, ScreenSharePresets } from 'livekit-client'
 import { supabase, OFFLINE_MODE } from './supabase.js'
 
 /* ── State ─────────────────────────────────────────────────────────── */
@@ -219,7 +219,22 @@ export function toggleVoiceDeafen(deafened, muted) {
 export async function toggleScreenShare(enabled) {
   if (!_room) return { ok: false, error: 'Kein aktiver Talk.' }
   try {
-    await _room.localParticipant.setScreenShareEnabled(enabled)
+    // LiveKits Voreinstellung für Bildschirmfreigaben ist h1080fps15 — 1080p bei
+    // nur 15 Bildern/s. Das ruckelt sichtbar, sobald sich etwas bewegt (Scrollen,
+    // Mauszeiger, Videos). Deshalb explizit 30 fps senden. Die Bitrate des
+    // Presets ist eine Obergrenze, keine Zusage: reicht die Leitung nicht, regelt
+    // LiveKit von selbst herunter.
+    //
+    // contentHint 'motion' ist der zweite Hebel: Bildschirminhalte gelten dem
+    // Encoder sonst als "detail", und dann opfert er zuerst die Bildrate, um die
+    // Schärfe zu halten — genau das Gegenteil von flüssig. Mit 'motion' bleibt
+    // die Bildrate oben und stattdessen wird bei knapper Leitung die Schärfe
+    // etwas weicher.
+    await _room.localParticipant.setScreenShareEnabled(
+      enabled,
+      { resolution: ScreenSharePresets.h1080fps30.resolution, contentHint: 'motion' },
+      { screenShareEncoding: ScreenSharePresets.h1080fps30.encoding },
+    )
     return { ok: true }
   } catch (err) {
     // Nutzer hat den Browser-Auswahldialog abgebrochen — kein echter Fehler.

@@ -222,11 +222,36 @@ CREATE TABLE IF NOT EXISTS messages (
   reply_to_id uuid REFERENCES messages(id) ON DELETE SET NULL,
   reactions   jsonb DEFAULT '{}',
   mentions    uuid[] NOT NULL DEFAULT '{}',  -- @mentions (nur Gruppenkanäle), clientseitig aufgelöst — s. api/push-trigger.js für serverseitige Re-Validierung vor Push
+  attachment  jsonb,         -- { url, name, type, size, path } — url zeigt auf den Bucket 'chat-attachments' (offline: data:-URL)
   edited_at   timestamptz,
   created_at  timestamptz DEFAULT now(),
   CHECK ((channel_id IS NOT NULL) != (dm_thread IS NOT NULL))
 );
 ALTER TABLE messages ENABLE ROW LEVEL SECURITY;
+-- Nachtraeglich fuer bestehende Datenbanken:
+ALTER TABLE messages ADD COLUMN IF NOT EXISTS attachment jsonb;
+
+-- ── Storage-Bucket fuer Chat-Anhaenge ──────────────────────────────
+-- Dateien liegen unter <auth.uid()>/<timestamp>-<name>. Der Bucket ist
+-- oeffentlich lesbar: die Nachricht speichert eine dauerhafte URL, signierte
+-- URLs wuerden ablaufen und Anhaenge in alten Nachrichten toeten. Wer die URL
+-- kennt, kann die Datei also abrufen — bei vertraulichen Anhaengen stattdessen
+-- private Buckets + createSignedUrl() beim Rendern verwenden.
+INSERT INTO storage.buckets (id, name, public, file_size_limit)
+VALUES ('chat-attachments', 'chat-attachments', true, 26214400)
+ON CONFLICT (id) DO NOTHING;
+
+DROP POLICY IF EXISTS "chat_attach_read"   ON storage.objects;
+DROP POLICY IF EXISTS "chat_attach_insert" ON storage.objects;
+DROP POLICY IF EXISTS "chat_attach_delete" ON storage.objects;
+
+CREATE POLICY "chat_attach_read" ON storage.objects FOR SELECT
+  USING (bucket_id = 'chat-attachments');
+-- Schreiben nur in den eigenen Ordner
+CREATE POLICY "chat_attach_insert" ON storage.objects FOR INSERT TO authenticated
+  WITH CHECK (bucket_id = 'chat-attachments' AND (storage.foldername(name))[1] = auth.uid()::text);
+CREATE POLICY "chat_attach_delete" ON storage.objects FOR DELETE TO authenticated
+  USING (bucket_id = 'chat-attachments' AND (storage.foldername(name))[1] = auth.uid()::text);
 
 -- Gruppenkanal: nur Mitglieder
 CREATE POLICY "msg_select_channel" ON messages FOR SELECT

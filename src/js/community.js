@@ -19,6 +19,7 @@
 
 import commBg from '../assets/community-bg.jpeg'
 import { esc } from './util.js'
+import { HAS_STICKER_API, searchStickerApi, trendingStickerApi } from './stickers.js'
 import {
   joinVoiceRoom, leaveVoiceRoom, toggleVoiceMute, toggleVoiceDeafen,
   inVoiceRoom, currentRoomId, listAudioDevices, switchMicrophone, switchSpeaker, setOutputVolume,
@@ -52,6 +53,7 @@ import {
   // Einladungen
   getInvites, createInvite, revokeInvite, redeemInvite, activeInvitesForGroup,
   // Nachrichten (Gruppen)
+  ATTACH_MAX, ATTACH_MAX_LOCAL,
   sendGroupMessage, editMessageInGroup, deleteGroupMessage, toggleReactionInGroup,
   // Nachrichten (DMs)
   getDMs, sendDM, editMessageInDM, deleteDMMessage, toggleReactionInDM,
@@ -426,21 +428,28 @@ function fmtTimeShort(ts) {
  * gegen diese Liste werden hervorgehoben, kein blindes Highlighten von "@x".
  */
 function renderText(text, mentionNames = null) {
-  const re = /(https?:\/\/[^\s<>"']+)|(?<![\p{L}\p{N}_@-])@([\p{L}\p{N}_-]{1,32})/gu
+  // Kein Lookbehind (?<!…): WebKit kennt es erst ab iOS/Safari 16.4, davor
+  // ist schon das Regex-Literal ein SyntaxError — und der reisst beim Parsen
+  // das komplette Modul mit, die Community bliebe auf aelteren iPhones leer.
+  // Ersatz: das Zeichen vor dem @ wird als Gruppe 1 mitgematcht (leer am
+  // Textanfang) und beim Zusammensetzen wieder uebersprungen.
+  const re = /(https?:\/\/[^\s<>"']+)|(^|[^\p{L}\p{N}_@-])@([\p{L}\p{N}_-]{1,32})/gu
   let result = '', last = 0, match
   while ((match = re.exec(text)) !== null) {
-    result += esc(text.slice(last, match.index)).replace(/\n/g, '<br>')
+    // Bei einem Mention-Treffer gehoert das erste Zeichen noch zum Text davor.
+    const lead = match[1] ? '' : (match[2] || '')
+    result += esc(text.slice(last, match.index + lead.length)).replace(/\n/g, '<br>')
     if (match[1]) {
       const url = match[1]
       result += `<a href="${esc(url)}" target="_blank" rel="noopener noreferrer" class="mmc-link">${esc(url)}</a>`
-    } else if (mentionNames?.has(match[2].toLowerCase())) {
-      const isMe = match[2].toLowerCase() === me().toLowerCase()
+    } else if (mentionNames?.has(match[3].toLowerCase())) {
+      const isMe = match[3].toLowerCase() === me().toLowerCase()
       // Gespeichert/erkannt wird der rohe Username (eindeutig, s. _resolveMentions
       // in community-api.js), angezeigt wird der ggf. abweichende Anzeigename —
       // sonst würde z. B. "@lil_wold2021" statt "@Max" im Chat auftauchen.
-      result += `<span class="mmc-mention${isMe ? ' mmc-mention--me' : ''}">@${esc(displayName(match[2]))}</span>`
+      result += `<span class="mmc-mention${isMe ? ' mmc-mention--me' : ''}">@${esc(displayName(match[3]))}</span>`
     } else {
-      result += esc(match[0])
+      result += esc(match[0].slice(lead.length))
     }
     last = match.index + match[0].length
   }
@@ -497,6 +506,16 @@ export async function mountCommunity(root) {
 
   seedDefaults()  // Offline: Demo-Daten wenn leer; Online: no-op
 
+  // Jeder Einstieg in den Community-Tab startet auf "Freunde" — egal ob man
+  // vorher auf einer Kategorie oder in einem Gruppen-/DM-Chat war. friendsMode
+  // & Co. sind Modul-State und ueberleben den Tab-Wechsel sonst, mountCommunity
+  // laeuft aber bei jedem Klick auf den Tab neu (siehe bike-detail.js). Push-
+  // Deep-Links (?dm=/?group=&channel=) weiter unten ueberschreiben das bei
+  // Bedarf wieder — die sollen weiter direkt in die passende Unterhaltung
+  // springen statt auf Freunde zu landen.
+  friendsMode = true; homeSection = 'friends'; discoverOpen = false
+  activeGroup = null; activeChannel = null; activeDM = null
+
   // Realtime-Callbacks für community.js anmelden
   onNewMessage((msg, channelId, dmUsers) => {
     // Neue Nachricht direkt anhängen, wenn der betreffende Chat gerade offen ist
@@ -539,7 +558,10 @@ export async function mountCommunity(root) {
 
   // Neue Gruppe (von mir oder jemand anderem erstellt): Übersicht sofort aktualisieren
   onNewGroup(() => {
-    if (!activeGroup && !friendsMode) { fillCol2(root); fillMain(root) }
+    // fillRail statt fillCol2: die Uebersicht baut ihre linke Spalte seit dem
+    // Zusammenlegen aus .mmc-catrail — und nur dort sitzen die
+    // Ungelesen-Punkte, die eine neue Gruppe ausloesen kann.
+    if (!activeGroup && !friendsMode) { fillRail(root); fillMain(root) }
   })
 
   // "Jetzt aktiv": Presence-Channel abonnieren (Gäste tracken sich nicht)
@@ -561,7 +583,7 @@ export async function mountCommunity(root) {
       subscribeToChannel(null, activeDM)
       const url = new URL(window.location.href)
       url.searchParams.delete('dm')
-      window.history.replaceState({}, '', url)
+      window.history.replaceState(window.history.state, '', url)
     }
     // Deep-Link aus einer @Mention-Push (?group=<id>&channel=<id>)
     const groupParam = new URLSearchParams(window.location.search).get('group')
@@ -571,7 +593,7 @@ export async function mountCommunity(root) {
       subscribeToChannel(activeChannel, null)
       const url = new URL(window.location.href)
       url.searchParams.delete('group'); url.searchParams.delete('channel')
-      window.history.replaceState({}, '', url)
+      window.history.replaceState(window.history.state, '', url)
     }
   }
 
@@ -748,10 +770,12 @@ let _lastTypingSentAt = 0    // Throttle fürs Senden eigener Typing-Pings
 
 /** Navigations-Zustand auf Standard zurücksetzen — wichtig beim Konto-Wechsel
  *  (Login/Logout) im selben Tab, damit der neue Nutzer nicht in der Navigation
- *  landet, wo der vorherige Nutzer aufgehört hat. */
+ *  landet, wo der vorherige Nutzer aufgehört hat. Standard ist die Freunde-
+ *  Seite (friendsMode = true), aus der man dann in die Kategorien wechselt —
+ *  dieselbe Landing-Regel wie beim Tab-Wechsel oben in mountCommunity(). */
 function resetNavState() {
   homeSection = 'friends'; friendsTab = 'all'; activeDM = null
-  serverCategory = 'touren'; activeGroup = null; activeChannel = null; friendsMode = false
+  serverCategory = 'touren'; activeGroup = null; activeChannel = null; friendsMode = true
   discoverOpen = false
   replyingTo = null
 }
@@ -802,6 +826,8 @@ const ICON = {
   speaker: '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14M15.54 8.46a5 5 0 0 1 0 7.07"/></svg>',
   screen:  '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>',
   attach:  '<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg>',
+  download: '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3"/></svg>',
+  doc:      '<svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg>',
   smiley:  '<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M8 14s1.5 2 4 2 4-2 4-2"/><line x1="9" y1="9" x2="9.01" y2="9"/><line x1="15" y1="9" x2="15.01" y2="9"/></svg>',
   mail:    '<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="m22 6-10 7L2 6"/></svg>',
   chevdn:  '<svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg>',
@@ -862,7 +888,7 @@ function _appendMessageToGroupChat(root, msg) {
     </div>` : ''
 
   const pills = reactionPillsHtml(msg.reactions, myName)
-  const imgHtml = msg.image ? `<img class="mmc-msg-image" src="${esc(msg.image)}" alt="Anhang" loading="lazy" data-img-src="${esc(msg.image)}">` : ''
+  const imgHtml = attachmentHtml(msg)
   const replyQuote = msg.replyTo ? `
     <div class="mmc-reply-quote" data-reply-to="${esc(msg.replyTo.id)}">
       <span class="mmc-reply-quote-author">${esc(displayName(msg.replyTo.author))}</span>
@@ -997,7 +1023,7 @@ function _appendMessageToDMChat(root, msg) {
     </div>` : ''
 
   const pills = reactionPillsHtml(msg.reactions, myName)
-  const imgHtml = msg.image ? `<img class="mmc-msg-image" src="${esc(msg.image)}" alt="Anhang" loading="lazy" data-img-src="${esc(msg.image)}">` : ''
+  const imgHtml = attachmentHtml(msg)
 
   const msgHtml = `
     <div class="mmc-msg mmc-msg--enter${msg.system ? ' mmc-msg--system' : ''}" data-msg-id="${esc(msg.id)}">
@@ -1116,27 +1142,237 @@ function _pingTyping(sendFn) {
   sendFn()
 }
 
+/** Lesbare Groessenangabe fuer Anhaenge, deutsches Dezimalkomma. */
+function fileSizeLabel(bytes) {
+  if (!bytes && bytes !== 0) return ''
+  return bytes >= 1024 * 1024
+    ? (bytes / 1024 / 1024).toLocaleString('de-DE', { minimumFractionDigits: 1, maximumFractionDigits: 1 }) + ' MB'
+    : Math.max(1, Math.round(bytes / 1024)) + ' KB'
+}
+
+/** Kuerzel fuer die Meta-Zeile: bevorzugt die Dateiendung, sonst der MIME-Subtyp. */
+function fileExtLabel(name = '', type = '') {
+  const fromName = /\.([a-z0-9]{1,6})$/i.exec(name)?.[1]
+  if (fromName) return fromName.toUpperCase()
+  const sub = (type.split('/')[1] || '').split(/[+;]/)[0]
+  return sub ? sub.toUpperCase() : 'DATEI'
+}
+
+/* Farbakzent nach Dateityp — macht die Karte auf einen Blick unterscheidbar. */
+const FILE_TONE = {
+  PDF: 'pdf', ZIP: 'zip', RAR: 'zip', '7Z': 'zip',
+  DOC: 'doc', DOCX: 'doc', TXT: 'doc', RTF: 'doc',
+  XLS: 'sheet', XLSX: 'sheet', CSV: 'sheet',
+  MP3: 'media', WAV: 'media', M4A: 'media', MP4: 'media', MOV: 'media',
+}
+
+/**
+ * Anhang einer Nachricht. Bilder bleiben inline (mit Lightbox), alles andere
+ * wird zu einer Datei-Karte mit Download. Aeltere Nachrichten tragen nur
+ * msg.image (data-URL, immer ein Bild) — die werden hier mit uebersetzt.
+ */
+function attachmentHtml(msg) {
+  const att = msg.attachment || (msg.image ? { url: msg.image, type: 'image/*', name: 'Anhang' } : null)
+  if (!att?.url) return ''
+
+  if (att.sticker) {
+    // Freigestellte Grafik — ohne Rahmen und ohne Lightbox, wie im Messenger
+    return `<img class="mmc-msg-sticker" src="${esc(att.url)}" alt="${esc(att.name || 'Sticker')}" loading="lazy">`
+  }
+  if ((att.type || '').startsWith('image/')) {
+    return `<img class="mmc-msg-image" src="${esc(att.url)}" alt="${esc(att.name || 'Anhang')}" loading="lazy" data-img-src="${esc(att.url)}">`
+  }
+  const name = att.name || 'Datei'
+  const ext  = fileExtLabel(name, att.type || '')
+  const size = fileSizeLabel(att.size)
+  const tone = FILE_TONE[ext] || 'plain'
+  return `
+    <a class="mmc-msg-file" href="${esc(att.url)}" download="${esc(name)}" title="${esc(name)} herunterladen">
+      <span class="mmc-msg-file-ic mmc-msg-file-ic--${tone}">${ICON.doc}</span>
+      <span class="mmc-msg-file-meta">
+        <span class="mmc-msg-file-name">${esc(name)}</span>
+        <span class="mmc-msg-file-sub">${esc(ext)}${size ? ' · ' + esc(size) : ''}</span>
+      </span>
+      <span class="mmc-msg-file-dl">${ICON.download}</span>
+    </a>`
+}
+
+/**
+ * Sperrt die Eingabezeile waehrend des Sendens (Upload kann dauern) und gibt
+ * eine Funktion zum Entsperren zurueck.
+ */
+function _composeBusy(form) {
+  if (!form) return () => {}
+  const send = form.querySelector('.mmc-send')
+  form.classList.add('is-busy')
+  if (send) send.disabled = true
+  return () => {
+    form.classList.remove('is-busy')
+    if (send) send.disabled = false
+  }
+}
+
 /* Shared compose bar: attachment (left) + input + emoji (right of input) + send */
-const COMPOSE_EMOJIS   = ['🏍️', '🔥', '😂', '👍', '❤️', '🎉', '😎', '🙌', '🛠️', '🏁', '☕', '🌄']
 const REACTION_EMOJIS  = ['👍', '❤️', '😂', '😮', '😢', '🔥', '🏍️', '👋']
+
+/* ── Sticker ──────────────────────────────────────────────────────
+   Keine Bilddateien, sondern grosse Emoji — das haelt das Bundle klein und
+   funktioniert offline. Jeder Eintrag traegt Stichworte, ueber die beim
+   Tippen vorgeschlagen und im Picker gesucht wird.
+   ────────────────────────────────────────────────────────────────── */
+const STICKERS = [
+  { s: '🏍️', k: ['motorrad', 'bike', 'maschine', 'fahren', 'ride', 'moped'] },
+  { s: '🛵', k: ['roller', 'scooter', 'vespa'] },
+  { s: '🏁', k: ['ziel', 'rennen', 'race', 'start', 'finish', 'strecke'] },
+  { s: '🪖', k: ['helm', 'schutz', 'kopf'] },
+  { s: '🧤', k: ['handschuhe', 'schutz'] },
+  { s: '🥾', k: ['stiefel', 'boots', 'schuhe'] },
+  { s: '🧰', k: ['werkzeug', 'schrauben', 'werkstatt', 'reparatur'] },
+  { s: '🛠️', k: ['werkzeug', 'schrauben', 'basteln', 'wartung', 'reparatur'] },
+  { s: '🔧', k: ['schluessel', 'schrauben', 'werkstatt', 'wartung'] },
+  { s: '⛽', k: ['tanken', 'sprit', 'benzin', 'tankstelle'] },
+  { s: '🛞', k: ['reifen', 'rad', 'gummi'] },
+  { s: '🔋', k: ['batterie', 'akku', 'strom', 'elektro'] },
+  { s: '🗺️', k: ['karte', 'route', 'tour', 'navigation', 'planen'] },
+  { s: '🧭', k: ['kompass', 'richtung', 'navigation', 'orientierung'] },
+  { s: '📍', k: ['treffpunkt', 'ort', 'standort', 'hier'] },
+  { s: '🛣️', k: ['strasse', 'autobahn', 'route', 'weg'] },
+  { s: '🌄', k: ['berge', 'alpen', 'aussicht', 'sonnenaufgang', 'tour'] },
+  { s: '🏔️', k: ['berge', 'alpen', 'pass', 'gipfel'] },
+  { s: '🌲', k: ['wald', 'natur', 'schwarzwald', 'baum'] },
+  { s: '🌊', k: ['meer', 'kueste', 'wasser', 'see'] },
+  { s: '☀️', k: ['sonne', 'wetter', 'schoen', 'sommer'] },
+  { s: '🌧️', k: ['regen', 'wetter', 'nass', 'schlecht'] },
+  { s: '❄️', k: ['schnee', 'kalt', 'winter', 'eis'] },
+  { s: '🌬️', k: ['wind', 'wetter', 'kalt'] },
+  { s: '🌡️', k: ['temperatur', 'warm', 'kalt', 'wetter'] },
+  { s: '⚡', k: ['blitz', 'schnell', 'power', 'strom'] },
+  { s: '🔥', k: ['feuer', 'geil', 'stark', 'hot', 'krass', 'top'] },
+  { s: '💨', k: ['schnell', 'gas', 'speed', 'weg'] },
+  { s: '🚀', k: ['schnell', 'rakete', 'abgehen', 'speed'] },
+  { s: '🏆', k: ['sieg', 'pokal', 'gewonnen', 'erster', 'best'] },
+  { s: '🥇', k: ['erster', 'gold', 'sieg', 'best'] },
+  { s: '🎉', k: ['party', 'feiern', 'glueckwunsch', 'juhu', 'hurra'] },
+  { s: '🎊', k: ['party', 'feiern', 'konfetti'] },
+  { s: '🥳', k: ['party', 'feiern', 'geburtstag', 'juhu'] },
+  { s: '🍻', k: ['prost', 'bier', 'stammtisch', 'treffen', 'feierabend'] },
+  { s: '☕', k: ['kaffee', 'pause', 'stammtisch', 'morgen', 'treffen'] },
+  { s: '🍕', k: ['pizza', 'essen', 'hunger', 'pause'] },
+  { s: '🍔', k: ['burger', 'essen', 'hunger', 'pause'] },
+  { s: '😂', k: ['lachen', 'lustig', 'witzig', 'haha', 'lol'] },
+  { s: '🤣', k: ['lachen', 'lustig', 'haha', 'lol', 'rofl'] },
+  { s: '😅', k: ['schwitzen', 'knapp', 'ups', 'haha'] },
+  { s: '😎', k: ['cool', 'sonnenbrille', 'lassig', 'chill'] },
+  { s: '🤙', k: ['cool', 'passt', 'shaka', 'gruss'] },
+  { s: '👍', k: ['daumen', 'ok', 'gut', 'passt', 'ja', 'top'] },
+  { s: '👎', k: ['daumen', 'schlecht', 'nein', 'nope'] },
+  { s: '🙌', k: ['jubel', 'super', 'endlich', 'yeah'] },
+  { s: '👏', k: ['applaus', 'klatschen', 'respekt', 'bravo'] },
+  { s: '🤝', k: ['deal', 'abgemacht', 'hand', 'einig'] },
+  { s: '✌️', k: ['peace', 'gruss', 'zwei', 'tschuess'] },
+  { s: '👋', k: ['hallo', 'winken', 'tschuess', 'servus', 'moin'] },
+  { s: '❤️', k: ['herz', 'liebe', 'love', 'toll'] },
+  { s: '💯', k: ['hundert', 'volle', 'top', 'genau', 'stark'] },
+  { s: '🤔', k: ['denken', 'hmm', 'ueberlegen', 'frage', 'unsicher'] },
+  { s: '😮', k: ['wow', 'ueberrascht', 'oha', 'krass'] },
+  { s: '😱', k: ['schock', 'oh nein', 'krass', 'panik'] },
+  { s: '😴', k: ['muede', 'schlafen', 'gute nacht', 'nacht'] },
+  { s: '🥶', k: ['kalt', 'frieren', 'winter', 'eisig'] },
+  { s: '🥵', k: ['heiss', 'schwitzen', 'sommer', 'warm'] },
+  { s: '🤦', k: ['facepalm', 'oh mann', 'peinlich', 'ups'] },
+  { s: '😭', k: ['weinen', 'traurig', 'schade', 'heul'] },
+  { s: '😤', k: ['sauer', 'genervt', 'wut', 'aergern'] },
+  { s: '🫡', k: ['salut', 'jawohl', 'verstanden', 'ok'] },
+  { s: '🙏', k: ['danke', 'bitte', 'daumen druecken', 'hoffen'] },
+  { s: '⏰', k: ['zeit', 'uhr', 'wecker', 'spaet', 'puenktlich'] },
+  { s: '📅', k: ['termin', 'datum', 'kalender', 'planen', 'wann'] },
+  { s: '✅', k: ['fertig', 'erledigt', 'haken', 'ja', 'passt'] },
+  { s: '❌', k: ['nein', 'falsch', 'abgesagt', 'nope'] },
+  { s: '⚠️', k: ['achtung', 'warnung', 'vorsicht', 'gefahr'] },
+  { s: '🚧', k: ['baustelle', 'sperrung', 'achtung', 'umleitung'] },
+  { s: '📸', k: ['foto', 'bild', 'kamera', 'knipsen'] },
+  { s: '🎥', k: ['video', 'film', 'kamera', 'aufnahme'] },
+  { s: '🎵', k: ['musik', 'song', 'lied', 'hoeren'] },
+  { s: '💰', k: ['geld', 'preis', 'kosten', 'teuer', 'kaufen'] },
+  { s: '🧊', k: ['eis', 'kalt', 'chill', 'cool'] },
+  { s: '💪', k: ['stark', 'kraft', 'power', 'geschafft'] },
+]
+
+/* Favoriten halten beide Sorten: Emoji-Sticker als { emoji } und Bild-Sticker
+   als { id, url, preview, desc }. Schluessel ist emoji ?? id. */
+const LS_STICKER_FAV = 'mm_comm_sticker_favs_v2'
+
+function stickerFavs() {
+  try {
+    const raw = JSON.parse(localStorage.getItem(LS_STICKER_FAV) || '[]')
+    return Array.isArray(raw) ? raw.filter(x => x && (x.emoji || x.url)) : []
+  } catch { return [] }
+}
+function stickerKey(item) { return item.emoji || item.id || item.url }
+function isFav(item, favs = stickerFavs()) {
+  const k = stickerKey(item)
+  return favs.some(f => stickerKey(f) === k)
+}
+function toggleStickerFav(item) {
+  const favs = stickerFavs()
+  const k = stickerKey(item)
+  const next = favs.some(f => stickerKey(f) === k)
+    ? favs.filter(f => stickerKey(f) !== k)
+    : [item, ...favs]
+  try { localStorage.setItem(LS_STICKER_FAV, JSON.stringify(next.slice(0, 40))) } catch {}
+  return next
+}
+
+/** Sticker nach Suchbegriff filtern (Stichworte, Prefix reicht). */
+function searchStickers(q) {
+  const needle = q.trim().toLowerCase()
+  if (!needle) return STICKERS
+  return STICKERS.filter(e => e.s === needle || e.k.some(k => k.includes(needle)))
+}
+
+/**
+ * Vorschlaege zum getippten Text — wie bei TikTok, wo waehrend des Schreibens
+ * passende Sticker auftauchen. Gewichtet: exakte Stichworte vor Teiltreffern,
+ * Favoriten zuerst.
+ */
+function suggestStickers(text, limit = 8) {
+  const words = text.toLowerCase().match(/[\p{L}]{3,}/gu) || []
+  if (!words.length) return []
+  const favs = stickerFavs()
+  const scored = []
+  for (const e of STICKERS) {
+    let score = 0
+    for (const w of words) {
+      for (const k of e.k) {
+        if (k === w) score += 3
+        else if (k.startsWith(w) || w.startsWith(k)) score += 2
+        else if (k.includes(w)) score += 1
+      }
+    }
+    if (score) scored.push({ ...e, score: score + (isFav({ emoji: e.s }, favs) ? 1 : 0) })
+  }
+  return scored.sort((a, b) => b.score - a.score).slice(0, limit)
+}
 function composeHtml(placeholder) {
   return `
     <div class="mmc-compose">
       <div class="mmc-typing" id="mmc-typing"></div>
       <div class="mmc-reply-bar" id="mmc-reply-bar" hidden></div>
       <div class="mmc-attach-preview" id="mmc-attach-preview" hidden>
-        <img class="mmc-attach-thumb" id="mmc-attach-thumb" src="" alt="">
+        <img class="mmc-attach-thumb" id="mmc-attach-thumb" src="" alt="" hidden>
+        <span class="mmc-attach-fileic" id="mmc-attach-fileic" hidden>${ICON.attach}</span>
         <div class="mmc-attach-info">
           <div class="mmc-attach-name" id="mmc-attach-name"></div>
           <div class="mmc-attach-size" id="mmc-attach-size"></div>
         </div>
         <button type="button" class="mmc-attach-rm" id="mmc-attach-rm" title="Anhang entfernen" aria-label="Anhang entfernen">✕</button>
       </div>
+      <div class="mmc-sticker-suggest" id="mmc-sticker-suggest" hidden></div>
       <form class="mmc-compose-form" id="mmc-compose-form">
-        <input type="file" id="mmc-file-input" accept="image/*" style="display:none" aria-hidden="true" tabindex="-1">
-        <button type="button" class="mmc-compose-ic" id="mmc-attach" title="Bild anhängen" aria-label="Bild anhängen">${ICON.attach}</button>
+        <input type="file" id="mmc-file-input" style="display:none" aria-hidden="true" tabindex="-1">
+        <button type="button" class="mmc-compose-ic" id="mmc-attach" title="Datei anhängen" aria-label="Datei anhängen">${ICON.attach}</button>
         <textarea class="mmc-compose-input" id="mmc-compose-input" rows="1" placeholder="${placeholder}" autocomplete="off"></textarea>
-        <button type="button" class="mmc-compose-ic mmc-emoji" id="mmc-emoji" title="Emoji" aria-label="Emoji">${ICON.smiley}</button>
+        <button type="button" class="mmc-compose-ic mmc-emoji" id="mmc-emoji" title="Sticker" aria-label="Sticker">${ICON.smiley}</button>
         <button class="mmc-send" type="submit" aria-label="Senden">${ICON.send}</button>
       </form>
     </div>`
@@ -1145,16 +1381,24 @@ function bindComposeExtras(scope, root, sendTypingFn, mentionableUsers = []) {
   const fileInput  = scope.querySelector('#mmc-file-input')
   const preview    = scope.querySelector('#mmc-attach-preview')
   const thumb      = scope.querySelector('#mmc-attach-thumb')
+  const fileIc     = scope.querySelector('#mmc-attach-fileic')
   const nameEl     = scope.querySelector('#mmc-attach-name')
   const sizeEl     = scope.querySelector('#mmc-attach-size')
   const form       = scope.querySelector('#mmc-compose-form')
-  const MAX_BYTES  = 2 * 1024 * 1024
+  // Online geht die Datei in Supabase Storage (25 MB), offline als data-URL
+  // in localStorage — dort ist bei 2 MB Schluss. Grenzen kommen aus der API,
+  // damit Pruefung und Upload nicht auseinanderlaufen.
+  const MAX_BYTES  = OFFLINE_MODE ? ATTACH_MAX_LOCAL : ATTACH_MAX
 
   const clearAttach = () => {
     if (form) form._pendingAttachment = null
     if (fileInput) fileInput.value = ''
     if (preview) preview.hidden = true
-    if (thumb) thumb.src = ''
+    if (thumb) {
+      if (thumb.dataset.objurl) { URL.revokeObjectURL(thumb.dataset.objurl); delete thumb.dataset.objurl }
+      thumb.src = ''; thumb.hidden = true
+    }
+    if (fileIc) fileIc.hidden = true
   }
   if (form) form._clearAttach = clearAttach
 
@@ -1163,16 +1407,34 @@ function bindComposeExtras(scope, root, sendTypingFn, mentionableUsers = []) {
 
   fileInput?.addEventListener('change', () => {
     const file = fileInput.files?.[0]; if (!file) return
-    if (file.size > MAX_BYTES) { toast(root, 'Bild zu groß (max. 2 MB).'); fileInput.value = ''; return }
-    const reader = new FileReader()
-    reader.onload = e => {
-      if (form) form._pendingAttachment = e.target.result
-      if (thumb) thumb.src = e.target.result
-      if (nameEl) nameEl.textContent = file.name
-      if (sizeEl) sizeEl.textContent = (file.size / 1024).toFixed(0) + ' KB'
-      if (preview) preview.hidden = false
+    if (file.size > MAX_BYTES) {
+      toast(root, `Datei zu groß (max. ${fileSizeLabel(MAX_BYTES)}).`)
+      fileInput.value = ''
+      return
     }
-    reader.readAsDataURL(file)
+    const isImage = (file.type || '').startsWith('image/')
+    // Die Datei selbst weiterreichen — erst beim Senden wird hochgeladen
+    // bzw. (offline) in eine data-URL gewandelt.
+    if (form) form._pendingAttachment = {
+      file,
+      name: file.name,
+      // Ohne Typ (manche Dateien liefern keinen) faellt die Anzeige auf die
+      // Datei-Karte zurueck — das ist der unschaedlichere Fall.
+      type: file.type || 'application/octet-stream',
+      size: file.size,
+    }
+    if (nameEl) nameEl.textContent = file.name
+    if (sizeEl) sizeEl.textContent = fileSizeLabel(file.size)
+    if (fileIc) fileIc.hidden = isImage
+    if (preview) preview.hidden = false
+    // Vorschau nur fuer Bilder — als Objekt-URL, damit auch 20-MB-Fotos nicht
+    // erst komplett in Base64 durch den Speicher muessen.
+    if (thumb) {
+      if (thumb.dataset.objurl) { URL.revokeObjectURL(thumb.dataset.objurl); delete thumb.dataset.objurl }
+      thumb.hidden = !isImage
+      if (isImage) { const u = URL.createObjectURL(file); thumb.dataset.objurl = u; thumb.src = u }
+      else thumb.src = ''
+    }
   })
 
   // Auto-resize textarea
@@ -1229,11 +1491,13 @@ function bindComposeExtras(scope, root, sendTypingFn, mentionableUsers = []) {
       const updateMentionMatches = () => {
         const caret = textarea.selectionStart
         const before = textarea.value.slice(0, caret)
-        const m = before.match(/(?<![\p{L}\p{N}_@-])@([\p{L}\p{N}_-]{0,32})$/u)
+        // Ohne Lookbehind, s. renderText(): Gruppe 1 ist das Zeichen vor dem @,
+        // Gruppe 2 der angefangene Name — das Token selbst ist '@' + Gruppe 2.
+        const m = before.match(/(^|[^\p{L}\p{N}_@-])@([\p{L}\p{N}_-]{0,32})$/u)
         if (!m) { closeMentionPop(); return }
-        tokenStart = caret - m[0].length
+        tokenStart = caret - (m[2].length + 1)
         tokenEnd = caret
-        const partial = m[1].toLowerCase()
+        const partial = m[2].toLowerCase()
         // Sowohl gegen den rohen Usernamen als auch den (evtl. abweichenden)
         // Anzeigenamen matchen — eingefügt wird trotzdem der Username (s.
         // selectMention), damit _resolveMentions() in community-api.js ihn
@@ -1269,25 +1533,199 @@ function bindComposeExtras(scope, root, sendTypingFn, mentionableUsers = []) {
     })
   }
 
+  /* ── Sticker: Vorschlaege beim Tippen ─────────────────────────
+     Mit Sticker-API echte Bild-Sticker zum getippten Text, sonst die
+     eingebauten Emoji-Sticker. */
+  const suggestBox = scope.querySelector('#mmc-sticker-suggest')
+  if (suggestBox && textarea) {
+    let suggestSeq = 0
+    let suggestTimer = null
+
+    const showSuggest = html => {
+      if (!html) { suggestBox.hidden = true; suggestBox.innerHTML = ''; return }
+      suggestBox.innerHTML = html
+      suggestBox.hidden = false
+    }
+
+    const renderSuggest = async () => {
+      const text = textarea.value
+      if (!HAS_STICKER_API) {
+        const hits = suggestStickers(text)
+        showSuggest(hits.map(e => stickerSugHtml({ emoji: e.s, desc: e.k[0] })).join(''))
+        return
+      }
+      const q = stickerQueryFrom(text)
+      if (!q) { showSuggest(''); return }
+      const seq = ++suggestSeq
+      const hits = await searchStickerApi(q, 8)
+      // Antworten koennen sich ueberholen — nur die zur letzten Eingabe zaehlt
+      if (seq !== suggestSeq) return
+      showSuggest(hits.map(stickerSugHtml).join(''))
+    }
+
+    textarea.addEventListener('input', () => {
+      clearTimeout(suggestTimer)
+      // Ohne Verzoegerung fragt jeder Tastendruck die API an
+      suggestTimer = setTimeout(renderSuggest, HAS_STICKER_API ? 350 : 0)
+    })
+    suggestBox.addEventListener('click', ev => {
+      const btn = ev.target.closest('[data-sticker]'); if (!btn) return
+      pickSticker(scope, JSON.parse(btn.dataset.sticker))
+      showSuggest('')
+    })
+  }
+
+  /* ── Sticker-Picker: Suche + Favoriten + Trending ────────────── */
   scope.querySelector('#mmc-emoji')?.addEventListener('click', e => {
     e.stopPropagation()
     const compose = scope.querySelector('.mmc-compose')
     const existing = compose.querySelector('.mmc-emoji-pop')
     if (existing) { existing.remove(); return }
+
     const pop = document.createElement('div')
     pop.className = 'mmc-emoji-pop'
-    pop.innerHTML = COMPOSE_EMOJIS.map(em => `<button type="button" class="mmc-emoji-item">${em}</button>`).join('')
+    pop.innerHTML = `
+      <input class="mmc-sticker-search" id="mmc-sticker-search" type="search"
+             placeholder="Sticker suchen …" autocomplete="off" spellcheck="false">
+      <div class="mmc-sticker-body" id="mmc-sticker-body"></div>`
     compose.appendChild(pop)
-    pop.querySelectorAll('.mmc-emoji-item').forEach(b => b.addEventListener('click', () => {
-      const ta = scope.querySelector('#mmc-compose-input')
-      const start = ta.selectionStart, end = ta.selectionEnd
-      ta.value = ta.value.slice(0, start) + b.textContent + ta.value.slice(end)
-      ta.selectionStart = ta.selectionEnd = start + b.textContent.length
-      ta.focus(); ta.dispatchEvent(new Event('input')); pop.remove()
-    }))
+
+    const body   = pop.querySelector('#mmc-sticker-body')
+    const search = pop.querySelector('#mmc-sticker-search')
+    let seq = 0, timer = null
+
+    const section = (title, items, favs) => !items.length ? '' : `
+      <div class="mmc-sticker-head">${esc(title)}</div>
+      <div class="mmc-sticker-grid${items[0].emoji ? '' : ' mmc-sticker-grid--img'}">
+        ${items.map(it => stickerTileHtml(it, isFav(it, favs))).join('')}
+      </div>`
+
+    const renderPicker = async () => {
+      const favs = stickerFavs()
+      const q = search.value.trim()
+
+      if (!HAS_STICKER_API) {
+        const hits = searchStickers(q).map(e => ({ emoji: e.s, desc: e.k[0] }))
+        body.innerHTML = [
+          section('Favoriten', favs.filter(f => hits.some(h => stickerKey(h) === stickerKey(f))), favs),
+          section(q ? 'Treffer' : 'Alle', hits.filter(h => !isFav(h, favs)), favs),
+          hits.length ? '' : '<div class="mmc-sticker-empty">Nichts gefunden.</div>',
+        ].join('')
+        return
+      }
+
+      const mySeq = ++seq
+      body.innerHTML = `${section('Favoriten', q ? [] : favs, favs)}<div class="mmc-sticker-empty">Lädt …</div>`
+      const hits = await (q ? searchStickerApi(q) : trendingStickerApi())
+      if (mySeq !== seq) return
+      body.innerHTML = [
+        section('Favoriten', q ? [] : favs, favs),
+        section(q ? 'Treffer' : 'Trending', hits, favs),
+        hits.length || (!q && favs.length) ? '' : '<div class="mmc-sticker-empty">Nichts gefunden.</div>',
+      ].join('')
+    }
+    renderPicker()
+
+    search.addEventListener('input', () => {
+      clearTimeout(timer)
+      timer = setTimeout(renderPicker, HAS_STICKER_API ? 300 : 0)
+    })
+    // Enter im Suchfeld darf die Nachricht nicht abschicken
+    search.addEventListener('keydown', ev => { if (ev.key === 'Enter') ev.preventDefault() })
+
+    body.addEventListener('click', ev => {
+      const favBtn = ev.target.closest('[data-fav]')
+      if (favBtn) {
+        // Favorit umschalten, Picker offen lassen
+        ev.stopPropagation()
+        toggleStickerFav(JSON.parse(favBtn.dataset.fav))
+        renderPicker()
+        return
+      }
+      const btn = ev.target.closest('[data-sticker]'); if (!btn) return
+      pickSticker(scope, JSON.parse(btn.dataset.sticker))
+      pop.remove()
+    })
+
     const onDoc = ev => { if (!pop.contains(ev.target) && ev.target.id !== 'mmc-emoji') { pop.remove(); document.removeEventListener('click', onDoc) } }
-    setTimeout(() => document.addEventListener('click', onDoc), 0)
+    setTimeout(() => { document.addEventListener('click', onDoc); search.focus() }, 0)
   })
+}
+
+/* ── Sticker-Darstellung ─────────────────────────────────────────── */
+
+/** Kachel in der Vorschlagsleiste. */
+function stickerSugHtml(it) {
+  const data = esc(JSON.stringify(it))
+  return it.emoji
+    ? `<button type="button" class="mmc-sticker-sug" data-sticker="${data}" title="${esc(it.desc || '')}">${it.emoji}</button>`
+    : `<button type="button" class="mmc-sticker-sug mmc-sticker-sug--img" data-sticker="${data}" title="${esc(it.desc || '')}">
+         <img src="${esc(it.preview)}" alt="${esc(it.desc || 'Sticker')}" loading="lazy"></button>`
+}
+
+/** Kachel im Picker, inkl. Favoriten-Stern. */
+function stickerTileHtml(it, fav) {
+  const data = esc(JSON.stringify(it))
+  const label = fav ? 'Aus Favoriten entfernen' : 'Zu Favoriten hinzufügen'
+  const inner = it.emoji
+    ? `<button type="button" class="mmc-emoji-item" data-sticker="${data}" title="${esc(it.desc || '')}">${it.emoji}</button>`
+    : `<button type="button" class="mmc-emoji-item mmc-emoji-item--img" data-sticker="${data}" title="${esc(it.desc || 'Sticker')}">
+         <img src="${esc(it.preview)}" alt="${esc(it.desc || 'Sticker')}" loading="lazy"></button>`
+  return `
+    <span class="mmc-sticker-cell">
+      ${inner}
+      <button type="button" class="mmc-sticker-fav${fav ? ' is-on' : ''}" data-fav="${data}"
+              title="${label}" aria-label="${label}">★</button>
+    </span>`
+}
+
+/**
+ * Auswahl eines Stickers. Bild-Sticker gehen wie bei TikTok sofort als eigene
+ * Nachricht raus (ueber das Formular, damit Gast-Pruefung und Fehlerbehandlung
+ * greifen); Emoji-Sticker landen im Text.
+ */
+function pickSticker(scope, it) {
+  const textarea = scope.querySelector('#mmc-compose-input')
+  if (it.emoji) { insertSticker(textarea, it.emoji); return }
+
+  const form = scope.querySelector('#mmc-compose-form')
+  if (!form) return
+  const ext = /\.(webp|gif|png)(\?|$)/i.exec(it.url)?.[1]?.toLowerCase() || 'webp'
+  form._pendingAttachment = {
+    url: it.url,
+    name: (it.desc || 'sticker') + '.' + ext,
+    type: 'image/' + ext,
+    size: 0,
+    sticker: true,
+  }
+  form.requestSubmit()
+}
+
+/**
+ * Suchbegriff fuer die Sticker-Vorschlaege: die letzten sinntragenden Woerter.
+ * Ganze Saetze liefern kaum Treffer, einzelne Stichworte schon.
+ */
+function stickerQueryFrom(text) {
+  const words = (text.toLowerCase().match(/[\p{L}]{3,}/gu) || [])
+    .filter(w => !STOPWORDS.has(w))
+  return words.slice(-2).join(' ')
+}
+const STOPWORDS = new Set([
+  'und', 'oder', 'aber', 'der', 'die', 'das', 'den', 'dem', 'ein', 'eine', 'einen',
+  'ich', 'du', 'er', 'sie', 'es', 'wir', 'ihr', 'mir', 'mich', 'dir', 'dich',
+  'ist', 'sind', 'war', 'hat', 'habe', 'haben', 'wird', 'werden', 'kann', 'noch',
+  'nicht', 'auch', 'schon', 'mal', 'was', 'wie', 'wer', 'wo', 'wann', 'warum',
+  'mit', 'ohne', 'fuer', 'für', 'von', 'zum', 'zur', 'auf', 'aus', 'bei', 'nach',
+])
+
+/** Sticker an der Cursorposition einfuegen. */
+function insertSticker(textarea, sticker) {
+  if (!textarea) return
+  const start = textarea.selectionStart, end = textarea.selectionEnd
+  textarea.value = textarea.value.slice(0, start) + sticker + textarea.value.slice(end)
+  textarea.selectionStart = textarea.selectionEnd = start + sticker.length
+  textarea.focus()
+  textarea.dispatchEvent(new Event('input'))
 }
 
 function userbarHtml(session, prefs) {
@@ -1340,11 +1778,12 @@ function renderApp(root) {
         <nav class="mmc-catrail" id="mmc-catrail"></nav>
         <div class="mmc-col2">
           <div class="mmc-col2-body" id="mmc-col2-body"></div>
+          <!-- Userbar nur hier: erst in einer Gruppe, wo man die Kanaele sieht -->
           ${userbarHtml(session, prefs)}
         </div>
         <main class="mmc-main" id="mmc-main"></main>
       </div>`
-    fillCatRail(root)
+    fillRail(root)
     fillGroupChannels(root)
     renderGroupChatMain(root)
   } else if (friendsMode) {
@@ -1354,33 +1793,166 @@ function renderApp(root) {
         <nav class="mmc-catrail" id="mmc-friends-rail"></nav>
         <div class="mmc-col2">
           <div class="mmc-col2-body" id="mmc-home-body"></div>
-          ${userbarHtml(session, prefs)}
         </div>
         <main class="mmc-main" id="mmc-main"></main>
         <aside class="mmc-active" id="mmc-active"></aside>
       </div>`
-    fillFriendsRail(root)
+    fillRail(root)
     fillHomeColumn(root)
     fillMain(root)
     fillActive(root)
   } else {
-    // Übersicht: 2 Spalten (volle Kategorien-Leiste | Gruppen-Karten)
+    // Übersicht: Kategorie-Leiste | Gruppen-Karten.
+    // Die Leiste war hier frueher aus Spalte 2 nachgebaut (col2ServerHtml mit
+    // .mmc-nav-item/.mmc-cat). Sie sah anders aus als die echte Leiste der
+    // anderen beiden Ansichten und kannte keine Ungelesen-Punkte — beim
+    // Kategoriewechsel sprang deshalb die ganze linke Spalte um. Jetzt
+    // ueberall dieselbe .mmc-catrail.
     root.innerHTML = `
       <div class="mmc mmc--overview">
-        <div class="mmc-col2">
-          <div class="mmc-col2-body" id="mmc-col2-body"></div>
-          ${userbarHtml(session, prefs)}
-        </div>
+        <nav class="mmc-catrail" id="mmc-catrail"></nav>
         <main class="mmc-main" id="mmc-main"></main>
       </div>`
-    fillCol2(root)
+    fillRail(root)
     fillMain(root)
   }
   bindApp(root)
 }
 
+/**
+ * Kleines Label neben Icon-Buttons (Kategorie-Leiste und Kategorien-Liste).
+ * Als eigenes, fix positioniertes Element statt ::after, weil beide Listen
+ * overflow-y:auto haben — ein Pseudo-Element neben dem Icon waere dort
+ * abgeschnitten. Delegiert am Root, ueberlebt also das Neuzeichnen innen.
+ */
+function bindIconTooltips(root) {
+  if (root._mmcTipBound) return
+  root._mmcTipBound = true
+
+  // Die Ansichten setzen root.innerHTML neu — das raeumt das Tooltip-Element
+  // mit weg. Die Listener am Root ueberleben, also wird es bei Bedarf einfach
+  // wieder eingehaengt.
+  const tipEl = document.createElement('div')
+  tipEl.className = 'mmc-tip'
+  const tip = () => {
+    if (!tipEl.isConnected) root.appendChild(tipEl)
+    return tipEl
+  }
+
+  const show = el => {
+    const label = el.dataset.label
+    if (!label) return
+    tip().textContent = label
+    const r = el.getBoundingClientRect()
+    tipEl.style.left = `${Math.round(r.right + 10)}px`
+    tipEl.style.top = `${Math.round(r.top + r.height / 2)}px`
+    tipEl.classList.add('is-visible')
+  }
+  const hide = () => tipEl.classList.remove('is-visible')
+
+  root.addEventListener('pointerover', e => {
+    const el = e.target.closest?.('[data-label]')
+    if (el && root.contains(el)) show(el); else hide()
+  })
+  root.addEventListener('pointerout', e => {
+    if (e.target.closest?.('[data-label]')) hide()
+  })
+  root.addEventListener('focusin', e => {
+    const el = e.target.closest?.('[data-label]')
+    if (el) show(el)
+  })
+  root.addEventListener('focusout', hide)
+  root.addEventListener('click', hide)
+}
+
+/**
+ * Touch-Ersatz fuer .mmc-msg:hover .mmc-msg-actions: Long-Press auf eine
+ * Nachricht oeffnet die Aktionsleiste (react/reply/edit/loeschen/melden).
+ * Delegiert am Root wie bindIconTooltips, weil #mmc-messages bei jedem
+ * Kanal-/DM-Wechsel neu erzeugt wird (ein Listener direkt am Element wuerde
+ * den naechsten Wechsel nicht ueberleben).
+ */
+function bindMsgLongPress(root) {
+  if (root._mmcLongPressBound) return
+  root._mmcLongPressBound = true
+
+  const HOLD_MS = 450
+  const MOVE_TOLERANCE = 10
+  let timer = null
+  let pressEl = null
+  let pointerId = null
+  let startX = 0, startY = 0
+  let firedByLongPress = false
+
+  const closeOpen = except => {
+    root.querySelectorAll('.mmc-msg--actions-open').forEach(el => {
+      if (el !== except) el.classList.remove('mmc-msg--actions-open')
+    })
+  }
+  const endPress = () => {
+    if (timer) { clearTimeout(timer); timer = null }
+    pressEl?.classList.remove('mmc-msg--pressing')
+    pressEl = null
+    pointerId = null
+  }
+
+  // Nur Touch/Pen: Maus hat schon :hover, dafuer braucht es keinen Long-Press.
+  root.addEventListener('pointerdown', e => {
+    if (e.pointerType === 'mouse') return
+    const msgEl = e.target.closest('.mmc-msg')
+    if (!msgEl || !root.contains(msgEl)) return
+    if (!msgEl.querySelector('.mmc-msg-actions')) return  // Systemnachricht ohne Aktionen
+    if (e.target.closest('.mmc-msg-actions')) return      // schon offene Buttons nicht kapern
+
+    endPress()             // falls ein zweiter Finger einen laufenden Press abbricht
+    firedByLongPress = false
+    pointerId = e.pointerId
+    pressEl = msgEl
+    startX = e.clientX; startY = e.clientY
+    msgEl.classList.add('mmc-msg--pressing')
+    timer = setTimeout(() => {
+      timer = null
+      firedByLongPress = true
+      closeOpen(msgEl)
+      msgEl.classList.add('mmc-msg--actions-open')
+      msgEl.classList.remove('mmc-msg--pressing')
+      navigator.vibrate?.(8)
+    }, HOLD_MS)
+  })
+
+  // Abbruch bei Bewegung, damit Scrollen nie vom Long-Press blockiert wird.
+  root.addEventListener('pointermove', e => {
+    if (e.pointerId !== pointerId || !pressEl) return
+    if (Math.abs(e.clientX - startX) > MOVE_TOLERANCE || Math.abs(e.clientY - startY) > MOVE_TOLERANCE) {
+      endPress()
+    }
+  })
+  root.addEventListener('pointerup', e => { if (e.pointerId === pointerId) endPress() })
+  root.addEventListener('pointercancel', e => { if (e.pointerId === pointerId) endPress() })
+
+  // Android schickt bei Long-Press sonst zusaetzlich ein natives Kontextmenue.
+  root.addEventListener('contextmenu', e => {
+    if (e.target.closest('.mmc-msg')) e.preventDefault()
+  })
+
+  // Faengt den Ghost-Click ab, den Touch nach dem Long-Press noch nachschickt
+  // (sonst wuerde z. B. der Avatar-Klick direkt hinter dem Oeffnen feuern),
+  // und schliesst eine offene Aktionsleiste beim Antippen woanders.
+  root.addEventListener('click', e => {
+    if (firedByLongPress) {
+      firedByLongPress = false
+      e.preventDefault()
+      e.stopPropagation()
+      return
+    }
+    if (!e.target.closest('.mmc-msg-actions')) closeOpen()
+  }, true)
+}
+
 /* ── Userbar events ────────────────────────────────────────────── */
 function bindApp(root) {
+  bindIconTooltips(root)
+  bindMsgLongPress(root)
   root.querySelector('#mmc-user-id')?.addEventListener('click', e => { e.stopPropagation(); openUserMenu(root) })
   root.querySelector('#mmc-logout')?.addEventListener('click', () => goToAuth(root))
 
@@ -1779,37 +2351,47 @@ function openUserReportModal(root, username) {
   requestAnimationFrame(() => overlay.querySelector('#mmc-report-reason')?.focus())
 }
 
-/* ══════════════════════════════════════════════════════════════════
-   SECOND COLUMN
-   ══════════════════════════════════════════════════════════════════ */
-function fillCol2(root) {
-  const box = root.querySelector('#mmc-col2-body')
-  if (!box) return
-  box.innerHTML = col2ServerHtml()
-
-  box.querySelector('#mmc-friends-tab')?.addEventListener('click', () => {
-    friendsMode = true; homeSection = 'friends'; friendsTab = 'all'; activeGroup = null; activeDM = null; discoverOpen = false; renderApp(root)
-  })
-  box.querySelectorAll('.mmc-cat[data-cat]').forEach(el => {
-    el.addEventListener('click', () => {
-      serverCategory = el.dataset.cat; activeGroup = null
-      if (friendsMode) { friendsMode = false; renderApp(root) }
-      else { fillCol2(root); fillMain(root); mobileShowDetail(root) }
-    })
-  })
-}
 
 function groupsIn(catId) { return getGroups().filter(g => g.category === catId) }
 
-/* ── Freunde-Modus: Icon-Leiste (links) ────────────────────────── */
-function fillFriendsRail(root) {
-  const rail = root.querySelector('#mmc-friends-rail'); if (!rail) return
+/**
+ * Die Kategorie-Leiste links — fuer **alle** Ansichten dieselbe.
+ *
+ * Vorher gab es sie dreimal: fillFriendsRail() fuer die Freunde-Seite,
+ * fillCatRail() fuer die Gruppenansicht und in der Uebersicht einen Nachbau
+ * aus Spalte 2 (.mmc-nav-item/.mmc-cat, 46px, Radius 14 statt .mmc-crb).
+ * Beim Wechsel zwischen Kategorien tauschte damit nicht nur der aktive
+ * Eintrag, sondern die ganze Leiste — samt Ungelesen-Punkten, die es nur in
+ * einer der drei Fassungen gab.
+ *
+ * Eine Fassung, ein Aussehen: Startknopf oben (aktiv im Freunde-Modus),
+ * Trennlinie, Kategorien mit Ungelesen-Punkt. Welche aktiv ist, ergibt sich
+ * aus dem Zustand, nicht aus der Ansicht.
+ */
+function fillRail(root) {
+  const rail = root.querySelector('.mmc-catrail'); if (!rail) return
+  const g = getGroups().find(x => x.id === activeGroup)
+  const activeCat = g ? g.category : (friendsMode ? null : serverCategory)
+  const myName = me()
+  const catHasUnread = id => groupsIn(id).some(gr => {
+    if (!gr.members.includes(myName)) return false
+    if (isMuted(gr.id)) return false
+    groupDefaults(gr)
+    return unreadCountGroup(gr) > 0
+  })
   rail.innerHTML = `
-    <button class="mmc-crb is-active" id="mmc-rail-home" title="Freunde / Startseite">${ICON.people}</button>
+    <button class="mmc-crb ${friendsMode ? 'is-active' : ''}" data-rail-home
+            aria-label="Freunde / Startseite" data-label="Freunde / Startseite">${ICON.people}</button>
     <div class="mmc-rail-sep"></div>
-    ${CATEGORIES.map(c => `<button class="mmc-crb" data-cat="${c.id}" title="${esc(c.name)}">${ICON[c.icon]}</button>`).join('')}`
-  rail.querySelector('#mmc-rail-home')?.addEventListener('click', () => {
-    homeSection = 'friends'; activeDM = null; discoverOpen = false; fillHomeColumn(root); fillMain(root); fillActive(root)
+    ${CATEGORIES.map(c => `
+      <button class="mmc-crb ${c.id === activeCat ? 'is-active' : ''}" data-cat="${c.id}"
+              aria-label="${esc(c.name)}" data-label="${esc(c.name)}">
+        ${ICON[c.icon]}
+        ${catHasUnread(c.id) ? '<span class="mmc-rail-dot"></span>' : ''}
+      </button>
+    `).join('')}`
+  rail.querySelector('[data-rail-home]')?.addEventListener('click', () => {
+    friendsMode = true; homeSection = 'friends'; activeGroup = null; activeDM = null; discoverOpen = false; renderApp(root)
   })
   rail.querySelectorAll('.mmc-crb[data-cat]').forEach(b => b.addEventListener('click', () => {
     friendsMode = false; serverCategory = b.dataset.cat; activeGroup = null; activeDM = null; discoverOpen = false; renderApp(root)
@@ -1891,27 +2473,6 @@ function renderRequests(main, root) {
   }))
 }
 
-function col2ServerHtml() {
-  const inReqCount = incomingRequests().length
-  const friendsBadge = inReqCount > 0 ? `<span class="mmc-notif-badge">${inReqCount}</span>` : ''
-  return `
-    <div class="mmc-server-head">
-      <div class="mmc-server-name">MotoMatch</div>
-      <div class="mmc-server-tag">Community-Server</div>
-    </div>
-    <div class="mmc-nav">
-      <div class="mmc-nav-item ${friendsMode ? 'is-active' : ''}" id="mmc-friends-tab" style="position:relative">${ICON.people}<span>Freunde</span>${friendsBadge}</div>
-    </div>
-    <div class="mmc-chan-head"><span>Kategorien</span></div>
-    <div class="mmc-chan-list">
-      ${CATEGORIES.map(c => `
-        <div class="mmc-cat ${!friendsMode && c.id === serverCategory ? 'mmc-chan--active' : ''}" data-cat="${c.id}">
-          <span class="mmc-cat-ic">${ICON[c.icon]}</span>
-          <span class="mmc-chan-name">${esc(c.name)}</span>
-          <span class="mmc-cat-count">${groupsIn(c.id).length}</span>
-        </div>`).join('')}
-    </div>`
-}
 
 /* ══════════════════════════════════════════════════════════════════
    MAIN CONTENT
@@ -2170,11 +2731,17 @@ function renderDMView(main, root) {
     const input = main.querySelector('#mmc-compose-input')
     const form  = main.querySelector('#mmc-compose-form')
     const text  = input.value.trim()
-    const image = form?._pendingAttachment || null
-    if (!text && !image) return
+    const attachment = form?._pendingAttachment || null
+    if (!text && !attachment) return
     // Gäste dürfen nicht schreiben (Online-Modus)
     if (!OFFLINE_MODE && getSession()?.guest) { toast(root, 'Bitte melde dich an, um Nachrichten zu senden.'); return }
-    await sendDM(name, text, replyingTo, image)
+    const done = _composeBusy(form, true)
+    const res = await sendDM(name, text, replyingTo, attachment)
+    done()
+    if (res && res.ok === false) { toast(root, res.error || 'Senden fehlgeschlagen.'); return }
+    // Text kam durch, der Anhang nicht — das muss man sehen, sonst glaubt man,
+    // der Sticker sei beim Gegenüber angekommen.
+    if (res?.warn) toast(root, res.warn)
     input.value = ''; input.style.height = 'auto'
     form?._clearAttach?.()
     const rb = main.querySelector('#mmc-reply-bar')
@@ -2447,35 +3014,6 @@ function openJoinRequestModal(root, g) {
 }
 
 /* ── Server: group chat ────────────────────────────────────────── */
-/* ── In-Gruppe: Kategorie-Icon-Leiste (ganz links) ─────────────── */
-function fillCatRail(root) {
-  const rail = root.querySelector('#mmc-catrail'); if (!rail) return
-  const g = getGroups().find(x => x.id === activeGroup)
-  const activeCat = g ? g.category : serverCategory
-  const myName = me()
-  // Map category → has unread (non-muted) groups where I'm a member
-  const catHasUnread = id => groupsIn(id).some(gr => {
-    if (!gr.members.includes(myName)) return false
-    if (isMuted(gr.id)) return false
-    groupDefaults(gr)
-    return unreadCountGroup(gr) > 0
-  })
-  rail.innerHTML = `
-    <button class="mmc-crb" id="mmc-catrail-home" title="Freunde / Startseite">${ICON.people}</button>
-    <div class="mmc-rail-sep"></div>
-    ${CATEGORIES.map(c => `
-      <button class="mmc-crb ${c.id === activeCat ? 'is-active' : ''}" data-cat="${c.id}" title="${esc(c.name)}">
-        ${ICON[c.icon]}
-        ${catHasUnread(c.id) ? '<span class="mmc-rail-dot"></span>' : ''}
-      </button>
-    `).join('')}`
-  rail.querySelector('#mmc-catrail-home')?.addEventListener('click', () => {
-    friendsMode = true; homeSection = 'friends'; activeGroup = null; activeDM = null; discoverOpen = false; renderApp(root)
-  })
-  rail.querySelectorAll('.mmc-crb[data-cat]').forEach(b => b.addEventListener('click', () => {
-    serverCategory = b.dataset.cat; activeGroup = null; renderApp(root)
-  }))
-}
 
 /* ── In-Gruppe: Kanal-/Talk-Spalte (Mitte) ─────────────────────── */
 async function _leaveGroupUI(root) {
@@ -3096,9 +3634,6 @@ function renderGroupChatMain(root) {
     ${composeHtml('Nachricht an #' + esc(chName))}`
   bindMobileBack(main, root)
   const box = main.querySelector('#mmc-messages')
-  box.style.backgroundImage = `linear-gradient(rgba(10,10,10,0.80), rgba(10,10,10,0.84)), url('${commBg}')`
-  box.style.backgroundRepeat = 'no-repeat, repeat'
-  box.style.backgroundSize = 'cover, 480px auto'
   const emptyCtx = { title: chName, text: `Das ist der Anfang von #${chName}. Sag Hallo 👋`, avatar: g.name, hash: true }
   renderMessagesInto(root, box, msgs, emptyCtx, g, prevReadTs)
   bindComposeExtras(main, root, () => sendChannelTyping(activeGroup, activeChannel), g.members || [])
@@ -3107,10 +3642,16 @@ function renderGroupChatMain(root) {
     const input = main.querySelector('#mmc-compose-input')
     const form  = main.querySelector('#mmc-compose-form')
     const text  = input.value.trim()
-    const image = form?._pendingAttachment || null
-    if (!text && !image) return
+    const attachment = form?._pendingAttachment || null
+    if (!text && !attachment) return
     if (!OFFLINE_MODE && getSession()?.guest) { toast(root, 'Bitte melde dich an, um Nachrichten zu senden.'); return }
-    await sendGroupMessage(activeGroup, activeChannel, text, replyingTo, image)
+    // Grosse Anhaenge brauchen einen Moment — Formular solange sperren,
+    // sonst schickt ein zweiter Klick dieselbe Datei nochmal hoch.
+    const done = _composeBusy(form, true)
+    const res = await sendGroupMessage(activeGroup, activeChannel, text, replyingTo, attachment)
+    done()
+    if (res && res.ok === false) { toast(root, res.error || 'Senden fehlgeschlagen.'); return }
+    if (res?.warn) toast(root, res.warn)
     input.value = ''; input.style.height = 'auto'
     form?._clearAttach?.()
     const rb = main.querySelector('#mmc-reply-bar')
@@ -3997,7 +4538,7 @@ function renderMessagesInto(root, box, msgs, empty, groupCtx = null, prevReadTs 
 
     const pills = reactionPillsHtml(m.reactions, myName)
     const editLabel = m.editedTs ? ` <span class="mmc-edited">(bearbeitet)</span>` : ''
-    const imgHtml = m.image ? `<img class="mmc-msg-image" src="${esc(m.image)}" alt="Anhang" loading="lazy" data-img-src="${esc(m.image)}">` : ''
+    const imgHtml = attachmentHtml(m)
     const replyQuote = m.replyTo ? `
       <div class="mmc-reply-quote" data-reply-to="${esc(m.replyTo.id)}">
         <span class="mmc-reply-quote-author">${esc(displayName(m.replyTo.author))}</span>
@@ -4340,7 +4881,7 @@ function openMuteMenu(root, key, isDM) {
       if (main && activeDM) renderDMView(main, root)
     } else {
       fillGroupChannels(root)
-      fillCatRail(root)
+      fillRail(root)
     }
   }))
 }
@@ -4615,7 +5156,7 @@ function openCreateGroup(root) {
     if (!res.ok) { errEl.hidden = false; errEl.textContent = res.error || 'Fehler beim Erstellen.'; return }
     activeGroup = res.group.id; activeChannel = res.group.channels[0]?.id || null
     close()
-    fillCol2(root)
+    fillRail(root)
     fillMain(root)
   })
 

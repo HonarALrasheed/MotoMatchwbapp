@@ -260,6 +260,7 @@ function _mapMessage(m) {
     // Stelle könnte je nach Timing leer laufen. Hervorhebung im UI nutzt ohnehin
     // text + aktuelle Mitgliederliste, nicht dieses Feld (s. renderText in community.js).
     ...(m.mentions?.length ? { mentions: m.mentions } : {}),
+    ...(m.attachment ? { attachment: m.attachment } : {}),
   }
 }
 
@@ -375,12 +376,15 @@ function _usernameToUid(username) {
  * Leerzeichen), da Usernamen keine Zeichensatz-Beschränkung haben (auth.js).
  */
 function _resolveMentions(text, members) {
-  const re = /(?<![\p{L}\p{N}_@-])@([\p{L}\p{N}_-]{1,32})/gu
+  // Ohne Lookbehind (WebKit < 16.4 wirft sonst schon beim Parsen), s.
+  // renderText() in community.js: Gruppe 1 ist das Zeichen vor dem @,
+  // Gruppe 2 der Username.
+  const re = /(^|[^\p{L}\p{N}_@-])@([\p{L}\p{N}_-]{1,32})/gu
   const lowerMembers = members.map(u => u.toLowerCase())
   const ids = new Set()
   let match
   while ((match = re.exec(text)) !== null) {
-    const idx = lowerMembers.indexOf(match[1].toLowerCase())
+    const idx = lowerMembers.indexOf(match[2].toLowerCase())
     if (idx === -1) continue
     const uid = _usernameToUid(members[idx])
     if (uid) ids.add(uid)
@@ -1131,40 +1135,126 @@ export async function deleteChannel(groupId, channelId) {
 }
 
 /* ── Nachrichten in Gruppen ──────────────────────────────────────── */
-export async function sendGroupMessage(groupId, channelId, text, replyTo = null, image = null) {
+/**
+ * @param {{url:string,name:string,type:string,size:number}|null} attachment
+ *   Beliebiger Dateityp; url ist eine data:-URL (wie profiles.avatar).
+ */
+/* ── Anhänge ─────────────────────────────────────────────────────
+   Online landen Dateien in Supabase Storage und die Nachricht traegt nur
+   die URL — als data:-URL in der Zeile waere bei ein paar MB Schluss
+   (Base64 blaeht ~33% auf und die Zeile geht durch jedes SELECT mit).
+   Offline bleibt die data:-URL, dort gibt es keinen Storage.
+   ────────────────────────────────────────────────────────────────── */
+export const ATTACH_BUCKET   = 'chat-attachments'
+export const ATTACH_MAX      = 25 * 1024 * 1024  // Storage-Pfad
+export const ATTACH_MAX_LOCAL = 2 * 1024 * 1024  // localStorage-Pfad (Quota ~5 MB)
+
+function _fileToDataUrl(file) {
+  return new Promise((resolve, reject) => {
+    const r = new FileReader()
+    r.onload = () => resolve(r.result)
+    r.onerror = () => reject(r.error)
+    r.readAsDataURL(file)
+  })
+}
+
+/** Dateiname fuer den Storage-Pfad entschaerfen (keine Umlaute/Slashes). */
+function _safeName(name = 'datei') {
+  return name.normalize('NFKD').replace(/[^\w.-]+/g, '-').replace(/-+/g, '-').slice(-80) || 'datei'
+}
+
+/**
+ * Macht aus dem Compose-Anhang ({ file, name, type, size }) das, was in der
+ * Nachricht landet: { url, name, type, size, path? }.
+ * @returns {Promise<object|{error:string}|null>}
+ */
+/* Die Spalte `attachment` fehlt in manchen Datenbankstaenden — schema.sql
+ * legt sie an (`ALTER TABLE messages ADD COLUMN IF NOT EXISTS attachment
+ * jsonb;`), aber nur, wenn die Migration auch gelaufen ist. Fehlt sie, nahm
+ * der Rueckfall die Nachricht ohne Anhang und meldete Erfolg: der Absender sah
+ * den Sticker aus seiner eigenen lokalen Kopie, beim Empfaenger kam nichts an.
+ * Ein stiller Datenverlust ist die schlechteste aller Varianten — lieber
+ * ehrlich scheitern. */
+const ATTACH_COLUMN_MISSING =
+  'Anhänge können gerade nicht gespeichert werden (Datenbank-Spalte fehlt). ' +
+  'Der Sticker wurde nicht gesendet.'
+
+/** Meldet Postgres/PostgREST eine unbekannte Spalte? */
+function _isMissingColumn(error) {
+  return error?.code === '42703' || error?.code === 'PGRST204'
+}
+
+async function _prepareAttachment(att) {
+  if (!att) return null
+  if (att.url) return att            // schon fertig (Bestandsdaten/erneutes Senden)
+  const { file, name, type, size } = att
+  if (!file) return null
+
+  if (OFFLINE_MODE || !_myUid) {
+    if (size > ATTACH_MAX_LOCAL) return { error: 'Offline sind maximal 2 MB möglich.' }
+    try { return { url: await _fileToDataUrl(file), name, type, size } }
+    catch (e) { return { error: e?.message || 'Datei konnte nicht gelesen werden.' } }
+  }
+
+  if (size > ATTACH_MAX) return { error: 'Datei zu groß (max. 25 MB).' }
+  const path = `${_myUid}/${Date.now()}-${_safeName(name)}`
+  const { error } = await supabase.storage
+    .from(ATTACH_BUCKET).upload(path, file, { contentType: type, upsert: false })
+  if (error) {
+    console.warn('[API] Upload fehlgeschlagen:', error.message)
+    return { error: 'Upload fehlgeschlagen: ' + error.message }
+  }
+  const { data } = supabase.storage.from(ATTACH_BUCKET).getPublicUrl(path)
+  return { url: data.publicUrl, name, type, size, path }
+}
+
+export async function sendGroupMessage(groupId, channelId, text, replyTo = null, attachment = null) {
   const myName = _myUsername
   const g = _groups.find(x => x.id === groupId); if (!g) return { ok: false }
   const ch = g.channels?.find(c => c.id === channelId) || g.channels?.[0]; if (!ch) return { ok: false }
+
+  const att = await _prepareAttachment(attachment)
+  if (att?.error) return { ok: false, error: att.error }
 
   if (OFFLINE_MODE || !_myUid) {
     const msg = {
       id: 'm-' + Date.now(), author: myName, text, ts: Date.now(), reactions: {},
       ...(replyTo ? { replyTo: { ...replyTo } } : {}),
-      ...(image    ? { image }                   : {}),
+      ...(att     ? { attachment: att }          : {}),
     }
     ch.messages.push(msg); lsWrite(LS_GROUPS, _groups)
     return { ok: true, msg }
   }
-  let { data, error } = await supabase.from('messages').insert({
+  const base = {
     channel_id: ch.id, author_id: _myUid, text,
     reply_to_id: replyTo?.id || null,
+  }
+  const optional = {
     mentions: _resolveMentions(text, g.members || []),
-  }).select().single()
-  if (error?.code === '42703' || error?.code === 'PGRST204') {
-    // mentions-Spalte evtl. noch nicht migriert (supabase/schema.sql) — ohne
-    // Fallback könnte man gar keine Gruppennachrichten mehr senden, nicht nur
-    // Mentions wären betroffen. 42703 = Postgres "undefined column" (SELECT-Pfad),
-    // PGRST204 = PostgRESTs eigener Schema-Cache kennt die Spalte nicht (INSERT-Pfad).
-    console.warn('[API] mentions nicht speicherbar (Migration evtl. noch nicht ausgeführt):', error.message)
-    ;({ data, error } = await supabase.from('messages').insert({
-      channel_id: ch.id, author_id: _myUid, text,
-      reply_to_id: replyTo?.id || null,
-    }).select().single())
+    ...(att ? { attachment: att } : {}),
+  }
+  let { data, error } = await supabase.from('messages').insert({ ...base, ...optional }).select().single()
+  let attachmentVerloren = false
+  if (_isMissingColumn(error)) {
+    // mentions-/attachment-Spalte evtl. noch nicht migriert (supabase/schema.sql)
+    // — ohne Fallback könnte man gar keine Gruppennachrichten mehr senden, nicht
+    // nur diese Felder wären betroffen. 42703 = Postgres "undefined column"
+    // (SELECT-Pfad), PGRST204 = PostgRESTs Schema-Cache kennt die Spalte nicht
+    // (INSERT-Pfad).
+    console.warn('[API] mentions/attachment nicht speicherbar (Migration evtl. noch nicht ausgeführt):', error.message)
+    // Eine reine Anhang-Nachricht (Sticker ohne Text) waere danach leer und
+    // beim Empfaenger nicht von einem Fehler zu unterscheiden.
+    if (att && !text) return { ok: false, error: ATTACH_COLUMN_MISSING }
+    attachmentVerloren = !!att
+    ;({ data, error } = await supabase.from('messages').insert(base).select().single())
   }
   if (error) return { ok: false, error: error.message }
   const msg = _mapMessage({ ...data, profiles: { username: myName } })
   // Realtime liefert die Nachricht zurück, aber wir fügen sie sofort ein (optimistic)
   if (!ch.messages.some(m => m.id === msg.id)) ch.messages.push(msg)
+  // Der Anhang ist nicht in der Datenbank — dann darf ihn auch der Absender
+  // nicht sehen, sonst zeigen beide Seiten Unterschiedliches.
+  if (attachmentVerloren) { delete msg.attachment; return { ok: true, msg, warn: ATTACH_COLUMN_MISSING } }
   return { ok: true, msg }
 }
 
@@ -1382,14 +1472,18 @@ export function canSendDM(sender, recipient) {
   return rFriends.some(f => f.toLowerCase() === sender.toLowerCase())
 }
 
-export async function sendDM(to, text, replyTo = null, image = null) {
+/** @param {{url:string,name:string,type:string,size:number}|null} attachment */
+export async function sendDM(to, text, replyTo = null, attachment = null) {
   const myName = _myUsername
   const blockedByRecipient = isBlockedBy(to)
   const ignoredByRecipient = (_ignored[to] || []).some(x => x.toLowerCase() === myName.toLowerCase())
 
+  const att = await _prepareAttachment(attachment)
+  if (att?.error) return { ok: false, error: att.error }
+
   const msg = { id: 'd-' + Date.now(), author: myName, text, ts: Date.now() }
-  if (replyTo) msg.replyTo = { ...replyTo }
-  if (image)   msg.image   = image
+  if (replyTo) msg.replyTo    = { ...replyTo }
+  if (att)     msg.attachment = att
 
   ;(_dms[myName] ||= {})[to] = [...((_dms[myName])[to] || []), msg]
   if (!blockedByRecipient) {
@@ -1403,10 +1497,27 @@ export async function sendDM(to, text, replyTo = null, image = null) {
   if (blockedByRecipient) return
   const thread = _dmThread(myName, to)
   if (!thread) return
-  const { data } = await supabase.from('messages').insert({
-    dm_thread: thread, author_id: _myUid, text,
-    reply_to_id: replyTo?.id || null,
-  }).select().single()
+  const base = { dm_thread: thread, author_id: _myUid, text, reply_to_id: replyTo?.id || null }
+  let { data, error } = await supabase
+    .from('messages').insert({ ...base, ...(att ? { attachment: att } : {}) }).select().single()
+  if (_isMissingColumn(error)) {
+    console.warn('[API] attachment nicht speicherbar (Migration evtl. noch nicht ausgeführt):', error.message)
+    if (att) {
+      // Anhang aus der lokalen Kopie beider Seiten entfernen: er existiert
+      // nirgends, und ein nur beim Absender sichtbarer Sticker ist genau der
+      // Zustand, der die Sache so lange unbemerkt gelassen hat.
+      delete msg.attachment
+      if (!text) {
+        for (const [a, b] of [[myName, to], [to, myName]]) {
+          if (_dms[a]?.[b]) _dms[a][b] = _dms[a][b].filter(m => m.id !== msg.id)
+        }
+        return { ok: false, error: ATTACH_COLUMN_MISSING }
+      }
+    }
+    ;({ data } = await supabase.from('messages').insert(base).select().single())
+    if (data) msg.id = data.id
+    return att ? { ok: true, warn: ATTACH_COLUMN_MISSING } : undefined
+  }
   if (data) msg.id = data.id
 }
 

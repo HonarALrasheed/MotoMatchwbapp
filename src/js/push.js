@@ -14,6 +14,28 @@ export function isPushSupported() {
   return 'serviceWorker' in navigator && 'PushManager' in window
 }
 
+/**
+ * Service Worker registrieren — ohne Permission-Abfrage, ohne Abo.
+ *
+ * Zwei Aufrufer: enablePushNotifications() braucht die Registrierung fuer das
+ * Push-Abo, und install.js braucht sie, weil Chromium eine App ohne aktiven
+ * Service Worker nicht zur Installation anbietet (und ohne Installation gibt
+ * es auf dem Handy kein Vollbild). Fehler bleiben still: beides sind
+ * Zusatzfunktionen, die App laeuft ohne sie unveraendert weiter.
+ *
+ * @returns {Promise<ServiceWorkerRegistration|null>}
+ */
+export async function registerServiceWorker() {
+  if (!('serviceWorker' in navigator)) return null
+  try {
+    const registration = await navigator.serviceWorker.register('/sw.js')
+    await navigator.serviceWorker.ready
+    return registration
+  } catch {
+    return null
+  }
+}
+
 function _urlBase64ToUint8Array(base64String) {
   const padding = '='.repeat((4 - (base64String.length % 4)) % 4)
   const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/')
@@ -38,11 +60,8 @@ export async function enablePushNotifications() {
     return { ok: false, error: 'Benachrichtigungen wurden nicht erlaubt.' }
   }
 
-  let registration
-  try {
-    registration = await navigator.serviceWorker.register('/sw.js')
-    await navigator.serviceWorker.ready
-  } catch {
+  const registration = await registerServiceWorker()
+  if (!registration) {
     return { ok: false, error: 'Service Worker konnte nicht registriert werden.' }
   }
 

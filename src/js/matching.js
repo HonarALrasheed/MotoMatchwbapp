@@ -452,6 +452,116 @@ export function findBikeByShortName(shortName) {
 }
 
 /**
+ * Baut den Bewertungs-Kontext aus den Quiz-Antworten. Einmal pro Suchlauf,
+ * nicht pro Bike — und wiederverwendbar für die Einzelbewertung.
+ */
+function buildContext(answers = {}) {
+  return {
+    allowedLicenses: LICENSE_ALLOWS[answers.q1] || new Set(["A1", "A2", "A"]),
+    budgetMax: Number(answers.q5) || Infinity,
+    ctx: {
+      style: answers.q3,
+      normalizedUse: USE_ALIASES[answers.q4] || answers.q4,
+      idealSeat: idealSeatFromHeight(Number(answers.q6)),
+      wantsPassenger: answers.q7 === "Ja",
+      isBeginner: answers.q2 === "Anfanger" || answers.q2 === "Anfänger",
+    },
+  };
+}
+
+/**
+ * Bewertet EIN bereits bekanntes Bike gegen die Quiz-Antworten — dieselbe
+ * Logik wie findTopMatches, nur ohne Katalog-Durchlauf. Für den Match-Reiter,
+ * der zeigen soll, wie gut das gerade geöffnete Bike zum Profil passt.
+ *
+ * Zusätzlich zum Score kommen die harten Kriterien mit zurück (Führerschein,
+ * Budget): findTopMatches filtert sie vorher weg, hier sind sie die
+ * eigentliche Information — das Bike liegt ja schon auf dem Tisch.
+ *
+ * @returns { score, maxScore, pct, breakdown, fits } oder null ohne Bike
+ */
+export function scoreBikeAgainst(bike, answers) {
+  if (!bike) return null;
+  const { allowedLicenses, budgetMax, ctx } = buildContext(answers);
+  let { score, breakdown } = scoreBike(bike, ctx);
+
+  const fitsBudget = parseMinPrice(bike.price) <= budgetMax;
+  // scoreBike vergibt die Budget-Punkte bedingungslos — im Katalog-Durchlauf
+  // ist das korrekt, weil der harte Filter zu teure Bikes vorher aussortiert.
+  // Hier liegt das Bike aber schon fest: dann müssen die Punkte weg, sonst
+  // stünde ein voller Budget-Balken neben dem Hinweis "über deinem Budget".
+  if (!fitsBudget) {
+    score = Math.round((score - WEIGHT.BUDGET) * 10) / 10;
+    breakdown = { ...breakdown, budget: 0 };
+  }
+
+  // Obergrenze abhängig vom Profil: der Sozius-Bonus ist nur erreichbar,
+  // wenn überhaupt zu zweit gefahren werden soll — sonst wäre kein Bike je
+  // bei 100 %.
+  const maxScore =
+    WEIGHT.STYLE +
+    WEIGHT.USE_CASE +
+    WEIGHT.BUDGET +
+    WEIGHT.SEAT_HEIGHT +
+    (ctx.wantsPassenger ? WEIGHT.PASSENGER : 0);
+
+  return {
+    score,
+    maxScore,
+    pct: Math.max(0, Math.min(100, Math.round((score / maxScore) * 100))),
+    breakdown,
+    fits: {
+      license: allowedLicenses.has(bike.license),
+      budget: fitsBudget,
+    },
+  };
+}
+
+/**
+ * Ähnliche Bikes zu einem gegebenen Modell — ohne Quiz-Antworten.
+ *
+ * Der Match-Reiter soll auch dann Alternativen zeigen, wenn noch niemand das
+ * Quiz gemacht hat. Maßstab ist dann nicht das Fahrerprofil, sondern das
+ * offene Bike selbst: gleiche Gattung zuerst, danach Nähe bei Preis,
+ * Leistung und Hubraum.
+ *
+ * @returns { bike, score }[] — absteigend, ohne das Ausgangs-Bike
+ */
+export function findSimilarBikes(bike, n = 3) {
+  if (!bike) return [];
+  const refPrice = parseMinPrice(bike.price) || 1;
+  const refPs = bike.ps || 1;
+  const refCc = bike.cc || 1;
+
+  const scored = catalog
+    .filter((b) => b.name !== bike.name)
+    .map((b) => {
+      let score = 0;
+      // Die Gattung wiegt schwerer als alle Nähe-Kriterien zusammen (50):
+      // wer eine Cruiser ansieht, will keine Enduro vorgeschlagen bekommen,
+      // nur weil der Preis zufällig passt.
+      if ((b.style || "") === (bike.style || "")) score += 70;
+      if ((b.use || "") === (bike.use || "")) score += 20;
+      if ((b.license || "") === (bike.license || "")) score += 10;
+      // Relative Abstände, damit ein 1.000-€-Unterschied bei einer 4.000-€-
+      // Maschine schwerer wiegt als bei einer 20.000-€-Maschine.
+      score += 25 * Math.max(0, 1 - Math.abs(parseMinPrice(b.price) - refPrice) / refPrice);
+      score += 15 * Math.max(0, 1 - Math.abs((b.ps || 0) - refPs) / refPs);
+      score += 10 * Math.max(0, 1 - Math.abs((b.cc || 0) - refCc) / refCc);
+      return { bike: b, score: Math.round(score * 10) / 10 };
+    });
+
+  scored.sort((a, b) => b.score - a.score);
+  return scored.slice(0, Math.min(n, scored.length));
+}
+
+/**
+ * Gewichte als Obergrenzen für die Balken im Match-Reiter — die UI muss
+ * sonst raten, wie viel von "45 Punkte Stil" erreichbar war.
+ */
+export const MATCH_WEIGHTS = WEIGHT;
+
+/**
  * Returns the single best matching bike object.
  * Maintains backward compatibility — returns the bike directly.
  */
@@ -473,16 +583,7 @@ export function findBestBike(answers) {
  */
 export function findTopMatches(answers, n = 5) {
   // Pre-compute context once (not per-bike)
-  const allowedLicenses =
-    LICENSE_ALLOWS[answers.q1] || new Set(["A1", "A2", "A"]);
-  const budgetMax = Number(answers.q5) || Infinity;
-  const ctx = {
-    style: answers.q3,
-    normalizedUse: USE_ALIASES[answers.q4] || answers.q4,
-    idealSeat: idealSeatFromHeight(Number(answers.q6)),
-    wantsPassenger: answers.q7 === "Ja",
-    isBeginner: answers.q2 === "Anfanger" || answers.q2 === "Anfänger",
-  };
+  const { allowedLicenses, budgetMax, ctx } = buildContext(answers);
 
   // Phase 1: Hard filter — O(n)
   const survivors = [];

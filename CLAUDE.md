@@ -95,6 +95,178 @@ Wichtigste Module in `src/js/`:
 - Nach Änderungen an UI/Styling: Seite laden, Konsole auf Fehler prüfen, Screenshot machen und selbst vergleichen. Nicht den Nutzer manuell prüfen lassen.
 - Bildschirme sind SPA-Container — zum Testen ggf. per Klick durch Landing → Quiz/Detail navigieren.
 
+## Cross-Browser (WebKit vs. Chromium)
+Referenz ist Edge/Chromium auf Android. Abweichungen kamen praktisch alle von
+WebKit — auf dem iPhone benutzen **alle** Browser (Safari, Chrome, Edge,
+Firefox) dieselbe Engine, ein Test in Safari deckt sie also alle ab.
+Was dafür im Code steht:
+- `-webkit-backdrop-filter` gehört **immer** neben jedes `backdrop-filter`;
+  ohne Prefix fehlt der Milchglas-Effekt auf iOS < 18 ersatzlos.
+- Eingabefelder unter 16px lösen auf iOS Auto-Zoom aus. Abgefangen im
+  767px-Block *und* im `@supports (-webkit-touch-callout: none)`-Block am
+  Dateiende (Querformat/iPad liegen über 767px).
+- Bildschirmtastatur: [`src/js/viewport.js`](src/js/viewport.js) misst sie über
+  `visualViewport` und legt `--kb-inset` + `body.kb-open` ab; der Tastatur-Block
+  am Ende von `main.css` wertet das aus. Chromium verkleinert das Layout selbst,
+  dort bleibt `--kb-inset` 0px — die Regeln sind da Nulloperationen.
+- `scrollbar-width`/`scrollbar-color` (Firefox) nur innerhalb von
+  `@supports not selector(::-webkit-scrollbar)` setzen: in Chromium schaltet
+  ein gesetztes `scrollbar-color` die `::-webkit-scrollbar`-Regeln desselben
+  Elements ab, und es vererbt.
+- Kein `-webkit-overflow-scrolling: touch` mehr — seit iOS 13 Voreinstellung,
+  erzeugte aber eine eigene Ebene, in der WebKit `position: fixed`-Kinder
+  abschneidet.
+- Kein Regex-Lookbehind (`(?<!…)`): WebKit kennt es erst ab 16.4 und wirft
+  davor schon beim Parsen, was das ganze Modul mitreißt.
+
+## Vollbild auf dem Handy (PWA)
+Ein normaler Browser-Tab kann sich den Bildschirm nicht selbst nehmen — die
+Adressleiste gehört dem Browser, und `requestFullscreen()` ist auf iOS für
+alles außer `<video>` gesperrt. Vollbild gibt es nur als **installierte**
+Web-App. Dafür ist eingerichtet:
+- [`public/manifest.webmanifest`](public/manifest.webmanifest) — `display:
+  standalone`, Start-URL `/`, Theme `#0a0a0a`, Icons 192/512 (512 doppelt,
+  einmal `any` und einmal `maskable`).
+- Icons: `public/icon-{192,512}.png` + `public/apple-touch-icon.png`
+  (180 px). Erzeugt aus der Wortmarke „MM" in Barlow 800 auf `#0a0a0a`;
+  zum Austauschen einfach die PNGs ersetzen, Größen beibehalten.
+- `index.html` trägt Manifest-Link, `theme-color` und die
+  `apple-mobile-web-app-*`-Metatags. `black-translucent` + das bereits
+  gesetzte `viewport-fit=cover` ziehen den Inhalt unter die Statusleiste.
+- [`public/sw.js`](public/sw.js) hat einen leeren `fetch`-Listener. Der
+  cached nichts, steht aber auf Chromiums Prüfliste für Installierbarkeit —
+  ohne ihn kommt `beforeinstallprompt` nie.
+- [`src/js/install.js`](src/js/install.js) registriert den Service Worker beim
+  Start (vorher lief er nur bei aktiviertem Push) und zeigt nach 20 s einen
+  Hinweisbalken: auf Android einen echten Installieren-Knopf über
+  `beforeinstallprompt`, auf iOS die Anleitung „Teilen → Zum Home-Bildschirm",
+  weil WebKit kein solches Ereignis kennt. Einmal weggeklickt = weg
+  (`mm_install_hint_v1`).
+
+## Navigation (nav.js, swipe.js)
+Alle Bildschirme teilen sich **eine Adresse** — ein erfundener Pfad gäbe beim
+Neuladen einen 404. Deshalb spiegelt [`src/js/nav.js`](src/js/nav.js) jede
+Ebene auf einen History-Eintrag mit gleicher URL und hält den Rückweg im
+Modul-Scope.
+- **Richtung** steckt in `history.state.mmNav` (laufende Nummer je Eintrag).
+  Vorher las der popstate-Handler jedes Signal als "zurück" — Vorwärts war
+  dadurch wirkungslos. Wer `replaceState` aufruft (auth.js, community.js),
+  muss `window.history.state` durchreichen, sonst geht die Nummer verloren.
+- **Vorwärts und Neuladen** brauchen beide dasselbe: eine Ebene muss aus
+  Daten wiederherstellbar sein, nicht nur aus einer Closure. Darum gibt jeder
+  `enterScreen()`-Aufruf eine serialisierbare `view` mit
+  (`{ screen, bike, tab }`), und `app.js` hinterlegt per `setViewResolver()`
+  einmal `openView()`. **Neuer Bildschirm = `view` mitgeben und in
+  `openView()` auflösbar machen**, sonst ist er nicht wiederherstellbar
+  (Zurück funktioniert trotzdem).
+- Die zuletzt sichtbare Ebene liegt in `sessionStorage` (`mm_nav_view_v1`):
+  überlebt Reload, nicht den Tab-Neustart.
+- **Sichtbarer Rückweg auf jedem Reiter.** `.konf-back-float` war auf
+  Ausrüstung und Community ausgeblendet — dort gab es damit gar keinen
+  sichtbaren Weg zurück (die Tab-Leiste wechselt nur Reiter, der Pfeil der
+  Community führt nur von der Detailansicht in die Liste). Er ist wieder da;
+  Platz macht die Kategorie-Leiste (`padding-left`) bzw. `.mmc`
+  (`padding-top`). **Achtung bei Änderungen am Ausrüstungs-Polster:** die
+  Regel im 640px-Block setzt `padding` als Kurzform mit `!important` und hat
+  drei Klassen — ein `body:has(…)`-Selektor verliert dagegen auch mit
+  `!important`.
+- **Wischgesten** in [`src/js/swipe.js`](src/js/swipe.js): links = zurück,
+  rechts = vorwärts, nur unter 768px. Ausgenommen sind die Bildschirmränder
+  (28px — dort liegt die Zurück-Geste von iOS bzw. Android), waagerecht
+  scrollbare Bereiche (an der Scrollbreite erkannt, nicht an Klassennamen),
+  Karte, 3D-Canvas, Karten-Sheet und Eingabefelder.
+
+## Feedback-Knopf (verschiebbar)
+Der FAB aus [`src/js/feedback.js`](src/js/feedback.js) lässt sich ziehen und
+rastet an der näheren Seite ein; Position in `localStorage`
+(`mm_fb_fab_pos_v1`, `{ side, bottom }`).
+- Die Seite steckt in der Klasse `.mm-fb-fab--left`, die Höhe in der Variablen
+  `--fab-user-bottom`. **Nie ein Inline-`bottom` setzen**: die Ausweich-Regeln
+  in `main.css` rechnen die Variable per `max()` als *Untergrenze* ein, damit
+  der Knopf trotz freier Position nicht unter Tab-Leiste, Karten-Sheet oder
+  Tastatur rutscht. Ein Inline-Wert überschriebe sie alle.
+- Gezogen wird über Pointer-Events mit `setPointerCapture`; ab 6px gilt es als
+  Zug, und der darauffolgende Klick wird in der Capture-Phase geschluckt,
+  damit das Modal nicht aufgeht.
+- `.mm-fb-fab` steht in der Ausschlussliste von [`swipe.js`](src/js/swipe.js) —
+  sonst wäre ein Zug nach links gleichzeitig ein Schritt zurück.
+
+## Ladezeit
+Gemessen am **Produktions-Build** (`npm run preview`), nicht am Dev-Server —
+der liefert unbundled Module und zeigt völlig andere Zahlen.
+- **Der Flaschenhals sind Bilder, nicht der Code.** Startseite: ~8 MB Bilder
+  gegen 74 KB kritisches JavaScript. Vor jeder Code-Optimierung dort messen.
+- **Statische Importe sind Ketten.** `quiz.js` → `drop-animation.js` →
+  `garage.js` zog three.js und Leaflet (633 KB) in jeden Chunk, der das Quiz
+  anfasst — und über die Quiz-Vorbereitung auf die Startseite. `loadGarage`
+  wird deshalb dynamisch geladen. **Beim Hinzufügen statischer Importe in
+  quiz/drop-animation prüfen, was mitkommt.**
+- Die Quiz-Vorbereitung (three.js + ein 1,5-MB-Fahrermodell aus Supabase)
+  hängt an der Absicht: Zeiger/Berührung auf `#hero-cta`. Rückfall nach 12 s,
+  und nur wenn die Verbindung weder `saveData` noch 2g/3g meldet.
+- Das Hero-Video (3,8 MB) wird ohne `src` ausgeliefert; `startHeroVideo()` in
+  [`landing.js`](src/js/landing.js) hängt sie nach dem `load`-Ereignis an und
+  überspringt es bei `saveData`, 2g oder `prefers-reduced-motion`.
+
+## Geräteränder (Dynamic Island, Notch, Gestenleiste)
+Vier Tokens in `:root` statt `env()` an jeder Stelle:
+`--sa-top`, `--sa-bottom`, `--sa-left`, `--sa-right`. Sie funktionieren nur,
+weil `index.html` `viewport-fit=cover` setzt.
+- **Immer die Tokens benutzen, nie `env()` direkt.** `env()` lässt sich nicht
+  überschreiben — über die Tokens kann man ein Gerät simulieren
+  (`document.documentElement.style.setProperty('--sa-top','59px')`) und das
+  Layout prüfen, ohne so ein Gerät zu haben.
+- **Ränder gehören in die Grundregel, nicht in den 767px-Block.** Ein Handy im
+  Querformat ist über 767px breit und hat trotzdem eine Aussparung — nur eben
+  seitlich. Genau daran lag der Zurück-Pfeil vorher unter der Island. Auf
+  echten Desktops sind die Tokens 0, die Rechnung ist dort folgenlos.
+- `--sa-left`/`--sa-right` sind für Querformat da und waren vorher nirgends
+  berücksichtigt. Betroffen: alles randlos über die volle Breite —
+  Tab-Leiste, Zurück-Pfeil, Community-Raster, Feedback-Knopf, Install-Hinweis.
+- **Die Tab-Leiste rechnet den unteren Rand bewusst nur zur Hälfte ein**
+  (`--tb-mobile-bottom`). Voll gerechnet stand sie sichtbar zu hoch. Gemessen
+  auf iPhone-Maßen: Leistenkante 25px vom Rand, Tippflächen ab 31px — außerhalb
+  der ~20px-Wischzone von iOS. Wer sie tiefer oder höher will, dreht an
+  `--tb-mobile-gap`.
+
+## Formensprache für Bedienleisten
+Wo mehrere Zeilen/Knöpfe untereinander stehen, hängen die Maße an **einem
+Satz Tokens** statt an Einzelwerten je Regel — sonst driften linke Kanten,
+Radien und Zeilenhöhen auseinander, und genau das fällt auf.
+- Karten-Panel/Sheet: `--kv-ctl-h`, `--kv-ctl-r`, `--kv-ctl-fs`, `--kv-pad-x`.
+- Gruppen-Spalte der Community: `--mmc-pad-x`, `--mmc-inset`, `--mmc-row-h`,
+  `--mmc-row-r`, `--mmc-row-fs` auf `.mmc-col2-body` (am Dateiende).
+  `--mmc-inset` ist die Einrückung der Zeilenflächen; der Text rechnet mit
+  `calc(var(--mmc-pad-x) - var(--mmc-inset))` dagegen, damit er trotz
+  eingerückter Fläche auf derselben Kante sitzt wie die Abschnittslabels.
+- Die Tokens sind bewusst auf `.mmc-col2-body` begrenzt: `.mmc-vc-row` und
+  `.mmc-dm-empty` kommen auch in anderen Spalten vor.
+- **Rangfolge über Helligkeit, nicht über Farbe.** Die App ist einfarbig; die
+  drei Stufen sind überall dieselben: **gefüllt weiß** (Hauptaktion, Inhaber,
+  „Beitreten", Installieren) → **Kontur** (zweite Ebene, Moderation,
+  „Verlassen") → **gedämpft** (Mitglied, „Voll"). Grün/Rot/Bernstein sind aus
+  Talks, Rollen, Stummschaltung und Formular-Rückmeldung entfernt. Farbe bleibt
+  nur, wo sie echte Information trägt (Fehlermeldung, gedämpftes Rosé).
+- **Kleine Icon-Knöpfe brauchen eine eigene Trefferfläche.** Das „+" für Talks
+  war 20×20 — sichtbar bleibt es klein, die Trefferzone wächst über
+  `::after { inset: -9px }` auf 44px, ohne das Layout zu verschieben. In einem
+  Flex-Kopf zusätzlich `flex: 0 0 auto`, sonst quetscht ihn der Container.
+
+## Community-Kategorieleiste
+`fillRail()` in [`community.js`](src/js/community.js) rendert die linke
+Icon-Leiste für **alle drei** Ansichten (Freunde, in einer Gruppe, Übersicht).
+- Vorher gab es sie dreimal: `fillFriendsRail()`, `fillCatRail()` und in der
+  Übersicht einen Nachbau aus Spalte 2 (`col2ServerHtml()` mit
+  `.mmc-nav-item`/`.mmc-cat`). Beim Kategoriewechsel sprang deshalb die ganze
+  linke Spalte um — anderes Markup, andere Maße, Ungelesen-Punkte nur in einer
+  der drei Fassungen. `fillCol2`/`col2ServerHtml` sind entfernt.
+- Welcher Eintrag aktiv ist, ergibt sich aus dem Zustand (`friendsMode`,
+  `activeGroup`, `serverCategory`), nicht aus der Ansicht. **Neue Ansicht =
+  `<nav class="mmc-catrail">` einsetzen und `fillRail(root)` rufen**, nichts
+  nachbauen.
+- Die Spaltenbreite ist überall 72px (`.mmc` und `.mmc--overview`), auf Mobil
+  54px — sonst springt die Leiste beim Wechsel um ein paar Pixel.
+
 ## Bekannte Einschränkungen
 - Passwörter im Klartext in localStorage — nur Prototyp, kein Security-Fix nötig, aber nichts darauf aufbauen
 - QR-Login, Shop, Quests sind Platzhalter
@@ -181,3 +353,9 @@ niemand außer über das Dashboard (Service-Role) kann die Einträge lesen.
 - Windows-Asset-Kopie in [`vite.config.js`](vite.config.js) L6–70 — inert auf macOS, wird entfernt
 - localStorage-Duplikate: `mm_gear_favs`/`mm_kv_favs`, `mm_comm_friends_v1`/`v2`, `mm_comm_prefs`/`_v1` (T1.4)
 - 13 Footer-TODO-Links in [`src/js/landing.js`](src/js/landing.js) L365–393 (T1.2)
+- Die nachgebaute Community in [`src/js/bike-detail.js`](src/js/bike-detail.js)
+  (`cc-*`/`ccd-*`/`ccg-*`, ~L880–1250 plus Handler ab L4240): Einstiegspunkt
+  `buildCommunityView()` wird **nirgends aufgerufen** — der Community-Reiter
+  rendert `community.js` (`mmc-*`). Alles daran (Kommentare, Gruppenchat,
+  `MOCK_COMMENTS`, `getUserComments`) ist unerreichbar. Die fehlenden
+  `esc()`-Aufrufe darin waren genau deshalb so lange unbemerkt.

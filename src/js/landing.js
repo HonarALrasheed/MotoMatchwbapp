@@ -153,7 +153,7 @@ function buildSearchOverlay() {
     }
     results.innerHTML = matches.map(b => `
       <div class="p-search-result" data-name="${b.name.replace(/"/g, "&quot;")}">
-        <img class="p-search-result-thumb" src="${b.image}" alt="${b.name.replace(/"/g, "&quot;")}">
+        <img class="p-search-result-thumb" src="${b.image}" alt="${b.name.replace(/"/g, "&quot;")}" loading="lazy" decoding="async">
         <div>
           <div class="p-search-result-name">${b.name}</div>
           <div class="p-search-result-style">${b.style}</div>
@@ -312,6 +312,39 @@ async function runLandingAction(action) {
 }
 
 // ── initLanding ───────────────────────────────────────────
+/**
+ * Hero-Video erst nachladen, wenn die Seite steht.
+ *
+ * Das Video ist mit Abstand die groesste Datei der Startseite. Als
+ * `<source>` im Markup laedt der Browser es sofort und parallel zu allem
+ * anderen — auf dem Handy verzoegert das den ersten sichtbaren Inhalt um
+ * Sekunden, obwohl es reine Dekoration hinter dem Titel ist.
+ *
+ * Uebersprungen wird es ganz, wenn die Verbindung langsam oder datensparsam
+ * ist oder jemand reduzierte Bewegung eingestellt hat. Dann bleibt der dunkle
+ * Verlauf stehen, auf dem der Titel ohnehin liegt.
+ */
+function startHeroVideo(root) {
+  const video = root.querySelector('.p-hero-video[data-src]')
+  if (!video) return
+
+  const net = navigator.connection
+  const sparsam = net?.saveData === true
+  const langsam = net && /^(slow-)?2g$/.test(net.effectiveType || '')
+  const ruhig = window.matchMedia('(prefers-reduced-motion: reduce)').matches
+  if (sparsam || langsam || ruhig) return
+
+  const attach = () => {
+    video.src = video.dataset.src
+    delete video.dataset.src
+    video.load()
+    video.play().catch(() => { /* Autoplay verweigert: dann eben Standbild */ })
+  }
+  // Nach dem load-Ereignis: bis dahin ist alles Sichtbare durch.
+  if (document.readyState === 'complete') setTimeout(attach, 200)
+  else window.addEventListener('load', () => setTimeout(attach, 200), { once: true })
+}
+
 export function initLanding() {
   if (landingObserver) { landingObserver.disconnect(); landingObserver = null; }
   if (_scrollHandler) { window.removeEventListener("scroll", _scrollHandler); _scrollHandler = null; }
@@ -367,9 +400,12 @@ export function initLanding() {
 
     <!-- ═══ HERO ═══ -->
     <section class="p-hero">
-      <video class="p-hero-video" autoplay muted loop playsinline>
-        <source src="/__video/hero.mp4" type="video/mp4">
-      </video>
+      <!-- Ohne src ausgeliefert: die 3,8 MB des Videos konkurrierten sonst
+           ab der ersten Millisekunde mit allem, was fuer den ersten
+           Bildaufbau gebraucht wird — Schrift, CSS, Startbild. startHeroVideo()
+           haengt die Quelle an, sobald die Seite steht. -->
+      <video class="p-hero-video" autoplay muted loop playsinline
+             preload="none" data-src="/__video/hero.mp4"></video>
       <div class="p-hero-gradient-top"></div>
       <div class="p-hero-gradient-bottom"></div>
       <div class="p-hero-content">
@@ -386,7 +422,7 @@ export function initLanding() {
 
     <!-- ═══ LIFESTYLE HERO ═══ -->
     <div class="p-lifestyle-hero">
-      <img src="/hero-lifestyle.jpeg" alt="Fahrerlebnis" />
+      <img src="/hero-lifestyle.jpeg" alt="Fahrerlebnis" loading="lazy" decoding="async" />
     </div>
 
     <!-- ═══ USE SECTIONS ═══ -->
@@ -394,7 +430,7 @@ export function initLanding() {
       ${USE_SECTIONS.map(s => `
         <article class="p-lifestyle-card" id="${esc(s.id)}" data-action="${esc(s.action)}">
           <div class="p-lifestyle-card-img">
-            <img src="${esc(s.img)}" alt="${esc(s.label)}">
+            <img src="${esc(s.img)}" alt="${esc(s.label)}" loading="lazy" decoding="async">
             <div class="p-lc-info"><p class="p-lc-info-text">${esc(LC_INFO[s.id] || "")}</p></div>
           </div>
           <span class="p-lifestyle-card-label">${esc(s.label)}</span>
@@ -408,7 +444,7 @@ export function initLanding() {
       <div class="p-discover-cats">
         ${DISCOVER_CATS.map(c => `
           <div class="p-discover-cat" data-primary-bike="${c.primaryBike}">
-            <img src="${c.img}" alt="${c.name}" loading="lazy">
+            <img src="${c.img}" alt="${c.name}" loading="lazy" decoding="async">
             <div class="p-discover-cat-top">${c.bikes}</div>
             <div class="p-discover-cat-bottom">
               <div class="p-discover-cat-desc">${c.desc}</div>
@@ -421,7 +457,7 @@ export function initLanding() {
     <!-- ═══ FINDER ═══ -->
     <section class="p-finder reveal-p" id="p-finder">
       <div class="p-finder-visual">
-        <img src="/bikes/sportbikes_trio.jpg" alt="MotoMatch Motorrad" />
+        <img src="/bikes/sportbikes_trio.jpg" alt="MotoMatch Motorrad" loading="lazy" decoding="async" />
       </div>
       <div class="p-finder-text">
         <h2 class="p-finder-title">Finde mit 7 Fragen<br>dein passendes Bike.</h2>
@@ -465,6 +501,7 @@ export function initLanding() {
     }, 500);
   };
 
+  startHeroVideo(landing);
   document.getElementById("hero-cta").addEventListener("click", startQuiz);
   document.getElementById("hero-cta-existing").addEventListener("click", openExistingRiderChooser);
 
@@ -503,13 +540,54 @@ export function initLanding() {
   const drawerBackdrop = document.getElementById("p-drawer-backdrop");
   const drawerClose = document.getElementById("p-drawer-close");
 
+  /* Scroll-Sperre für den offenen Drawer.
+     body{overflow:hidden} allein reicht nicht: auf der Startseite steht
+     html.has-landing auf overflow-y:auto und behaelt damit seinen eigenen
+     Scrollbereich — der Hintergrund scrollt hinter dem Drawer weiter, und
+     auf iOS landet man beim Schließen an einer anderen Position.
+     position:fixed friert den Hintergrund wirklich ein. Der negative
+     top-Offset hält die sichtbare Stelle fest, weil das Fixieren sonst
+     nach ganz oben springen würde; beim Lösen wird er zurückgescrollt.
+     .p-drawer ist selbst position:fixed und bleibt davon unberührt. */
+  let drawerScrollY = 0;
+  let scrollLocked = false;
+
+  function lockScroll() {
+    if (scrollLocked) return;
+    drawerScrollY = window.scrollY || document.documentElement.scrollTop || 0;
+    const b = document.body.style;
+    b.position = "fixed";
+    b.top = `-${drawerScrollY}px`;
+    b.left = "0";
+    b.right = "0";
+    b.width = "100%";
+    b.overflow = "hidden";
+    scrollLocked = true;
+  }
+
+  function unlockScroll() {
+    // Idempotent: closeDrawer wird auch aus Menü-Einträgen heraus gerufen,
+    // ohne den Wert sonst auf eine veraltete Position zurückzusetzen.
+    if (!scrollLocked) return;
+    const b = document.body.style;
+    b.position = "";
+    b.top = "";
+    b.left = "";
+    b.right = "";
+    b.width = "";
+    b.overflow = "";
+    scrollLocked = false;
+    // Direkt nach dem Zurücksetzen, sonst steht die Seite wieder ganz oben.
+    window.scrollTo(0, drawerScrollY);
+  }
+
   function openDrawer() {
     if (!drawer) return;
     drawer.setAttribute("aria-hidden", "false");
     drawer.classList.add("p-drawer--open");
     menuBtn.classList.add("is-open");
     menuBtn.setAttribute("aria-expanded", "true");
-    document.body.style.overflow = "hidden";
+    lockScroll();
   }
   function closeDrawer() {
     if (!drawer) return;
@@ -517,7 +595,7 @@ export function initLanding() {
     menuBtn.classList.remove("is-open");
     menuBtn.setAttribute("aria-expanded", "false");
     setTimeout(() => { drawer.setAttribute("aria-hidden", "true"); }, 300);
-    document.body.style.overflow = "";
+    unlockScroll();
   }
 
   menuBtn.addEventListener("click", () => {
@@ -572,8 +650,29 @@ export function initLanding() {
   _scrollHandler = () => nav.classList.toggle("is-scrolled", window.scrollY > 40);
   window.addEventListener("scroll", _scrollHandler, { passive: true });
 
-  // ── Preload quiz assets ──────────────────────────────────
-  setTimeout(() => import("./quiz.js").then(m => m.preloadQuizAssets()), 2000);
+  // ── Quiz vorbereiten: erst bei Absicht ───────────────────
+  // Vorher lief das blind 2s nach dem Laden. Daran hing mehr, als es aussah:
+  // quiz.js zieht three.js nach (~600 KB), und preloadQuizAssets() laedt ein
+  // 1,5-MB-Fahrermodell von Supabase. Jeder Besucher der Startseite zahlte
+  // das, auch wer das Quiz nie startet.
+  // Jetzt an der Absicht aufgehaengt: sobald der Zeiger ueber dem Start-Knopf
+  // steht oder ihn beruehrt, ist die Vorbereitung frueh genug — zwischen
+  // Beruehrung und Klick liegt mehr als genug Zeit fuer den Ladevorgang.
+  let quizVorbereitet = false;
+  const bereiteQuizVor = () => {
+    if (quizVorbereitet) return;
+    quizVorbereitet = true;
+    import("./quiz.js").then(m => m.preloadQuizAssets());
+  };
+  ["pointerenter", "touchstart", "focus"].forEach(ev => {
+    document.getElementById("hero-cta")?.addEventListener(ev, bereiteQuizVor, { once: true, passive: true });
+  });
+  // Rueckfall fuer alle, die direkt nach unten scrollen: nach einer Weile und
+  // nur auf einer Verbindung, die es hergibt.
+  const netz = navigator.connection;
+  if (!netz?.saveData && !/^(slow-)?2g|3g$/.test(netz?.effectiveType || "")) {
+    setTimeout(bereiteQuizVor, 12000);
+  }
 
   // ── First-visit onboarding ─────────────────────────────────
   maybeShowOnboarding();

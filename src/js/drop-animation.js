@@ -1,4 +1,3 @@
-import { loadGarage } from "./garage.js";
 import { findBestBike } from "./matching.js";
 
 const BIKES = [
@@ -189,7 +188,10 @@ export function startDropAnimation(answers) {
       container.style.opacity = "0";
       setTimeout(() => {
         container.style.display = "none";
-        loadGarage(answers);
+        // Erst hier nachladen statt oben statisch: der statische Import zog
+        // garage.js (mit three.js und Leaflet) in jeden Chunk, der quiz.js
+        // anfasst — und damit ueber die Quiz-Vorbereitung auf die Startseite.
+        import("./garage.js").then(m => m.loadGarage(answers));
       }, 800);
     }, 3800);
   }

@@ -733,7 +733,7 @@ export function openPasswordResetScreen() {
     try {
       const url = new URL(window.location.href)
       url.searchParams.delete('reset')
-      window.history.replaceState({}, '', url.pathname + (url.search ? url.search : '') + url.hash)
+      window.history.replaceState(window.history.state, '', url.pathname + (url.search ? url.search : '') + url.hash)
     } catch {}
   }
 

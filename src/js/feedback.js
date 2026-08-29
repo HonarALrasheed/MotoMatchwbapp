@@ -15,8 +15,101 @@ const LS_LOCAL = 'mm_beta_feedback_local'
 const MIN_LEN = 20
 const MAX_LEN = 2000
 
+/** Gemerkte Position des Knopfs: Seite plus Abstand vom unteren Rand. */
+const LS_FAB_POS = 'mm_fb_fab_pos_v1'
+/** Ab dieser Zugstrecke ist es ein Verschieben und kein Tippen mehr. */
+const DRAG_THRESHOLD = 6
+/** Luft, die oben frei bleibt — darueber liegen Kopfzeilen und Zurueck-Pfeil. */
+const TOP_GUARD = 76
+
 function esc(s = '') {
   return String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]))
+}
+
+function readFabPos() {
+  try {
+    const v = JSON.parse(localStorage.getItem(LS_FAB_POS) || 'null')
+    if (!v || (v.side !== 'left' && v.side !== 'right')) return null
+    return { side: v.side, bottom: Number(v.bottom) || 0 }
+  } catch { return null }
+}
+
+/**
+ * Position anwenden: die Seite ueber eine Klasse, die Hoehe ueber eine
+ * Variable. Beides absichtlich nicht als Inline-`bottom` — die Ausweich-
+ * Regeln in main.css rechnen die Variable per max() als Untergrenze ein, ein
+ * Inline-Wert wuerde sie dagegen alle ueberschreiben und den Knopf wieder
+ * unter der Tab-Leiste oder der Tastatur landen lassen.
+ */
+function applyFabPos(fab, pos) {
+  fab.classList.toggle('mm-fb-fab--left', pos?.side === 'left')
+  if (pos) fab.style.setProperty('--fab-user-bottom', Math.round(pos.bottom) + 'px')
+  else fab.style.removeProperty('--fab-user-bottom')
+}
+
+/**
+ * Den Knopf mit dem Finger (oder der Maus) verschiebbar machen.
+ *
+ * Waehrend des Zugs haengt er inline an left/top, beim Loslassen rastet er an
+ * der naeheren Seite ein und die Hoehe wandert in die Variable. Pointer-Events
+ * statt Touch: damit gilt derselbe Code fuer Finger und Maus, und
+ * setPointerCapture haelt den Zug auch dann fest, wenn der Finger den kleinen
+ * Knopf verlaesst.
+ */
+function makeFabDraggable(fab) {
+  let dragging = false, moved = false
+  let startX = 0, startY = 0, offX = 0, offY = 0
+
+  fab.addEventListener('pointerdown', e => {
+    if (e.button != null && e.button !== 0) return
+    const r = fab.getBoundingClientRect()
+    startX = e.clientX; startY = e.clientY
+    offX = e.clientX - r.left; offY = e.clientY - r.top
+    dragging = true; moved = false
+    try { fab.setPointerCapture(e.pointerId) } catch {}
+  })
+
+  fab.addEventListener('pointermove', e => {
+    if (!dragging) return
+    if (!moved) {
+      if (Math.hypot(e.clientX - startX, e.clientY - startY) < DRAG_THRESHOLD) return
+      moved = true
+      // Erst jetzt umschalten: ein reiner Tipper soll den Knopf nicht
+      // unmerklich um einen Pixel versetzen.
+      fab.classList.add('mm-fb-fab--dragging')
+      fab.classList.remove('mm-fb-fab--peek')
+    }
+    const r = fab.getBoundingClientRect()
+    const x = Math.min(Math.max(e.clientX - offX, 4), window.innerWidth - r.width - 4)
+    const y = Math.min(Math.max(e.clientY - offY, TOP_GUARD), window.innerHeight - r.height - 4)
+    fab.style.left = x + 'px'
+    fab.style.top = y + 'px'
+  })
+
+  const finish = e => {
+    if (!dragging) return
+    dragging = false
+    try { fab.releasePointerCapture(e.pointerId) } catch {}
+    if (!moved) return
+    const r = fab.getBoundingClientRect()
+    // Naehere Seite gewinnt — dazwischen stehen bleiben waere weder Rand
+    // noch Mitte, und das Peek braucht eine Seite, in die es verschwinden kann.
+    const side = (r.left + r.width / 2) < window.innerWidth / 2 ? 'left' : 'right'
+    const bottom = Math.max(0, Math.round(window.innerHeight - r.bottom))
+    fab.classList.remove('mm-fb-fab--dragging')
+    fab.style.left = ''
+    fab.style.top = ''
+    const pos = { side, bottom }
+    applyFabPos(fab, pos)
+    try { localStorage.setItem(LS_FAB_POS, JSON.stringify(pos)) } catch {}
+  }
+  fab.addEventListener('pointerup', finish)
+  fab.addEventListener('pointercancel', finish)
+
+  // Der Klick nach einem Zug wuerde sonst das Modal oeffnen.
+  fab.addEventListener('click', e => {
+    if (moved) { e.preventDefault(); e.stopImmediatePropagation(); moved = false }
+  }, true)
 }
 
 export function initFeedbackFab() {
@@ -27,15 +120,32 @@ export function initFeedbackFab() {
   fab.className = 'mm-fb-fab'
   fab.setAttribute('aria-label', 'Feedback geben')
   fab.innerHTML = `<span class="mm-fb-fab-icon" aria-hidden="true">💬</span><span class="mm-fb-fab-label">Feedback</span>`
-  fab.addEventListener('click', openFeedbackModal)
+  fab.addEventListener('click', e => {
+    // Angepeekt (nur der 34px-Stummel sichtbar): erster Tap klappt nur aus,
+    // statt sofort das Modal zu oeffnen — ein Treffer auf den schmalen
+    // Rand sonst wirkt wie ein Versehen. Bei Maus/Tastatur ist das Peek
+    // dank :hover/:focus (siehe scheduleFabPeek) hier nie aktiv, das
+    // Modal geht dort weiter mit einem Klick auf.
+    if (fab.classList.contains('mm-fb-fab--peek')) {
+      e.preventDefault()
+      fab.classList.remove('mm-fb-fab--peek')
+      return
+    }
+    openFeedbackModal()
+  })
   document.body.appendChild(fab)
+  applyFabPos(fab, readFabPos())
+  makeFabDraggable(fab)
   scheduleFabPeek(fab)
 }
 
 /**
  * Nach 6s versteckt sich der FAB halb am rechten Rand (nur Icon schaut raus).
  * Alle 45s wackelt er kurz komplett raus als dezenter Hinweis.
- * Hover / Fokus bringt ihn sofort wieder komplett rein.
+ * Hover / Fokus bringt ihn sofort wieder komplett rein; auf Touch macht das
+ * der erste Tap (siehe Klick-Handler oben — bewusst nicht per touchstart,
+ * sonst waere die Klasse schon weg, bevor der Klick-Handler das Peek noch
+ * erkennen und den ersten Tap zum reinen Ausklappen machen kann).
  */
 function scheduleFabPeek(fab) {
   const hide = () => fab.classList.add('mm-fb-fab--peek')
@@ -49,7 +159,6 @@ function scheduleFabPeek(fab) {
   setInterval(nudge, 45000)
   fab.addEventListener('mouseenter', show)
   fab.addEventListener('focus', show)
-  fab.addEventListener('touchstart', show, { passive: true })
 }
 
 function openFeedbackModal() {

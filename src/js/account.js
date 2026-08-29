@@ -14,7 +14,7 @@
 // Zentrale, plattformweite Auth — dieselbe Session/DB wie im Community-Bereich
 import * as auth from './auth.js'
 import { getCatalog } from './matching.js'
-import { esc } from './util.js'
+import { esc, fmtDate, fmtRelative } from './util.js'
 
 const DEFAULT_ACCOUNT = {
   name: 'Gast',
@@ -49,23 +49,6 @@ function stringColor(str) {
 }
 function getInitials(name) {
   return name.split(/[\s·]+/).filter(Boolean).slice(0,2).map(s => s[0]).join('').toUpperCase()
-}
-function fmtDate(ts) {
-  return new Date(ts).toLocaleDateString('de-DE', { day: '2-digit', month: 'short', year: 'numeric' })
-}
-/** Relative Zeit für die Chronik — "Gerade eben" / "vor 3 Std." / "Gestern" / Datum. */
-function fmtRelative(ts) {
-  if (!ts) return ''
-  const diffMs = Date.now() - ts
-  const min = Math.floor(diffMs / 60000)
-  if (min < 1) return 'Gerade eben'
-  if (min < 60) return `vor ${min} Min.`
-  const h = Math.floor(min / 60)
-  if (h < 24) return `vor ${h} Std.`
-  const d = Math.floor(h / 24)
-  if (d === 1) return 'Gestern'
-  if (d < 7) return `vor ${d} Tagen`
-  return fmtDate(ts)
 }
 
 // ─── Data collectors from other features ───
@@ -1960,12 +1943,23 @@ function wireSettings() {
   })
   document.getElementById('acc-clear-data')?.addEventListener('click', () => {
     if (!confirm('Wirklich alle Daten löschen? Diese Aktion kann nicht rückgängig gemacht werden.')) return
-    const keys = []
-    for (let i = 0; i < localStorage.length; i++) {
-      const k = localStorage.key(i)
-      if (k?.startsWith('mm_')) keys.push(k)
+    /* Schon der Zugriff auf localStorage wirft, wenn der Browser Speicher fuer
+       die Seite sperrt (Safari mit blockierten Cookies, privater Modus mancher
+       Builds). Ungeschuetzt starb der Handler dann mitten im Loeschen: ein Teil
+       der Schluessel war weg, die Rueckmeldung und der Neuladen kamen nie —
+       der Nutzer sah nach einer bestaetigten, unumkehrbaren Aktion gar nichts.
+       Jetzt entweder vollstaendig durch oder mit ehrlicher Meldung. */
+    try {
+      const keys = []
+      for (let i = 0; i < localStorage.length; i++) {
+        const k = localStorage.key(i)
+        if (k?.startsWith('mm_')) keys.push(k)
+      }
+      keys.forEach(k => localStorage.removeItem(k))
+    } catch {
+      showFlash('Daten konnten nicht gelöscht werden — Browser-Speicher gesperrt.')
+      return
     }
-    keys.forEach(k => localStorage.removeItem(k))
     showFlash('Daten gelöscht')
     setTimeout(() => location.reload(), 600)
   })
@@ -2021,12 +2015,60 @@ function showFlash(text) {
 }
 
 // ─── Public API ───
-export function openAccount() {
+/**
+ * Spiegelt die Taskleiste der aufrufenden Seite ueber das Overlay. Das Panel
+ * ist deckend (inset: 0, z-index 1200) — die originale Leiste liegt darunter
+ * und waere sonst weg. Geklont statt neu gebaut, damit die Klicks auf den
+ * Original-Buttons landen und deren Handler gelten.
+ */
+function mountAccountTabbar(sourceBar) {
+  const overlay = document.getElementById('acc-overlay')
+  if (!overlay || !sourceBar || overlay.querySelector('.acc-tabbar')) return
+
+  const originals = [...sourceBar.querySelectorAll('.tb-btn')]
+  // Der Profil-Reiter fuehrt hierher zurueck — merken, bevor die IDs im Klon
+  // entfernt werden (doppelte IDs im Dokument).
+  const isProfil = originals.map((b) => /profil/i.test(b.id))
+
+  const clone = sourceBar.cloneNode(true)
+  clone.removeAttribute('id')
+  clone.querySelectorAll('[id]').forEach((el) => el.removeAttribute('id'))
+
+  const wrap = document.createElement('div')
+  // Die Konfigurator-Leiste bleibt am Desktop in der Grundgroesse, die
+  // Garage-Leiste ist groesser — der Klon markiert seine Herkunft, damit er
+  // dieselben Masse traegt wie das Original darunter.
+  const fromKonf = !!sourceBar.closest('.konf-tb-wrap')
+  wrap.className = `tb-wrap scrolled acc-tabbar${fromKonf ? ' acc-tabbar--konf' : ''}`
+  wrap.appendChild(clone)
+  overlay.appendChild(wrap)
+  // Schliessen-Button und Inhalt muessen unter der Leiste anfangen
+  overlay.classList.add('acc-overlay--tabbar')
+
+  clone.querySelectorAll('.tb-btn').forEach((btn, i) => {
+    btn.classList.toggle('tb-btn-active', isProfil[i])
+    btn.addEventListener('click', () => {
+      closeAccount()
+      if (isProfil[i]) return
+      // Erst nach dem Schliessen, sonst steigt openAccount() im Original-
+      // Handler aus, weil das Overlay noch im DOM haengt.
+      setTimeout(() => originals[i]?.click(), 300)
+    })
+  })
+}
+
+/**
+ * @param {Element} [sourceBar] Taskleiste der aufrufenden Seite; wird ueber
+ *   dem Overlay gespiegelt, damit man von hier direkt weiternavigieren kann.
+ */
+export function openAccount(sourceBar) {
   if (document.getElementById('acc-overlay')) return
   const wrapper = document.createElement('div')
   wrapper.innerHTML = buildAccountHTML()
   document.body.appendChild(wrapper.firstElementChild)
   document.body.style.overflow = 'hidden'
+  _lastSourceBar = sourceBar || null
+  mountAccountTabbar(_lastSourceBar)
   requestAnimationFrame(() => {
     document.getElementById('acc-overlay')?.classList.add('acc-overlay--open')
   })
@@ -2068,12 +2110,14 @@ export function openAccount() {
     })
   }
 }
+let _lastSourceBar = null
+
 function reopenAccount() {
   const ov = document.getElementById('acc-overlay')
   if (ov) ov.remove()
   document.removeEventListener('keydown', escHandler)
   document.body.style.overflow = ''
-  openAccount()
+  openAccount(_lastSourceBar)
 }
 function escHandler(e) {
   if (e.key === 'Escape') closeAccount()

@@ -9,8 +9,11 @@ import { MeshoptDecoder } from 'three/addons/libs/meshopt_decoder.module.js'
 import { DRACOLoader } from 'three/addons/loaders/DRACOLoader.js'
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js'
 import { getGear } from './gear.js'
-import { initHubMap, searchNearby, getHubSearchResults, onHubResults, focusHubResult, recenterHubMap, getUserCoords, searchNearbyAt } from './garage.js'
-import { esc } from './util.js'
+import { initHubMap, searchNearby, getHubSearchResults, onHubResults, focusHubResult, recenterHubMap, zoomHubMap, getUserCoords, searchNearbyAt, retryHubLocation, hasMapsConsent, onHubMapMoved, panHubToCoords, haversineKm } from './garage.js'
+import { esc, fmtRelative } from './util.js'
+import { enterScreen, goBack } from './nav.js'
+import { findBikeByShortName, findTopMatches, findSimilarBikes, scoreBikeAgainst, MATCH_WEIGHTS } from './matching.js'
+import { getMatches, addMatch, removeMatch, clearMatches, restoreMatch, hasMatch, getLastAnswers, getPrimaryBike, setPrimaryBike } from './match-history.js'
 
 // Deterministic pseudo-random number from a seed string, returns float in [0,1)
 function seededRand(seed) {
@@ -26,78 +29,25 @@ function hashInt(seed, salt, min, max) {
   return min + Math.floor(seededRand(seed + '\x00' + salt) * (max - min + 1))
 }
 
-// Open-Meteo weather code → icon + label
-const WEATHER_CODES = {
-  0:  { icon: '☀️',  label: 'Sonnig' },
-  1:  { icon: '🌤',  label: 'Meist sonnig' },
-  2:  { icon: '⛅',  label: 'Teils bewölkt' },
-  3:  { icon: '☁️',  label: 'Bewölkt' },
-  45: { icon: '🌫',  label: 'Neblig' },
-  48: { icon: '🌫',  label: 'Frostneblig' },
-  51: { icon: '🌦',  label: 'Leichter Niesel' },
-  53: { icon: '🌦',  label: 'Niesel' },
-  55: { icon: '🌧',  label: 'Starker Niesel' },
-  61: { icon: '🌦',  label: 'Leichter Regen' },
-  63: { icon: '🌧',  label: 'Regen' },
-  65: { icon: '🌧',  label: 'Starker Regen' },
-  71: { icon: '🌨',  label: 'Leichter Schnee' },
-  73: { icon: '🌨',  label: 'Schnee' },
-  75: { icon: '❄️',  label: 'Starker Schnee' },
-  80: { icon: '🌧',  label: 'Regenschauer' },
-  81: { icon: '🌧',  label: 'Regen' },
-  82: { icon: '⛈',  label: 'Starker Regen' },
-  95: { icon: '⛈',  label: 'Gewitter' },
-  96: { icon: '⛈',  label: 'Gewitter & Hagel' },
-  99: { icon: '⛈',  label: 'Starkes Gewitter' },
-}
-function bikeWeatherTip(temp, code) {
-  if ([61,63,65,80,81,82,95,96,99].includes(code)) return 'Vorsicht: Nasse Strasse'
-  if ([71,73,75].includes(code)) return 'Achtung: Glätte möglich'
-  if (temp < 5) return 'Sehr kalt — warm anziehen'
-  if (temp >= 15 && temp <= 25 && [0,1,2].includes(code)) return 'Perfektes Bikewetter'
-  if (temp > 28) return 'Heiss — viel trinken'
-  if (temp < 10) return 'Kühl — Heizgriffe an'
-  return 'Gute Fahrbedingungen'
-}
-async function loadWeather() {
-  const card = document.getElementById('kv-weather-card')
-  if (!card) return
-  try {
-    // Auf User-Koordinaten warten, falls die Geolocation-Abfrage noch läuft
-    // (getUserLocation() erlaubt bis zu 8s) — kurz pollen statt einmalig kurz warten.
-    let coords = getUserCoords()
-    for (let i = 0; i < 16 && !coords.lat; i++) {
-      await new Promise(r => setTimeout(r, 500))
-      coords = getUserCoords()
-    }
-    if (!coords.lat) {
-      card.querySelector('.kv-weather-icon').textContent = '📍'
-      card.querySelector('.kv-weather-temp').textContent = '–'
-      card.querySelector('.kv-weather-desc').textContent = 'Standort unbekannt'
-      return
-    }
-    const res = await fetch(`https://api.open-meteo.com/v1/forecast?latitude=${coords.lat}&longitude=${coords.lng}&current_weather=true`)
-    const data = await res.json()
-    const w = data.current_weather
-    if (!w) return
-    const meta = WEATHER_CODES[w.weathercode] || { icon: '🌡', label: 'Aktuell' }
-    const temp = Math.round(w.temperature)
-    const tip = bikeWeatherTip(temp, w.weathercode)
-    card.querySelector('.kv-weather-icon').textContent = meta.icon
-    card.querySelector('.kv-weather-temp').textContent = `${temp}°`
-    card.querySelector('.kv-weather-desc').textContent = `${meta.label} · ${tip}`
-  } catch (err) {
-    console.warn('[weather] fetch failed', err)
-  }
-}
 import { trackBikeVisit, getAccount } from './account.js'
 
-function getCurrentUserName() {
+/* Der Anzeigename ist frei waehlbar (auth.js, updateProfile({ name })) und
+ * landet an sieben Stellen per Template-String in innerHTML. Statt dort
+ * siebenmal esc() zu streuen — und beim achten Aufruf zu vergessen — geben
+ * die beiden Getter fertig escapte Werte zurueck. Wer den Rohwert braucht,
+ * nimmt rawUserName(). */
+function rawUserName() {
   try { return getAccount().name || 'Du' } catch { return 'Du' }
 }
-function getCurrentUserInitials() {
-  const name = getCurrentUserName()
+function getCurrentUserName() {
+  return esc(rawUserName())
+}
+function rawUserInitials() {
+  const name = rawUserName()
   return name.split(/[\s·]+/).filter(Boolean).slice(0, 2).map(s => s[0]).join('').toUpperCase() || 'DU'
+}
+function getCurrentUserInitials() {
+  return esc(rawUserInitials())
 }
 
 // Universal toast for transient feedback (3s)
@@ -248,6 +198,11 @@ export const BIKE_DATA = {
 
 let detailScene, detailCamera, detailRenderer, detailBike, detailRaf
 let camDist = 5, camHeight = 1.5, lookAtY = 0.45
+// Start-Tab des Konfigurators. Der frueher erste Reiter "Ansicht" wurde durch
+// "Profil" ersetzt; seine Inhalte stecken jetzt im Panel "Alle technischen
+// Details" auf Deckblatt/Garage-Seite.
+const KONF_DEFAULT_TAB = 'match'
+
 let currentView = 'deckblatt' // 'deckblatt' | 'konfigurator'
 let currentBikeData = null
 let konfObserver = null
@@ -256,7 +211,7 @@ let isDragging = false, angle = 0.8, prevX = 0
 /**
  * Normalize garage bikeData (from matching.js) to our internal format.
  */
-function normalizeGarageData(bikeData) {
+export function normalizeGarageData(bikeData) {
   const shortName = bikeData.name.replace(/^(Honda|Yamaha|Harley-Davidson|Suzuki|Kawasaki|BMW|Ducati|KTM|Triumph)\s+/i, '')
   const existing = BIKE_DATA[shortName]
 
@@ -277,6 +232,7 @@ function normalizeGarageData(bikeData) {
       seat: String(bikeData.seat_height),
       tank: String(bikeData.tank),
       gear: bikeData.gear,
+      license: bikeData.license || '',
     },
     desc: existing?.desc || `${bikeData.brand} ${shortName}. ${bikeData.style}-Klasse.`,
     price: bikeData.priceDisplay || '',
@@ -299,26 +255,41 @@ function normalizeGarageData(bikeData) {
  * garageCleanup: function to call to clean up the garage 3D/state before we take over.
  */
 export function openKonfigurator(bikeData, garageCleanup, initialTab) {
+  // garageCleanup ist der verlässliche Herkunfts-Indikator: nur die Garage
+  // übergibt ihn. Die Startseite ruft mit null auf.
+  konfOrigin = garageCleanup ? 'garage' : 'landing'
   if (garageCleanup) garageCleanup()
   const data = normalizeGarageData(bikeData)
   currentBikeData = data
   currentView = 'konfigurator'
-  // Resolve target tab: explicit initialTab > last saved tab > 'ansicht'
+  // Resolve target tab: explicit initialTab > last saved tab > Standard-Tab.
+  // 'ansicht' hat keinen eigenen Reiter mehr (Inhalt steckt unter "Alle
+  // technischen Details") — ein alter gespeicherter Wert faellt daher zurueck.
   let targetTab = initialTab
   if (!targetTab) {
-    try { targetTab = localStorage.getItem('mm_last_tab') || 'ansicht' } catch { targetTab = 'ansicht' }
+    try { targetTab = localStorage.getItem('mm_last_tab') || KONF_DEFAULT_TAB } catch { targetTab = KONF_DEFAULT_TAB }
+    if (targetTab === 'ansicht') targetTab = KONF_DEFAULT_TAB
   }
-  if (!tabViewBuilders[targetTab]) targetTab = 'ansicht'
+  if (!tabViewBuilders[targetTab]) targetTab = KONF_DEFAULT_TAB
   activeKonfTab = targetTab // reset for consistent initial render
   trackBikeVisit(data.fullName || bikeData.name, data.style)
 
   const garageContainer = document.getElementById('garage-container')
   const detail = document.getElementById('bike-detail')
+  const landing = document.getElementById('landing')
 
   // Fade out garage
   if (garageContainer) {
     garageContainer.style.transition = 'opacity 0.22s ease'
     garageContainer.style.opacity = '0'
+  }
+  // Startseite ausblenden, sonst bleibt ihre fixe Kopfzeile (.p-nav, z-index
+  // 500) über der Konfigurator-Taskbar (z-index 300) sichtbar und fängt
+  // Klicks ab. Manche Aufrufer (Drawer) blenden schon vorher selbst aus —
+  // dann ist landing hier bereits display:none und das bleibt unangetastet.
+  if (landing && konfOrigin === 'landing' && landing.style.display !== 'none') {
+    landing.style.transition = 'opacity 0.22s ease'
+    landing.style.opacity = '0'
   }
 
   setTimeout(() => {
@@ -326,10 +297,16 @@ export function openKonfigurator(bikeData, garageCleanup, initialTab) {
       garageContainer.style.display = 'none'
       garageContainer.innerHTML = ''
     }
+    if (landing && konfOrigin === 'landing') {
+      landing.style.display = 'none'
+      document.documentElement.classList.remove('has-landing')
+    }
 
     detail.innerHTML = buildKonfiguratorHTML(data, targetTab)
     detail.style.display = 'block'
     detail.classList.add('bd-konfigurator-active')
+    enterScreen('bd-konfigurator', () => konfiguratorBack(data, bikeData), isKonfiguratorActive,
+                { screen: 'konfigurator', bike: bikeData?.name || data.fullName, tab: targetTab })
 
     try { localStorage.setItem('mm_last_tab', targetTab) } catch {}
 
@@ -349,6 +326,54 @@ export function openKonfigurator(bikeData, garageCleanup, initialTab) {
   }, 220)
 }
 
+/* ═══════════════════════════════════════════════════
+   RÜCKWEG — Registrierung bei nav.js
+   ═══════════════════════════════════════════════════ */
+
+/** Woher der Konfigurator geöffnet wurde — bestimmt das Ziel des Zurück-Wegs. */
+let konfOrigin = 'deckblatt'
+
+function detailVisible() {
+  const detail = document.getElementById('bike-detail')
+  return !!detail && detail.style.display !== 'none'
+}
+const isDeckblattActive = () => detailVisible() && currentView === 'deckblatt'
+const isKonfiguratorActive = () => detailVisible() && currentView === 'konfigurator'
+
+/** Bike-Detail schließen und zur Startseite zurück. */
+function closeDetailToLanding() {
+  const detail = document.getElementById('bike-detail')
+  const landing = document.getElementById('landing')
+  cleanup3D()
+  cleanupKonfigurator()
+  detail.style.transition = 'opacity 0.22s ease'
+  detail.style.opacity = '0'
+  setTimeout(() => {
+    detail.style.display = 'none'
+    detail.innerHTML = ''
+    detail.style.opacity = ''
+    detail.style.transition = ''
+    landing.style.display = 'block'
+    // Der Drawer-Weg in landing.js nimmt has-landing beim Verlassen weg —
+    // ohne das Zurücksetzen bliebe die Startseite unscrollbar.
+    document.documentElement.classList.add('has-landing')
+    requestAnimationFrame(() => { landing.style.opacity = '1' })
+  }, 220)
+}
+
+/**
+ * Ein Schritt zurück aus dem Konfigurator — zum tatsächlichen Herkunfts-
+ * bildschirm. Vorher entschied das an `bindKonfiguratorEvents` übergebene
+ * `garageBikeData` darüber, das aber von `openKonfigurator` immer gesetzt
+ * wurde: auch der Weg Startseite → Ausrüstung/Karte/Community landete
+ * dadurch in der Garage eines Bikes, das nie ausgewählt wurde.
+ */
+function konfiguratorBack(data, garageBikeData) {
+  if (konfOrigin === 'garage' && garageBikeData) returnToGarage(garageBikeData)
+  else if (konfOrigin === 'landing') closeDetailToLanding()
+  else transitionToDeckblatt(data)
+}
+
 export function openBikeDetail(bikeName) {
   const data = BIKE_DATA[bikeName]
   if (!data) return
@@ -366,6 +391,10 @@ export function openBikeDetail(bikeName) {
   setTimeout(() => {
     landing.style.display = 'none'
     detail.style.display = 'block'
+    // Erst jetzt registrieren: History-Eintrag und sichtbarer Bildschirm
+    // sollen zum selben Zeitpunkt entstehen.
+    enterScreen('bd-deckblatt', closeDetailToLanding, isDeckblattActive,
+                { screen: 'deckblatt', bike: data.fullName })
     window.scrollTo(0, 0)
     requestAnimationFrame(() => {
       detail.style.opacity = '1'
@@ -386,8 +415,10 @@ function buildDeckblattHTML(data) {
       <button class="bd-back" id="bd-back">
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 12H5M12 19l-7-7 7-7"/></svg>
       </button>
-      <div class="bd-hero-bg-text">${data.bgText}</div>
+      <!-- Wortmarke sitzt in der Bildbox, damit sie an das Motorrad
+           gekoppelt bleibt statt an die Hero-Hoehe. -->
       <div class="bd-hero-img-wrap">
+        <div class="bd-hero-bg-text">${data.bgText}</div>
         <img class="bd-hero-img" src="${data.img1}" alt="${data.fullName}">
       </div>
       <div class="bd-hero-info">
@@ -405,19 +436,7 @@ function buildDeckblattHTML(data) {
     <section class="bd-specs">
       <div class="bd-specs-inner">
         <div class="bd-specs-left">
-          ${buildSpecItem(data.specs.accel, 's', 'Beschleunigung 0 - 100 km/h', 1)}
-          ${buildSpecItem(data.specs.power.split('/')[0].replace(/[^0-9]/g, ''), ' kW / ' + data.specs.power.split('/')[1].trim(), 'Leistung', 0)}
-          ${buildSpecItem(data.specs.topSpeed, ' km/h', 'H\u00f6chstgeschwindigkeit', 0)}
-          <button class="bd-btn bd-btn-outline bd-details-toggle" id="bd-details-toggle">Alle technischen Details</button>
-          <div class="bd-details-panel" id="bd-details-panel">
-            <div class="bd-details-grid">
-              <div class="bd-detail-item"><span class="bd-detail-val">${data.specs.cc} ccm</span><span class="bd-detail-lbl">Hubraum</span></div>
-              <div class="bd-detail-item"><span class="bd-detail-val">${data.specs.weight} kg</span><span class="bd-detail-lbl">Gewicht</span></div>
-              <div class="bd-detail-item"><span class="bd-detail-val">${data.specs.seat} cm</span><span class="bd-detail-lbl">Sitzh\u00f6he</span></div>
-              <div class="bd-detail-item"><span class="bd-detail-val">${data.specs.tank} L</span><span class="bd-detail-lbl">Tankvolumen</span></div>
-              <div class="bd-detail-item"><span class="bd-detail-val">${data.specs.gear}</span><span class="bd-detail-lbl">Getriebe</span></div>
-            </div>
-          </div>
+          ${buildDetailsAnsichtHTML(data)}
         </div>
         <div class="bd-specs-right">
           <div class="bd-3d-canvas-wrap" id="bd-3d-wrap">
@@ -434,29 +453,100 @@ function buildDeckblattHTML(data) {
   `
 }
 
-function buildSpecItem(value, unit, label, decimals) {
+/**
+ * Die komplette "Ansicht"-Seite als eingebetteter Block fuer das aufklappbare
+ * Panel "Alle technischen Details" (Deckblatt- und Garage-Seite). Erwartet ein
+ * normalisiertes Bike-Objekt — siehe normalizeGarageData().
+ */
+export function buildDetailsAnsichtHTML(content) {
+  if (!content) return ''
+  // Statt der Titel-Karte (Name/Preis stehen schon im Hero) steht hier das
+  // technische Raster — es lag vorher lose ueber dem Block.
+  const gridCard = `
+    <div class="konf-card konf-reveal">
+      ${buildDetailsGridHTML(content.specs)}
+    </div>`
+  return `<div class="bd-ansicht-embed">${buildAnsichtView(content, gridCard)}</div>`
+}
+
+/** Das Kennzahlen-Raster (Hubraum, Gewicht, …) aus einem specs-Objekt. */
+export function buildDetailsGridHTML(specs = {}) {
+  const items = [
+    [`${specs.cc} ccm`, 'Hubraum'],
+    [`${specs.weight} kg`, 'Gewicht'],
+    [`${specs.seat} cm`, 'Sitzh\u00f6he'],
+    [`${specs.tank} L`, 'Tankvolumen'],
+    [specs.gear, 'Getriebe'],
+  ]
+  if (specs.license) items.push([specs.license, 'F\u00fchrerschein'])
+
   return `
-    <div class="bd-spec-item bd-spec-anim">
-      <span class="bd-spec-value"><span class="bd-counter" data-target="${value}" data-decimals="${decimals}">0</span><span class="bd-spec-unit">${unit}</span></span>
-      <span class="bd-spec-label">${label}</span>
-    </div>
-  `
+    <div class="bd-details-grid">
+      ${items.map(([val, lbl]) => `
+        <div class="bd-detail-item">
+          <span class="bd-detail-val">${esc(val)}</span>
+          <span class="bd-detail-lbl">${lbl}</span>
+        </div>
+      `).join('')}
+    </div>`
+}
+
+/**
+ * Bindet die interaktiven Teile der eingebetteten Ansicht-Seite. Der normale
+ * Konfigurator erledigt das ueber initKonfiguratorAnimations(), das hier aber
+ * nicht passt: es haengt an .konf-right / .konf-split, die es im Panel nicht
+ * gibt. openTab(tab) springt von hier aus in den Konfigurator.
+ */
+export function bindDetailsAnsichtEvents(host, openTab) {
+  if (!host) return
+
+  // Ohne Scroll-Container laeuft der Reveal-Observer nie an — direkt zeigen.
+  host.querySelectorAll('.konf-reveal').forEach(el => el.classList.add('konf-visible'))
+
+  // Leistungsbalken + Zaehler starten, sobald das Panel im Viewport steht
+  const barsCard = host.querySelector('#konf-bars-card')
+  if (barsCard) {
+    const obs = new IntersectionObserver((entries) => {
+      if (!entries.some(e => e.isIntersecting)) return
+      obs.disconnect()
+      barsCard.querySelectorAll('.konf-bar-group').forEach((group, i) => {
+        const fill = group.querySelector('.konf-bar-fill')
+        const counters = group.querySelectorAll('.konf-bar-counter')
+        setTimeout(() => {
+          if (fill) fill.style.width = fill.dataset.pct + '%'
+          counters.forEach(animateBarNumber)
+        }, i * 120)
+      })
+    }, { threshold: 0.2 })
+    obs.observe(barsCard)
+  }
+
+  // "Mehr / Weniger anzeigen"
+  const mehrBtn = host.querySelector('#konf-mehr-btn')
+  const mehrSection = host.querySelector('#konf-mehr-section')
+  mehrBtn?.addEventListener('click', () => {
+    const isOpen = mehrSection.classList.toggle('konf-mehr-open')
+    mehrBtn.querySelector('.konf-mehr-label').textContent = isOpen ? 'Weniger anzeigen' : 'Mehr anzeigen'
+    mehrBtn.classList.toggle('konf-mehr-btn--open', isOpen)
+    // Beim Zuklappen zurueck nach oben — der Block scrollt in sich, sonst
+    // bliebe man im leeren Rest haengen.
+    if (!isOpen) host.scrollTo({ top: 0, behavior: 'smooth' })
+  })
+
+  // Weiter in den Konfigurator
+  if (typeof openTab === 'function') {
+    host.querySelector('.konf-next-btn')?.addEventListener('click', (e) => {
+      openTab(e.currentTarget.dataset.next || 'ausstattung')
+    })
+  }
 }
 
 function bindDeckblattEvents(data, detail, landing) {
   document.getElementById('bd-back').addEventListener('click', () => {
-    cleanup3D()
-    cleanupKonfigurator()
-    detail.style.transition = 'opacity 0.22s ease'
-    detail.style.opacity = '0'
-    setTimeout(() => {
-      detail.style.display = 'none'
-      detail.innerHTML = ''
-      detail.style.opacity = ''
-      detail.style.transition = ''
-      landing.style.display = 'block'
-      requestAnimationFrame(() => { landing.style.opacity = '1' })
-    }, 220)
+    // Über die History zurück, damit In-App-Button und Browser-Zurück
+    // denselben Weg nehmen; der Fallback greift nur, wenn kein Eintrag
+    // existiert (z. B. Direkteinstieg über ?bike=).
+    if (!goBack()) closeDetailToLanding()
   })
 
   document.getElementById('bd-quiz-btn').addEventListener('click', () => {
@@ -478,13 +568,11 @@ function bindDeckblattEvents(data, detail, landing) {
     document.querySelector('.bd-specs').scrollIntoView({ behavior: 'smooth' })
   })
 
-  document.getElementById('bd-details-toggle').addEventListener('click', () => {
-    const panel = document.getElementById('bd-details-panel')
-    const btn = document.getElementById('bd-details-toggle')
-    if (!panel || !btn) return
-    panel.classList.toggle('open')
-    btn.textContent = panel.classList.contains('open') ? 'Details ausblenden' : 'Alle technischen Details'
-  })
+  // Ansicht steht fest in der linken Spalte — direkt binden
+  bindDetailsAnsichtEvents(
+    detail.querySelector('.bd-specs-left .bd-ansicht-embed'),
+    tab => transitionToKonfigurator(data, tab),
+  )
 
   // "Konfigurieren" — transition to configurator
   document.getElementById('bd-config-btn').addEventListener('click', () => {
@@ -496,9 +584,11 @@ function bindDeckblattEvents(data, detail, landing) {
    KONFIGURATOR — Porsche Split-Screen (State 2)
    ═══════════════════════════════════════════════════ */
 
-function transitionToKonfigurator(data) {
+function transitionToKonfigurator(data, initialTab) {
   if (currentView === 'konfigurator') return
   currentView = 'konfigurator'
+  konfOrigin = 'deckblatt'
+  const tab = tabViewBuilders[initialTab] ? initialTab : KONF_DEFAULT_TAB
 
   const detail = document.getElementById('bike-detail')
 
@@ -507,9 +597,15 @@ function transitionToKonfigurator(data) {
   cleanup3D()
 
   setTimeout(() => {
-    detail.innerHTML = buildKonfiguratorHTML(data)
+    // activeKonfTab muss mitgezogen werden, sonst ignoriert
+    // bindKonfiguratorEvents den ersten Klick auf den Reiter, der beim
+    // letzten Besuch aktiv war.
+    activeKonfTab = tab
+    detail.innerHTML = buildKonfiguratorHTML(data, tab)
     detail.classList.remove('bd-transitioning')
     detail.classList.add('bd-konfigurator-active')
+    enterScreen('bd-konfigurator', () => konfiguratorBack(data, null), isKonfiguratorActive,
+                { screen: 'konfigurator', bike: data.fullName, tab })
 
     requestAnimationFrame(() => {
       detail.classList.add('bd-konfigurator-visible')
@@ -626,6 +722,121 @@ const COMMUNITY_DATA = {
     { title: 'Sound Check V-Twin',  desc: 'Originaler Harley-Sound im Detail',   meta: '0:30 min',  extra: '85k Views',  tier: 'TOP' },
     { title: 'Wheelie Fail Compilation', desc: 'Best of Wheelie-Fails 2025',     meta: '1:00 min',  extra: '210k Views', tier: 'HOT' },
   ],
+}
+
+/* Die Filterleiste der Ausruestungsseite ist fixiert; .konf-right haelt ihren
+   Platz ueber ein hartes padding-top frei. Auf schmalen Schirmen bricht die
+   Leiste je nach Breite um, das feste Mass passt dann nicht mehr und die erste
+   Karte verschwindet dahinter. Deshalb messen statt raten. Greift nur auf
+   Mobil — das CSS liest die Variable ausschliesslich unter 767px, Desktop
+   behaelt sein festes Mass. */
+let gearBarObserver = null
+
+/* Ausruestung und Community bauen verschiedene Leisten: hier .gear-filter-bar,
+   dort .gear-price-row als eigene Topbar. Gemessen wird die, die im DOM steht —
+   immer nur eine Registerkarte ist gleichzeitig aufgebaut. */
+function gearBarEl() {
+  return document.querySelector('.gear-filter-bar') || document.querySelector('.gear-price-row')
+}
+
+function syncGearBarHeight() {
+  const row = gearBarEl()
+  const right = document.querySelector('.konf-right')
+  // Die weiche Kante rechts an der Kategorieleiste nur zeigen, wenn dort
+  // wirklich noch etwas ausserhalb liegt.
+  const cats = document.querySelector('.gear-filter-cats')
+  if (cats) cats.classList.toggle('gear-filter-cats--overflow', cats.scrollWidth > cats.clientWidth + 1)
+  if (!row || !right) return
+  const bottom = row.getBoundingClientRect().bottom
+  // Waehrend der Einblendanimation kann die Leiste noch bei 0 stehen — dann
+  // nichts schreiben und auf den naechsten Beobachter-Durchlauf warten.
+  if (bottom > 0) right.style.setProperty('--gear-bars-h', Math.ceil(bottom) + 'px')
+}
+
+/* Setzt Umschalter und Leistenmessung auf.
+ *
+ * Die Klicks laufen bewusst ueber Delegation am Dokument statt ueber je einen
+ * Listener pro Knopf: Die Ausruestungsseite wird auf mehreren Wegen aufgebaut
+ * (Deckblatt, untere Leiste, Menue), und nicht auf jedem laeuft die uebliche
+ * Bindungsrunde. Ein einziger Listener am Dokument ueberlebt jeden Neuaufbau
+ * des Markups und kann sich nicht verdoppeln.
+ */
+document.addEventListener('click', (e) => {
+  const btn = e.target.closest?.('.gear-view-btn')
+  if (!btn) return
+  const view = btn.dataset.view === 'list' ? 'list' : 'grid'
+  setGearView(view)
+  applyGearView(view)
+  observeGearBar()
+})
+
+function initGearView() {
+  applyGearView(getGearView())
+  observeGearBar()
+}
+
+/* Die Ausruestungsseite wird ueber mehrere Wege aufgebaut (Deckblatt, untere
+   Leiste, Menue) und nicht auf jedem laeuft die uebliche Bindungsrunde. Statt
+   sich auf einen dieser Wege zu verlassen, wird auf das Erscheinen der Leiste
+   selbst reagiert — dann stimmen gemerkte Ansicht und gemessene Leistenhoehe
+   unabhaengig davon, wer die Seite gebaut hat. */
+function watchForGearBar() {
+  const host = document.getElementById('bike-detail')
+  if (!host || typeof MutationObserver === 'undefined') return
+  let seen = false
+  new MutationObserver(() => {
+    const there = !!document.querySelector('.gear-view-toggle')
+    if (there === seen) return
+    seen = there
+    if (there) initGearView()
+  }).observe(host, { childList: true, subtree: true })
+}
+
+if (typeof document !== 'undefined') {
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', watchForGearBar, { once: true })
+  } else {
+    watchForGearBar()
+  }
+}
+
+/* Beobachtet die untere Filterleiste. Ein ResizeObserver statt eines
+   Aufrufs zum Aufbauzeitpunkt, weil die Leiste erst nach der Einblendung
+   ihre endgueltige Hoehe hat und je nach Fensterbreite auf zwei oder drei
+   Zeilen umbricht — beides meldet der Beobachter von selbst. */
+function observeGearBar() {
+  const row = gearBarEl()
+  if (!row || typeof ResizeObserver === 'undefined') return
+  if (gearBarObserver) gearBarObserver.disconnect()
+  gearBarObserver = new ResizeObserver(syncGearBarHeight)
+  gearBarObserver.observe(row)
+  syncGearBarHeight()
+}
+
+/* Gemerkte Ansicht der Ausruestungsliste ("grid" = Kacheln, "list" = Liste).
+   Bewusst geraetweit und nicht pro Stil gespeichert: Wer einmal Liste gewaehlt
+   hat, will sie auch beim naechsten Bike sehen. */
+const GEAR_VIEW_KEY = 'mm_gear_view_v1'
+
+function getGearView() {
+  try { return localStorage.getItem(GEAR_VIEW_KEY) === 'list' ? 'list' : 'grid' } catch { return 'grid' }
+}
+function setGearView(view) {
+  try { localStorage.setItem(GEAR_VIEW_KEY, view) } catch {}
+}
+
+/* Setzt die Ansicht auf das Raster und synchronisiert die beiden Knoepfe.
+   Laeuft nur, wenn der Umschalter im DOM steht — die Community nutzt dasselbe
+   .gear-grid/#gear-list, hat aber keinen Umschalter und darf nicht mit
+   umgeschaltet werden. */
+function applyGearView(view) {
+  const toggle = document.querySelector('.gear-view-toggle')
+  if (!toggle) return
+  const grid = document.getElementById('gear-list')
+  if (grid) grid.classList.toggle('gear-grid--list', view === 'list')
+  toggle.querySelectorAll('.gear-view-btn').forEach(btn => {
+    btn.setAttribute('aria-pressed', String(btn.dataset.view === view))
+  })
 }
 
 /* localStorage helpers for community state */
@@ -821,7 +1032,7 @@ Folgt mir für mehr Content rund ums Motorrad. Bleibt sicher unterwegs! 🏍</p>
             </div>
           </div>
           <div class="ccd-comment-input-row">
-            <div class="ccd-avatar ccd-avatar-sm" style="background:${stringColor(getCurrentUserName())}">${getCurrentUserInitials()}</div>
+            <div class="ccd-avatar ccd-avatar-sm" style="background:${stringColor(rawUserName())}">${getCurrentUserInitials()}</div>
             <div class="ccd-comment-input-wrap">
               <input type="text" class="ccd-comment-input" id="ccd-comment-input" data-card-id="${cardId}" placeholder="Kommentar hinzufügen…" maxlength="280">
               <div class="ccd-comment-input-actions" id="ccd-comment-input-actions" style="display:none">
@@ -833,13 +1044,13 @@ Folgt mir für mehr Content rund ums Motorrad. Bleibt sicher unterwegs! 🏍</p>
           <div id="ccd-comments-list" data-card-id="${cardId}">
             ${getUserComments(cardId).reverse().map(c => `
               <div class="ccd-comment ccd-comment--mine" data-likes="0" data-ts="${c.ts}">
-                <div class="ccd-avatar ccd-avatar-sm" style="background:${stringColor(getCurrentUserName())}">${getCurrentUserInitials()}</div>
+                <div class="ccd-avatar ccd-avatar-sm" style="background:${stringColor(rawUserName())}">${getCurrentUserInitials()}</div>
                 <div class="ccd-comment-body">
                   <div class="ccd-comment-head">
                     <span class="ccd-comment-user">${getCurrentUserName()}</span>
                     <span class="ccd-comment-time">${timeAgo(Math.floor((Date.now() - c.ts) / 60000))}</span>
                   </div>
-                  <div class="ccd-comment-text">${c.text.replace(/</g,'&lt;')}</div>
+                  <div class="ccd-comment-text">${esc(c.text)}</div>
                   <div class="ccd-comment-actions">
                     <button class="ccd-mini-btn"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M7 22V11l5-8 1 1v6h7l-2 12H7z"/></svg> 0</button>
                     <button class="ccd-mini-btn">Antworten</button>
@@ -1081,7 +1292,6 @@ function buildGearCards(style) {
 
   const cards = categories.flatMap(({ key, items }) =>
     items.map((item, i) => {
-      const col = GEAR_COLOR[key]
       const searchQ = encodeURIComponent(item.name)
       const tier = i === 0 ? 'Budget' : i === 1 ? 'Empfohlen' : 'Premium'
       const tierClass = i === 0 ? 'gear-tier--budget' : i === 1 ? 'gear-tier--mid' : 'gear-tier--premium'
@@ -1096,24 +1306,42 @@ function buildGearCards(style) {
         ? `<span class="gear-card-ce gear-card-ce--${ceLevel}">CE ${ceLevel}</span>`
         : ''
       const productUrl = item.url || `https://www.louis.de/suche?query=${searchQ}`
-      const photoHtml = item.image
-        ? `<img class="gear-card-photo" src="${item.image}" alt="${item.name}" loading="lazy" onerror="this.remove()">`
-        : `<div class="gear-card-svg">${GEAR_ICON_SMALL[key]}</div>`
+      /* Der Platzhalter liegt IMMER darunter, das Foto legt sich darueber.
+         Vorher stand hinter onerror ein blankes this.remove() — schlug ein
+         Bild fehl, blieb eine leere Flaeche stehen, die wie ein kaputter
+         Balken aussah statt wie "kein Foto vorhanden". So deckt das Foto den
+         Platzhalter ab, sobald es da ist, und gibt ihn beim Fehlschlag von
+         selbst wieder frei; nebenbei steht waehrend des Ladens etwas da.
+         44 der 105 Ausruestungsteile in gear.js haben ohnehin keine
+         Bild-URL — fuer die ist der Platzhalter der Normalfall. */
+      const photoHtml = `
+        <div class="gear-card-svg">${GEAR_ICON_SMALL[key]}</div>
+        ${item.image
+          ? `<img class="gear-card-photo" src="${esc(item.image)}" alt="${esc(item.name)}"
+                  loading="lazy" decoding="async" onerror="this.remove()">`
+          : ''}`
+      // Der Kaufgrund nennt das CE-Level oft selbst — steht es schon als
+      // Plakette am Bild, waere es in der Zeile darunter doppelt.
+      const reason = (item.reason || '')
+        .replace(/^CE-?Level\s*\d\+?\s*,\s*/i, '')
+        .replace(/^./, c => c.toUpperCase())
+      // Echter Shop-Preis wird auf den Cent genau und deutsch formatiert
+      // ausgegeben; die selbst geschaetzte Spanne bekommt ein "ca.", damit
+      // beide nicht als dieselbe Art Angabe gelesen werden.
       const priceHtml = item.price
-        ? `${item.price} \u20ac`
-        : `${item.priceMin}\u2013${item.priceMax} \u20ac`
+        ? `${item.price.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}\u00a0\u20ac`
+        : `<span class="gear-card-price-ca">ca.</span> ${item.priceMin}\u2013${item.priceMax}\u00a0\u20ac`
       const cardId = `${style}-${key}-${i}`
       return `
-      <a class="gear-card konf-reveal" data-gear="${key}" data-price-min="${item.priceMin}" data-price-max="${item.priceMax}" data-card-id="${cardId}"
+      <a class="gear-card gear-card--product konf-reveal" data-gear="${key}" data-price-min="${item.priceMin}" data-price-max="${item.priceMax}" data-card-id="${cardId}"
          href="${productUrl}" target="_blank" rel="noopener sponsored">
-        <div class="gear-card-img" style="background:${item.image ? '#f2f2f2' : col.bg}; color:${col.fg}">
+        <div class="gear-card-img">
           ${photoHtml}
           <button class="gear-card-heart" aria-label="Merken">
             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg>
           </button>
           <span class="gear-card-badge ${tierClass}">${tier}</span>
           ${ceBadge}
-          <div class="gear-card-reason">${item.reason}</div>
         </div>
         <div class="gear-card-body">
           <span class="gear-card-cat">${GEAR_LABEL[key]}</span>
@@ -1121,6 +1349,7 @@ function buildGearCards(style) {
           <div class="gear-card-name">${productName}</div>
           <div class="gear-card-type">${item.type}</div>
           <div class="gear-card-price">${priceHtml}</div>
+          <p class="gear-card-reason">${reason}</p>
         </div>
       </a>`
     })
@@ -1133,11 +1362,26 @@ function buildGearCards(style) {
    TAB VIEW BUILDERS — Each tab gets its own dedicated view
    ═══════════════════════════════════════════════════ */
 
-let activeKonfTab = 'ansicht'
+let activeKonfTab = KONF_DEFAULT_TAB
 let konfData = null
 let _accountUpdatedListenerRegistered = false
 
-function buildAnsichtView(data) {
+/* Startzustand des Sekundaerblocks ("Mehr anzeigen").
+ *
+ * Ab 769px scrollt .bd-ansicht-embed in sich (max-height in main.css) — dort
+ * kostet der offene Block nichts, die Karten bleiben in ihrem Rahmen und das
+ * 3D-Modell daneben stehen. Darunter stapelt sich alles: offen ist die Spalte
+ * ~2200px hoch und das Modell haengt hinter der gesamten Strecke. Auf
+ * Handybreite startet der Block deshalb zugeklappt, aufklappen bleibt ein Tipp
+ * entfernt. Bewusst derselbe Breakpoint wie das max-height im CSS, damit
+ * Startzustand und Scrollverhalten nicht auseinanderlaufen.
+ */
+function mehrStartsOpen() {
+  return window.matchMedia('(min-width: 769px)').matches
+}
+
+export function buildAnsichtView(data, headerCard) {
+  const mehrOpen = mehrStartsOpen()
   const kw = data.specs.power.split('/')[0].replace(/[^0-9]/g, '').trim()
   const ps = data.specs.power.split('/')[1].replace(/[^0-9]/g, '').trim()
   const accel = parseFloat(data.specs.accel)
@@ -1151,6 +1395,7 @@ function buildAnsichtView(data) {
   return `
     <!-- \u2500\u2500 Wichtig: immer sichtbar \u2500\u2500 -->
     <div class="konf-top-row">
+      ${headerCard || `
       <div class="konf-card konf-card-header konf-reveal">
         <h1 class="konf-title">${data.fullName}</h1>
         <p class="konf-desc">${data.desc}</p>
@@ -1158,7 +1403,7 @@ function buildAnsichtView(data) {
           <span class="konf-price-tag">${data.price}</span>
           <span class="konf-price-note">inkl. MwSt.</span>
         </div>
-      </div>
+      </div>`}
 
       <div class="konf-card konf-reveal" id="konf-bars-card">
       <h3 class="konf-card-title">Leistungsdaten</h3>
@@ -1187,13 +1432,13 @@ function buildAnsichtView(data) {
     </div><!-- end konf-top-row -->
 
     <!-- \u2500\u2500 Toggle \u2500\u2500 -->
-    <button class="konf-mehr-btn konf-mehr-btn--open" id="konf-mehr-btn">
-      <span class="konf-mehr-label">Weniger anzeigen</span>
+    <button class="konf-mehr-btn${mehrOpen ? ' konf-mehr-btn--open' : ''}" id="konf-mehr-btn">
+      <span class="konf-mehr-label">${mehrOpen ? 'Weniger anzeigen' : 'Mehr anzeigen'}</span>
       <svg class="konf-mehr-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9l6 6 6-6"/></svg>
     </button>
 
-    <!-- \u2500\u2500 Sekund\u00e4r: standardm\u00e4\u00dfig offen \u2500\u2500 -->
-    <div class="konf-mehr-section konf-mehr-open" id="konf-mehr-section">
+    <!-- \u2500\u2500 Sekund\u00e4r: offen ab Tablet, auf Handybreite zugeklappt \u2500\u2500 -->
+    <div class="konf-mehr-section${mehrOpen ? ' konf-mehr-open' : ''}" id="konf-mehr-section">
       ${data.highlights.map(h => `
         <div class="konf-card">
           <h3 class="konf-card-title">${h.title}</h3>
@@ -1234,65 +1479,84 @@ function buildAnsichtView(data) {
         </button>
       </div>
     </div>
-
-    <!-- \u2500\u2500 Bottom CTA (sichtbar wenn zugeklappt) \u2500\u2500 -->
-    <div class="konf-card konf-bottom-cta" id="konf-bottom-cta" style="display:none">
-      <div class="konf-bottom-cta-inner">
-        <div class="konf-bottom-cta-text">
-          <div class="konf-card-title">Ausr\u00fcstung</div>
-          <p class="konf-card-text">Helme, Jacken, Handschuhe &amp; Stiefel \u2014 perfekt abgestimmt auf deinen Fahrstil.</p>
-        </div>
-      </div>
-    </div>
   `
 }
 
 function buildAusstattungView(data) {
   return `
+    <!-- Eine Leiste statt zwei: Kategorien scrollen links, rechts die vier
+         Bedienelemente, die man im Blick behalten will (Anzahl, Favoriten,
+         Ansicht) bzw. haeufig oeffnet (Filter). Preis, Sortierung und
+         Preisauswahl liegen im Blatt darunter — zusammen belegten sie vorher
+         eine zweite fixierte Zeile und 168px Hoehe vor der ersten Kachel. -->
     <div class="gear-filter-bar">
-      <button class="gear-filter-btn gear-filter-btn--active" data-filter="all">Alle</button>
-      <button class="gear-filter-btn" data-filter="helmet">Helm</button>
-      <button class="gear-filter-btn" data-filter="jacket">Jacke</button>
-      <button class="gear-filter-btn" data-filter="gloves">Handschuhe</button>
-      <button class="gear-filter-btn" data-filter="boots">Stiefel</button>
-      <button class="gear-filter-btn" data-filter="pants">Hose</button>
-      <button class="gear-filter-btn" data-filter="kidneybelt">Nierengurt</button>
-      <button class="gear-filter-btn" data-filter="balaclava">Sturmhaube</button>
-      <button class="gear-filter-btn" data-filter="backprotector">Rückenprotektor</button>
-    </div>
+      <div class="gear-filter-cats">
+        <button class="gear-filter-btn gear-filter-btn--active" data-filter="all">Alle</button>
+        <button class="gear-filter-btn" data-filter="helmet">Helm</button>
+        <button class="gear-filter-btn" data-filter="jacket">Jacke</button>
+        <button class="gear-filter-btn" data-filter="gloves">Handschuhe</button>
+        <button class="gear-filter-btn" data-filter="boots">Stiefel</button>
+        <button class="gear-filter-btn" data-filter="pants">Hose</button>
+        <button class="gear-filter-btn" data-filter="kidneybelt">Nierengurt</button>
+        <button class="gear-filter-btn" data-filter="balaclava">Sturmhaube</button>
+        <button class="gear-filter-btn" data-filter="backprotector">R\u00fcckenprotektor</button>
+      </div>
 
-    <div class="gear-price-row">
-
-      <div class="gear-price-top">
-        <button class="gear-pill gear-fav-toggle" id="gear-fav-toggle" data-active="false" aria-label="Favoriten">
+      <div class="gear-bar-tools">
+        <span class="gear-count-badge" id="gear-count-badge">0 Artikel</span>
+        <button class="gear-pill gear-fav-toggle" id="gear-fav-toggle" data-active="false" aria-label="Nur Favoriten zeigen">
           <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg>
           <span class="gear-pill-count" id="gear-fav-toggle-count">0</span>
         </button>
-        <button class="gear-pill gear-deal-toggle" id="gear-deal-toggle" data-active="false">
-          <span class="gear-pill-icon">🔥</span><span>Hot Deals</span>
+        <button class="gear-pill gear-tools-btn" id="gear-tools-btn" type="button" aria-expanded="false" aria-controls="gear-tools-sheet">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M4 6h16M7 12h10M10 18h4"/></svg>
+          <span class="gear-tools-label">Filter</span>
+          <span class="gear-tools-dot" id="gear-tools-dot" hidden></span>
         </button>
-        <button class="gear-pill gear-sale-toggle" id="gear-sale-toggle" data-active="false">
-          <span class="gear-pill-icon">%</span><span>Sales</span>
-        </button>
-        <span class="gear-count-badge" id="gear-count-badge">0 Artikel</span>
-        <div class="gear-price-inputs">
-          <div class="gear-price-field">
-            <span class="gear-price-field-label">Min</span>
-            <input class="gear-price-input" id="gear-price-min" type="number" min="0" max="2000" step="10" value="0" placeholder="0">
-            <span class="gear-price-field-unit">\u20ac</span>
-          </div>
-          <span class="gear-price-sep">\u2013</span>
-          <div class="gear-price-field">
-            <span class="gear-price-field-label">Max</span>
-            <input class="gear-price-input" id="gear-price-max" type="number" min="0" max="2000" step="10" value="1000" placeholder="1000">
-            <span class="gear-price-field-unit">\u20ac</span>
-          </div>
-          <button class="gear-pill gear-sort-btn" id="gear-sort-btn" data-dir="none">
-            <span class="gear-sort-label">Preis \u2191</span>
+        <div class="gear-view-toggle" role="group" aria-label="Ansicht">
+          <button class="gear-view-btn" data-view="grid" aria-pressed="true" title="Kachelansicht" aria-label="Kachelansicht">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>
+          </button>
+          <button class="gear-view-btn" data-view="list" aria-pressed="false" title="Listenansicht" aria-label="Listenansicht">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>
           </button>
         </div>
       </div>
 
+      <!-- Filterblatt: haengt unter dem Filter-Knopf, nimmt keinen Platz im
+           Fluss ein und schliesst bei Klick daneben, Escape oder Scrollen. -->
+      <div class="gear-tools-sheet" id="gear-tools-sheet" hidden>
+        <div class="gear-tools-group">
+          <span class="gear-tools-legend">Preis</span>
+          <div class="gear-price-inputs">
+            <div class="gear-price-field">
+              <input class="gear-price-input" id="gear-price-min" type="number" min="0" max="2000" step="10" value="0" placeholder="0" aria-label="Mindestpreis in Euro">
+              <span class="gear-price-field-unit">\u20ac</span>
+            </div>
+            <span class="gear-price-sep">\u2013</span>
+            <div class="gear-price-field">
+              <input class="gear-price-input" id="gear-price-max" type="number" min="0" max="2000" step="10" value="1000" placeholder="1000" aria-label="H\u00f6chstpreis in Euro">
+              <span class="gear-price-field-unit">\u20ac</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="gear-tools-group">
+          <span class="gear-tools-legend">Sortierung</span>
+          <button class="gear-pill gear-sort-btn" id="gear-sort-btn" data-dir="none" type="button">
+            <span class="gear-sort-label">Preis \u2191</span>
+          </button>
+        </div>
+
+        <div class="gear-tools-group">
+          <span class="gear-tools-legend">Auswahl</span>
+          <button class="gear-pill gear-deal-toggle" id="gear-deal-toggle" data-active="false" type="button">
+            <span class="gear-pill-icon">\u20ac</span><span>G\u00fcnstigstes Viertel</span>
+          </button>
+        </div>
+
+        <button class="gear-tools-reset" id="gear-tools-reset" type="button">Zur\u00fccksetzen</button>
+      </div>
     </div>
 
     <div class="gear-empty-state" id="gear-empty" style="display:none">
@@ -1310,6 +1574,7 @@ function buildAusstattungView(data) {
     </div>
   `
 }
+
 
 function buildCommunityView(data) {
   return `
@@ -1424,38 +1689,6 @@ function buildKarteView(data) {
   return `
     <section class="hub-section konf-karte-hub" id="gr-hub-section">
       <div class="hub-inner">
-        <!-- Category pills -->
-        <div class="hub-filters kv-filters">
-          <button class="hub-pill active" data-query="Motorradwerkstatt">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg>
-            <span>Werkst\u00e4tten</span>
-          </button>
-          <button class="hub-pill" data-query="Motorradh\u00e4ndler">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 7H4l1-3h14zM2 7h20v5H2zM4 12v9h4v-5h8v5h4v-9"/></svg>
-            <span>H\u00e4ndler</span>
-          </button>
-          <button class="hub-pill" data-query="Fahrschule">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 10v6M2 10l10-5 10 5-10 5z"/><path d="M6 12v5c3 3 9 3 12 0v-5"/></svg>
-            <span>Fahrschulen</span>
-          </button>
-          <button class="hub-pill" data-query="Tankstelle">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 21h12M5 21V5a2 2 0 0 1 2-2h6a2 2 0 0 1 2 2v16M5 11h10M15 6l3 3v8a2 2 0 0 1-4 0v-2"/></svg>
-            <span>Tankstellen</span>
-          </button>
-          <button class="hub-pill" data-query="Parkplatz">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M9 17V7h4a3 3 0 0 1 0 6H9"/></svg>
-            <span>Parkpl\u00e4tze</span>
-          </button>
-          <button class="hub-pill" data-query="Cafe">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 8h1a4 4 0 0 1 0 8h-1M3 8h14v9a4 4 0 0 1-4 4H7a4 4 0 0 1-4-4zM6 1v3M10 1v3M14 1v3"/></svg>
-            <span>Biker-Treffs</span>
-          </button>
-          <button class="hub-pill" data-query="Notdienst">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><path d="M12 9v4M12 17h.01"/></svg>
-            <span>Notdienst</span>
-          </button>
-        </div>
-
         <!-- Map + Sidebar layout -->
         <div class="kv-layout">
           <div class="hub-map-wrap kv-map-wrap">
@@ -1465,95 +1698,478 @@ function buildKarteView(data) {
                 <span>Standort wird ermittelt\u2026</span>
               </div>
             </div>
-
-            <!-- Map overlay: weather card -->
-            <div class="kv-weather-card" id="kv-weather-card">
-              <div class="kv-weather-icon">\u2600\ufe0f</div>
-              <div class="kv-weather-info">
-                <div class="kv-weather-temp">18\u00b0</div>
-                <div class="kv-weather-desc">Sonnig \u00b7 Perfektes Bikewetter</div>
+            <div class="kv-map-controls" id="kv-map-controls">
+              <div class="kv-zoom-group">
+                <button type="button" class="kv-zoom-btn" id="kv-zoom-in-btn" aria-label="Vergr\u00f6\u00dfern" title="Vergr\u00f6\u00dfern">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
+                </button>
+                <div class="kv-zoom-divider"></div>
+                <button type="button" class="kv-zoom-btn" id="kv-zoom-out-btn" aria-label="Verkleinern" title="Verkleinern">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M5 12h14"/></svg>
+                </button>
               </div>
+              <button type="button" class="kv-map-fab" id="kv-map-recenter-btn" aria-label="Mein Standort" title="Mein Standort">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M12 1v4M12 19v4M1 12h4M19 12h4"/></svg>
+              </button>
             </div>
+            <!-- Erscheint erst, wenn der Nutzer die Karte selbst verschoben
+                 hat: bis dahin gaebe es nichts Neues zu suchen. -->
+            <button type="button" class="kv-search-here" id="kv-search-here" hidden>
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4-4"/></svg>
+              <span>Hier suchen</span>
+            </button>
           </div>
 
           <aside class="kv-sidebar">
-            <div class="kv-toolbar kv-toolbar--sidebar">
-              <div class="kv-search-row">
-                <div class="kv-radius-group" role="group" aria-label="Suchradius">
-                  <span class="kv-radius-label">Umkreis</span>
-                  <div class="kv-radius-pills">
-                    <button class="kv-radius-pill" data-radius="2000">2 km</button>
-                    <button class="kv-radius-pill kv-radius-pill--active" data-radius="5000">5 km</button>
-                    <button class="kv-radius-pill" data-radius="10000">10 km</button>
-                    <button class="kv-radius-pill" data-radius="25000">25 km</button>
-                    <button class="kv-radius-pill" data-radius="50000">50 km</button>
-                  </div>
+            <!-- Drag-Handle: nur unterhalb des kv-layout-Breakpoints sichtbar,
+                 dort wird das Panel per CSS zum Apple-Maps-artigen Bottom-Sheet -->
+            <div class="kv-sheet-handle" id="kv-sheet-handle" aria-hidden="true"></div>
+            <!-- Radius + Ortssuche -->
+            <div class="kv-search-row">
+              <div class="kv-radius-group" role="group" aria-label="Suchradius">
+                <div class="kv-radius-pills">
+                  <button class="kv-radius-pill" data-radius="2000">2 km</button>
+                  <button class="kv-radius-pill kv-radius-pill--active" data-radius="5000">5 km</button>
+                  <button class="kv-radius-pill" data-radius="10000">10 km</button>
+                  <button class="kv-radius-pill" data-radius="25000">25 km</button>
+                  <button class="kv-radius-pill" data-radius="50000">50 km</button>
                 </div>
-                <div class="kv-search-wrap">
-                  <button class="kv-search-toggle" id="kv-search-toggle" aria-label="Ort suchen" aria-expanded="false" title="Ort suchen">
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>
+              </div>
+              <div class="kv-search-wrap">
+                <button class="kv-search-toggle" id="kv-search-toggle" aria-label="Ort suchen" aria-expanded="false" title="Ort suchen">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>
+                </button>
+                <div class="kv-search-field" id="kv-search-field">
+                  <svg class="kv-search-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>
+                  <input type="text" class="kv-search-input" id="kv-search-input" placeholder="PLZ oder Ort eingeben…">
+                  <button class="kv-recenter-btn" id="kv-recenter-btn" aria-label="Mein Standort" title="Mein Standort">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M12 1v4M12 19v4M1 12h4M19 12h4"/></svg>
                   </button>
-                  <div class="kv-search-field" id="kv-search-field">
-                    <svg class="kv-search-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>
-                    <input type="text" class="kv-search-input" id="kv-search-input" placeholder="PLZ oder Ort eingeben…">
-                    <button class="kv-recenter-btn" id="kv-recenter-btn" aria-label="Mein Standort" title="Mein Standort">
-                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M12 1v4M12 19v4M1 12h4M19 12h4"/></svg>
-                    </button>
-                  </div>
                 </div>
               </div>
             </div>
-            <div class="kv-sidebar-head">
-              <h3 class="kv-sidebar-title">Ergebnisse <span class="kv-result-count" id="kv-result-count">0</span></h3>
-              <select class="kv-sort-select" id="kv-sort-select">
-                <option value="distance">Nach Entfernung</option>
-                <option value="rating">Nach Bewertung</option>
-                <option value="name">Nach Name</option>
-              </select>
+
+            <!-- Category pills -->
+            <div class="hub-filters kv-filters">
+              <button class="hub-pill active" data-query="Motorradwerkstatt">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg>
+                <span>Werkst\u00e4tten</span>
+              </button>
+              <button class="hub-pill" data-query="Motorradh\u00e4ndler">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 7H4l1-3h14zM2 7h20v5H2zM4 12v9h4v-5h8v5h4v-9"/></svg>
+                <span>H\u00e4ndler</span>
+              </button>
+              <button class="hub-pill" data-query="Fahrschule">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 10v6M2 10l10-5 10 5-10 5z"/><path d="M6 12v5c3 3 9 3 12 0v-5"/></svg>
+                <span>Fahrschulen</span>
+              </button>
+              <button class="hub-pill" data-query="Tankstelle">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 21h12M5 21V5a2 2 0 0 1 2-2h6a2 2 0 0 1 2 2v16M5 11h10M15 6l3 3v8a2 2 0 0 1-4 0v-2"/></svg>
+                <span>Tankstellen</span>
+              </button>
+              <button class="hub-pill" data-query="Parkplatz">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M9 17V7h4a3 3 0 0 1 0 6H9"/></svg>
+                <span>Parkpl\u00e4tze</span>
+              </button>
+              <button class="hub-pill" data-query="Cafe">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 8h1a4 4 0 0 1 0 8h-1M3 8h14v9a4 4 0 0 1-4 4H7a4 4 0 0 1-4-4zM6 1v3M10 1v3M14 1v3"/></svg>
+                <span>Biker-Treffs</span>
+              </button>
+              <button class="hub-pill" data-query="Notdienst">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><path d="M12 9v4M12 17h.01"/></svg>
+                <span>Notdienst</span>
+              </button>
             </div>
-            <div class="kv-results-list" id="kv-results-list">
-              <div class="kv-results-empty">
-                <span>\ud83d\udd0e Suche l\u00e4uft\u2026</span>
+
+            <!-- Kopfzeile der Trefferliste: sagt, wie viele es sind, und
+                 traegt die drei Schalter, die auf die vorhandenen Daten
+                 zugreifen (Entfernung/Bewertung, Oeffnungsstatus, Gemerkte). -->
+            <div class="kv-list-bar">
+              <span class="kv-list-count" id="kv-list-count"></span>
+              <div class="kv-list-tools">
+                <button type="button" class="kv-chip" id="kv-sort-btn" data-sort="distance">
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 3v18M3 7l4-4 4 4M17 21V3M13 17l4 4 4-4"/></svg>
+                  <span class="kv-sort-label">Entfernung</span>
+                </button>
+                <button type="button" class="kv-chip" id="kv-open-toggle" data-active="false">Ge\u00f6ffnet</button>
+                <button type="button" class="kv-chip kv-chip--fav" id="kv-fav-filter" data-active="false" aria-label="Gemerkte Orte">
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"/></svg>
+                  <span class="kv-chip-count" id="kv-fav-count">0</span>
+                </button>
               </div>
+            </div>
+
+            <div class="kv-results-list" id="kv-results-list">
+              <div class="kv-results-empty"><span>\u2026</span></div>
             </div>
           </aside>
         </div>
       </div>
     </section>
-
-    <div class="konf-next-cta konf-reveal">
-      <button class="konf-next-btn" data-next="match">
-        <span class="konf-next-label">Neues Match finden</span>
-        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
-      </button>
-    </div>
   `
 }
 
+/* ═══════════════════════════════════════════════════
+   MATCH-REITER
+   Drei Ebenen: wie gut passt das offene Bike zum Quiz-Profil,
+   welche Matches liegen schon gespeichert vor, und was empfiehlt
+   das Profil sonst noch.
+   ═══════════════════════════════════════════════════ */
+
+/** Sortierung der gespeicherten Matches — überlebt Tab-Wechsel. */
+let matchSort = 'recent' // 'recent' | 'score'
+/** Zuletzt gelöschter Eintrag für "Rückgängig" — { entry, index, timer }. */
+let matchUndo = null
+
+const RING_CIRCUMFERENCE = 2 * Math.PI * 28
+
+/** Katalog-Bike zum gerade geöffneten (normalisierten) Datensatz. */
+function catalogBikeFor(data) {
+  if (!data) return null
+  return findBikeByShortName(data.fullName || data.bgText || '') || null
+}
+
+/** Voller Anzeigename inkl. Marke — der Katalogname ist der Speicher-Schlüssel. */
+function matchDisplayName(data, bike) {
+  if (bike?.name) return bike.name
+  return [data?.brand, data?.fullName].filter(Boolean).join(' ')
+}
+
+/**
+ * Ergänzt einen gespeicherten Eintrag aus dem Katalog. Alte Einträge (aus
+ * der Übernahme von `mm_primary_bike`) haben weder Bild noch Stil, und ein
+ * geänderter Katalog soll sich in der Liste zeigen statt eingefroren zu sein.
+ */
+function enrichMatch(m) {
+  const bike = findBikeByShortName(m.name)
+  return {
+    ...m,
+    style: m.style || bike?.style || '',
+    image: m.image || bike?.image2 || bike?.image || '',
+    price: m.price || bike?.priceDisplay || '',
+  }
+}
+
+function sortedMatches() {
+  const list = getMatches().map(enrichMatch)
+  if (matchSort === 'score') {
+    // Einträge ohne Score (Alt-Übernahme) ans Ende, sonst stünden sie oben.
+    return list.sort((a, b) => (b.pct ?? -1) - (a.pct ?? -1) || b.ts - a.ts)
+  }
+  return list.sort((a, b) => b.ts - a.ts)
+}
+
+const MM_ICON_STAR = '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/></svg>'
+const MM_ICON_X = '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6L6 18M6 6l12 12"/></svg>'
+const MM_ICON_PLUS = '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"/></svg>'
+const MM_ICON_CHECK = '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"/></svg>'
+
 function buildMatchView(data) {
-  const q = encodeURIComponent(data.name || '')
+  const bike = catalogBikeFor(data)
+  // Der Suchbegriff hing vorher an `data.name` — das Feld gibt es auf dem
+  // normalisierten Objekt nicht, die Gebraucht-Links landeten dadurch auf
+  // einer leeren Suche.
+  const q = encodeURIComponent(matchDisplayName(data, bike))
   const kleinanzeigenUrl = `https://www.kleinanzeigen.de/s-motorraeder-roller/${q}/k0c305`
   const mobileUrl = `https://suchen.mobile.de/fahrzeuge/search.html?ms=&s=Motorbike&fr=&sfmr=false&isSearchRequest=true&makeModelVariantExact=true&fnai=prem&keyword=${q}`
   const ebayUrl = `https://www.ebay.de/sch/i.html?_from=R40&_trksid=p2334524.m570.l1313&_nkw=${q}&_sacat=6024`
+
   return `
+    ${buildMatchScoreCard(data, bike)}
+    ${buildMatchSavedCard(bike)}
+    ${buildMatchRecoCard(bike)}
     <div class="konf-card konf-card-cta konf-reveal">
-      <span class="konf-overline" style="color:rgba(255,255,255,0.4)">N\u00e4chster Schritt</span>
-      <h3 class="konf-card-title" style="font-size:24px;margin-top:8px;">Bereit f\u00fcr dein Bike?</h3>
-      <p class="konf-card-text">Finde einen H\u00e4ndler in deiner N\u00e4he oder starte das Quiz f\u00fcr eine personalisierte Empfehlung.</p>
+      <span class="konf-overline konf-overline--light">Nächster Schritt</span>
+      <h3 class="konf-card-title konf-card-title--lg">Bereit für dein Bike?</h3>
+      <p class="konf-card-text">Finde einen Händler in deiner Nähe oder starte das Quiz für eine personalisierte Empfehlung.</p>
       <div class="konf-cta-row">
-        <button class="konf-cta-btn konf-cta-primary" id="konf-cta-dealer">H\u00e4ndler finden</button>
+        <button class="konf-cta-btn konf-cta-primary" id="konf-cta-dealer">Händler finden</button>
         <button class="konf-cta-btn konf-cta-secondary" id="konf-cta-quiz">Neues Match finden</button>
       </div>
-      <div class="konf-used-row" style="margin-top:18px;display:flex;flex-wrap:wrap;align-items:center;gap:10px;">
-        <span style="color:rgba(255,255,255,0.55);font-size:13px;">Gebraucht suchen:</span>
-        <a class="konf-used-btn" href="${kleinanzeigenUrl}" target="_blank" rel="noopener noreferrer" style="padding:6px 12px;border-radius:999px;border:1px solid rgba(255,255,255,0.2);color:#fff;font-size:13px;text-decoration:none;">Kleinanzeigen</a>
-        <a class="konf-used-btn" href="${mobileUrl}" target="_blank" rel="noopener noreferrer" style="padding:6px 12px;border-radius:999px;border:1px solid rgba(255,255,255,0.2);color:#fff;font-size:13px;text-decoration:none;">mobile.de</a>
-        <a class="konf-used-btn" href="${ebayUrl}" target="_blank" rel="noopener noreferrer" style="padding:6px 12px;border-radius:999px;border:1px solid rgba(255,255,255,0.2);color:#fff;font-size:13px;text-decoration:none;">eBay</a>
+      <div class="konf-used-row">
+        <span class="konf-used-label">Gebraucht suchen:</span>
+        <a class="konf-used-btn" href="${kleinanzeigenUrl}" target="_blank" rel="noopener noreferrer">Kleinanzeigen</a>
+        <a class="konf-used-btn" href="${mobileUrl}" target="_blank" rel="noopener noreferrer">mobile.de</a>
+        <a class="konf-used-btn" href="${ebayUrl}" target="_blank" rel="noopener noreferrer">eBay</a>
       </div>
     </div>
   `
 }
 
+/** Speichern-/Gespeichert-Schalter für das gerade offene Bike. */
+/**
+ * Beschriftung des Merken-Schalters als Lang-/Kurz-Paar. Auf 375px passt
+ * "Als Match merken" nicht neben "Quiz wiederholen" in eine Zeile — es fehlen
+ * rund 5px, der Text brach mitten im Knopf um. Gleiches Muster wie die
+ * Reiter-Beschriftung in der Taskleiste (tb-lbl-lang/tb-lbl-kurz).
+ */
+function matchSaveLabel(saved) {
+  return saved
+    ? '<span class="mm-lbl-lang">Gemerkt</span><span class="mm-lbl-kurz">Gemerkt</span>'
+    : '<span class="mm-lbl-lang">Als Match merken</span><span class="mm-lbl-kurz">Merken</span>'
+}
+
+function buildMatchSaveBtn(bike) {
+  if (!bike) return ''
+  const saved = hasMatch(bike.name)
+  return `
+    <button class="mm-match-btn${saved ? ' mm-match-btn--on' : ''}" id="mm-match-save" data-saved="${saved}">
+      <span class="mm-match-btn-icon">${saved ? MM_ICON_CHECK : MM_ICON_PLUS}</span>
+      <span class="mm-match-btn-label">${matchSaveLabel(saved)}</span>
+    </button>`
+}
+
+/**
+ * Preiszeile in der Passgenauigkeits-Karte. Nutzt die Preis-Typografie der
+ * Ansicht-Seite, damit derselbe Wert überall gleich aussieht.
+ */
+function buildMatchPriceRow(data, bike) {
+  const price = data?.price || bike?.priceDisplay || ''
+  if (!price) return ''
+  return `
+    <div class="konf-price-row mm-match-price">
+      <span class="konf-price-tag">${esc(price)}</span>
+      <span class="konf-price-note">inkl. MwSt.</span>
+    </div>`
+}
+
+function buildMatchScoreCard(data, bike) {
+  const answers = getLastAnswers()
+  const title = esc(matchDisplayName(data, bike))
+  const priceRow = buildMatchPriceRow(data, bike)
+
+  // Ohne Quiz-Antworten (oder ohne Katalog-Treffer) gibt es nichts zu
+  // rechnen — dann führt die Karte zum Quiz, statt eine Zahl zu erfinden.
+  if (!answers || !bike) {
+    return `
+      <div class="konf-card mm-match-card konf-reveal" id="mm-match-score">
+        <span class="konf-overline">Passgenauigkeit</span>
+        <h3 class="konf-card-title konf-card-title--lg">${title}</h3>
+        ${priceRow}
+        <p class="konf-card-text">${answers
+          ? 'Für dieses Modell liegen noch keine Matching-Daten vor.'
+          : 'Beantworte das Quiz — danach siehst du hier, wie gut dieses Bike zu Führerschein, Budget, Körpergröße und Einsatzzweck passt.'}</p>
+        <div class="mm-match-actions">
+          ${buildMatchSaveBtn(bike)}
+          <button class="mm-match-btn" id="mm-match-quiz">${answers ? 'Quiz wiederholen' : 'Quiz starten'}</button>
+        </div>
+      </div>`
+  }
+
+  const res = scoreBikeAgainst(bike, answers)
+  const W = MATCH_WEIGHTS
+  const factors = [
+    ['style', 'Stil & Charakter', W.STYLE],
+    ['use', 'Einsatzzweck', W.USE_CASE],
+    ['budget', 'Budget', W.BUDGET],
+    ['seatHeight', 'Sitzhöhe', W.SEAT_HEIGHT],
+  ]
+  if (answers.q7 === 'Ja') factors.push(['passenger', 'Sozius-Tauglichkeit', W.PASSENGER])
+
+  const bars = factors.map(([key, label, weight]) => {
+    const pct = Math.max(0, Math.min(100, Math.round(((res.breakdown[key] ?? 0) / weight) * 100)))
+    return `
+      <div class="konf-bar-group">
+        <div class="konf-bar-header">
+          <span class="konf-bar-label">${label}</span>
+          <span class="konf-bar-value"><span class="konf-bar-counter" data-target="${pct}" data-decimals="0">0</span>&thinsp;%</span>
+        </div>
+        <div class="konf-bar-track"><div class="konf-bar-fill" data-pct="${pct}" style="width:0%"></div></div>
+      </div>`
+  }).join('')
+
+  const notes = []
+  if (!res.fits.license) notes.push(`Braucht Führerschein <b>${esc(bike.license)}</b> — dein Profil: <b>${esc(answers.q1 || '–')}</b>.`)
+  if (!res.fits.budget) notes.push(`Liegt über deinem Budget von <b>${fmtBudget(answers.q5)}</b>.`)
+  if ((res.breakdown.beginnerPenalty ?? 0) < 0) notes.push('Für den Einstieg anspruchsvoll — viel Leistung, wenig Fehlerverzeihung.')
+
+  return `
+    <div class="konf-card mm-match-card konf-reveal" id="mm-match-score">
+      <div class="mm-match-score-head">
+        <div class="mm-match-score-text">
+          <span class="konf-overline">Passgenauigkeit</span>
+          <h3 class="konf-card-title konf-card-title--lg">${title}</h3>
+          ${priceRow}
+          <p class="mm-match-score-sub">${esc(matchVerdict(res.pct))}</p>
+        </div>
+        <div class="mm-match-ring">
+          <svg viewBox="0 0 64 64" aria-hidden="true">
+            <circle class="mm-match-ring-bg" cx="32" cy="32" r="28"/>
+            <circle class="mm-match-ring-fill" cx="32" cy="32" r="28"
+                    data-pct="${res.pct}"
+                    stroke-dasharray="${RING_CIRCUMFERENCE.toFixed(1)}"
+                    stroke-dashoffset="${RING_CIRCUMFERENCE.toFixed(1)}"/>
+          </svg>
+          <span class="mm-match-ring-num"><span class="konf-bar-counter" data-target="${res.pct}" data-decimals="0">0</span><i>%</i></span>
+        </div>
+      </div>
+      <div class="mm-match-bars">${bars}</div>
+      ${notes.length ? `<ul class="mm-match-notes">${notes.map(n => `<li>${n}</li>`).join('')}</ul>` : ''}
+      <div class="mm-match-actions">
+        ${buildMatchSaveBtn(bike)}
+        <button class="mm-match-btn" id="mm-match-quiz">Quiz wiederholen</button>
+      </div>
+    </div>`
+}
+
+function matchVerdict(pct) {
+  if (pct >= 85) return 'Passt hervorragend zu deinem Profil.'
+  if (pct >= 65) return 'Passt gut — mit kleinen Abstrichen.'
+  if (pct >= 45) return 'Teilweise passend. Sieh dir die Punkte unten an.'
+  return 'Passt nur bedingt zu deinen Angaben.'
+}
+
+function fmtBudget(value) {
+  const n = Number(value)
+  return Number.isFinite(n) && n > 0 ? `${n.toLocaleString('de-DE')} €` : '–'
+}
+
+/* ── Gespeicherte Matches ── */
+
+function buildMatchSavedCard(currentBike) {
+  const list = sortedMatches()
+  return `
+    <div class="konf-card mm-match-card konf-reveal" id="mm-match-saved">
+      <div class="mm-match-head">
+        <div class="mm-match-head-text">
+          <span class="konf-overline">Deine Matches</span>
+          <h3 class="konf-card-title konf-card-title--lg">Gespeichert <span class="mm-match-count" id="mm-match-count">${list.length}</span></h3>
+        </div>
+        <div class="mm-match-tools">
+          <button type="button" class="mm-match-chip" id="mm-match-sort">${matchSort === 'score' ? 'Nach Score' : 'Neueste'}</button>
+          <button type="button" class="mm-match-chip mm-match-chip--danger" id="mm-match-clear"${list.length ? '' : ' hidden'}>Alle löschen</button>
+        </div>
+      </div>
+      <div class="mm-match-undo" id="mm-match-undo" hidden></div>
+      <div class="mm-match-list" id="mm-match-list">${buildMatchRows(list, currentBike)}</div>
+    </div>`
+}
+
+function buildMatchRows(list, currentBike) {
+  if (!list.length) {
+    return `
+      <div class="mm-match-empty">
+        <span class="mm-match-empty-title">Noch keine Matches gespeichert.</span>
+        <span class="mm-match-empty-sub">Jeder Quiz-Treffer landet automatisch hier — oder merke dir das offene Bike über den Schalter oben.</span>
+      </div>`
+  }
+  const primary = getPrimaryBike()
+  return list.map(m => `
+    <div class="mm-match-row${m.name === currentBike?.name ? ' mm-match-row--current' : ''}" data-row-match="${esc(m.name)}">
+      <button type="button" class="mm-match-open" data-open-match="${esc(m.name)}">
+        <span class="mm-match-thumb">${m.image
+          ? `<img src="${esc(m.image)}" alt="" loading="lazy">`
+          : '<span class="mm-match-thumb-ph">\u{1F3CD}</span>'}</span>
+        <span class="mm-match-info">
+          <span class="mm-match-name">${esc(m.name)}</span>
+          <span class="mm-match-meta">${[esc(m.style), m.source === 'legacy' ? 'Früheres Match' : fmtRelative(m.ts)].filter(Boolean).join(' · ')}</span>
+        </span>
+        ${m.pct != null ? `<span class="mm-match-pct">${m.pct}<i>%</i></span>` : ''}
+      </button>
+      <div class="mm-match-row-actions">
+        <button type="button" class="mm-match-icon${primary === m.name ? ' mm-match-icon--on' : ''}"
+                data-star-match="${esc(m.name)}"
+                aria-pressed="${primary === m.name}"
+                aria-label="${primary === m.name ? 'Hauptbike zurücknehmen' : 'Als Hauptbike festlegen'}"
+                title="${primary === m.name ? 'Hauptbike zurücknehmen' : 'Als Hauptbike festlegen'}">${MM_ICON_STAR}</button>
+        <button type="button" class="mm-match-icon mm-match-icon--del" data-del-match="${esc(m.name)}"
+                aria-label="Match entfernen" title="Match entfernen">${MM_ICON_X}</button>
+      </div>
+    </div>`).join('')
+}
+
+/* ── Vorschläge: was sonst noch passen könnte ── */
+
+/** Mindestpreis aus dem Katalogfeld ("18000-25000" → 18000). */
+function bikeMinPrice(bike) {
+  const match = String(bike?.price ?? '').match(/(\d[\d.]*)/)
+  return match ? parseInt(match[1].replace(/\./g, ''), 10) : 0
+}
+
+/**
+ * Kurze Begründung, warum ein Vorschlag hier steht — höchstens zwei Chips,
+ * sonst wird die Kachel zur Textwüste.
+ */
+function matchWhyChips(bike, currentBike) {
+  const chips = []
+  if (currentBike && bike.style === currentBike.style) chips.push('Gleicher Stil')
+  else if (currentBike && bike.use === currentBike.use) chips.push(`Auch für ${bike.use}`)
+  else if (bike.beginner) chips.push('Einsteigerfreundlich')
+
+  if (currentBike) {
+    const dPrice = bikeMinPrice(bike) - bikeMinPrice(currentBike)
+    if (Math.abs(dPrice) >= 500) {
+      chips.push(`${Math.abs(dPrice).toLocaleString('de-DE')} € ${dPrice < 0 ? 'günstiger' : 'teurer'}`)
+    } else {
+      const dPs = (bike.ps || 0) - (currentBike.ps || 0)
+      if (Math.abs(dPs) >= 5) chips.push(`${dPs > 0 ? '+' : '−'}${Math.abs(dPs)} PS`)
+    }
+  }
+  if (!chips.length && bike.license) chips.push(`Führerschein ${bike.license}`)
+  return chips.slice(0, 2)
+}
+
+function buildMatchRecoCard(currentBike) {
+  const answers = getLastAnswers()
+  const saved = new Set(getMatches().map(m => m.name))
+
+  // Erste Wahl: Treffer aus dem Quiz-Profil. Bleibt davon nach Abzug des
+  // offenen und der bereits gemerkten Bikes fast nichts übrig, ist eine
+  // Ein-Eintrag-Karte wertlos — dann lieber ähnliche Modelle zum offenen
+  // Bike zeigen. Ohne Quiz gibt es ohnehin nur diesen Weg.
+  const fromProfile = answers
+    ? findTopMatches(answers, 10)
+        .filter(r => r.bike.name !== currentBike?.name && !saved.has(r.bike.name))
+        .slice(0, 3)
+    : []
+  const useProfile = fromProfile.length >= 2
+
+  const recs = useProfile
+    ? fromProfile
+    : findSimilarBikes(currentBike, 8)
+        .filter(r => !saved.has(r.bike.name))
+        .slice(0, 3)
+
+  if (!recs.length) return ''
+
+  const overline = useProfile ? 'Aus deinem Profil' : 'Alternativen'
+  const title = useProfile ? 'Passt auch zu dir' : 'Könnte dir auch gefallen'
+  const sub = useProfile
+    ? 'Aus deinen Quiz-Antworten berechnet.'
+    : `Ähnliche Modelle zur ${esc(currentBike?.style || 'Auswahl')}-Klasse, die du gerade ansiehst.`
+
+  return `
+    <div class="konf-card mm-match-card konf-reveal" id="mm-match-reco">
+      <span class="konf-overline">${overline}</span>
+      <h3 class="konf-card-title konf-card-title--lg">${title}</h3>
+      <p class="mm-match-score-sub">${sub}</p>
+      <div class="mm-reco-grid">
+        ${recs.map(r => {
+          const b = r.bike
+          const pct = useProfile ? (scoreBikeAgainst(b, answers)?.pct ?? 0) : null
+          const img = b.image2 || b.image || ''
+          const chips = matchWhyChips(b, currentBike)
+          return `
+            <article class="mm-reco-card" data-row-match="${esc(b.name)}">
+              <button type="button" class="mm-reco-open" data-open-match="${esc(b.name)}">
+                <span class="mm-reco-media">
+                  ${img ? `<img src="${esc(img)}" alt="" loading="lazy">` : '<span class="mm-reco-media-ph">\u{1F3CD}</span>'}
+                  ${pct != null ? `<span class="mm-reco-badge">${pct}<i>%</i></span>` : ''}
+                </span>
+                <span class="mm-reco-body">
+                  <span class="mm-reco-name">${esc(b.name)}</span>
+                  <span class="mm-reco-meta">${[esc(b.style), esc(b.priceDisplay || '')].filter(Boolean).join(' · ')}</span>
+                  ${chips.length ? `<span class="mm-reco-why">${chips.map(c => `<span class="mm-reco-chip">${esc(c)}</span>`).join('')}</span>` : ''}
+                </span>
+              </button>
+              <button type="button" class="mm-reco-add" data-add-match="${esc(b.name)}">
+                ${MM_ICON_PLUS}<span>Merken</span>
+              </button>
+            </article>`
+        }).join('')}
+      </div>
+    </div>`
+}
 // Discord-style community mounts into this root (see community.js)
 function buildCommunityRoot() {
   return `<div id="mm-comm-root" class="mm-comm-root"></div>`
@@ -1589,6 +2205,7 @@ function switchTab(tabName, data) {
     if (split) {
       const fullscreen = tabName === 'ausstattung' || tabName === 'community' || tabName === 'karte'
       split.classList.toggle('konf-split--fullscreen', fullscreen)
+      split.classList.toggle('konf-split--ausstattung', tabName === 'ausstattung')
       split.classList.toggle('konf-split--community', tabName === 'community')
       split.classList.toggle('konf-split--karte', tabName === 'karte')
       split.classList.remove('konf-bars-hidden') // reset scroll-hide state
@@ -1615,51 +2232,425 @@ function switchTab(tabName, data) {
   }, 100)
 }
 
+// Fallback fuer die eingeklappte Hoehe, falls die Messung (syncKvPeek) noch
+// nicht gelaufen ist.
+const KV_SHEET_PEEK_FALLBACK = 116
+// Wie nah an einem der beiden Enden das Sheet doch noch einrastet. Ohne das
+// bliebe es auch 4px vor "ganz zu" stehen, was nach Fehler aussieht statt nach
+// Absicht — dazwischen bleibt es aber stehen, wo man es loslaesst.
+const KV_SHEET_EDGE_SNAP = 28
+// Ab wann das Sheet als "oben" gilt: nur dafuer da, anderen Regeln (dem
+// Feedback-Knopf) zu sagen, dass der Schirm jetzt dem Sheet gehoert.
+const KV_SHEET_EXPANDED_AT = 0.2
+
+/* Wie hoch das eingeklappte Sheet steht.
+ *
+ * Vorher ein fester Anteil der Fensterhoehe (28vh = 227px auf einem 812px
+ * hohen Schirm). Das reichte genau aus, um alle vier Bedienzeilen plus 40px
+ * leere Trefferliste zu zeigen — das Sheet nahm ein Viertel des Bildes ein
+ * und zeigte darin nichts als sich selbst. Jetzt endet es in der Luecke unter
+ * der Kategoriezeile: eingeklappt sind Radius und Kategorie zu sehen (das,
+ * was man vor dem Suchen einstellt), die Treffer holt man mit einem Zug nach
+ * oben. Gemessen statt geraten, weil die Zeilenhoehe von der Schriftgroesse
+ * des Geraets abhaengt und ein fester Wert sonst mitten in eine Zeile
+ * schneidet.
+ */
+function syncKvPeek() {
+  const sheet = document.querySelector('.konf-karte-hub .kv-sidebar')
+  const filters = sheet?.querySelector('.hub-filters')
+  if (!sheet || !filters) return
+  const top = sheet.getBoundingClientRect().top
+  const bottom = filters.getBoundingClientRect().bottom
+  if (bottom <= top) return
+  const peek = Math.round(bottom - top + 12) + 'px'
+  sheet.style.setProperty('--kv-peek', peek)
+  // Zusaetzlich global: der Beta-Feedback-Knopf steht ausserhalb des Sheets
+  // und weicht ueber dessen Kante aus (main.css, 767px-Block).
+  document.documentElement.style.setProperty('--kv-peek', peek)
+  // Steht das Sheet gerade auf einer frei gezogenen Hoehe, gilt die — die hat
+  // setFree() schon gemeldet und darf hier nicht ueberschrieben werden.
+  if (!sheet.style.transform) {
+    publishKvVisible(sheet, sheet.classList.contains('kv-sheet--expanded')
+      ? 0
+      : sheet.offsetHeight - parseFloat(peek))
+  }
+}
+
+function kvPeekPx(sheet) {
+  const v = parseFloat(getComputedStyle(sheet).getPropertyValue('--kv-peek'))
+  return Number.isFinite(v) && v > 0 ? v : KV_SHEET_PEEK_FALLBACK
+}
+
+/**
+ * Sichtbare Hoehe der Sheet-Kante nach aussen melden.
+ *
+ * Der Beta-Feedback-Knopf steht ausserhalb des Sheets und weicht ueber dessen
+ * Kante aus (main.css, 767px-Block). Solange das Sheet nur zwei Zustaende
+ * hatte, reichte dafuer --kv-peek; seit es auf jeder Hoehe stehen bleiben
+ * kann, braucht es die *aktuelle* Kante. --kv-peek bleibt daher, was es war
+ * (die eingeklappte Ruhehoehe, aus der das CSS seinen Grundzustand rechnet),
+ * und --kv-visible sagt, wo die Kante gerade wirklich steht.
+ */
+function publishKvVisible(sheet, translate) {
+  const visible = Math.max(0, Math.round(sheet.offsetHeight - translate))
+  document.documentElement.style.setProperty('--kv-visible', visible + 'px')
+}
+
+function bindKarteSheet() {
+  const sheet = document.querySelector('.konf-karte-hub .kv-sidebar')
+  const handle = document.getElementById('kv-sheet-handle')
+  if (!sheet || !handle) return
+
+  const mobileQuery = window.matchMedia('(max-width: 759.98px)')
+  let dragging = false
+  let didDrag = false
+  let startY = 0
+  let startTranslate = 0
+  let sheetHeight = 0
+  let peekPx = 0
+  let currentTranslate = 0
+
+  const isExpanded = () => sheet.classList.contains('kv-sheet--expanded')
+
+  /** Auf einen der beiden Ruhezustaende zurueck — das CSS uebernimmt wieder. */
+  const setExpanded = (expanded) => {
+    sheet.style.transform = ''
+    sheet.style.clipPath = ''
+    sheet.classList.toggle('kv-sheet--expanded', expanded)
+    publishKvVisible(sheet, expanded ? 0 : sheet.offsetHeight - kvPeekPx(sheet))
+  }
+  const toggle = () => setExpanded(!isExpanded())
+
+  /**
+   * Das Sheet auf eine frei gewaehlte Hoehe stellen.
+   *
+   * Inline gesetzt und inline gelassen: eine Inline-Deklaration schlaegt die
+   * Klassenregel, das Sheet bleibt also stehen, wo es losgelassen wurde,
+   * obwohl .kv-sheet--expanded weiterhin ein transform mitbringt. Die Klasse
+   * ist damit nur noch Zustandsmerkmal fuer andere Regeln, nicht mehr die
+   * Quelle der Position.
+   */
+  const setFree = (translate) => {
+    currentTranslate = translate
+    sheet.style.transform = `translateY(${translate}px)`
+    // Mitgefuehrter Schnitt: verschoben wird um translate, also liegt genau
+    // diese Strecke unterhalb der sichtbaren Kante.
+    sheet.style.clipPath = `inset(0 0 ${translate}px 0)`
+    sheet.classList.toggle('kv-sheet--expanded',
+                           translate < (sheetHeight - peekPx) * KV_SHEET_EXPANDED_AT)
+    publishKvVisible(sheet, translate)
+  }
+
+  const onPointerMove = (e) => {
+    if (!dragging) return
+    const y = e.touches ? e.touches[0].clientY : e.clientY
+    const delta = y - startY
+    if (Math.abs(delta) > 6) didDrag = true
+    setFree(Math.max(0, Math.min(sheetHeight - peekPx, startTranslate + delta)))
+    if (e.cancelable) e.preventDefault()
+  }
+  const onPointerUp = () => {
+    if (!dragging) return
+    dragging = false
+    sheet.classList.remove('kv-sheet--dragging')
+    document.removeEventListener('touchmove', onPointerMove)
+    document.removeEventListener('touchend', onPointerUp)
+    document.removeEventListener('mousemove', onPointerMove)
+    document.removeEventListener('mouseup', onPointerUp)
+    if (!didDrag) {
+      // Kein Zug, nur ein Antipper — den behandelt onTap.
+      return
+    }
+    // Stehenbleiben, wo losgelassen wurde. Nur ganz dicht an den beiden Enden
+    // doch einrasten: dort ist "fast zu" bzw. "fast ganz oben" nie gemeint,
+    // und der Rest-Spalt saehe aus wie ein Fehler.
+    const maxTranslate = sheetHeight - peekPx
+    if (currentTranslate <= KV_SHEET_EDGE_SNAP) setExpanded(true)
+    else if (currentTranslate >= maxTranslate - KV_SHEET_EDGE_SNAP) setExpanded(false)
+  }
+  const onPointerDown = (e) => {
+    if (!mobileQuery.matches) return
+    if (e.target.closest('select, button, a, input')) return
+    dragging = true
+    didDrag = false
+    startY = e.touches ? e.touches[0].clientY : e.clientY
+    // Gemessen statt aus einem vh-Faktor gerechnet: offsetHeight ist die
+    // Layout-Hoehe (vom transform unberuehrt) und stimmt damit immer mit dem
+    // CSS ueberein, auch wenn dort jemand die 80vh aendert.
+    sheetHeight = sheet.offsetHeight
+    peekPx = kvPeekPx(sheet)
+    // Aus einer freien Position weiterziehen statt zurueckzuspringen.
+    const inline = parseFloat(sheet.style.transform.replace(/[^\d.-]/g, ''))
+    startTranslate = Number.isFinite(inline)
+      ? inline
+      : (isExpanded() ? 0 : sheetHeight - peekPx)
+    currentTranslate = startTranslate
+    sheet.classList.add('kv-sheet--dragging')
+    document.addEventListener('touchmove', onPointerMove, { passive: false })
+    document.addEventListener('touchend', onPointerUp)
+    document.addEventListener('mousemove', onPointerMove)
+    document.addEventListener('mouseup', onPointerUp)
+  }
+  const onTap = (e) => {
+    if (!mobileQuery.matches) return
+    if (didDrag) { didDrag = false; return }
+    if (e.target.closest('select, button, a, input')) return
+    toggle()
+  }
+
+  handle.addEventListener('touchstart', onPointerDown, { passive: true })
+  handle.addEventListener('mousedown', onPointerDown)
+  handle.addEventListener('click', onTap)
+}
+
+/** ResizeObserver der zuletzt montierten Indikator-Leisten. Beim erneuten
+ *  Öffnen des Karte-Tabs wird der Karteninhalt neu gebaut — die alten
+ *  Beobachter zeigen dann auf abgehängte Knoten und werden hier getrennt. */
+let kvThumbObservers = []
+
+/**
+ * Gleitender Auswahl-Indikator für eine Button-Leiste (Kategorien, Radius).
+ * Statt den Hintergrund hart umzuschalten, wandert ein einzelnes weisses Feld
+ * zur neuen Auswahl. Das Feld wird erst hier erzeugt: ohne JS bleibt der
+ * .active-Hintergrund aus dem CSS als Fallback stehen.
+ *
+ * Gibt eine reposition()-Funktion zurück, die Aufrufer nach jedem Auswahl-
+ * wechsel aufrufen. Layout-Änderungen deckt ein ResizeObserver selbst ab.
+ * Rückgabe null, wenn die Leiste nicht existiert.
+ */
+function mountKvThumb(container, activeSelector, extraClass) {
+  if (!container) return null
+  const thumb = document.createElement('span')
+  thumb.className = extraClass ? `kv-pill-thumb ${extraClass}` : 'kv-pill-thumb'
+  thumb.setAttribute('aria-hidden', 'true')
+  container.prepend(thumb)
+
+  const reposition = (animate = true) => {
+    const active = container.querySelector(activeSelector)
+    if (!active || !active.offsetWidth) {
+      thumb.style.opacity = '0'
+      return
+    }
+    // Beim ersten Setzen ohne Übergang, sonst gleitet das Feld sichtbar aus
+    // der linken Ecke an seine Startposition.
+    if (!animate) thumb.style.transition = 'none'
+    thumb.style.width = `${active.offsetWidth}px`
+    thumb.style.height = `${active.offsetHeight}px`
+    thumb.style.transform = `translate(${active.offsetLeft}px, -50%)`
+    thumb.style.opacity = '1'
+    if (!animate) {
+      void thumb.offsetWidth // Reflow erzwingen, bevor die Transition zurückkommt
+      thumb.style.transition = ''
+    }
+  }
+
+  reposition(false)
+  container.classList.add('kv-has-thumb')
+
+  // Die Pillen ändern ihre Maße an mehreren Stellen, die kein window-resize
+  // zuverlässig zum richtigen Zeitpunkt meldet: Breakpoint-Wechsel (kleinere
+  // Schrift/Padding auf Mobil), Wechsel Desktop ↔ Bottom-Sheet und das
+  // Wegklappen der Radius-Pillen beim Öffnen der Ortssuche. Deshalb werden
+  // die Pillen selbst gemessen statt auf das Fenster zu hören.
+  if (typeof ResizeObserver !== 'undefined') {
+    const ro = new ResizeObserver(() => reposition(false))
+    // Der Indikator selbst wird bewusst nicht beobachtet — sonst löst sein
+    // eigenes Neuvermessen die nächste Runde aus.
+    container.querySelectorAll(':scope > *:not(.kv-pill-thumb)').forEach(el => ro.observe(el))
+    kvThumbObservers.push(ro)
+  }
+
+  // Schlusspunkt nach Übergängen: Beim Ein-/Ausklappen der Ortssuche ändert
+  // die gewählte Pille nur ihre *Position* (die Nachbarn klappen weg), nicht
+  // ihre Größe. Der ResizeObserver verfolgt das zwar während der Animation,
+  // meldet die letzte Teilpixel-Änderung aber nicht mehr — der Indikator blieb
+  // dadurch ein paar Pixel neben der Pille stehen. transitionend liefert den
+  // verlässlichen Endzustand nach.
+  container.addEventListener('transitionend', (e) => {
+    if (e.target !== thumb) reposition(false)
+  })
+
+  return reposition
+}
+
 function bindKarteViewEvents() {
   // Init the Google Map (re-uses garage's hub map implementation)
   // Ergebnisliste danach einmal aktualisieren, damit sie bei fehlendem
   // Standort sofort "Standort nicht verfügbar" statt für immer "Suche läuft…" zeigt.
-  initHubMap().then(() => renderResults())
-  // Load real weather data (Open-Meteo)
-  setTimeout(() => loadWeather(), 2000)
+  initHubMap().then(() => {
+    /* Nur dort abschalten, wo gar keine Suche laufen kann. Steht Karte und
+       Standort, hat initHubMap() gerade selbst eine angestossen — dann bleibt
+       der Platzhalter, bis onHubResults() meldet. */
+    if (!hasMapsConsent() || getUserCoords().lat == null) searchPending = false
+    renderResults()
+    /* Ohne Standort ist das Eingabefeld der einzige Weg weiter. Es hinter der
+       Lupe eingeklappt zu lassen, versteckt genau dann die Loesung, wenn sie
+       gebraucht wird. */
+    if (hasMapsConsent() && getUserCoords().lat == null) openSearch()
+  })
 
   let currentRadius = 5000
-  let currentSort = 'distance'
-  let currentFavorites = JSON.parse(localStorage.getItem('mm_kv_favs') || '[]')
+  /* Ungeschuetzt geparst riss ein einziger kaputter Wert den ganzen
+     Karten-Reiter mit: der Aufruf steht im Aufbau des Hubs, eine Ausnahme hier
+     beendet ihn, bevor Karte und Liste stehen. Der direkte Nachbar
+     readFavMeta() unten macht es fuer denselben Speicherschluessel schon
+     richtig. Zusaetzlich auf Array festnageln — gueltiges JSON ist noch keine
+     Liste, und weiter unten laufen .includes()/.filter() darauf. */
+  let currentFavorites = (() => {
+    try {
+      const v = JSON.parse(localStorage.getItem('mm_kv_favs') || '[]')
+      return Array.isArray(v) ? v : []
+    } catch { return [] }
+  })()
+  // Zustand der Listen-Kopfzeile. Bewusst nur hier gehalten und nicht
+  // gespeichert: Sortierung und Oeffnungsfilter beziehen sich auf die gerade
+  // laufende Suche, nicht auf den Nutzer.
+  let sortMode = 'distance'
+  let openOnly = false
+  let favOnly = false
+  // Solange true, zeigt die Liste Platzhalterzeilen statt "nichts gefunden" —
+  // sonst behauptet sie waehrend jeder laufenden Suche, es gaebe keine Treffer.
+  let searchPending = true
+
+  const RADIUS_STEPS = [2000, 5000, 10000, 25000, 50000]
+
+  const readFavMeta = () => {
+    try { return JSON.parse(localStorage.getItem('mm_kv_favs_meta') || '{}') } catch { return {} }
+  }
+
+  /* Gemerkte Orte als Treffer aufbereitet. Sie wurden bisher zwar gespeichert
+     (mm_kv_favs + mm_kv_favs_meta), aber nirgends wieder ausgelesen — merken
+     war eine Einbahnstrasse. Die Eintraege koennen ausserhalb der aktuellen
+     Suche liegen, deshalb Entfernung nur, wenn ein Standort bekannt ist. */
+  const favResults = () => {
+    const meta = readFavMeta()
+    const { lat, lng } = getUserCoords()
+    return currentFavorites.map(id => {
+      const m = meta[id]
+      if (!m) return null
+      return {
+        placeId: id,
+        name: m.name || '—',
+        address: m.address || '',
+        rating: m.rating || null,
+        userRatings: 0,
+        isOpen: null,
+        lat: m.lat,
+        lng: m.lng,
+        distanceKm: (lat != null && m.lat != null) ? haversineKm(lat, lng, m.lat, m.lng) : null,
+      }
+    }).filter(Boolean)
+  }
+
+  const syncFavCount = () => {
+    const el = document.getElementById('kv-fav-count')
+    if (el) el.textContent = currentFavorites.length
+  }
+
+  const emptyState = (icon, title, hint, actions = []) => `
+    <div class="kv-results-empty">
+      <span class="kv-empty-icon">${icon}</span>
+      <span class="kv-empty-title">${title}</span>
+      ${hint ? `<span class="kv-empty-hint">${hint}</span>` : ''}
+      ${actions.length ? `<div class="kv-empty-actions">${actions.map(a =>
+        `<button type="button" class="kv-empty-btn${a.primary ? ' kv-empty-btn--primary' : ''}" id="${a.id}">${a.label}</button>`
+      ).join('')}</div>` : ''}
+    </div>`
+
+  /* Vier Platzhalterzeilen statt eines "Suche laeuft"-Satzes: die Liste behaelt
+     ihre Hoehe, statt beim Eintreffen der Treffer aufzuspringen. */
+  const skeleton = () => `<div class="kv-skeleton">${
+    Array.from({ length: 4 }, (_, i) => `<div class="kv-skeleton-row" style="--i:${i}"><span class="kv-skeleton-line kv-skeleton-line--name"></span><span class="kv-skeleton-line kv-skeleton-line--addr"></span></div>`).join('')
+  }</div>`
+
+  const renderEmpty = (list) => {
+    // Reihenfolge = Reihenfolge der tatsaechlichen Blockade. Vorher stand hier
+    // immer "Standort nicht verfuegbar" — auch dann, wenn in Wahrheit noch die
+    // Einwilligung fuer die Karte fehlte und der Standort nie erfragt wurde.
+    // Gemerkte Orte zuerst: sie stehen im localStorage und haengen weder an
+    // der Karte noch am Standort. "Karte noch nicht geladen" waere hier die
+    // falsche Erklaerung fuer eine leere Merkliste.
+    if (favOnly) {
+      list.innerHTML = emptyState('\u{1F516}', 'Noch nichts gemerkt',
+        'Tippe bei einem Treffer auf \u201eMerken\u201c \u2014 gemerkte Orte findest du hier wieder.')
+      return
+    }
+    if (!hasMapsConsent()) {
+      // Bewusst kein hervorgehobener Knopf: der Datenschutzhinweis auf der
+      // Karte traegt bereits den weissen "Karte laden"-Knopf. Zwei gleich
+      // starke Aufforderungen nebeneinander waeren eine zuviel — hier steht
+      // nur der zweite Weg dorthin, fuer den Fall, dass das Sheet auf dem
+      // Handy die Karte gerade verdeckt.
+      list.innerHTML = emptyState('\u{1F5FA}\u{FE0F}', 'Karte noch nicht geladen',
+        'Orte in deiner N\u00e4he findest du erst, wenn die Karte geladen ist.',
+        [{ id: 'kv-empty-consent', label: 'Karte laden' }])
+      return
+    }
+    const { lat } = getUserCoords()
+    if (lat == null) {
+      list.innerHTML = emptyState('\u{1F4CD}', 'Kein Standortzugriff',
+        'Erlaube den Zugriff im Browser \u2014 oder gib einen Ort ein.',
+        [{ id: 'kv-empty-retry', label: 'Erneut versuchen', primary: true },
+         { id: 'kv-empty-search', label: 'Ort eingeben' }])
+      return
+    }
+    if (searchPending) { list.innerHTML = skeleton(); return }
+    if (openOnly) {
+      list.innerHTML = emptyState('\u{1F551}', 'Gerade nichts ge\u00f6ffnet',
+        `Im Umkreis von ${currentRadius / 1000}\u00a0km hat aktuell nichts offen.`,
+        [{ id: 'kv-empty-openoff', label: 'Auch Geschlossene zeigen' }])
+      return
+    }
+    const next = RADIUS_STEPS.find(r => r > currentRadius)
+    list.innerHTML = emptyState('\u{1F50D}', 'Nichts gefunden',
+      `Im Umkreis von ${currentRadius / 1000}\u00a0km gibt es hier keine Treffer.`,
+      next ? [{ id: 'kv-empty-expand', label: `Auf ${next / 1000}\u00a0km erweitern`, primary: true }] : [])
+  }
 
   const renderResults = () => {
     const list = document.getElementById('kv-results-list')
-    const countEl = document.getElementById('kv-result-count')
     if (!list) return
-    let results = getHubSearchResults()
-    // Sort
-    if (currentSort === 'rating') results = [...results].sort((a, b) => (b.rating || 0) - (a.rating || 0))
-    else if (currentSort === 'name') results = [...results].sort((a, b) => a.name.localeCompare(b.name))
-    else results = [...results].sort((a, b) => a.distanceKm - b.distanceKm)
+    syncFavCount()
 
-    if (countEl) countEl.textContent = results.length
-    if (!results.length) {
-      const { lat } = getUserCoords()
-      list.innerHTML = lat
-        ? `<div class="kv-results-empty"><span>🔎 Suche läuft…</span></div>`
-        : `<div class="kv-results-empty"><span>📍 Standort nicht verfügbar — bitte erlaube den Standortzugriff im Browser.</span></div>`
-      return
-    }
-    list.innerHTML = results.map(r => {
-      const distance = r.distanceKm < 1 ? `${Math.round(r.distanceKm * 1000)} m` : `${r.distanceKm.toFixed(1)} km`
-      const rating = r.rating ? `<span class="kv-result-rating">★ ${r.rating.toFixed(1)}<span class="kv-result-ratings-count">(${r.userRatings})</span></span>` : ''
-      const openStatus = r.isOpen === true ? '<span class="kv-result-open">Geöffnet</span>'
+    let results = favOnly ? favResults() : [...getHubSearchResults()]
+    if (openOnly) results = results.filter(r => r.isOpen === true)
+    results.sort(sortMode === 'rating'
+      // Ohne Bewertung nach hinten statt vor alles andere; bei Gleichstand
+      // entscheidet die Zahl der Bewertungen, sonst schiebt sich eine einzelne
+      // 5-Sterne-Stimme vor eine 4,8 aus 300.
+      ? (a, b) => (b.rating || 0) - (a.rating || 0) || (b.userRatings || 0) - (a.userRatings || 0)
+      : (a, b) => (a.distanceKm ?? Infinity) - (b.distanceKm ?? Infinity))
+
+    // Ohne Treffer bleibt die Zeile leer statt einen Gedankenstrich zu zeigen:
+    // der stand allein links neben den Schaltern und sah aus wie ein Fehler.
+    const countEl = document.getElementById('kv-list-count')
+    if (countEl) countEl.textContent = results.length ? `${results.length} Treffer` : ''
+
+    if (!results.length) { renderEmpty(list); return }
+
+    list.innerHTML = results.map((r, i) => {
+      const distance = r.distanceKm == null ? ''
+        : r.distanceKm < 1 ? `${Math.round(r.distanceKm * 1000)} m` : `${r.distanceKm.toFixed(1)} km`
+      const rating = r.rating ? `<span class="kv-result-rating">\u2605 ${r.rating.toFixed(1)}${r.userRatings ? `<span class="kv-result-ratings-count">(${r.userRatings})</span>` : ''}</span>` : ''
+      const openStatus = r.isOpen === true ? '<span class="kv-result-open">Ge\u00f6ffnet</span>'
         : r.isOpen === false ? '<span class="kv-result-closed">Geschlossen</span>' : ''
+      // Bewertung und Status stehen in einer Zeile, getrennt durch einen
+      // Mittelpunkt — aber nur, wenn beide Angaben vorhanden sind.
+      const meta = [rating, openStatus].filter(Boolean)
+        .join('<span class="kv-result-dot">\u00b7</span>')
       const isFav = currentFavorites.includes(r.placeId)
       const mapsUrl = `https://www.google.com/maps/dir/?api=1&destination=${r.lat},${r.lng}`
+      // --i staffelt den Einlauf; ab Position 12 gedeckelt, sonst tropfen
+      // lange Trefferlisten sekundenlang nach.
       return `
-        <div class="kv-result-card" data-place-id="${r.placeId}">
-          <div class="kv-result-distance">${distance}</div>
-          <div class="kv-result-body">
-            <div class="kv-result-name">${esc(r.name)}</div>
-            <div class="kv-result-meta">${rating}${openStatus}</div>
-            <div class="kv-result-address">${esc(r.address)}</div>
-            <div class="kv-result-actions">
+        <div class="kv-result-card" data-place-id="${r.placeId}" data-lat="${r.lat}" data-lng="${r.lng}" style="--i:${Math.min(i, 12)}">
+          <div class="kv-result-head">
+            <span class="kv-result-name">${esc(r.name)}</span>
+            ${distance ? `<span class="kv-result-distance">${distance}</span>` : ''}
+          </div>
+          ${meta ? `<div class="kv-result-meta">${meta}</div>` : ''}
+          <div class="kv-result-address">${esc(r.address)}</div>
+          <div class="kv-result-actions">
               <a class="kv-action-btn" href="${mapsUrl}" target="_blank" rel="noopener" onclick="event.stopPropagation()">
                 <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 11l18-8-8 18-2-7-8-3z"/></svg>
                 Route
@@ -1668,7 +2659,6 @@ function bindKarteViewEvents() {
                 <svg width="13" height="13" viewBox="0 0 24 24" fill="${isFav ? 'currentColor' : 'none'}" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"/></svg>
                 ${isFav ? 'Gespeichert' : 'Merken'}
               </button>
-            </div>
           </div>
         </div>`
     }).join('')
@@ -1677,7 +2667,12 @@ function bindKarteViewEvents() {
     list.querySelectorAll('.kv-result-card').forEach(card => {
       card.addEventListener('click', () => {
         const id = card.dataset.placeId
-        focusHubResult(id)
+        // Gemerkte Orte liegen oft ausserhalb der aktuellen Trefferliste — dann
+        // gibt es keinen Marker, auf den focusHubResult() zielen koennte.
+        if (!focusHubResult(id)) {
+          const lat = parseFloat(card.dataset.lat), lng = parseFloat(card.dataset.lng)
+          if (!Number.isNaN(lat) && !Number.isNaN(lng)) panHubToCoords(lat, lng)
+        }
         // Visually highlight on click
         list.querySelectorAll('.kv-result-card').forEach(c => c.classList.remove('kv-result-card--active'))
         card.classList.add('kv-result-card--active')
@@ -1709,19 +2704,143 @@ function bindKarteViewEvents() {
           } catch {}
         }
         try { localStorage.setItem('mm_kv_favs', JSON.stringify(currentFavorites)) } catch {}
-        renderResults()
+        syncFavCount()
+        // In der Gemerkt-Ansicht muss die Zeile verschwinden, sonst bliebe ein
+        // Eintrag stehen, den es nicht mehr gibt.
+        if (favOnly) { renderResults(); return }
+        // Sonst nur diesen Knopf umschalten statt die Liste neu zu bauen: ein
+        // Neuaufbau würde den gestaffelten Einlauf aller Karten erneut
+        // auslösen — ein Klick auf "Merken" ließe die ganze Liste flackern.
+        const nowFav = currentFavorites.includes(id)
+        btn.classList.toggle('kv-fav-btn--active', nowFav)
+        btn.querySelector('svg')?.setAttribute('fill', nowFav ? 'currentColor' : 'none')
+        btn.lastChild.textContent = nowFav ? ' Gespeichert' : ' Merken'
+        btn.classList.remove('kv-fav-btn--pop')
+        void btn.offsetWidth // Reflow, damit die Animation auch beim Wiederholen startet
+        btn.classList.add('kv-fav-btn--pop')
       })
     })
   }
 
+  /* Aktionen der Leerzustaende. Delegiert, weil die Knoepfe erst mit dem
+     jeweiligen Zustand entstehen. */
+  document.getElementById('kv-results-list')?.addEventListener('click', (e) => {
+    const btn = e.target.closest('.kv-empty-btn')
+    if (!btn) return
+    if (btn.id === 'kv-empty-consent') {
+      document.getElementById('hub-map-consent-btn')?.click()
+      searchPending = true
+      renderResults()
+    } else if (btn.id === 'kv-empty-retry') {
+      searchPending = true
+      renderResults()
+      retryHubLocation()
+    } else if (btn.id === 'kv-empty-search') {
+      openSearch()
+    } else if (btn.id === 'kv-empty-openoff') {
+      openOnly = false
+      document.getElementById('kv-open-toggle')?.setAttribute('data-active', 'false')
+      renderResults()
+    } else if (btn.id === 'kv-empty-expand') {
+      const next = RADIUS_STEPS.find(r => r > currentRadius)
+      document.querySelector(`.kv-radius-pill[data-radius="${next}"]`)?.click()
+    }
+  })
+
   // Subscribe to result updates from the map
-  onHubResults(() => renderResults())
+  onHubResults(() => { searchPending = false; renderResults() })
+
+  /* Karte verschoben -> "Hier suchen" anbieten. Die Suche laeuft weiter um die
+     alte Mitte, bis der Nutzer das ausdruecklich will — ein automatisches
+     Nachsuchen bei jeder Geste waere teuer und wuerde die Liste unter dem
+     Finger umsortieren. */
+  const searchHereBtn = document.getElementById('kv-search-here')
+  let movedCenter = null
+  onHubMapMoved((center) => {
+    movedCenter = center
+    if (searchHereBtn) searchHereBtn.hidden = false
+  })
+  searchHereBtn?.addEventListener('click', () => {
+    if (!movedCenter) return
+    searchHereBtn.hidden = true
+    searchPending = true
+    renderResults()
+    searchNearbyAt(movedCenter.lat, movedCenter.lng)
+  })
+
+  // Sortierung: Entfernung <-> Bewertung
+  document.getElementById('kv-sort-btn')?.addEventListener('click', () => {
+    const btn = document.getElementById('kv-sort-btn')
+    sortMode = sortMode === 'distance' ? 'rating' : 'distance'
+    btn.dataset.sort = sortMode
+    const label = btn.querySelector('.kv-sort-label')
+    if (label) label.textContent = sortMode === 'distance' ? 'Entfernung' : 'Bewertung'
+    renderResults()
+  })
+
+  // Nur geoeffnete Orte
+  document.getElementById('kv-open-toggle')?.addEventListener('click', (e) => {
+    openOnly = !openOnly
+    e.currentTarget.dataset.active = String(openOnly)
+    renderResults()
+  })
+
+  /* Gemerkte Orte. Kategorie-, Radius- und Oeffnungsfilter treten dabei
+     zurueck: die Merkliste ist eine eigene Sicht, keine Verfeinerung der
+     laufenden Suche. */
+  document.getElementById('kv-fav-filter')?.addEventListener('click', (e) => {
+    favOnly = !favOnly
+    e.currentTarget.dataset.active = String(favOnly)
+    document.querySelector('.kv-sidebar')?.classList.toggle('kv-sidebar--favs', favOnly)
+    renderResults()
+  })
+
+  // Gleitende Auswahl-Indikatoren für Kategorie- und Radius-Leiste. Der
+  // Karteninhalt wird bei jedem Tab-Wechsel neu gebaut — Beobachter der
+  // vorigen, jetzt abgehängten Leisten vorher trennen.
+  kvThumbObservers.forEach(ro => ro.disconnect())
+  kvThumbObservers = []
+  const filterBar = document.querySelector('.konf-karte-hub .hub-filters')
+  const radiusBar = document.querySelector('.kv-radius-pills')
+
+  /* Weiche Kante rechts, solange Kategorien ausserhalb liegen. Ueber einen
+     ResizeObserver statt einmalig beim Aufbau: das Panel ist am Desktop 360px
+     breit und wird auf Handybreite zum Sheet ueber die volle Breite. */
+  const syncFilterOverflow = () => {
+    if (!filterBar) return
+    filterBar.classList.toggle('hub-filters--overflow', filterBar.scrollWidth > filterBar.clientWidth + 1)
+  }
+  if (filterBar && typeof ResizeObserver !== 'undefined') {
+    const ro = new ResizeObserver(syncFilterOverflow)
+    ro.observe(filterBar)
+    kvThumbObservers.push(ro)
+  }
+  syncFilterOverflow()
+  const moveFilterThumb = mountKvThumb(filterBar, '.hub-pill.active')
+  const moveRadiusThumb = mountKvThumb(radiusBar, '.kv-radius-pill--active', 'kv-pill-thumb--radius')
+
+  // Angeklickte Kategorie in den sichtbaren Bereich holen — bei sieben Pillen
+  // liegt die gewählte sonst halb außerhalb des Scrollfensters.
+  const revealPill = (pill) => {
+    if (!filterBar) return
+    const pad = 16
+    const left = pill.offsetLeft - pad
+    const right = pill.offsetLeft + pill.offsetWidth + pad
+    if (left < filterBar.scrollLeft) filterBar.scrollLeft = left
+    else if (right > filterBar.scrollLeft + filterBar.clientWidth) {
+      filterBar.scrollLeft = right - filterBar.clientWidth
+    }
+  }
 
   // Wire filter pills
   document.querySelectorAll('.konf-karte-hub .hub-pill').forEach(pill => {
     pill.addEventListener('click', () => {
       document.querySelectorAll('.konf-karte-hub .hub-pill').forEach(p => p.classList.remove('active'))
       pill.classList.add('active')
+      revealPill(pill)
+      moveFilterThumb?.()
+      searchPending = true
+      renderResults()
       searchNearby(pill.dataset.query, currentRadius)
     })
   })
@@ -1730,15 +2849,15 @@ function bindKarteViewEvents() {
     pill.addEventListener('click', () => {
       document.querySelectorAll('.kv-radius-pill').forEach(p => p.classList.remove('kv-radius-pill--active'))
       pill.classList.add('kv-radius-pill--active')
+      moveRadiusThumb?.()
       currentRadius = parseInt(pill.dataset.radius) || 5000
       const activeFilter = document.querySelector('.konf-karte-hub .hub-pill.active')?.dataset.query
-      if (activeFilter) searchNearby(activeFilter, currentRadius)
+      if (activeFilter) {
+        searchPending = true
+        renderResults()
+        searchNearby(activeFilter, currentRadius)
+      }
     })
-  })
-  // Sort select
-  document.getElementById('kv-sort-select')?.addEventListener('change', e => {
-    currentSort = e.target.value
-    renderResults()
   })
   // Search toggle — collapsed magnifying glass expands into the PLZ/Ort field
   const searchToggle = document.getElementById('kv-search-toggle')
@@ -1766,12 +2885,39 @@ function bindKarteViewEvents() {
   searchField?.addEventListener('keydown', e => {
     if (e.key === 'Escape') closeSearch()
   })
-  // Recenter button
-  document.getElementById('kv-recenter-btn')?.addEventListener('click', () => {
+  // Recenter — shared by the panel's inline button and the floating map
+  // control (Apple-Maps-style), so both trigger the same handler.
+  const handleRecenter = () => {
     recenterHubMap()
     const input = document.getElementById('kv-search-input')
     if (input) input.value = ''
+  }
+  document.getElementById('kv-recenter-btn')?.addEventListener('click', handleRecenter)
+  document.getElementById('kv-map-recenter-btn')?.addEventListener('click', handleRecenter)
+
+  // Retry-Button im Fehlerzustand ("Standort nicht verfügbar") — der Button
+  // wird per innerHTML injiziert (siehe getUserLocation in garage.js), daher
+  // hier per Delegation binden (analog zur Garage-Variante in garage.js).
+  document.querySelector('.konf-karte-hub')?.addEventListener('click', (e) => {
+    if (e.target.closest('#hub-retry-btn')) retryHubLocation()
   })
+
+  // Mobile bottom sheet: Drag am Handle + Tap-Fallback (Handle/Kopfbereich)
+  // zum Auf-/Zuziehen. Nur unterhalb 760px CSS-wirksam (siehe .kv-sidebar
+  // im @container-Block in main.css) — auf Desktop-Breite bleibt matches
+  // false, die Klassen werden zwar gesetzt, haben dort aber keine Wirkung.
+  bindKarteSheet()
+  syncKvPeek()
+  const peekHost = document.querySelector('.konf-karte-hub .kv-sidebar')
+  if (peekHost && typeof ResizeObserver !== 'undefined') {
+    const ro = new ResizeObserver(syncKvPeek)
+    ro.observe(peekHost)
+    kvThumbObservers.push(ro)
+  }
+
+  // Floating zoom controls (right side of the map, Apple-Maps-style)
+  document.getElementById('kv-zoom-in-btn')?.addEventListener('click', () => zoomHubMap(1))
+  document.getElementById('kv-zoom-out-btn')?.addEventListener('click', () => zoomHubMap(-1))
   // Location search (geocode + recenter) + recent searches
   const searchInput = document.getElementById('kv-search-input')
   if (searchInput) {
@@ -1843,60 +2989,271 @@ function bindKarteViewEvents() {
 }
 
 function bindMatchViewEvents(data) {
+  const bike = catalogBikeFor(data)
+
+  // "Händler finden" führte bisher in einen alert(). Der Karten-Reiter IST
+  // die Händlersuche — also dorthin wechseln und gleich die richtige Kachel
+  // auslösen, statt auf ein späteres Feature zu vertrösten.
   document.getElementById('konf-cta-dealer')?.addEventListener('click', () => {
-    alert('H\u00e4ndlersuche kommt bald!')
-  })
-  document.getElementById('konf-cta-quiz')?.addEventListener('click', () => {
-    cleanup3D()
-    cleanupKonfigurator()
-    const detail = document.getElementById('bike-detail')
-    detail.style.transition = 'opacity 0.22s ease'
-    detail.style.opacity = '0'
+    switchTab('karte', data)
     setTimeout(() => {
-      detail.style.display = 'none'
-      detail.innerHTML = ''
-      detail.classList.remove('bd-konfigurator-active', 'bd-konfigurator-visible')
-      detail.style.opacity = ''
-      detail.style.transition = ''
-      document.documentElement.classList.remove('has-landing')
-      document.getElementById('quiz-screen').style.display = 'flex'
-      import('./quiz.js').then(m => m.initQuiz())
-    }, 220)
+      document.querySelector('.konf-karte-hub .hub-pill[data-query="Motorradhändler"]')?.click()
+    }, 320)
+  })
+
+  document.getElementById('konf-cta-quiz')?.addEventListener('click', startQuizFromKonfigurator)
+  document.getElementById('mm-match-quiz')?.addEventListener('click', startQuizFromKonfigurator)
+
+  // Merken/Vergessen des offenen Bikes
+  document.getElementById('mm-match-save')?.addEventListener('click', (e) => {
+    if (!bike) return
+    const btn = e.currentTarget
+    if (btn.dataset.saved === 'true') {
+      removeMatch(bike.name)
+      showToast('Aus deinen Matches entfernt.')
+    } else {
+      const answers = getLastAnswers()
+      const res = answers ? scoreBikeAgainst(bike, answers) : null
+      addMatch(bike, { score: res?.score, pct: res?.pct, source: 'manual' })
+      showToast('Als Match gemerkt.')
+    }
+    refreshSaveBtn(bike)
+    refreshMatchList(bike)
+  })
+
+  // Sortierung
+  document.getElementById('mm-match-sort')?.addEventListener('click', (e) => {
+    matchSort = matchSort === 'recent' ? 'score' : 'recent'
+    e.currentTarget.textContent = matchSort === 'score' ? 'Nach Score' : 'Neueste'
+    refreshMatchList(bike)
+  })
+
+  // "Alle löschen" — zweistufig statt Bestätigungsdialog: der Schalter fragt
+  // sich selbst nach, und die Rückfrage verfällt von allein.
+  const clearBtn = document.getElementById('mm-match-clear')
+  clearBtn?.addEventListener('click', (e) => {
+    const btn = e.currentTarget
+    if (btn.dataset.armed !== 'true') {
+      btn.dataset.armed = 'true'
+      btn.textContent = 'Wirklich alle?'
+      btn.classList.add('mm-match-chip--armed')
+      clearTimeout(btn._t)
+      btn._t = setTimeout(() => {
+        btn.dataset.armed = 'false'
+        btn.textContent = 'Alle löschen'
+        btn.classList.remove('mm-match-chip--armed')
+      }, 4000)
+      return
+    }
+    clearTimeout(btn._t)
+    btn.dataset.armed = 'false'
+    btn.textContent = 'Alle löschen'
+    btn.classList.remove('mm-match-chip--armed')
+    clearMatches()
+    clearMatchUndo()
+    refreshSaveBtn(bike)
+    refreshMatchList(bike)
+    showToast('Alle Matches gelöscht.')
+  })
+
+  // Zeilen-Aktionen laufen über Delegation an den Karten, damit ein Neu-
+  // rendern der Liste die Handler nicht mitreißt.
+  document.getElementById('mm-match-saved')?.addEventListener('click', (e) => {
+    const open = e.target.closest('[data-open-match]')
+    if (open) { openMatchBike(open.dataset.openMatch); return }
+
+    const del = e.target.closest('[data-del-match]')
+    if (del) { deleteMatchWithUndo(del.dataset.delMatch, bike); return }
+
+    const star = e.target.closest('[data-star-match]')
+    if (star) {
+      const name = star.dataset.starMatch
+      const isPrimary = getPrimaryBike() === name
+      setPrimaryBike(isPrimary ? null : name)
+      showToast(isPrimary ? 'Hauptbike zurückgenommen.' : `${name} ist jetzt dein Hauptbike.`)
+      refreshMatchList(bike)
+    }
+  })
+
+  document.getElementById('mm-match-reco')?.addEventListener('click', (e) => {
+    const add = e.target.closest('[data-add-match]')
+    if (add) {
+      const recBike = findBikeByShortName(add.dataset.addMatch)
+      if (!recBike) return
+      const answers = getLastAnswers()
+      const res = answers ? scoreBikeAgainst(recBike, answers) : null
+      addMatch(recBike, { score: res?.score, pct: res?.pct, source: 'manual' })
+      showToast(`${recBike.name} gemerkt.`)
+      rerenderMatchTab(data)
+      return
+    }
+    const open = e.target.closest('[data-open-match]')
+    if (open) openMatchBike(open.dataset.openMatch)
+  })
+
+  animateMatchScore()
+}
+
+/** Ring + Balken der Score-Karte einlaufen lassen. */
+function animateMatchScore() {
+  const card = document.getElementById('mm-match-score')
+  if (!card) return
+  const ring = card.querySelector('.mm-match-ring-fill')
+  const groups = card.querySelectorAll('.konf-bar-group')
+
+  requestAnimationFrame(() => {
+    if (ring) {
+      const pct = Number(ring.dataset.pct) || 0
+      ring.style.strokeDashoffset = String(RING_CIRCUMFERENCE * (1 - pct / 100))
+    }
+    card.querySelectorAll('.mm-match-ring-num .konf-bar-counter').forEach(animateBarNumber)
+    groups.forEach((group, i) => {
+      setTimeout(() => {
+        const fill = group.querySelector('.konf-bar-fill')
+        if (fill) fill.style.width = fill.dataset.pct + '%'
+        group.querySelectorAll('.konf-bar-counter').forEach(animateBarNumber)
+      }, i * 110)
+    })
   })
 }
 
-function buildKonfiguratorHTML(data, initialTab = 'ansicht') {
+/** Nur die Liste neu zeichnen — die Karte selbst trägt die Delegation. */
+function refreshMatchList(currentBike) {
+  const list = document.getElementById('mm-match-list')
+  if (!list) return
+  const entries = sortedMatches()
+  list.innerHTML = buildMatchRows(entries, currentBike)
+  const count = document.getElementById('mm-match-count')
+  if (count) count.textContent = String(entries.length)
+  const clearBtn = document.getElementById('mm-match-clear')
+  if (clearBtn) clearBtn.hidden = entries.length === 0
+}
+
+function refreshSaveBtn(bike) {
+  const btn = document.getElementById('mm-match-save')
+  if (!btn || !bike) return
+  const saved = hasMatch(bike.name)
+  btn.dataset.saved = String(saved)
+  btn.classList.toggle('mm-match-btn--on', saved)
+  btn.querySelector('.mm-match-btn-icon').innerHTML = saved ? MM_ICON_CHECK : MM_ICON_PLUS
+  btn.querySelector('.mm-match-btn-label').innerHTML = matchSaveLabel(saved)
+}
+
+/** Kompletter Neuaufbau — nötig, wenn sich auch die Empfehlungsliste ändert. */
+function rerenderMatchTab(data) {
+  const container = document.getElementById('konf-right')
+  if (!container) return
+  container.innerHTML = buildMatchView(data)
+  container.querySelectorAll('.konf-reveal').forEach(el => el.classList.add('konf-visible'))
+  bindMatchViewEvents(data)
+}
+
+/**
+ * Löschen mit Rückgängig-Streifen: ein Fehlgriff in einer Liste, die man
+ * nicht wiederherstellen kann, wäre sonst endgültig.
+ */
+function deleteMatchWithUndo(name, currentBike) {
+  const list = getMatches()
+  const index = list.findIndex(m => m.name === name)
+  if (index === -1) return
+  const entry = list[index]
+  removeMatch(name)
+  refreshSaveBtn(currentBike)
+  refreshMatchList(currentBike)
+
+  const bar = document.getElementById('mm-match-undo')
+  if (!bar) return
+  clearTimeout(matchUndo?.timer)
+  matchUndo = { entry, index, timer: setTimeout(clearMatchUndo, 7000) }
+  bar.innerHTML = `
+    <span class="mm-match-undo-text">„${esc(name)}“ entfernt</span>
+    <button type="button" class="mm-match-undo-btn" id="mm-match-undo-btn">Rückgängig</button>`
+  bar.hidden = false
+  document.getElementById('mm-match-undo-btn')?.addEventListener('click', () => {
+    if (!matchUndo) return
+    restoreMatch(matchUndo.entry, matchUndo.index)
+    clearMatchUndo()
+    refreshSaveBtn(currentBike)
+    refreshMatchList(currentBike)
+  })
+}
+
+function clearMatchUndo() {
+  clearTimeout(matchUndo?.timer)
+  matchUndo = null
+  const bar = document.getElementById('mm-match-undo')
+  if (bar) { bar.hidden = true; bar.innerHTML = '' }
+}
+
+/**
+ * Ein gespeichertes Match öffnen. Weg über die Garage-Seite — derselbe
+ * Pfad, den auch der Zurück-Weg aus dem Konfigurator nimmt, inklusive
+ * sauberem Abbau des laufenden 3D-Viewers.
+ */
+function openMatchBike(name) {
+  const bike = findBikeByShortName(name)
+  if (!bike) { showToast('Dieses Bike ist nicht mehr im Katalog.'); return }
+
+  cleanup3D()
+  cleanupKonfigurator()
+  const detail = document.getElementById('bike-detail')
+  detail.style.transition = 'opacity 0.22s ease'
+  detail.style.opacity = '0'
+  setTimeout(() => {
+    detail.style.display = 'none'
+    detail.innerHTML = ''
+    detail.classList.remove('bd-konfigurator-active', 'bd-konfigurator-visible')
+    detail.style.opacity = ''
+    detail.style.transition = ''
+    import('./garage.js').then(m => m.openBikeGarage(bike.name))
+  }, 220)
+}
+
+/** Konfigurator verlassen und das Quiz starten. */
+function startQuizFromKonfigurator() {
+  cleanup3D()
+  cleanupKonfigurator()
+  const detail = document.getElementById('bike-detail')
+  detail.style.transition = 'opacity 0.22s ease'
+  detail.style.opacity = '0'
+  setTimeout(() => {
+    detail.style.display = 'none'
+    detail.innerHTML = ''
+    detail.classList.remove('bd-konfigurator-active', 'bd-konfigurator-visible')
+    detail.style.opacity = ''
+    detail.style.transition = ''
+    document.documentElement.classList.remove('has-landing')
+    document.getElementById('quiz-screen').style.display = 'flex'
+    import('./quiz.js').then(m => m.initQuiz())
+  }, 220)
+}
+function buildKonfiguratorHTML(data, initialTab = KONF_DEFAULT_TAB) {
   const userHeight = getUserHeight()
   konfData = data
-  const tab = tabViewBuilders[initialTab] ? initialTab : 'ansicht'
+  const tab = tabViewBuilders[initialTab] ? initialTab : KONF_DEFAULT_TAB
   const fullscreen = tab === 'ausstattung' || tab === 'community' || tab === 'karte'
 
   return `
     <!-- Touchbar Navigation -->
     <div class="tb-wrap scrolled konf-tb-wrap${tab === 'community' ? ' konf-tb-wrap--community' : ''}" id="konf-taskbar">
       <nav class="tb-bar">
-        <button class="tb-btn${tab === 'ansicht' ? ' tb-btn-active' : ''}" data-tab="ansicht">Ansicht</button>
+        <button class="tb-btn" type="button" id="konf-profil-btn">Profil</button>
         <button class="tb-btn${tab === 'ausstattung' ? ' tb-btn-active' : ''}" data-tab="ausstattung">Ausr\u00fcstung</button>
         <button class="tb-btn${tab === 'match' ? ' tb-btn-active' : ''}" data-tab="match"><span class="tb-lbl-lang">Match finden</span><span class="tb-lbl-kurz">Match</span></button>
         <button class="tb-btn${tab === 'community' ? ' tb-btn-active' : ''}" data-tab="community">Community</button>
         <button class="tb-btn${tab === 'karte' ? ' tb-btn-active' : ''}" data-tab="karte">Karte</button>
       </nav>
     </div>
-    <button class="konf-back-float" id="konf-back">
+    <button class="konf-back-float" id="konf-back" type="button" aria-label="Zur\u00fcck">
       <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 12H5M12 19l-7-7 7-7"/></svg>
     </button>
 
     <!-- Split Screen -->
-    <div class="konf-split${fullscreen ? ' konf-split--fullscreen' : ''}${tab === 'community' ? ' konf-split--community' : ''}${tab === 'karte' ? ' konf-split--karte' : ''}">
+    <div class="konf-split${fullscreen ? ' konf-split--fullscreen' : ''}${tab === 'ausstattung' ? ' konf-split--ausstattung' : ''}${tab === 'community' ? ' konf-split--community' : ''}${tab === 'karte' ? ' konf-split--karte' : ''}">
 
       <!-- Left: Cinematic 2D Viewer -->
       <div class="konf-left">
         <div class="konf-bg-text" aria-hidden="true">${data.bgText || data.fullName}</div>
-        <div class="konf-left-info">
-          <span class="konf-left-brand">${data.brand}</span>
-          <span class="konf-left-model">${data.fullName}</span>
-          <span class="konf-left-price">${data.price} inkl. MwSt.</span>
-        </div>
         <div class="konf-viewer" id="konf-viewer">
           <img class="konf-viewer-img konf-viewer-img--active" id="konf-img-bike" src="${data.img1}" alt="${data.fullName}">
           <img class="konf-viewer-img" id="konf-img-rider" src="${data.img2}" alt="${data.fullName} mit Fahrer">
@@ -2018,13 +3375,13 @@ function bindKonfiguratorEvents(data, garageBikeData) {
 
   // Back button
   document.getElementById('konf-back')?.addEventListener('click', () => {
-    if (garageBikeData) {
-      // Came from garage — go back to garage
-      returnToGarage(garageBikeData)
-    } else {
-      // Came from deckblatt — go back to deckblatt
-      transitionToDeckblatt(data)
-    }
+    if (!goBack()) konfiguratorBack(data, garageBikeData)
+  })
+
+  // Profil-Reiter → Konto-Overlay (kein eigener Tab-View, daher kein switchTab)
+  document.getElementById('konf-profil-btn')?.addEventListener('click', async () => {
+    const { openAccount } = await import('./account.js')
+    openAccount(document.querySelector('.konf-tb-wrap .tb-bar'))
   })
 
   // Taskbar tabs → switch dedicated views
@@ -2087,6 +3444,11 @@ function transitionToDeckblatt(data) {
       bindDeckblattEvents(data, detail, landing)
     })
 
+    // Abgleich statt Neuanlage: kam der Konfigurator vom Deckblatt, liegt
+    // dessen Ebene bereits auf dem Stack und enterScreen dedupliziert.
+    enterScreen('bd-deckblatt', closeDetailToLanding, isDeckblattActive,
+                { screen: 'deckblatt', bike: data.fullName })
+
     window.scrollTo(0, 0)
   }, 220)
 }
@@ -2123,7 +3485,6 @@ function initKonfiguratorAnimations() {
     const favToggle = document.getElementById('gear-fav-toggle')
     const favOnly = favToggle?.dataset.active === 'true'
     const dealOnly = document.getElementById('gear-deal-toggle')?.dataset.active === 'true'
-    const saleOnly = document.getElementById('gear-sale-toggle')?.dataset.active === 'true'
     const items = document.querySelectorAll('.gear-card')
     let visible = 0, budgetMin = 0, budgetMax = 0
     items.forEach(item => {
@@ -2133,9 +3494,8 @@ function initKonfiguratorAnimations() {
       const priceMatch = itemMin <= maxPrice && itemMax >= minPrice
       const favMatch = !favOnly || item.querySelector('.gear-card-heart--active')
       const dealMatch = !dealOnly || item.dataset.deal === '1'
-      const saleMatch = !saleOnly || item.dataset.sale === '1'
       const searchMatch = item.dataset.searchHidden !== '1'
-      const show = catMatch && priceMatch && favMatch && dealMatch && saleMatch && searchMatch
+      const show = catMatch && priceMatch && favMatch && dealMatch && searchMatch
       if (show) {
         if (item.style.display === 'none') {
           item.style.display = ''
@@ -2191,8 +3551,9 @@ function initKonfiguratorAnimations() {
     })
   })
 
-  document.getElementById('gear-price-min')?.addEventListener('input', applyGearFilters)
-  document.getElementById('gear-price-max')?.addEventListener('input', applyGearFilters)
+  const onPriceInput = () => { applyGearFilters(); syncToolsDot() }
+  document.getElementById('gear-price-min')?.addEventListener('input', onPriceInput)
+  document.getElementById('gear-price-max')?.addEventListener('input', onPriceInput)
 
   // Sort button
   document.getElementById('gear-sort-btn')?.addEventListener('click', () => {
@@ -2204,7 +3565,11 @@ function initKonfiguratorAnimations() {
     label.textContent = next === 'asc' ? 'Preis ↑' : 'Preis ↓'
     sortGearCards(next)
     applyGearFilters()
+    syncToolsDot()
   })
+
+  // Ansichtsumschalter und Leistenmessung aufsetzen (delegiert, s. initGearView)
+  initGearView()
 
   // Helper: update favorites counter on the toggle button
   function updateFavCount() {
@@ -2220,9 +3585,6 @@ function initKonfiguratorAnimations() {
     const toggle = document.getElementById('gear-fav-toggle')
     if (toggle && toggle.dataset.active === 'true' && count === 0) {
       toggle.dataset.active = 'false'
-      toggle.style.background = '#2a2a2a'
-      toggle.style.borderColor = '#404040'
-      if (countEl) countEl.style.color = '#888'
     }
   }
 
@@ -2289,28 +3651,84 @@ function initKonfiguratorAnimations() {
     applyGearFilters()
   })
 
-  // Tag Hot Deals (cheapest 25%) and Sales (random ~20%) once
-  function tagDealsAndSales() {
+  /* Markiert das guenstigste Viertel des Sortiments.
+   *
+   * Hier stand zuvor zusaetzlich ein "Sales"-Filter, der per Math.random()
+   * jeder fuenften Karte bei jedem Neuaufbau ein frisch gewuerfeltes "-20%"
+   * anheftete. Die Karten verlinken per rel="sponsored" auf echte Shops —
+   * ein erfundener Rabatt daneben ist irrefuehrende Werbung (UWG/PAngV) und
+   * liesse sich ohne ein Feld fuer den Listenpreis auch nicht ehrlich
+   * berechnen: priceMin/priceMax sind selbst geschaetzte Spannen, keine
+   * Referenzpreise. Kommt zurueck, sobald die Daten einen Streichpreis
+   * fuehren.
+   */
+  function tagPriceTips() {
     const cards = Array.from(document.querySelectorAll('.gear-card'))
     if (!cards.length) return
     const sorted = [...cards].sort((a, b) =>
       (parseInt(a.dataset.priceMin) || 0) - (parseInt(b.dataset.priceMin) || 0))
     const dealCount = Math.max(1, Math.round(sorted.length * 0.25))
     sorted.slice(0, dealCount).forEach(c => c.dataset.deal = '1')
-    cards.forEach(c => {
-      if (Math.random() < 0.20) {
-        c.dataset.sale = '1'
-        const img = c.querySelector('.gear-card-img')
-        if (img && !img.querySelector('.gear-card-sale-badge')) {
-          const badge = document.createElement('span')
-          badge.className = 'gear-card-sale-badge'
-          badge.textContent = '-20%'
-          badge.style.cssText = 'position:absolute;top:8px;left:8px;background:#e0405f;color:#fff;font-size:10px;font-weight:800;padding:3px 6px;border-radius:5px;letter-spacing:0.03em;z-index:2;'
-          img.appendChild(badge)
-        }
-      }
-    })
   }
+
+  /* Filterblatt.
+   *
+   * Der Punkt am Knopf zeigt, dass hinter dem geschlossenen Blatt noch etwas
+   * filtert — ohne ihn waere eine gesetzte Preisspanne unsichtbar und die
+   * halbleere Liste unerklaerlich. */
+  const toolsBtn = document.getElementById('gear-tools-btn')
+  const toolsSheet = document.getElementById('gear-tools-sheet')
+
+  function syncToolsDot() {
+    const dot = document.getElementById('gear-tools-dot')
+    if (!dot) return
+    const min = parseInt(document.getElementById('gear-price-min')?.value) || 0
+    const max = parseInt(document.getElementById('gear-price-max')?.value) || 1000
+    const active = min !== 0 || max !== 1000
+      || document.getElementById('gear-deal-toggle')?.dataset.active === 'true'
+      || document.getElementById('gear-sort-btn')?.dataset.dir !== 'none'
+    dot.hidden = !active
+  }
+
+  function setToolsOpen(open) {
+    if (!toolsBtn || !toolsSheet) return
+    toolsSheet.hidden = !open
+    toolsBtn.setAttribute('aria-expanded', String(open))
+    toolsBtn.classList.toggle('gear-tools-btn--open', open)
+  }
+
+  if (toolsBtn && toolsSheet && !toolsBtn.dataset.bound) {
+    toolsBtn.dataset.bound = '1'
+    toolsBtn.addEventListener('click', (e) => {
+      e.stopPropagation()
+      setToolsOpen(toolsSheet.hidden)
+    })
+    toolsSheet.addEventListener('click', e => e.stopPropagation())
+    document.addEventListener('click', () => setToolsOpen(false))
+    document.addEventListener('keydown', e => { if (e.key === 'Escape') setToolsOpen(false) })
+    // Beim Scrollen faehrt die Leiste weg; ein Blatt, das dann in der Luft
+    // haengen bliebe, waere von seinem Knopf abgeloest.
+    document.querySelector('.konf-right')?.addEventListener('scroll', () => {
+      if (!toolsSheet.hidden) setToolsOpen(false)
+    }, { passive: true })
+  }
+
+  document.getElementById('gear-tools-reset')?.addEventListener('click', () => {
+    const min = document.getElementById('gear-price-min')
+    const max = document.getElementById('gear-price-max')
+    if (min) min.value = '0'
+    if (max) max.value = '1000'
+    const deal = document.getElementById('gear-deal-toggle')
+    if (deal) deal.dataset.active = 'false'
+    const sort = document.getElementById('gear-sort-btn')
+    if (sort) {
+      sort.dataset.dir = 'none'
+      const lbl = sort.querySelector('.gear-sort-label')
+      if (lbl) lbl.textContent = 'Preis \u2191'
+    }
+    applyGearFilters()
+    syncToolsDot()
+  })
 
   function bindGearToggle(id) {
     const btn = document.getElementById(id)
@@ -2318,14 +3736,14 @@ function initKonfiguratorAnimations() {
     btn.addEventListener('click', () => {
       btn.dataset.active = btn.dataset.active === 'true' ? 'false' : 'true'
       applyGearFilters()
+      syncToolsDot()
     })
   }
   bindGearToggle('gear-deal-toggle')
-  bindGearToggle('gear-sale-toggle')
 
   // Initial budget calculation (on first load of Ausrüstung tab)
   if (document.getElementById('gear-fav-toggle')) {
-    tagDealsAndSales()
+    tagPriceTips()
     applyGearFilters()
   }
 
@@ -2394,7 +3812,7 @@ function initKonfiguratorAnimations() {
   document.getElementById('cc-create-btn')?.addEventListener('click', openCcModal)
   // Topbar profile avatar → open full account page
   document.getElementById('cc-profile-btn')?.addEventListener('click', () => {
-    openAccount()
+    openAccount(document.querySelector('.konf-tb-wrap .tb-bar'))
   })
 
   // Listen for account updates to refresh profile button (registered once)
@@ -2402,7 +3820,7 @@ function initKonfiguratorAnimations() {
     _accountUpdatedListenerRegistered = true
     window.addEventListener('mm:account-updated', () => {
       const btn = document.getElementById('cc-profile-btn')
-      if (btn) btn.textContent = getCurrentUserInitials()
+      if (btn) btn.textContent = rawUserInitials()
     })
   }
 
@@ -2757,13 +4175,13 @@ function initKonfiguratorAnimations() {
       if (list) {
         const html = `
           <div class="ccd-comment ccd-comment--mine ccd-comment--new">
-            <div class="ccd-avatar ccd-avatar-sm" style="background:${stringColor(getCurrentUserName())}">${getCurrentUserInitials()}</div>
+            <div class="ccd-avatar ccd-avatar-sm" style="background:${stringColor(rawUserName())}">${getCurrentUserInitials()}</div>
             <div class="ccd-comment-body">
               <div class="ccd-comment-head">
                 <span class="ccd-comment-user">${getCurrentUserName()}</span>
                 <span class="ccd-comment-time">gerade eben</span>
               </div>
-              <div class="ccd-comment-text">${text.replace(/</g,'&lt;')}</div>
+              <div class="ccd-comment-text">${esc(text)}</div>
               <div class="ccd-comment-actions">
                 <button class="ccd-mini-btn"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M7 22V11l5-8 1 1v6h7l-2 12H7z"/></svg> 0</button>
                 <button class="ccd-mini-btn">Antworten</button>
@@ -2885,7 +4303,7 @@ function initKonfiguratorAnimations() {
       const msgHtml = `
         <div class="ccg-msg ccg-msg--me">
           <div class="ccg-bubble">
-            <div class="ccg-msg-text">${text.replace(/</g,'&lt;')}</div>
+            <div class="ccg-msg-text">${esc(text)}</div>
             <div class="ccg-msg-time">gerade eben ✓</div>
           </div>
         </div>`
@@ -2984,17 +4402,11 @@ function initKonfiguratorAnimations() {
   const mehrBtn = document.getElementById('konf-mehr-btn')
   const mehrSection = document.getElementById('konf-mehr-section')
   if (mehrBtn && mehrSection) {
-    const bottomCta = document.getElementById('konf-bottom-cta')
     mehrBtn.addEventListener('click', () => {
       const isOpen = mehrSection.classList.toggle('konf-mehr-open')
       mehrBtn.querySelector('.konf-mehr-label').textContent = isOpen ? 'Weniger anzeigen' : 'Mehr anzeigen'
       mehrBtn.classList.toggle('konf-mehr-btn--open', isOpen)
-      if (bottomCta) bottomCta.style.display = isOpen ? 'none' : 'flex'
       if (!isOpen) document.querySelector('.konf-right')?.scrollTo({ top: 0, behavior: 'smooth' })
-    })
-    // Make entire bottom CTA card clickable
-    document.getElementById('konf-bottom-cta')?.addEventListener('click', () => {
-      switchTab('ausstattung', konfData)
     })
   }
 }

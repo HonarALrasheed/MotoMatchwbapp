@@ -14,6 +14,7 @@
  */
 
 import * as THREE from "three";
+import { enterScreen, goBack as navGoBack } from "./nav.js";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 import { DRACOLoader } from "three/addons/loaders/DRACOLoader.js";
 import { MeshoptDecoder } from "three/addons/libs/meshopt_decoder.module.js";
@@ -22,7 +23,9 @@ import {
   findBestBike,
   findTopMatches,
   findBikeByShortName,
+  scoreBikeAgainst,
 } from "./matching.js";
+import { addMatch } from "./match-history.js";
 import { getGear } from "./gear.js";
 import { getStaticListings, getLiveListings } from "./marketplace.js";
 import { getAIExplanation } from "./ai.js";
@@ -30,7 +33,7 @@ import { findNearby } from "./dealers.js";
 import { esc } from "./util.js";
 
 // Einmaliger, dezenter Puls auf der Tab-Leiste, damit Nutzer merken, dass
-// hinter "Ansicht"/"Ausrüstung"/etc. mehr Inhalt steckt.
+// hinter "Profil"/"Ausrüstung"/etc. mehr Inhalt steckt.
 const TABHINT_KEY = "mm_tabhint_seen_v1";
 function tabHintSeen() {
   try { return !!localStorage.getItem(TABHINT_KEY); } catch { return true; }
@@ -119,6 +122,15 @@ export function loadGarage(answers) {
 
   console.info(`[garage] Matched: ${bikeData.name}`);
 
+  // Sieger des Durchlaufs in die Match-Chronik — der Match-Reiter im
+  // Konfigurator liest sie aus.
+  const winner = topMatches[0];
+  addMatch(bikeData, {
+    score: winner?.score,
+    pct: winner ? scoreBikeAgainst(bikeData, answers)?.pct : null,
+    source: 'quiz',
+  });
+
   // Preload Google Maps + geolocation in background — only after consent
   if (hasMapsConsent()) {
     loadGoogleMapsScript();
@@ -137,6 +149,8 @@ export function loadGarage(answers) {
     init3DViewer(bikeData);
     bindEvents(bikeData, answers);
     initHubScrollEffect();
+    initTabbarThemeSync();
+    mountAnsicht(bikeData);
   });
 }
 
@@ -181,6 +195,8 @@ export function openBikeGarage(shortName) {
   setTimeout(() => {
     if (landing) landing.style.display = "none";
     container.style.display = "block";
+    enterScreen("garage", goBack, isGarageActive,
+                { screen: "garage", bike: bikeData.name });
 
     if (hasMapsConsent()) {
       loadGoogleMapsScript();
@@ -197,6 +213,8 @@ export function openBikeGarage(shortName) {
       init3DViewer(bikeData);
       bindEvents(bikeData, null);
       initHubScrollEffect();
+      initTabbarThemeSync();
+      mountAnsicht(bikeData);
     });
   }, 220);
 }
@@ -216,9 +234,10 @@ function buildPage(bike, fromQuiz = true) {
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 12H5M12 19l-7-7 7-7"/></svg>
       </button>
 
-      <div class="bd-hero-bg-text">${bike.bgText || bike.name}</div>
-
+      <!-- Wortmarke sitzt in der Bildbox, damit sie an das Motorrad
+           gekoppelt bleibt statt an die Hero-Hoehe. -->
       <div class="bd-hero-img-wrap">
+        <div class="bd-hero-bg-text">${bike.bgText || bike.name}</div>
         <img class="bd-hero-img" src="${bike.image2 || bike.image}" alt="${bike.name}">
       </div>
 
@@ -233,9 +252,9 @@ function buildPage(bike, fromQuiz = true) {
     <!-- ═══ Sticky Touch Bar ═══ -->
     <div class="tb-wrap" id="bd-sticky-nav">
       <nav class="tb-bar" id="gr-tabbar">
-        <button class="tb-btn" id="gr-3d-btn">Ansicht</button>
+        <button class="tb-btn" type="button" id="gr-profil-btn">Profil</button>
         <button class="tb-btn" id="gr-nav-gear">Ausr\u00fcstung</button>
-        <button class="tb-btn tb-btn-active" id="gr-share-btn">Match finden</button>
+        <button class="tb-btn tb-btn-active" id="gr-share-btn"><span class="tb-lbl-lang">Match finden</span><span class="tb-lbl-kurz">Match</span></button>
         <button class="tb-btn" id="gr-nav-hub">Community</button>
         <button class="tb-btn" id="gr-nav-market">Karte</button>
       </nav>
@@ -244,31 +263,9 @@ function buildPage(bike, fromQuiz = true) {
     <!-- ═══ SECTION 2: Specs + 3D Model ═══ -->
     <section class="bd-specs" id="gr-specs-section">
       <div class="bd-specs-inner">
-        <div class="bd-specs-left">
-          <div class="bd-spec-item bd-spec-anim">
-            <span class="bd-spec-value"><span class="bd-counter" data-target="${bike.accel}" data-decimals="1">0</span><span class="bd-spec-unit">s</span></span>
-            <span class="bd-spec-label">Beschleunigung 0 - 100 km/h</span>
-          </div>
-          <div class="bd-spec-item bd-spec-anim">
-            <span class="bd-spec-value"><span class="bd-counter" data-target="${bike.kw}" data-decimals="0">0</span><span class="bd-spec-unit"> kW / </span><span class="bd-counter" data-target="${bike.ps}" data-decimals="0">0</span><span class="bd-spec-unit"> PS</span></span>
-            <span class="bd-spec-label">Leistung (kW) / Leistung (PS)</span>
-          </div>
-          <div class="bd-spec-item bd-spec-anim">
-            <span class="bd-spec-value"><span class="bd-counter" data-target="${bike.topSpeed}" data-decimals="0">0</span><span class="bd-spec-unit"> km/h</span></span>
-            <span class="bd-spec-label">Hochstgeschwindigkeit</span>
-          </div>
-          <button class="bd-btn bd-btn-outline bd-details-toggle" id="gr-details-toggle">Alle technischen Details</button>
-          <div class="bd-details-panel" id="gr-details-panel">
-            <div class="bd-details-grid">
-              <div class="bd-detail-item"><span class="bd-detail-val">${bike.cc} ccm</span><span class="bd-detail-lbl">Hubraum</span></div>
-              <div class="bd-detail-item"><span class="bd-detail-val">${bike.weight} kg</span><span class="bd-detail-lbl">Gewicht</span></div>
-              <div class="bd-detail-item"><span class="bd-detail-val">${bike.seat_height} cm</span><span class="bd-detail-lbl">Sitzhohe</span></div>
-              <div class="bd-detail-item"><span class="bd-detail-val">${bike.tank} L</span><span class="bd-detail-lbl">Tankvolumen</span></div>
-              <div class="bd-detail-item"><span class="bd-detail-val">${bike.gear}</span><span class="bd-detail-lbl">Getriebe</span></div>
-              <div class="bd-detail-item"><span class="bd-detail-val">${bike.license}</span><span class="bd-detail-lbl">Fuhrerschein</span></div>
-            </div>
-          </div>
-        </div>
+        <!-- Wird von mountAnsicht() gefuellt (bike-detail.js bleibt ein
+             eigener Chunk und wird erst nach dem Rendern nachgeladen). -->
+        <div class="bd-specs-left" id="gr-ansicht-host"></div>
         <div class="bd-specs-right">
           <div class="bd-3d-canvas-wrap" id="gr-3d-wrap">
             <canvas id="gr-3d-canvas"></canvas>
@@ -285,7 +282,7 @@ function buildPage(bike, fromQuiz = true) {
     </section>
 
     <!-- ═══ SECTION 4: Hub — Apple Maps Style ═══ -->
-    <section class="hub-section" id="gr-hub-section">
+    <section class="hub-section hub-section--finale" id="gr-hub-section">
       <div class="hub-inner">
         <h2 class="hub-title">In deiner N\u00e4he</h2>
         <div class="hub-filters">
@@ -490,7 +487,10 @@ function init3DViewer(bikeData) {
     );
     const fovRad = (garageCamera.fov * Math.PI) / 180;
     const fitDist = diagonal / 2 / Math.tan(fovRad / 2);
-    camDist = fitDist * 1.35;
+    // Rand um das Modell. fitDist passt die Grundflaechen-Diagonale in das
+    // (vertikale) FOV — bei dem nahezu quadratischen Canvas blieb mit 1.35
+    // viel Luft. 1.1 laesst noch Reserve, damit beim Drehen nichts anschneidet.
+    camDist = fitDist * 1.1;
     camHeight = modelHeight * 0.6;
     lookAtY = modelHeight * 0.35;
 
@@ -557,8 +557,12 @@ function init3DViewer(bikeData) {
 function bindEvents(bikeData, answers) {
   const fromQuiz = answers !== null;
 
-  // Back button → go back to landing
-  document.getElementById("garage-back")?.addEventListener("click", goBack);
+  // Back button → go back to landing. Über die History, damit In-App-Button
+  // und Browser-Zurück denselben Weg nehmen; der Fallback greift nur beim
+  // Direkteinstieg über ?bike=<name>, wo kein Eintrag darunter liegt.
+  document.getElementById("garage-back")?.addEventListener("click", () => {
+    if (!navGoBack()) goBack();
+  });
 
   // Hinweis-Puls: erst nach 15s Inaktivität starten (siehe scheduleTabHint)
   scheduleTabHint();
@@ -601,11 +605,12 @@ function bindEvents(bikeData, answers) {
     hubObserver.observe(hubSection);
   }
 
-  // Ansicht button → open Porsche Konfigurator split-screen
-  document.getElementById("gr-3d-btn")?.addEventListener("click", async () => {
-    setActiveBtn("gr-3d-btn");
-    const { openKonfigurator } = await import("./bike-detail.js");
-    openKonfigurator(bikeData, cleanup, "ansicht");
+  // Profil button → Konto-Overlay (kein Tab, daher kein setActiveBtn)
+  document.getElementById("gr-profil-btn")?.addEventListener("click", async () => {
+    markTabHintSeen();
+    stopTabHint();
+    const { openAccount } = await import("./account.js");
+    openAccount(document.getElementById("gr-tabbar"));
   });
 
   // Match finden button → start quiz
@@ -618,19 +623,6 @@ function bindEvents(bikeData, answers) {
     document.getElementById("quiz-screen").style.display = "flex";
     import("./quiz.js").then((m) => m.initQuiz());
   });
-
-  // Details toggle
-  document
-    .getElementById("gr-details-toggle")
-    ?.addEventListener("click", () => {
-      const panel = document.getElementById("gr-details-panel");
-      const btn = document.getElementById("gr-details-toggle");
-      if (!panel || !btn) return;
-      panel.classList.toggle("open");
-      btn.textContent = panel.classList.contains("open")
-        ? "Details ausblenden"
-        : "Alle technischen Details";
-    });
 
   // Helper: set active button
   function setActiveBtn(activeId) {
@@ -678,7 +670,7 @@ function bindEvents(bikeData, answers) {
   });
 }
 
-function retryHubLocation() {
+export function retryHubLocation() {
   const loader = document.getElementById("hub-map-loading");
   if (loader) {
     loader.innerHTML = `
@@ -687,6 +679,11 @@ function retryHubLocation() {
     `;
   }
   getUserLocation().then(() => initHubMap());
+}
+
+function isGarageActive() {
+  const container = document.getElementById("garage-container");
+  return !!container && container.style.display !== "none";
 }
 
 function goBack() {
@@ -833,21 +830,24 @@ let hubMarkers = [];
 let hubInfoWindow = null;
 
 const MAPS_CONSENT_KEY = 'mm_maps_consent_v1';
-function hasMapsConsent() {
+export function hasMapsConsent() {
   try { return localStorage.getItem(MAPS_CONSENT_KEY) === '1'; } catch { return false; }
 }
 function setMapsConsent() {
   try { localStorage.setItem(MAPS_CONSENT_KEY, '1'); } catch {}
 }
 function renderMapsConsentPlaceholder(el) {
+  // Aussehen liegt in main.css (.hub-map-consent) — im Karten-Tab muss der
+  // Block dem schwebenden Ergebnis-Panel ausweichen, und das geht mit Inline-
+  // Stilen nicht, ohne sie mit !important zu ueberschreiben.
   el.innerHTML = `
-    <div class="hub-map-consent" id="hub-map-consent" style="display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;padding:24px;text-align:center;height:100%;box-sizing:border-box;">
-      <p style="max-width:420px;margin:0;font-size:14px;line-height:1.5;color:#e5e5e5;">
+    <div class="hub-map-consent" id="hub-map-consent">
+      <p class="hub-map-consent-text">
         Die Karte lädt Daten von <strong>Google Maps</strong>. Dabei wird deine
         IP-Adresse an Google übertragen. Details in der
-        <a href="#" data-open-legal="datenschutz" style="color:inherit;text-decoration:underline;">Datenschutzerklärung</a>.
+        <a href="#" data-open-legal="datenschutz">Datenschutzerklärung</a>.
       </p>
-      <button type="button" id="hub-map-consent-btn" class="tb-btn" style="padding:10px 18px;font-weight:600;cursor:pointer;">
+      <button type="button" id="hub-map-consent-btn" class="tb-btn hub-map-consent-btn">
         Karte laden
       </button>
     </div>`;
@@ -862,25 +862,87 @@ function renderMapsConsentPlaceholder(el) {
   });
 }
 
+/* Bibliotheken, die der Hub tatsächlich anfasst — siehe die google.maps.*-
+   Aufrufstellen weiter unten:
+     core      → ControlPosition, SymbolPath, Point, Size, event
+     maps      → Map, InfoWindow
+     marker    → Marker
+     places    → PlacesService, PlacesServiceStatus
+     geocoding → Geocoder
+   Mit loading=async liefert der Bootstrap beim script.onload nur einen
+   Platzhalter: google.maps existiert, die Konstruktoren und Konstanten aber
+   noch nicht. Wer direkt danach google.maps.Map oder ControlPosition benutzt,
+   läuft in "Cannot read properties of undefined". Erst importLibrary() füllt
+   den Namensraum — und zwar auch den klassischen google.maps.*, sodass die
+   bestehenden Aufrufstellen unverändert gültig bleiben. */
+const GMAPS_LIBRARIES = ["core", "maps", "marker", "places", "geocoding"];
+let gmapsReady = false;
+
 function loadGoogleMapsScript() {
-  if (window.google?.maps) return Promise.resolve();
+  // Nicht auf window.google.maps prüfen: das ist mit loading=async schon
+  // gesetzt, solange die Bibliotheken noch fehlen.
+  if (gmapsReady) return Promise.resolve();
   if (gmapsLoadPromise) return gmapsLoadPromise;
   gmapsLoadPromise = new Promise((resolve, reject) => {
-    const s = document.createElement("script");
-    s.src = `https://maps.googleapis.com/maps/api/js?key=${GMAPS_KEY}&libraries=places&loading=async`;
-    s.async = true;
-    const timer = setTimeout(() => {
-      gmapsLoadPromise = null; // nächster Klick darf einen frischen Versuch starten
-      reject(new Error("Google Maps: Ladezeit überschritten"));
-    }, 8000);
-    s.onload = () => {
+    let timer = null;
+    const fail = (err) => {
       clearTimeout(timer);
-      resolve();
+      gmapsLoadPromise = null; // nächster Versuch darf frisch starten
+      reject(err);
     };
+    const loadLibraries = async () => {
+      try {
+        // Nach dem callback ist der klassische Namensraum bereits befüllt;
+        // importLibrary holt zusätzlich marker/geocoding, die nicht in der
+        // libraries=-Liste stehen. Fehlt die Funktion wider Erwarten, reicht
+        // der bereits befüllte Namensraum für die genutzten Symbole aus.
+        if (typeof google.maps.importLibrary === "function") {
+          await Promise.all(
+            GMAPS_LIBRARIES.map((lib) => google.maps.importLibrary(lib)),
+          );
+        }
+        clearTimeout(timer);
+        gmapsReady = true;
+        resolve();
+      } catch (err) {
+        // Grund durchreichen statt verschlucken — sonst ist im Fehlerfall
+        // nicht zu unterscheiden, ob der Schlüssel, eine nicht freigeschaltete
+        // API oder das Netz das Problem ist.
+        fail(
+          new Error(
+            `Google Maps: Bibliotheken konnten nicht geladen werden (${err?.message || err})`,
+          ),
+        );
+      }
+    };
+    // Zeitlimit deckt Skript *und* Bibliotheken ab — ein hängendes
+    // importLibrary darf den Aufrufer nicht ewig warten lassen.
+    timer = setTimeout(
+      () => fail(new Error("Google Maps: Ladezeit überschritten")),
+      8000,
+    );
+    // Bootstrap schon vorhanden (z. B. vorheriger Versuch): nur Bibliotheken holen.
+    if (window.google?.maps?.importLibrary) {
+      loadLibraries();
+      return;
+    }
+    // script.onload ist bei loading=async das falsche Signal: es feuert, bevor
+    // die API sich eingerichtet hat — zu dem Zeitpunkt fehlt selbst
+    // google.maps.importLibrary noch. Der callback-Parameter ist der von
+    // Google vorgesehene Fertig-Zeitpunkt; erst danach steht der Namensraum.
+    const cbName = `__mmGmapsReady${Date.now().toString(36)}`;
+    window[cbName] = () => {
+      delete window[cbName];
+      loadLibraries();
+    };
+    const s = document.createElement("script");
+    s.src =
+      `https://maps.googleapis.com/maps/api/js?key=${GMAPS_KEY}` +
+      `&libraries=places&loading=async&callback=${cbName}`;
+    s.async = true;
     s.onerror = () => {
-      clearTimeout(timer);
-      gmapsLoadPromise = null;
-      reject(new Error("Google Maps: Skript konnte nicht geladen werden"));
+      delete window[cbName];
+      fail(new Error("Google Maps: Skript konnte nicht geladen werden"));
     };
     document.head.appendChild(s);
   });
@@ -1078,25 +1140,34 @@ export function getHubMarkers() {
   }));
 }
 // Focus map on a specific result (open InfoWindow + center)
+/* Liefert false, wenn es zu der Kennung keinen Marker gibt — die Karten-
+   Ansicht faellt dann auf panHubToCoords() zurueck. Das kommt bei gemerkten
+   Orten vor, die ausserhalb der aktuellen Trefferliste liegen. */
 export function focusHubResult(placeId) {
-  if (!hubMapInstance) return
+  if (!hubMapInstance) return false
   const idx = (_allSearchResults || []).findIndex((p) => p.place_id === placeId)
-  if (idx < 0) return
+  if (idx < 0) return false
   const place = _allSearchResults[idx]
   const marker = hubMarkers[idx]
-  if (!marker || !place) return
+  if (!marker || !place) return false
   hubMapInstance.panTo(place.geometry.location)
   hubMapInstance.setZoom(15)
   if (hubInfoWindow) {
     hubInfoWindow.setContent(buildInfoContent(place, _lastSearchFilter))
     hubInfoWindow.open(hubMapInstance, marker)
   }
+  return true
 }
 // Recenter map on user
 export function recenterHubMap() {
   if (!hubMapInstance) return
   hubMapInstance.panTo({ lat: userLat, lng: userLng })
   hubMapInstance.setZoom(13.5)
+}
+// Step the zoom level up/down (used by the floating map controls)
+export function zoomHubMap(delta) {
+  if (!hubMapInstance) return
+  hubMapInstance.setZoom((hubMapInstance.getZoom() || 13.5) + delta)
 }
 export function panHubToCoords(lat, lng) {
   if (!hubMapInstance) return false
@@ -1112,14 +1183,27 @@ export function searchNearbyAt(lat, lng) {
     hubMapInstance.panTo({ lat, lng })
     hubMapInstance.setZoom(13)
   }
-  const activePill = document.querySelector('.kv-pill.active')
-  searchNearby(activePill ? activePill.dataset.query : _lastSearchFilter || 'Motorrad')
+  const activePill = document.querySelector('.konf-karte-hub .hub-pill.active')
+  searchNearby(activePill ? activePill.dataset.query : _lastSearchFilter || 'Motorradwerkstatt')
 }
-// Get current coordinates (for weather API)
+// Get current coordinates
 export function getUserCoords() {
   if (!userLocationKnown) return { lat: null, lng: null };
   return { lat: userLat, lng: userLng }
 }
+/* Meldet, dass der Nutzer den Kartenausschnitt selbst verschoben hat, samt
+   neuer Mitte. Der Karten-Tab blendet daraufhin "Hier suchen" ein — ohne das
+   bleibt die Trefferliste an der alten Mitte haengen, waehrend die Karte
+   laengst woanders steht. */
+let _onMapMovedCallback = null;
+export function onHubMapMoved(cb) {
+  _onMapMovedCallback = cb;
+}
+export function getHubMapCenter() {
+  const c = hubMapInstance?.getCenter?.();
+  return c ? { lat: c.lat(), lng: c.lng() } : null;
+}
+
 // Callback hook: bike-detail Karte view subscribes to result updates
 let _onResultsCallback = null;
 export function onHubResults(cb) {
@@ -1285,6 +1369,15 @@ export async function initHubMap() {
     // GTA Radar: scale markers on zoom change
     hubMapInstance.addListener("zoom_changed", onZoomChanged);
 
+    /* Nur "dragend": ein Zoom aendert die Mitte nicht, und focusHubResult()
+       schwenkt selbst — beides duerfte "Hier suchen" nicht ausloesen. */
+    hubMapInstance.addListener("dragend", () => {
+      if (!_onMapMovedCallback) return;
+      const c = hubMapInstance.getCenter?.();
+      if (!c) return;
+      try { _onMapMovedCallback({ lat: c.lat(), lng: c.lng() }); } catch {}
+    });
+
     // User location dot (pulsing blue)
     new google.maps.Marker({
       position: center,
@@ -1359,7 +1452,7 @@ let searchGeneration = 0;
 let searchTimeout = null;
 
 // Haversine distance in km
-function haversineKm(lat1, lng1, lat2, lng2) {
+export function haversineKm(lat1, lng1, lat2, lng2) {
   const R = 6371;
   const dLat = ((lat2 - lat1) * Math.PI) / 180;
   const dLng = ((lng2 - lng1) * Math.PI) / 180;
@@ -1565,6 +1658,66 @@ function showDealerResults(filter, gen) {
 let hubScrollHandler = null;
 let hubScrollRAF = null;
 
+/**
+ * Sobald die Tab-Leiste beim Scrollen oben andockt, schaltet sie auf die
+ * dunkle Variante (.scrolled) — dieselbe wie im Konfigurator. Frei stehend
+ * unter dem Hero bleibt sie hell.
+ */
+let tabbarThemeHandler = null;
+
+/**
+ * Setzt die Ansicht-Seite in die linke Spalte der Spec-Section. Laeuft ueber
+ * einen dynamischen Import, damit bike-detail.js nicht in den Garage-Chunk
+ * wandert — die Spalte ist fuer einen Moment leer, das ist gewollt.
+ */
+async function mountAnsicht(bikeData) {
+  const host = document.getElementById("gr-ansicht-host");
+  if (!host) return;
+  try {
+    const {
+      normalizeGarageData,
+      buildDetailsAnsichtHTML,
+      bindDetailsAnsichtEvents,
+      openKonfigurator,
+    } = await import("./bike-detail.js");
+    host.innerHTML = buildDetailsAnsichtHTML(normalizeGarageData(bikeData));
+    bindDetailsAnsichtEvents(host.querySelector(".bd-ansicht-embed"), (tab) =>
+      openKonfigurator(bikeData, cleanup, tab),
+    );
+  } catch {
+    /* Spalte bleibt leer — der Rest der Seite funktioniert weiter */
+  }
+}
+
+function initTabbarThemeSync() {
+  if (tabbarThemeHandler) return;
+
+  const nav = document.getElementById("bd-sticky-nav");
+  if (!nav) return;
+
+  const scrollTarget = document.getElementById("garage-container") || window;
+  // Der Sticky-Offset steht im CSS (negativ, damit die Bar knapp unter dem
+  // Fensterrand einrastet) — von dort lesen, statt ihn hier zu wiederholen.
+  const stickyTop = parseFloat(getComputedStyle(nav).top) || 0;
+
+  let ticking = false;
+  tabbarThemeHandler = () => {
+    if (ticking) return;
+    ticking = true;
+    requestAnimationFrame(() => {
+      ticking = false;
+      const rootTop =
+        scrollTarget === window ? 0 : scrollTarget.getBoundingClientRect().top;
+      const docked = nav.getBoundingClientRect().top - rootTop <= stickyTop + 1;
+      nav.classList.toggle("scrolled", docked);
+    });
+  };
+
+  scrollTarget.addEventListener("scroll", tabbarThemeHandler, { passive: true });
+  tabbarThemeHandler._scrollTarget = scrollTarget;
+  tabbarThemeHandler();
+}
+
 function initHubScrollEffect() {
   if (hubScrollHandler) return;
 
@@ -1697,6 +1850,11 @@ function cleanup() {
   if (hubScrollRAF) {
     cancelAnimationFrame(hubScrollRAF);
     hubScrollRAF = null;
+  }
+  if (tabbarThemeHandler) {
+    const target = tabbarThemeHandler._scrollTarget || window;
+    target.removeEventListener("scroll", tabbarThemeHandler);
+    tabbarThemeHandler = null;
   }
   if (garageRaf) {
     cancelAnimationFrame(garageRaf);

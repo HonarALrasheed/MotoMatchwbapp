@@ -501,6 +501,96 @@ CREATE POLICY "msg_delete" ON messages FOR DELETE
 CREATE INDEX IF NOT EXISTS messages_channel_created ON messages(channel_id, created_at);
 CREATE INDEX IF NOT EXISTS messages_dm_created ON messages(dm_thread, created_at);
 
+-- ── Message reactions ─────────────────────────────────────────────
+-- Eine Zeile je (Nachricht, Nutzer, Emoji) — Ersatz fuer die jsonb-Spalte
+-- messages.reactions.
+--
+-- WARUM eine eigene Tabelle: Reaktionen liefen frueher als
+--   UPDATE messages SET reactions = <ganzes Objekt> WHERE id = …
+-- Die Policy msg_update erlaubt UPDATE aber nur dem Autor oder einem Mod. Ein
+-- normales Mitglied, das auf eine FREMDE Nachricht reagierte, traf damit null
+-- Zeilen. PostgREST meldet null getroffene Zeilen nicht als Fehler — die
+-- Reaktion erschien lokal und war nach dem Neuladen weg. Auf eigene Nachrichten
+-- funktionierte es, was die Fehlersuche zusaetzlich in die Irre fuehrte.
+-- Zweiter Grund: zwei gleichzeitige Reaktionen schrieben beide das komplette
+-- reactions-Objekt, die spaetere ueberschrieb die fruehere. Mit einer Zeile je
+-- Reaktion kann sich das nicht mehr in die Quere kommen.
+CREATE TABLE IF NOT EXISTS message_reactions (
+  message_id uuid NOT NULL REFERENCES messages(id) ON DELETE CASCADE,
+  user_id    uuid NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
+  emoji      text NOT NULL,
+  created_at timestamptz DEFAULT now(),
+  PRIMARY KEY (message_id, user_id, emoji)
+);
+ALTER TABLE message_reactions ENABLE ROW LEVEL SECURITY;
+
+-- Lesen: genau das, was auch als Nachricht lesbar ist. Der EXISTS-Unterausdruck
+-- laeuft mit den Rechten des Aufrufers, es greifen darin also die
+-- messages-Policies (msg_select_channel / msg_select_dm). Die Sichtbarkeitsregel
+-- steht damit weiterhin an genau EINER Stelle und kann nicht auseinanderlaufen.
+CREATE POLICY "mreact_select" ON message_reactions FOR SELECT
+  USING (EXISTS (SELECT 1 FROM messages m WHERE m.id = message_reactions.message_id));
+-- Anlegen: nur die EIGENE Reaktion, und nur an einer Nachricht, die man sehen
+-- darf. Ohne den zweiten Teil koennte man Reaktionen an beliebige uuids haengen.
+CREATE POLICY "mreact_insert" ON message_reactions FOR INSERT
+  WITH CHECK (
+    user_id = auth.uid()
+    AND EXISTS (SELECT 1 FROM messages m WHERE m.id = message_reactions.message_id)
+  );
+-- Loeschen: nur die eigene Reaktion. Bewusst ohne Mod-Ausnahme — eine Reaktion
+-- ist kein Nachrichtentext, es gibt nichts zu moderieren.
+CREATE POLICY "mreact_delete" ON message_reactions FOR DELETE
+  USING (user_id = auth.uid());
+-- Bewusst KEINE UPDATE-Policy: eine Reaktion wird angelegt oder geloescht,
+-- nie geaendert. Ein Umschalten ist DELETE + INSERT.
+--
+-- Kein zusaetzlicher Index auf message_id noetig: der Primaerschluessel
+-- (message_id, user_id, emoji) hat message_id als fuehrende Spalte.
+--
+-- Kein REPLICA IDENTITY FULL noetig: bei DELETE liefert Postgres die
+-- Primaerschluessel-Spalten mit, und das sind hier genau die drei, die der
+-- Client zum Nachziehen braucht (siehe _handleReactionChange in
+-- src/js/community-api.js).
+
+-- ── Migration der Bestandsdaten ───────────────────────────────────
+-- Einmalig im SQL-Editor ausfuehren, NACHDEM die Tabelle oben angelegt ist.
+-- Form der alten Spalte: { "<emoji>": ["<username>", …] } — Usernamen, keine
+-- uuids; der Join ueber profiles.username macht daraus user_id.
+-- Idempotent (ON CONFLICT DO NOTHING), darf also gefahrlos zweimal laufen.
+-- Reaktionen geloeschter Konten fallen dabei weg (kein Treffer im Join).
+--
+--   INSERT INTO message_reactions (message_id, user_id, emoji)
+--   SELECT m.id, p.id, r.emoji
+--     FROM messages m
+--     CROSS JOIN LATERAL jsonb_each(m.reactions)            AS r(emoji, users)
+--     CROSS JOIN LATERAL jsonb_array_elements_text(r.users)  AS u(username)
+--     JOIN profiles p ON p.username = u.username
+--    WHERE m.reactions IS NOT NULL
+--      AND jsonb_typeof(m.reactions) = 'object'
+--      AND m.reactions <> '{}'::jsonb
+--      AND jsonb_typeof(r.users) = 'array'
+--   ON CONFLICT DO NOTHING;
+--
+-- Danach zur Kontrolle (muss 0 liefern, wenn alles uebernommen wurde —
+-- ausser den Zeilen geloeschter Konten):
+--
+--   SELECT count(*) FROM (
+--     SELECT m.id, u.username
+--       FROM messages m
+--       CROSS JOIN LATERAL jsonb_each(m.reactions)           AS r(emoji, users)
+--       CROSS JOIN LATERAL jsonb_array_elements_text(r.users) AS u(username)
+--      WHERE jsonb_typeof(m.reactions) = 'object'
+--   ) alt
+--   LEFT JOIN profiles p ON p.username = alt.username
+--   WHERE p.id IS NOT NULL
+--     AND NOT EXISTS (SELECT 1 FROM message_reactions mr
+--                      WHERE mr.message_id = alt.id AND mr.user_id = p.id);
+--
+-- messages.reactions bleibt vorerst stehen: der Client liest sie noch als
+-- Rueckfall, solange diese Tabelle in einer Datenbank fehlt. ERST wenn die
+-- Migration ueberall gelaufen ist und Reaktionen nachweislich funktionieren:
+--   ALTER TABLE messages DROP COLUMN reactions;
+
 -- Migration für bereits bestehende Datenbanken (obiges CREATE TABLE ist dort ein No-Op,
 -- da die Tabelle schon existiert) — einmalig im SQL-Editor ausführen:
 -- ALTER TABLE messages ADD COLUMN IF NOT EXISTS mentions uuid[] NOT NULL DEFAULT '{}';
@@ -689,7 +779,12 @@ CREATE POLICY "notif_mutes_delete" ON notification_mutes FOR DELETE USING (user_
 -- ══════════════════════════════════════════════════════════════════
 --  Realtime aktivieren (einmalig im Supabase-Dashboard unter
 --  Database → Replication → Tables):
---  Tabellen: messages, friend_requests, group_members
+--  Tabellen: messages, friend_requests, group_members, message_reactions
+--
+--  message_reactions ist neu und MUSS mit aktiviert werden: Reaktionen laufen
+--  nicht mehr als UPDATE auf messages durch, sondern als INSERT/DELETE hier.
+--  Ohne den Haken sieht man fremde Reaktionen erst nach einem Neuladen —
+--  die eigenen erscheinen weiterhin sofort (optimistisch).
 -- ══════════════════════════════════════════════════════════════════
 
 -- ── API-Kontingente (api_usage + bump_api_usage) ───────────────────
@@ -876,6 +971,14 @@ BEGIN
     'message_reports', COALESCE((
       SELECT jsonb_agg(to_jsonb(mr) ORDER BY mr.created_at)
       FROM message_reports mr WHERE mr.reported_by = v_uid
+    ), '[]'::jsonb),
+
+    -- Eigene Reaktionen. Frueher steckten sie in messages.reactions und kamen
+    -- damit nur im Export DESSEN mit, der die Nachricht geschrieben hat — die
+    -- eigene Reaktion auf eine fremde Nachricht fehlte im eigenen Export.
+    'message_reactions', COALESCE((
+      SELECT jsonb_agg(to_jsonb(mrx) ORDER BY mrx.created_at)
+      FROM message_reactions mrx WHERE mrx.user_id = v_uid
     ), '[]'::jsonb),
 
     'beta_feedback', COALESCE((

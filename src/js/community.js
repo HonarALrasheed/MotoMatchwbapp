@@ -301,6 +301,27 @@ function reactionPillsHtml(reactions, myName) {
   }).join('')}</div>`
 }
 
+/**
+ * Reaktion umschalten und danach neu zeichnen. Bewusst NACH dem Await:
+ * schlaegt der Schreibvorgang fehl, hat community-api den lokalen Zustand
+ * zurueckgerollt — ohne diesen zweiten Durchgang bliebe ein Emoji stehen, das
+ * es in der Datenbank nicht gibt (genau das Muster, das der Audit gefunden hat).
+ */
+async function applyReaction(root, box, msgId, emoji, empty, groupCtx) {
+  let res = null
+  if (groupCtx) res = await toggleReactionInGroup(groupCtx.id, msgId, emoji)
+  else if (activeDM) res = await toggleReactionInDM(activeDM, msgId, emoji)
+  else return
+
+  if (groupCtx) {
+    const updated = getGroups().find(g => g.id === groupCtx.id)
+    if (updated) { groupDefaults(updated); renderMessagesInto(root, box, channelMsgs(updated, activeChannel), empty, updated) }
+  } else {
+    renderMessagesInto(root, box, getDMs()[activeDM] || [], empty, null)
+  }
+  if (res && !res.ok) toast(root, 'Reaktion konnte nicht gespeichert werden.')
+}
+
 function openReactPicker(root, box, anchorBtn, msgId, msgs, empty, groupCtx) {
   document.querySelector('.mmc-react-pop')?.remove()
   const pop = document.createElement('div')
@@ -314,14 +335,7 @@ function openReactPicker(root, box, anchorBtn, msgId, msgs, empty, groupCtx) {
   })
   pop.querySelectorAll('[data-re]').forEach(b => b.addEventListener('click', async e => {
     e.stopPropagation(); pop.remove()
-    if (groupCtx) {
-      await toggleReactionInGroup(groupCtx.id, msgId, b.dataset.re)
-      const updated = getGroups().find(g => g.id === groupCtx.id)
-      if (updated) { groupDefaults(updated); renderMessagesInto(root, box, channelMsgs(updated, activeChannel), empty, updated) }
-    } else if (activeDM) {
-      await toggleReactionInDM(activeDM, msgId, b.dataset.re)
-      renderMessagesInto(root, box, getDMs()[activeDM] || [], empty, null)
-    }
+    await applyReaction(root, box, msgId, b.dataset.re, empty, groupCtx)
   }))
   const onDoc = ev => { if (!pop.contains(ev.target) && ev.target !== anchorBtn) { pop.remove(); document.removeEventListener('click', onDoc) } }
   setTimeout(() => document.addEventListener('click', onDoc), 0)
@@ -4713,16 +4727,9 @@ function renderMessagesInto(root, box, msgs, empty, groupCtx = null, prevReadTs 
     const msgEl = pill.closest('[data-msg-id]')
     const msgId = msgEl?.dataset.msgId
     if (!msgId) return
-    pill.addEventListener('click', e => {
+    pill.addEventListener('click', async e => {
       e.stopPropagation()
-      if (groupCtx) {
-        toggleReactionInGroup(groupCtx.id, msgId, pill.dataset.reactEmoji)
-        const updated = getGroups().find(g => g.id === groupCtx.id)
-        if (updated) { groupDefaults(updated); renderMessagesInto(root, box, channelMsgs(updated, activeChannel), empty, updated) }
-      } else if (activeDM) {
-        toggleReactionInDM(activeDM, msgId, pill.dataset.reactEmoji)
-        renderMessagesInto(root, box, getDMs()[activeDM] || [], empty, null)
-      }
+      await applyReaction(root, box, msgId, pill.dataset.reactEmoji, empty, groupCtx)
     })
   })
 

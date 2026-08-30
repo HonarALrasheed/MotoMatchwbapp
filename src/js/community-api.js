@@ -253,23 +253,8 @@ async function _loadGroups() {
   if (groups.length) {
     const channelIds = groups.flatMap(g => (g.channels || []).map(c => c.id))
     if (channelIds.length) {
-      let { data: msgs, error: msgsError } = await supabase
-        .from('messages')
-        .select('id, channel_id, author_id, text, reply_to_id, reactions, mentions, edited_at, created_at, profiles(username)')
-        .in('channel_id', channelIds)
-        .order('created_at', { ascending: true })
-      if (msgsError) {
-        // mentions-Spalte evtl. noch nicht migriert (supabase/schema.sql) — ohne
-        // Fallback würde die komplette Nachrichten-Abfrage fehlschlagen, nicht nur
-        // die Mention-Auflösung. Degradiert sauber statt den ganzen Chat leerzuräumen.
-        console.warn('[API] mentions nicht ladbar (Migration evtl. noch nicht ausgeführt):', msgsError.message)
-        ;({ data: msgs } = await supabase
-          .from('messages')
-          .select('id, channel_id, author_id, text, reply_to_id, reactions, edited_at, created_at, profiles(username)')
-          .in('channel_id', channelIds)
-          .order('created_at', { ascending: true }))
-      }
-      for (const m of (msgs || [])) {
+      const msgs = await _selectMessages(q => q.in('channel_id', channelIds), 'channel_id')
+      for (const m of msgs) {
         (allMsgs[m.channel_id] ||= []).push(_mapMessage(m))
       }
     }
@@ -305,13 +290,67 @@ async function _loadGroups() {
   }))
 }
 
+/*
+ * Reaktionen kommen als Embed aus message_reactions (eine Zeile je Reaktion),
+ * das `mentions`-Feld gibt es nur an Kanalnachrichten. Beides kann in einer
+ * noch nicht migrierten Datenbank fehlen — deshalb eine absteigende
+ * Rückfallkette statt einer Abfrage:
+ *   1. Embed + mentions  — Sollzustand
+ *   2. ohne Embed        — Reaktionen kommen aus der alten jsonb-Spalte
+ *   3. zusätzlich ohne mentions
+ * Ohne die Kette scheitert nicht das einzelne Feld, sondern die komplette
+ * Nachrichten-Abfrage, und der Chat bliebe leer (siehe früherer group_bans-Bug).
+ * `reactions` bleibt in jeder Variante im SELECT: die Spalte ist der Rückfall
+ * für Stufe 2/3 und trägt den Bestand, bis die Migration gelaufen ist.
+ */
+const MSG_REACT_EMBED = ', message_reactions(emoji, profiles(username))'
+
+async function _selectMessages(applyFilter, keyField, { mentions = true } = {}) {
+  const base = `id, ${keyField}, author_id, text, reply_to_id, reactions, edited_at, created_at, profiles(username)`
+  const variants = mentions
+    ? [base + ', mentions' + MSG_REACT_EMBED, base + ', mentions', base]
+    : [base + MSG_REACT_EMBED, base]
+
+  let lastError = null
+  for (const sel of variants) {
+    const { data, error } = await applyFilter(supabase.from('messages').select(sel))
+      .order('created_at', { ascending: true })
+    if (!error) {
+      if (lastError) {
+        console.warn('[API] Nachrichten ohne optionale Felder geladen (Migration evtl. noch nicht ausgeführt):', lastError.message)
+      }
+      return data || []
+    }
+    lastError = error
+  }
+  console.warn('[API] Nachrichten nicht ladbar:', lastError?.message)
+  return []
+}
+
+/**
+ * Reaktionen in die Form bringen, die das UI erwartet: { emoji: [username, …] }.
+ * Quelle ist der message_reactions-Embed; fehlt er (Tabelle in dieser Datenbank
+ * noch nicht angelegt), bleibt die alte jsonb-Spalte die Quelle. Geschrieben
+ * wird die Spalte nicht mehr — nach der Migration ist sie nur noch Altbestand.
+ */
+function _mapReactions(m) {
+  if (!Array.isArray(m.message_reactions)) return m.reactions || {}
+  const out = {}
+  for (const r of m.message_reactions) {
+    const name = r.profiles?.username
+    if (!name || !r.emoji) continue
+    ;(out[r.emoji] ||= []).push(name)
+  }
+  return out
+}
+
 function _mapMessage(m) {
   return {
     id:       m.id,
     author:   m.profiles?.username || '?',
     text:     m.text,
     ts:       new Date(m.created_at).getTime(),
-    reactions: m.reactions || {},
+    reactions: _mapReactions(m),
     ...(m.edited_at ? { editedTs: new Date(m.edited_at).getTime() } : {}),
     ...(m.reply_to_id ? { replyTo: { id: m.reply_to_id } } : {}),
     // Rohe uuids durchreichen, keine Username-Auflösung hier — _loadProfiles()
@@ -349,13 +388,10 @@ async function _loadFriendRequests() {
 }
 
 async function _loadDMs() {
-  const { data } = await supabase
-    .from('messages')
-    .select('id, dm_thread, author_id, text, reply_to_id, reactions, edited_at, created_at, profiles(username)')
-    .not('dm_thread', 'is', null)
-    .order('created_at', { ascending: true })
+  // mentions gibt es nur an Kanalnachrichten (s. Spaltenkommentar in schema.sql)
+  const data = await _selectMessages(q => q.not('dm_thread', 'is', null), 'dm_thread', { mentions: false })
   _dms = {}
-  for (const m of (data || [])) {
+  for (const m of data) {
     const parts = m.dm_thread.split(':')
     const aUid = parts[0]; const bUid = parts[1]
     const aName = _uidToUsername(aUid)
@@ -506,6 +542,31 @@ function _subscribeGlobalInbox() {
     })
     .subscribe()
   _globalSubs.push(msgSub)
+
+  // Reaktionen laufen nicht mehr als UPDATE auf messages, sondern als
+  // INSERT/DELETE auf message_reactions — ohne dieses Abo sähe man fremde
+  // Reaktionen erst nach einem Neuladen. Die Tabelle muss dafür im
+  // Supabase-Dashboard unter Database → Replication mit aktiviert sein
+  // (s. supabase/schema.sql); ist sie es nicht, bleibt das Abo folgenlos.
+  const reactSub = supabase.channel('inbox-reactions-' + _myUid)
+    .on('postgres_changes', {
+      event:  'INSERT',
+      schema: 'public',
+      table:  'message_reactions',
+    }, payload => {
+      _handleReactionChange(payload.new, true)
+    })
+    .on('postgres_changes', {
+      event:  'DELETE',
+      schema: 'public',
+      table:  'message_reactions',
+    }, payload => {
+      // payload.old trägt die Primärschlüsselspalten — und das sind hier genau
+      // message_id, user_id und emoji. Kein REPLICA IDENTITY FULL nötig.
+      _handleReactionChange(payload.old, false)
+    })
+    .subscribe()
+  _globalSubs.push(reactSub)
 
   const freqSub = supabase.channel('inbox-freq-' + _myUid)
     .on('postgres_changes', {
@@ -717,7 +778,9 @@ async function _handleNewMessage(row) {
     author,
     text:      row.text,
     ts:        new Date(row.created_at).getTime(),
-    reactions: row.reactions || {},
+    // Eine gerade eingefügte Nachricht hat noch keine Reaktionen; die kommen
+    // ab jetzt ausschließlich über message_reactions.
+    reactions: {},
     ...(row.reply_to_id ? { replyTo: { id: row.reply_to_id } } : {}),
     ...(row.mentions?.length ? { mentions: row.mentions } : {}),
   }
@@ -768,9 +831,12 @@ async function _handleNewMessage(row) {
  * volle neue Zeile (unabhängig von REPLICA IDENTITY).
  */
 async function _handleMessageUpdate(row) {
+  // BEWUSST OHNE `reactions`: die kommen seit message_reactions als eigene
+  // INSERT/DELETE-Events (_handleReactionChange). Würde die stale jsonb-Spalte
+  // hier weiter durchgereicht, löschte jede Textbearbeitung die Reaktionen
+  // lokal wieder weg.
   const patch = {
     text: row.text,
-    reactions: row.reactions || {},
     ...(row.edited_at ? { editedTs: new Date(row.edited_at).getTime() } : {}),
   }
   let found = false
@@ -827,6 +893,50 @@ async function _handleMessageDelete(row) {
     }
   }
   if ((removedChannelId || removedDM) && _onMessageChanged) _onMessageChanged(removedChannelId, removedDM)
+}
+
+/**
+ * Reaktion eines ANDEREN Nutzers live nachziehen (INSERT oder DELETE auf
+ * message_reactions). Die eigene Reaktion steht lokal schon (optimistisch) —
+ * das Echo würde sie sonst wieder umschalten.
+ *
+ * Wie bei _handleMessageDelete wird überall gesucht statt sich auf eine
+ * channel_id zu verlassen: die Zeile trägt nur message_id/user_id/emoji.
+ * Supabase filtert DELETE-Ereignisse nicht per RLS — eine unbekannte
+ * message_id findet hier schlicht nichts und ist damit ein No-op.
+ */
+async function _handleReactionChange(row, on) {
+  if (!row?.message_id || !row.emoji || !row.user_id) return
+  if (row.user_id === _myUid) return
+
+  let name = _uidToUsername(row.user_id)
+  if (!name) {
+    const { data } = await supabase.from('profiles').select('username').eq('id', row.user_id).maybeSingle()
+    if (!data) return
+    name = data.username
+    _profileCache[name] = { ..._profileCache[name], _uid: row.user_id }
+  }
+
+  const seen = new Set()
+  let changedChannelId = null
+  let changedDM = null
+  for (const g of _groups) {
+    for (const ch of (g.channels || [])) {
+      const msg = ch.messages.find(m => m.id === row.message_id)
+      if (!msg || seen.has(msg)) continue
+      seen.add(msg)
+      if (_setReactionLocal(msg, row.emoji, name, on)) changedChannelId = ch.id
+    }
+  }
+  for (const aName of Object.keys(_dms)) {
+    for (const bName of Object.keys(_dms[aName])) {
+      const msg = (_dms[aName][bName] || []).find(m => m.id === row.message_id)
+      if (!msg || seen.has(msg)) continue
+      seen.add(msg)
+      if (_setReactionLocal(msg, row.emoji, name, on)) changedDM = { user1: aName, user2: bName }
+    }
+  }
+  if ((changedChannelId || changedDM) && _onMessageChanged) _onMessageChanged(changedChannelId, changedDM)
 }
 
 async function _handleNewFriendRequest(row) {
@@ -1252,6 +1362,15 @@ function _isMissingColumn(error) {
   return error?.code === '42703' || error?.code === 'PGRST204'
 }
 
+/**
+ * Meldet Postgres/PostgREST eine unbekannte Tabelle?
+ * 42P01 = Postgres "undefined table", PGRST205 = PostgRESTs Schema-Cache kennt
+ * die Tabelle nicht, PGRST200 = die eingebettete Beziehung ist unbekannt.
+ */
+function _isMissingTable(error) {
+  return error?.code === '42P01' || error?.code === 'PGRST205' || error?.code === 'PGRST200'
+}
+
 async function _prepareAttachment(att) {
   if (!att) return null
   if (att.url) return att            // schon fertig (Bestandsdaten/erneutes Senden)
@@ -1343,22 +1462,93 @@ export async function deleteGroupMessage(groupId, msgId) {
   await supabase.from('messages').delete().eq('id', msgId)
 }
 
-export async function toggleReactionInGroup(groupId, msgId, emoji) {
-  const myName = _myUsername
-  const g = _groups.find(x => x.id === groupId); if (!g) return
-  let msg = null
-  for (const ch of (g.channels || [])) { msg = ch.messages.find(x => x.id === msgId); if (msg) break }
-  if (!msg) return
+/* ── Reaktionen ───────────────────────────────────────────────────
+   Im lokalen Cache bleibt die Form { emoji: [username, …] } (so rendert
+   community.js), in der Datenbank ist es seit der Migration eine Zeile je
+   Reaktion in message_reactions. Der frühere Weg — das ganze reactions-Objekt
+   per UPDATE auf messages schreiben — konnte gar nicht funktionieren: die
+   Policy msg_update erlaubt UPDATE nur Autor und Mods, eine Reaktion auf eine
+   fremde Nachricht traf null Zeilen. Null getroffene Zeilen sind für PostgREST
+   kein Fehler, deshalb fiel es nur beim Neuladen auf.
+   ────────────────────────────────────────────────────────────────── */
+
+/**
+ * Reaktion im lokalen Cache setzen oder entfernen.
+ * @returns {boolean} true, wenn sich etwas geändert hat (sonst war der
+ *   gewünschte Zustand schon da — wichtig für die Realtime-Pfade, die
+ *   doppelt eintreffen können).
+ */
+function _setReactionLocal(msg, emoji, username, on) {
   if (!msg.reactions) msg.reactions = {}
   const users = msg.reactions[emoji] || []
-  if (users.includes(myName)) {
-    msg.reactions[emoji] = users.filter(u => u !== myName)
-    if (!msg.reactions[emoji].length) delete msg.reactions[emoji]
+  if (users.includes(username) === on) return false
+  if (on) {
+    msg.reactions[emoji] = [...users, username]
   } else {
-    msg.reactions[emoji] = [...users, myName]
+    const rest = users.filter(u => u !== username)
+    if (rest.length) msg.reactions[emoji] = rest
+    else delete msg.reactions[emoji]
   }
-  if (OFFLINE_MODE || !_myUid) { lsWrite(LS_GROUPS, _groups); return }
-  await supabase.from('messages').update({ reactions: msg.reactions }).eq('id', msgId)
+  return true
+}
+
+/**
+ * Umschalten im lokalen Cache. Ein zweiter Aufruf mit denselben Argumenten
+ * stellt den Ausgangszustand wieder her — genau das ist der Rollback, wenn
+ * der Serverschreibvorgang scheitert.
+ * @returns {boolean} true, wenn die Reaktion jetzt gesetzt ist.
+ */
+function _toggleReactionLocal(msg, emoji, username) {
+  const on = !(msg.reactions?.[emoji] || []).includes(username)
+  _setReactionLocal(msg, emoji, username, on)
+  return on
+}
+
+/**
+ * Die eigene Reaktion in der Datenbank anlegen/entfernen und bei Fehler den
+ * lokalen Zustand zurückrollen.
+ * Fehlt die Tabelle (Migration noch nicht eingespielt), fällt die Funktion auf
+ * den alten jsonb-Weg zurück — mit dessen bekannter Einschränkung, aber besser
+ * als eine Funktion, die bis zum Ausführen des SQL gar nichts mehr tut.
+ */
+async function _persistReaction(msgId, emoji, on, reactionsForFallback, rollback) {
+  const { error } = on
+    ? await supabase.from('message_reactions').insert({ message_id: msgId, user_id: _myUid, emoji })
+    : await supabase.from('message_reactions').delete()
+        .eq('message_id', msgId).eq('user_id', _myUid).eq('emoji', emoji)
+
+  if (!error) return { ok: true }
+
+  if (_isMissingTable(error)) {
+    console.warn('[API] Tabelle message_reactions fehlt — Migration aus supabase/schema.sql ausführen. Reaktionen auf fremde Nachrichten überleben bis dahin kein Neuladen.')
+    const { error: legacyErr } = await supabase.from('messages')
+      .update({ reactions: reactionsForFallback }).eq('id', msgId)
+    if (!legacyErr) return { ok: true }
+    rollback()
+    report(legacyErr, { where: 'community-api._persistReaction.legacy' })
+    return { ok: false, error: legacyErr.message }
+  }
+
+  // 23505 = unique_violation: die Reaktion steht schon in der Tabelle (Doppelklick,
+  // parallel geöffneter Tab). Der gewünschte Endzustand ist erreicht, kein Fehler.
+  if (on && error.code === '23505') return { ok: true }
+
+  rollback()
+  console.error('[API] Reaktion nicht gespeichert:', error.message)
+  report(error, { where: 'community-api._persistReaction', code: error.code })
+  return { ok: false, error: error.message }
+}
+
+export async function toggleReactionInGroup(groupId, msgId, emoji) {
+  const myName = _myUsername
+  const g = _groups.find(x => x.id === groupId); if (!g) return { ok: false, error: 'Gruppe nicht gefunden.' }
+  let msg = null
+  for (const ch of (g.channels || [])) { msg = ch.messages.find(x => x.id === msgId); if (msg) break }
+  if (!msg) return { ok: false, error: 'Nachricht nicht gefunden.' }
+
+  const on = _toggleReactionLocal(msg, emoji, myName)
+  if (OFFLINE_MODE || !_myUid) { lsWrite(LS_GROUPS, _groups); return { ok: true } }
+  return _persistReaction(msgId, emoji, on, msg.reactions, () => _toggleReactionLocal(msg, emoji, myName))
 }
 
 /* ── Nachrichten-Meldungen ──────────────────────────────────────── */
@@ -1608,26 +1798,36 @@ export async function deleteDMMessage(peer, msgId) {
   await supabase.from('messages').delete().eq('id', msgId)
 }
 
-export async function toggleReactionInDM(peer, msgId, emoji) {
+/**
+ * Alle Cache-Objekte zu einer DM-Nachricht — als Set, weil _dms[a][b] und
+ * _dms[b][a] dasselbe Nachrichtenobjekt enthalten (so legen es _loadDMs(),
+ * sendDM() und _handleNewMessage() an). Die frühere Schleife über beide
+ * Richtungen schaltete die Reaktion deshalb ZWEIMAL um — im Ergebnis passierte
+ * lokal gar nichts, und in die Datenbank ging der zurückgedrehte Zustand.
+ */
+function _dmMessageObjects(peer, msgId) {
   const myName = _myUsername
+  const found = new Set()
   for (const [a, b] of [[myName, peer], [peer, myName]]) {
     const msg = (_dms[a]?.[b] || []).find(x => x.id === msgId)
-    if (!msg) continue
-    if (!msg.reactions) msg.reactions = {}
-    const users = msg.reactions[emoji] || []
-    if (users.includes(myName)) {
-      msg.reactions[emoji] = users.filter(u => u !== myName)
-      if (!msg.reactions[emoji].length) delete msg.reactions[emoji]
-    } else {
-      msg.reactions[emoji] = [...users, myName]
-    }
+    if (msg) found.add(msg)
   }
-  if (OFFLINE_MODE || !_myUid) { lsWrite(LS_DMS, _dms); return }
-  const thread = _dmThread(myName, peer)
-  if (thread) {
-    const msgObj = (_dms[myName]?.[peer] || []).find(x => x.id === msgId)
-    if (msgObj) await supabase.from('messages').update({ reactions: msgObj.reactions }).eq('id', msgId)
+  return [...found]
+}
+
+export async function toggleReactionInDM(peer, msgId, emoji) {
+  const myName = _myUsername
+  const objs = _dmMessageObjects(peer, msgId)
+  if (!objs.length) return { ok: false, error: 'Nachricht nicht gefunden.' }
+
+  const on = _toggleReactionLocal(objs[0], emoji, myName)
+  for (const m of objs.slice(1)) _setReactionLocal(m, emoji, myName, on)
+  const rollback = () => {
+    for (const m of objs) _setReactionLocal(m, emoji, myName, !on)
   }
+
+  if (OFFLINE_MODE || !_myUid) { lsWrite(LS_DMS, _dms); return { ok: true } }
+  return _persistReaction(msgId, emoji, on, objs[0].reactions, rollback)
 }
 
 function _markUnreadCache(forUser, fromUser) {

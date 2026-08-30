@@ -75,6 +75,8 @@ import {
   sendChannelTyping, subscribeDMTyping, unsubscribeDMTyping, sendDMTyping,
   // Direktanrufe (Signalisierung)
   dmCallRoomId, subscribeToUserEvents, sendUserEvent,
+  // Profilbilder (werden nicht mehr pauschal geladen)
+  ensureAvatars,
 } from './community-api.js'
 
 /* ── Avatar-Farbpalette (wählbare Profilfarben) ──────────────────── */
@@ -134,7 +136,44 @@ function avatarInner(username) {
   // esc() maskiert nur Zeichen, das Schema kaeme unbeschadet durch. Ohne
   // gueltige URL zeigen wir die Initialen statt eines toten <img>.
   const img = safeUrl(getProfile(username).avatarImg)
-  return img ? `<img class="mmc-avatar-img" src="${esc(img)}" alt="">` : initials(displayName(username))
+  if (img) return `<img class="mmc-avatar-img" src="${esc(img)}" alt="">`
+  // Noch kein Bild im Cache: Initialen zeigen und das Bild im Hintergrund
+  // anfordern. Der Platzhalter traegt den Namen, damit requestAvatar() ihn
+  // danach gezielt ersetzen kann, ohne die Ansicht neu zu rendern.
+  requestAvatar(username)
+  return `<span class="mmc-avatar-ini" data-mmc-av="${esc(username)}">${initials(displayName(username))}</span>`
+}
+
+/*
+ * Profilbilder werden nicht mehr beim Start fuer alle Nutzer geladen (das waren
+ * base64-Data-URLs ohne Groessenbegrenzung), sondern nur fuer die, die gerade
+ * gezeichnet werden. Die Anforderungen eines Renderdurchlaufs werden gesammelt
+ * und als ein Request abgeschickt.
+ */
+const _avatarWanted = new Set()
+let _avatarTimer = null
+
+function requestAvatar(username) {
+  if (!username || _avatarWanted.has(username)) return
+  _avatarWanted.add(username)
+  if (_avatarTimer) return
+  _avatarTimer = setTimeout(flushAvatarRequests, 60)
+}
+
+async function flushAvatarRequests() {
+  _avatarTimer = null
+  const batch = [..._avatarWanted]
+  _avatarWanted.clear()
+  if (!batch.length) return
+  let loaded = []
+  try { loaded = await ensureAvatars(batch) } catch { return }
+  for (const name of loaded) {
+    const img = safeUrl(getProfile(name).avatarImg)
+    if (!img) continue
+    document.querySelectorAll(`[data-mmc-av="${CSS.escape(name)}"]`).forEach(ph => {
+      ph.outerHTML = `<img class="mmc-avatar-img" src="${esc(img)}" alt="">`
+    })
+  }
 }
 
 /* ── Demo-Accounts (nur Offline-Modus) ──────────────────────────── */

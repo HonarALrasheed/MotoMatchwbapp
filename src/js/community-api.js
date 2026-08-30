@@ -53,6 +53,7 @@ let _myUsername = ''   // z. B. 'RiderMax'
 
 /* Kernstrukturen — gespiegelt aus Supabase oder localStorage */
 let _profileCache   = {}   // { [username]: profileObj }
+let _avatarFetched  = new Set()  // Namen, deren Profilbild schon geholt wurde (auch wenn es keins gab)
 let _groups         = []   // Gruppen-Array (mit .channels[].messages)
 let _friends        = {}   // { [username]: string[] }
 let _requests       = []   // [{ id, from, to, ts }]
@@ -141,17 +142,26 @@ function _loadFromLocalStorage() {
 
 /* ── Supabase-Loader ────────────────────────────────────────────── */
 
+/*
+ * Bewusst ohne `avatar`: die Spalte haelt das Profilbild als base64-Data-URL
+ * (siehe supabase/schema.sql) und ist der Groesse nach unbegrenzt. Mit
+ * select('*') lud jeder Seitenaufruf saemtliche Bilder aller Nutzer — bei 500
+ * Nutzern mit je ~1,5 MB waren das ~750 MB. Bilder kommen jetzt per
+ * ensureAvatars() nur fuer die Nutzer nach, die auch wirklich angezeigt werden.
+ */
+const PROFILE_FIELDS = 'id, username, display_name, bio, status_text, avatar_color, show_bike, bike_text, dm_policy, show_online, notif_sounds, notif_desktop'
+
 async function _loadProfiles() {
-  const { data } = await supabase.from('profiles').select('*')
+  const { data } = await supabase.from('profiles').select(PROFILE_FIELDS)
   if (!data) return
   _profileCache = {}
+  _avatarFetched = new Set()
   for (const p of data) {
     _profileCache[p.username] = {
       displayName:    p.display_name,
       bio:            p.bio,
       statusText:     p.status_text,
       avatarColor:    p.avatar_color,
-      avatarImg:      p.avatar,
       showBike:       p.show_bike,
       bikeText:       p.bike_text,
       dmPolicy:       p.dm_policy,
@@ -161,6 +171,54 @@ async function _loadProfiles() {
       _uid:           p.id,
     }
   }
+  await _loadMyAvatar()
+}
+
+/*
+ * Das eigene Profilbild wird sofort geholt (genau eine Zeile): getProfile()
+ * faellt fuer den eigenen Namen zwar auf currentUser().avatar zurueck, das ist
+ * aber ein geraetelokaler Override — auf einem frisch angemeldeten Geraet gibt
+ * es ihn nicht, und ohne diese Abfrage saehe man sein eigenes Bild dort nicht.
+ */
+async function _loadMyAvatar() {
+  if (!_myUid || !_myUsername) return
+  const { data } = await supabase.from('profiles').select('avatar').eq('id', _myUid).maybeSingle()
+  if (data?.avatar) {
+    _profileCache[_myUsername] = { ..._profileCache[_myUsername], avatarImg: data.avatar }
+  }
+}
+
+const AVATAR_BATCH_MAX = 40
+
+/**
+ * Profilbilder fuer die uebergebenen Nutzer nachladen (einmalig pro Name).
+ * Gibt die Namen zurueck, fuer die jetzt ein Bild im Cache liegt — der Aufrufer
+ * kann damit gezielt nachzeichnen, ohne die ganze Ansicht neu zu rendern.
+ */
+export async function ensureAvatars(usernames) {
+  if (OFFLINE_MODE || !supabase) return []
+  const open = [...new Set(usernames)].filter(u => u && u !== _myUsername && !_avatarFetched.has(u))
+  if (!open.length) return []
+
+  const loaded = []
+  // In Haeppchen abfragen: .in() landet als Query-String in der URL, eine
+  // unbegrenzt lange Namensliste wuerde die URL sprengen.
+  for (let i = 0; i < open.length; i += AVATAR_BATCH_MAX) {
+    const todo = open.slice(i, i + AVATAR_BATCH_MAX)
+    // Vor dem Await markieren: parallele Aufrufe sollen nicht dieselben Namen holen.
+    todo.forEach(u => _avatarFetched.add(u))
+    const { data, error } = await supabase.from('profiles').select('username, avatar').in('username', todo)
+    if (error) {
+      todo.forEach(u => _avatarFetched.delete(u))   // erneut versuchen duerfen
+      continue
+    }
+    for (const row of data || []) {
+      if (!row.avatar) continue
+      _profileCache[row.username] = { ..._profileCache[row.username], avatarImg: row.avatar }
+      loaded.push(row.username)
+    }
+  }
+  return loaded
 }
 
 async function _loadGroups() {
@@ -844,7 +902,9 @@ async function _handleNewOwnedGroup(groupId, attempt = 0) {
  *  - eigenes Profil: immer live aus currentUser() (funktioniert online & offline,
  *    auch bevor die erste Synchronisierung mit Supabase durchgelaufen ist)
  *  - fremde Profile online: kommen aus der Supabase-`profiles`-Tabelle
- *    (avatar-Spalte, per _loadProfiles() synchron gehalten)
+ *    (per _loadProfiles() synchron gehalten). avatarImg fehlt hier zunaechst
+ *    und wird von ensureAvatars() nur fuer angezeigte Nutzer nachgeladen —
+ *    bis dahin greift in der UI der Initialen-Fallback.
  *  - fremde Profile offline: aus der lokalen User-DB (getUserRecord)
  */
 export function getProfile(username) {

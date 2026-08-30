@@ -1723,7 +1723,7 @@ function renderSettings() {
               <div class="acc-inline-error" data-fb-error hidden></div>
             </div>
 
-            ${realUser && u.password !== null ? `
+            ${realUser && !u.provider ? `
             <div class="acc-fieldbox" data-fieldbox="password">
               <div class="acc-fieldbox-label">Passwort</div>
               <div class="acc-fieldbox-row">
@@ -1731,8 +1731,8 @@ function renderSettings() {
                 <button type="button" class="acc-fieldbox-btn" data-fb-edit>Bearbeiten</button>
               </div>
               <div class="acc-fieldbox-pwform" data-fb-pwform hidden>
-                <input class="acc-input" data-fb-curpass type="password" minlength="4" placeholder="Aktuelles Passwort">
-                <input class="acc-input" data-fb-newpass type="password" minlength="4" placeholder="Neues Passwort">
+                <input class="acc-input" data-fb-curpass type="password" placeholder="Aktuelles Passwort">
+                <input class="acc-input" data-fb-newpass type="password" minlength="${auth.MIN_PASSWORD_LENGTH}" placeholder="Neues Passwort">
               </div>
               <div class="acc-inline-error" data-fb-error hidden></div>
             </div>` : ''}

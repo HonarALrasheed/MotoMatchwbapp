@@ -27,7 +27,7 @@ import {
 } from './voice.js'
 import { enablePushNotifications, disablePushNotifications } from './push.js'
 // Zentrale, plattformweite Authentifizierung (geteilt mit der Haupt-Website)
-import { getSession, login, register, loginGuest, logout, ensureDemoUsers, renderGoogleButton, initSupabaseAuth, requestPasswordReset } from './auth.js'
+import { getSession, login, register, loginGuest, logout, ensureDemoUsers, renderGoogleButton, initSupabaseAuth, requestPasswordReset, resendConfirmation, MIN_PASSWORD_LENGTH } from './auth.js'
 import { openAccount } from './account.js'
 import { supabase, OFFLINE_MODE } from './supabase.js'
 import {
@@ -666,7 +666,7 @@ export async function mountCommunity(root) {
 /* ══════════════════════════════════════════════════════════════════
    AUTH SCREEN
    ══════════════════════════════════════════════════════════════════ */
-function renderAuth(root, mode = 'login', error = '') {
+function renderAuth(root, mode = 'login', error = '', info = '', pendingEmail = '') {
   const isLogin = mode === 'login'
   root.innerHTML = `
     <div class="mmc-auth" style="background-image:url('${commBg}')">
@@ -694,12 +694,12 @@ function renderAuth(root, mode = 'login', error = '') {
             </label>`}
             <label class="mmc-field">
               <span class="mmc-field-label">Passwort <span class="mmc-req">*</span></span>
-              <input class="mmc-input" id="mmc-password" type="password" minlength="4" placeholder="••••••••" required>
+              <input class="mmc-input" id="mmc-password" type="password" ${isLogin ? '' : `minlength="${MIN_PASSWORD_LENGTH}"`} placeholder="••••••••" required>
             </label>
             ${isLogin ? '' : `
             <label class="mmc-field">
               <span class="mmc-field-label">Passwort bestätigen <span class="mmc-req">*</span></span>
-              <input class="mmc-input" id="mmc-password2" type="password" minlength="4" placeholder="••••••••" required>
+              <input class="mmc-input" id="mmc-password2" type="password" minlength="${MIN_PASSWORD_LENGTH}" placeholder="••••••••" required>
             </label>
             <div class="mmc-field-row">
               <label class="mmc-field">
@@ -719,6 +719,8 @@ function renderAuth(root, mode = 'login', error = '') {
             </div>`}
             ${isLogin ? '<button type="button" class="mmc-forgot" id="mmc-forgot">Passwort vergessen?</button>' : ''}
             <div class="mmc-auth-error" id="mmc-auth-error" ${error ? '' : 'hidden'}>${esc(error)}</div>
+            ${info ? `<div class="mmc-auth-info" style="color:#2e7d32;margin:4px 0 8px;font-size:14px">${esc(info)}</div>` : ''}
+            ${pendingEmail ? '<button type="button" class="mmc-forgot" id="mmc-resend">Mail nicht angekommen? Erneut senden</button>' : ''}
             <button class="mmc-auth-submit" type="submit">${isLogin ? 'Anmelden' : 'Registrieren'}</button>
           </form>
 
@@ -779,6 +781,15 @@ function renderAuth(root, mode = 'login', error = '') {
     renderAuth(root, isLogin ? 'register' : 'login')
   })
 
+  root.querySelector('#mmc-resend')?.addEventListener('click', async ev => {
+    ev.target.disabled = true
+    ev.target.textContent = 'Senden…'
+    const res = await resendConfirmation(pendingEmail)
+    renderAuth(root, 'login', res.ok ? '' : res.error,
+      res.ok ? `Neue Bestätigungsmail an ${pendingEmail} unterwegs.` : '',
+      pendingEmail)
+  })
+
   root.querySelector('#mmc-auth-form')?.addEventListener('submit', async e => {
     e.preventDefault()
     const username = root.querySelector('#mmc-username').value
@@ -787,7 +798,12 @@ function renderAuth(root, mode = 'login', error = '') {
 
     if (isLogin) {
       const res = await login(username, password)
-      if (!res.ok) return showErr(res.error)
+      if (!res.ok) {
+        // "Bitte bestätige zuerst deine E-Mail" ohne Ausweg wäre eine Sackgasse.
+        if (/bestätige/i.test(res.error) && username.includes('@'))
+          return renderAuth(root, 'login', res.error, '', username.trim())
+        return showErr(res.error)
+      }
       resetNavState(); seedDemoFriends(); renderApp(root)
     } else {
       const res = await register({
@@ -798,6 +814,13 @@ function renderAuth(root, mode = 'login', error = '') {
         license:   root.querySelector('#mmc-license')?.value,
       })
       if (!res.ok) return showErr(res.error)
+      if (res.needsEmailConfirmation) {
+        // Konto angelegt, aber noch keine Session — erst den Link in der
+        // Bestätigungsmail klicken. Kein Fehler, ein Hinweis.
+        return renderAuth(root, 'login', '',
+          `Fast geschafft! Wir haben dir eine Mail an ${res.email} geschickt — bitte bestätige darin deine Adresse und melde dich dann an.`,
+          res.email)
+      }
       resetNavState(); seedDemoFriends(); renderApp(root)
     }
   })

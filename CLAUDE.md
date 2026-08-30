@@ -46,7 +46,7 @@ Keine Tests und kein Linter konfiguriert.
 
 Wichtigste Module in `src/js/`:
 - `app.js` — Bootstrapping/Router zwischen Bildschirmen
-- `auth.js` — **zentrale** Auth (eine Session plattformweit); API: `login`, `register`, `logout`, `loginGuest`, `currentUser`, `updateProfile`, `getSession`, `isLoggedIn`, `openAuthModal`, `requestPasswordReset`, `updatePasswordDirect`, `openPasswordResetScreen`; Event `mm:auth-changed`
+- `auth.js` — **zentrale** Auth (eine Session plattformweit); API: `login`, `register`, `logout`, `loginGuest`, `currentUser`, `updateProfile`, `getSession`, `isLoggedIn`, `openAuthModal`, `requestPasswordReset`, `updatePasswordDirect`, `openPasswordResetScreen`, `resendConfirmation`, Konstante `MIN_PASSWORD_LENGTH`; Event `mm:auth-changed`
 - `bike-detail.js` — größtes Modul: Konfigurator, 3D-Viewer, Tabs
 - `community.js` — Discord-artige Community (Gruppen, Talks, DMs)
 - `quiz.js` / `matching.js` — Match-Quiz + Empfehlungslogik
@@ -349,6 +349,40 @@ Deutsch angepasst werden (**Authentication → Email Templates → "Reset Passwo
 sonst kommt die Standard-englische Vorlage. Ebenso `Site URL` und
 `Additional Redirect URLs` unter **Authentication → URL Configuration** um die
 produktive Domain (mit `/?reset=1`) ergänzen.
+
+## Registrierungs-Flow
+Die `profiles`-Zeile legt **der DB-Trigger `on_auth_user_created` →
+`handle_new_user()`** an (`supabase/schema.sql`), nicht der Client. Grund: bei
+aktivem "Confirm email" liefert `signUp()` keine Session, `auth.uid()` ist NULL
+und die Policy `profiles_insert` würde einen Client-INSERT blocken. Der Trigger
+ist `SECURITY DEFINER` und läuft in derselben Transaktion wie der INSERT auf
+`auth.users` — er greift für E-Mail-Registrierung **und** Google-OAuth.
+
+- Wunschname geht als `signUp({ options: { data: { username } } })` mit und
+  landet in `auth.users.raw_user_meta_data->>'username'`; bei OAuth fehlt er und
+  wird aus dem E-Mail-Lokalteil abgeleitet.
+- Namenskollisionen behandelt der Trigger selbst (Suffix `_1`, `_2`, … dann
+  uuid). Täte er es nicht, würde der Unique-Constraint die **ganze**
+  Registrierung mit "Database error saving new user" abbrechen.
+- `_repairMissingProfile()` in `auth.js` ist nur ein Notnagel für den Zustand
+  "Code deployt, Trigger noch nicht eingespielt". Ist der Trigger da, läuft er nie.
+  Läuft er doch, kommt eine Sentry-Warnung — das ist das Signal, dass das SQL fehlt.
+- Ohne Session liefert `register()` `{ ok: true, needsEmailConfirmation: true }`.
+  Beide Auth-Screens zeigen dann einen Hinweis statt eines Fehlers, plus
+  "Erneut senden" (`resendConfirmation`). Ohne diesen Weg wäre ein Nutzer mit
+  verlorener Mail **dauerhaft ausgesperrt**: sein Name ist vergeben, die zweite
+  Registrierung scheitert an der Vorabprüfung, anmelden kann er sich nicht.
+- Benutzernamen-Vorabprüfungen nutzen `.eq()`, nicht `.ilike()` — ILIKE deutet
+  `_` als Platzhalter. `.eq()` ist dafür case-sensitiv; deshalb der empfohlene
+  `CREATE UNIQUE INDEX … ON profiles (lower(username))` im Schema.
+
+**Reihenfolge beim Aktivieren von "Confirm email" (Authentication → Providers →
+Email):** erst das Trigger-SQL einspielen und mit einer Testregistrierung
+prüfen, **dann** den Schalter. Andersherum kann sich niemand mehr registrieren.
+**Vorher zwingend eigenes SMTP** hinterlegen (Authentication → Emails → SMTP
+Settings) — der eingebaute Versand ist auf wenige Mails pro Stunde gedrosselt
+und ist für echte Registrierungen unbrauchbar. Ebenso das Template
+"Confirm signup" auf Deutsch übersetzen und `Site URL` prüfen.
 
 ## Beta-Feedback-Kanal
 Floating Action Button (💬 „Feedback") rechts unten auf allen Screens, init in

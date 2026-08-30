@@ -20,14 +20,20 @@ const LS_SESSION = 'mm_auth_session_v1'  // { username } | { username:'Gast', gu
 const LS_GUEST   = 'mm_auth_guest_v1'    // Profil-Overrides für Gast
 const LS_ONLINE_PROFILES = 'mm_auth_online_profiles_v1'  // { [uid]: Profil-Overrides } für Supabase-User (Felder ohne DB-Spalte, z. B. Avatar/Bio/Alter)
 
+/* Mindestlänge für Passwörter — MUSS mit der Supabase-Einstellung
+   (Auth → Providers → Email → "Minimum password length") übereinstimmen,
+   sonst passiert ein zu kurzes Passwort den Client und scheitert erst am
+   Server mit englischer Meldung. */
+export const MIN_PASSWORD_LENGTH = 8
+
 /* ── Supabase-Session-Cache (sync-lesbar) ─────────────────────────
    Wird durch onAuthStateChange und initSupabaseAuth() befüllt.
    Solange null, ist niemand angemeldet (oder Supabase noch am Init). */
 let _sbSession = null  // { username, uid } | { username:'Gast', guest:true } | null
 
-/* Während register() legt bereits der Aufrufer selbst das Profil an —
-   der onAuthStateChange-Listener soll in dem Fenster nicht parallel
-   ein zweites (kollidierendes) Profil anlegen. */
+/* register() ruft _onSignedIn() selbst auf, sobald signUp() eine Session
+   liefert. Der onAuthStateChange-Listener soll in dem Fenster nicht parallel
+   ein zweites Mal initialisieren. */
 let _registering = false
 
 /**
@@ -75,18 +81,67 @@ export async function initSupabaseAuth() {
   return _sbSession
 }
 
+/**
+ * Wunschnamen aus der Session ableiten — 1:1 dieselbe Reihenfolge wie
+ * handle_new_user() in supabase/schema.sql: Metadatum aus signUp(), sonst
+ * E-Mail-Lokalteil (OAuth), sonst uuid. Beide Seiten müssen gleich ableiten,
+ * sonst bekäme derselbe Nutzer je nach Weg einen anderen Namen.
+ */
+function _usernameBase(session) {
+  const uid = session.user.id
+  const raw = (session.user.user_metadata?.username || '').trim()
+            || (session.user.email || '').split('@')[0]
+  return raw.replace(/[^a-zA-Z0-9_]/g, '_').slice(0, 24)
+         || `user_${uid.replace(/-/g, '').slice(0, 8)}`
+}
+
+/**
+ * Legt eine fehlende profiles-Zeile nachträglich an — Notnagel für den Zustand
+ * "Code deployt, Trigger noch nicht eingespielt". Die Namenskandidaten spiegeln
+ * die Logik von handle_new_user(): Wunschname, dann uuid-Suffixe. Der letzte
+ * enthält die volle uuid und kann praktisch nicht kollidieren.
+ * @returns {Promise<string|null>} vergebener Benutzername oder null
+ */
+async function _repairMissingProfile(session) {
+  const uid  = session.user.id
+  const bare = uid.replace(/-/g, '')
+  const base = _usernameBase(session)
+
+  for (const username of [base, `${base}_${bare.slice(0, 4)}`, `${base}_${bare}`]) {
+    const { error } = await supabase.from('profiles').insert({ id: uid, username })
+    if (!error) return username
+    // Kollidiert hat entweder die uuid (Zeile existiert doch — dann gewinnt sie)
+    // oder der Name (dann nächster Kandidat).
+    const { data: row } = await supabase.from('profiles').select('username').eq('id', uid).maybeSingle()
+    if (row?.username) return row.username
+    if (!/duplicate|unique/i.test(error.message || '')) {
+      report(error, { where: '_repairMissingProfile', uid })
+      return null
+    }
+  }
+  return null
+}
+
 async function _onSignedIn(session) {
   const uid = session.user.id
   const { data: profile } = await supabase.from('profiles').select('username').eq('id', uid).maybeSingle()
+  // Das Profil legt der DB-Trigger handle_new_user() an (supabase/schema.sql) —
+  // auch für Google-OAuth-Nutzer, die hier zum ersten Mal ankommen. Der Trigger
+  // läuft in derselben Transaktion wie der INSERT auf auth.users; wenn wir hier
+  // ankommen, ist die Zeile also da. Deshalb legt dieser Pfad im Normalfall
+  // nichts mehr an — das täte es sonst doppelt.
   let username = profile?.username
   if (!username) {
-    // Neuer Social-Login-User: Username aus E-Mail ableiten und Profil anlegen
-    const base = (session.user.email || uid).split('@')[0].replace(/[^a-zA-Z0-9_]/g, '_').slice(0, 30)
-    username = base || `user_${uid.slice(0, 8)}`
-    // Eindeutigkeit sicherstellen
-    const { data: conflict } = await supabase.from('profiles').select('id').eq('username', username).maybeSingle()
-    if (conflict) username = `${username}_${uid.slice(0, 4)}`
-    await supabase.from('profiles').insert({ id: uid, username })
+    // Reparaturpfad: greift genau dann, wenn der Trigger noch NICHT installiert
+    // ist. Ohne ihn hätte ein neuer Google-Nutzer sonst gar kein Profil und
+    // damit keine funktionierende Community. Hier ist eine Session vorhanden,
+    // auth.uid() also gesetzt und profiles_insert erfüllt.
+    username = await _repairMissingProfile(session)
+    report(new Error(username
+      ? 'profiles-Zeile fehlte, vom Client nachgeholt — Trigger handle_new_user() installiert?'
+      : 'profiles-Zeile fehlt und liess sich nicht anlegen'), { where: '_onSignedIn', uid })
+    // Letzte Rückfallebene: lieber ein Anzeigename als "undefined" in der UI.
+    username = username || _usernameBase(session)
   }
   _sbSession = { username, uid }
   // Beitrittsdatum einmalig aus der Auth-Session übernehmen (auth.users.created_at)
@@ -135,7 +190,7 @@ function loginOrRegisterFromProvider(provider, { sub, email, name, avatar }) {
   const users = getUsers()
   let u = users.find(x => x.username === username)
   if (!u) {
-    u = { ...DEFAULT_PROFILE, username, password: null, provider, name: name || email || username, email: email || '', avatar: avatar || null, joinedAt: Date.now() }
+    u = { ...DEFAULT_PROFILE, username, provider, name: name || email || username, email: email || '', avatar: avatar || null, joinedAt: Date.now() }
     users.push(u)
     saveUsers(users)
   }
@@ -227,7 +282,28 @@ function notify() {
 }
 
 /* ── State ─────────────────────────────────────────────────────── */
-export function getUsers() { return read(LS_USERS, []) }
+
+/**
+ * Demo-Modus-Nutzer aus dem localStorage.
+ *
+ * Der Demo-Modus speicherte hier früher Passwörter im Klartext und verglich sie
+ * beim Login ebenso. Das ist ersatzlos entfallen (siehe login()) — ein Hash
+ * hätte hier nichts gebracht: er läge unsalted im selben localStorage, wäre
+ * offline in Sekunden zu knacken und würde nur Sicherheit vortäuschen, die
+ * dieser Modus per Konstruktion nicht hat.
+ *
+ * Der Filter unten räumt zusätzlich Altbestände auf: Klartext-Passwörter, die
+ * in bereits benutzten Browsern liegen, verschwinden beim ersten Lesen.
+ */
+export function getUsers() {
+  const users = read(LS_USERS, [])
+  if (users.some(u => u && 'password' in u)) {
+    const cleaned = users.map(({ password, ...rest }) => rest)
+    write(LS_USERS, cleaned)
+    return cleaned
+  }
+  return users
+}
 function saveUsers(u) { write(LS_USERS, u) }
 
 /**
@@ -314,7 +390,10 @@ export async function login(identifier, password) {
     }
     const { data, error } = await supabase.auth.signInWithPassword({ email, password })
     if (error || !data.session) {
-      // Zweiter Versuch: Identifier könnte Benutzername sein, Auth braucht E-Mail
+      // Mit aktivem "Confirm email" ist das der häufigste Fall direkt nach der
+      // Registrierung — "Passwort falsch" wäre hier schlicht gelogen.
+      if (/not confirmed/i.test(error?.message || ''))
+        return { ok: false, error: 'Bitte bestätige zuerst deine E-Mail-Adresse — den Link findest du in deinem Postfach.' }
       return { ok: false, error: 'Zugangsdaten oder Passwort sind falsch.' }
     }
     // _sbSession wird durch onAuthStateChange gesetzt, aber wir setzen es sofort
@@ -326,7 +405,11 @@ export async function login(identifier, password) {
   // Offline-Modus
   const id = identifier.toLowerCase()
   const u = getUsers().find(x => x.username.toLowerCase() === id || (x.email && x.email.toLowerCase() === id))
-  if (!u || u.password !== password) return { ok: false, error: 'Zugangsdaten oder Passwort sind falsch.' }
+  if (!u) return { ok: false, error: 'Zugangsdaten oder Passwort sind falsch.' }
+  // Kein Passwortvergleich: der Demo-Modus speichert keine Passwörter (siehe
+  // getUsers()). Er läuft ohne Server ausschließlich lokal — es gibt hier nichts
+  // zu schützen und niemanden, gegen den geschützt würde.
+  console.info('[MotoMatch] Demo-Modus — Anmeldung ohne Passwortprüfung.')
   _sbSession = { username: u.username }
   setSessionRaw({ username: u.username }); notify()
   await initCommunityData(null, u.username)
@@ -335,7 +418,9 @@ export async function login(identifier, password) {
 
 /**
  * Registrierung.
- * Im Online-Modus: Supabase signUp + Profil-Zeile anlegen.
+ * Im Online-Modus: Supabase signUp — die profiles-Zeile legt der DB-Trigger
+ * handle_new_user() an. Ist "Confirm email" aktiv, kommt keine Session zurück;
+ * dann ist das Ergebnis { ok: true, needsEmailConfirmation: true }.
  * Im Offline-Modus: localStorage.
  */
 export async function register({ username, password, password2, email = '', age = '', license = '' }) {
@@ -343,43 +428,46 @@ export async function register({ username, password, password2, email = '', age 
   email    = (email || '').trim()
   if (username.length < 2) return { ok: false, error: 'Benutzername ist zu kurz.' }
   if (!/^\S+@\S+\.\S+$/.test(email)) return { ok: false, error: 'Bitte eine gültige E-Mail-Adresse angeben.' }
-  if ((password || '').length < 4) return { ok: false, error: 'Passwort muss mindestens 4 Zeichen haben.' }
+  if ((password || '').length < MIN_PASSWORD_LENGTH) return { ok: false, error: `Passwort muss mindestens ${MIN_PASSWORD_LENGTH} Zeichen haben.` }
   if (password2 !== undefined && password !== password2) return { ok: false, error: 'Passwörter stimmen nicht überein.' }
 
   if (!OFFLINE_MODE) {
-    // Prüfen ob Username bereits vergeben (profiles-Tabelle)
+    // Vorabprüfung, damit der Nutzer eine deutsche Meldung bekommt, statt vom
+    // Trigger stillschweigend einen Namen mit Suffix zugeteilt zu bekommen.
+    // .eq() statt .ilike(): ILIKE deutet "_" als Platzhalter, "max_1" kollidierte
+    // dadurch fälschlich mit "maxx1".
     const { data: existing } = await supabase
-      .from('profiles').select('id').ilike('username', username).maybeSingle()
+      .from('profiles').select('id').eq('username', username).maybeSingle()
     if (existing) return { ok: false, error: 'Dieser Benutzername ist bereits vergeben.' }
 
     _registering = true
     try {
-      const { data, error } = await supabase.auth.signUp({ email, password })
+      // username geht als Metadatum mit — der DB-Trigger handle_new_user()
+      // liest ihn dort aus (auth.users.raw_user_meta_data->>'username') und legt
+      // die profiles-Zeile an. Kein Profil-Insert mehr von hier: ohne Session
+      // (Confirm email an) wäre auth.uid() NULL und die RLS-Policy würde blocken.
+      const { data, error } = await supabase.auth.signUp({
+        email, password,
+        options: { data: { username } },
+      })
       if (error) {
         if (error.message.includes('already registered'))
           return { ok: false, error: 'Diese E-Mail-Adresse wird bereits verwendet.' }
         return { ok: false, error: error.message }
       }
-      const uid = data.user?.id
-      if (!uid) return { ok: false, error: 'Registrierung fehlgeschlagen.' }
+      if (!data.user?.id) return { ok: false, error: 'Registrierung fehlgeschlagen.' }
 
-      // Session setzen, damit auth.uid() für die RLS-Policy verfügbar ist
-      if (data.session) await supabase.auth.setSession(data.session)
-
-      // Profil anlegen
-      const { error: profErr } = await supabase.from('profiles').insert({
-        id: uid, username, bio: DEFAULT_PROFILE.bio,
-      })
-      if (profErr) {
-        if (profErr.message.includes('unique')) return { ok: false, error: 'Dieser Benutzername ist bereits vergeben.' }
-        return { ok: false, error: profErr.message }
+      if (!data.session) {
+        // "Confirm email" ist aktiv: das Konto existiert, ist aber bis zum Klick
+        // auf den Link in der Mail nicht nutzbar. Kein Fehler — ein Hinweis.
+        return { ok: true, needsEmailConfirmation: true, email, user: { username } }
       }
 
-      if (data.session) {
-        await _onSignedIn(data.session)
-        notify()
-      }
-      return { ok: true, user: { username } }
+      await _onSignedIn(data.session)
+      notify()
+      // Der Trigger kann bei einer Kollision im letzten Moment einen anderen
+      // Namen vergeben haben — _onSignedIn() hat den echten gerade gelesen.
+      return { ok: true, user: { username: _sbSession?.username || username } }
     } finally {
       _registering = false
     }
@@ -391,7 +479,7 @@ export async function register({ username, password, password2, email = '', age 
     return { ok: false, error: 'Dieser Benutzername ist bereits vergeben.' }
   if (email && users.some(x => x.email && x.email.toLowerCase() === email.toLowerCase()))
     return { ok: false, error: 'Diese E-Mail-Adresse wird bereits verwendet.' }
-  const user = { ...DEFAULT_PROFILE, username, password, name: username, email, age: age ? parseInt(age) : null, license, joinedAt: Date.now() }
+  const user = { ...DEFAULT_PROFILE, username, name: username, email, age: age ? parseInt(age) : null, license, joinedAt: Date.now() }
   users.push(user); saveUsers(users)
   _sbSession = { username }
   setSessionRaw({ username }); notify()
@@ -417,7 +505,7 @@ export function ensureDemoUsers(list) {
   let changed = false
   list.forEach(({ username, name, bio }) => {
     if (users.some(x => x.username.toLowerCase() === username.toLowerCase())) return
-    users.push({ ...DEFAULT_PROFILE, username, password: 'demo1234', name: name || username, bio: bio || DEFAULT_PROFILE.bio, joinedAt: Date.now() })
+    users.push({ ...DEFAULT_PROFILE, username, name: name || username, bio: bio || DEFAULT_PROFILE.bio, joinedAt: Date.now() })
     changed = true
   })
   if (changed) saveUsers(users)
@@ -465,7 +553,10 @@ export async function changeUsername(newUsername) {
   if (newUsername.toLowerCase() === s.username.toLowerCase()) return { ok: true }
 
   if (!OFFLINE_MODE) {
-    const { data: existing } = await supabase.from('profiles').select('id').ilike('username', newUsername).maybeSingle()
+    // .eq() wie in register(): ILIKE deutete "_" als Platzhalter und meldete
+    // "max_1" als vergeben, sobald es ein "maxx1" gab. Zusätzlich wirft
+    // .maybeSingle() bei mehreren Wildcard-Treffern — hier kann es nur einen geben.
+    const { data: existing } = await supabase.from('profiles').select('id').eq('username', newUsername).maybeSingle()
     if (existing) return { ok: false, error: 'Dieser Benutzername ist bereits vergeben.' }
     const { error } = await supabase.from('profiles').update({ username: newUsername }).eq('id', s.uid)
     if (error) return { ok: false, error: error.message.includes('unique') ? 'Dieser Benutzername ist bereits vergeben.' : error.message }
@@ -489,7 +580,7 @@ export async function changeUsername(newUsername) {
 /** Passwort des aktuellen Nutzers ändern (prüft das aktuelle Passwort). */
 export async function changePassword(currentPassword, newPassword) {
   const s = getSession(); if (!s || s.guest) return { ok: false, error: 'Als Gast nicht möglich.' }
-  if ((newPassword || '').length < 4) return { ok: false, error: 'Neues Passwort muss mindestens 4 Zeichen haben.' }
+  if ((newPassword || '').length < MIN_PASSWORD_LENGTH) return { ok: false, error: `Neues Passwort muss mindestens ${MIN_PASSWORD_LENGTH} Zeichen haben.` }
 
   if (!OFFLINE_MODE) {
     // Aktuelles Passwort über einen Re-Login-Versuch verifizieren
@@ -506,10 +597,36 @@ export async function changePassword(currentPassword, newPassword) {
   const users = getUsers()
   const u = users.find(x => x.username.toLowerCase() === s.username.toLowerCase())
   if (!u) return { ok: false, error: 'Nutzer nicht gefunden.' }
-  if (u.password === null) return { ok: false, error: 'Dieses Konto ist über Google verknüpft — kein lokales Passwort.' }
-  if (u.password !== currentPassword) return { ok: false, error: 'Aktuelles Passwort ist falsch.' }
-  u.password = newPassword
-  saveUsers(users)
+  if (u.provider) return { ok: false, error: 'Dieses Konto ist über Google verknüpft — kein lokales Passwort.' }
+  // Nichts zu prüfen und nichts zu speichern — der Demo-Modus hält keine
+  // Passwörter. Die Bestätigung ist ehrlich: hinterher gilt jedes Passwort,
+  // vorher galt auch jedes.
+  return { ok: true }
+}
+
+/**
+ * Bestätigungsmail erneut anfordern.
+ *
+ * Ohne diesen Weg sässe jeder fest, dessen Mail verloren ging oder dessen Link
+ * abgelaufen ist (Supabase: 24 h): der Benutzername ist durch den Trigger
+ * bereits vergeben, eine zweite Registrierung scheitert also schon an der
+ * Vorabprüfung in register(). Und anmelden kann er sich ohne Bestätigung auch
+ * nicht — eine Sackgasse ohne Ausgang.
+ *
+ * Wie bei requestPasswordReset() wird nicht verraten, ob die Adresse existiert.
+ */
+export async function resendConfirmation(email) {
+  email = (email || '').trim()
+  if (!/^\S+@\S+\.\S+$/.test(email)) return { ok: false, error: 'Bitte eine gültige E-Mail-Adresse angeben.' }
+  if (OFFLINE_MODE) return { ok: false, error: 'Im Demo-Modus gibt es keine Bestätigungsmails.' }
+  const emailRedirectTo = `${window.location.origin}${window.location.pathname}`
+  const { error } = await supabase.auth.resend({ type: 'signup', email, options: { emailRedirectTo } })
+  if (error) {
+    // Supabase drosselt Mailversand hart (Default-SMTP: wenige pro Stunde).
+    if (/rate|limit|seconds|too many/i.test(error.message || ''))
+      return { ok: false, error: 'Zu viele Versuche — bitte warte ein paar Minuten und probier es dann erneut.' }
+    return { ok: false, error: error.message }
+  }
   return { ok: true }
 }
 
@@ -530,7 +647,7 @@ export async function requestPasswordReset(email) {
 
 /** Setzt das Passwort des aktuell (per Recovery-Link) angemeldeten Nutzers. */
 export async function updatePasswordDirect(newPassword) {
-  if ((newPassword || '').length < 4) return { ok: false, error: 'Neues Passwort muss mindestens 4 Zeichen haben.' }
+  if ((newPassword || '').length < MIN_PASSWORD_LENGTH) return { ok: false, error: `Neues Passwort muss mindestens ${MIN_PASSWORD_LENGTH} Zeichen haben.` }
   if (OFFLINE_MODE) return { ok: false, error: 'Passwort-Reset ist im Offline-Modus nicht verfügbar.' }
   const { error } = await supabase.auth.updateUser({ password: newPassword })
   if (error) return { ok: false, error: error.message }
@@ -642,6 +759,9 @@ function esc(s = '') {
 export function openAuthModal(onDone) {
   if (document.getElementById('mm-authmodal')) return
   let mode = 'login'
+  // Adresse, für die gerade eine Bestätigung aussteht — schaltet den
+  // "Erneut senden"-Weg frei.
+  let pendingEmail = ''
   const overlay = document.createElement('div')
   overlay.id = 'mm-authmodal'
   overlay.className = 'p-auth-overlay'
@@ -719,7 +839,7 @@ export function openAuthModal(onDone) {
           </label>`}
           <label class="p-auth-field">
             <span class="p-auth-label">Passwort</span>
-            <input class="p-auth-input" id="mm-am-pass" type="password" minlength="4" placeholder="••••••••" required>
+            <input class="p-auth-input" id="mm-am-pass" type="password" ${isLogin ? '' : `minlength="${MIN_PASSWORD_LENGTH}"`} placeholder="••••••••" required>
           </label>
           ${isLogin && !OFFLINE_MODE ? `
           <div style="margin:-8px 0 12px;text-align:right">
@@ -728,7 +848,7 @@ export function openAuthModal(onDone) {
           ${isLogin ? '' : `
           <label class="p-auth-field">
             <span class="p-auth-label">Passwort bestätigen</span>
-            <input class="p-auth-input" id="mm-am-pass2" type="password" minlength="4" placeholder="••••••••" required>
+            <input class="p-auth-input" id="mm-am-pass2" type="password" minlength="${MIN_PASSWORD_LENGTH}" placeholder="••••••••" required>
           </label>
           <div class="p-auth-field-row">
             <label class="p-auth-field">
@@ -747,6 +867,11 @@ export function openAuthModal(onDone) {
             </label>
           </div>`}
           <div class="p-auth-error" id="mm-am-error" ${error ? '' : 'hidden'}>${esc(error)}</div>
+          ${info ? `<div class="p-auth-sub" style="color:#0a0;margin:8px 0 4px">${esc(info)}</div>` : ''}
+          ${pendingEmail ? `
+          <div style="margin:4px 0 12px;text-align:center">
+            <button type="button" class="p-auth-toggle" id="mm-am-resend">Mail nicht angekommen? Erneut senden</button>
+          </div>` : ''}
           <div class="p-auth-actions">
             <button type="button" class="p-auth-cancel" id="mm-am-cancel">Abbrechen</button>
             <button type="submit" class="p-auth-submit">${isLogin ? 'Anmelden' : 'Registrieren'}</button>
@@ -762,6 +887,12 @@ export function openAuthModal(onDone) {
     overlay.querySelector('#mm-am-cancel').addEventListener('click', () => close(false))
     overlay.querySelector('#mm-am-toggle').addEventListener('click', () => { mode = isLogin ? 'register' : 'login'; render() })
     overlay.querySelector('#mm-am-forgot')?.addEventListener('click', () => { mode = 'forgot'; render() })
+    overlay.querySelector('#mm-am-resend')?.addEventListener('click', async ev => {
+      ev.target.disabled = true
+      ev.target.textContent = 'Senden…'
+      const res = await resendConfirmation(pendingEmail)
+      render(res.ok ? '' : res.error, res.ok ? `Neue Bestätigungsmail an ${pendingEmail} unterwegs.` : '')
+    })
     renderGoogleButton(overlay.querySelector('#mm-am-google-btn'), () => close(true), 'outline')
     overlay.querySelector('#mm-am-form').addEventListener('submit', async e => {
       e.preventDefault()
@@ -778,7 +909,20 @@ export function openAuthModal(onDone) {
             age: overlay.querySelector('#mm-am-age').value,
             license: overlay.querySelector('#mm-am-license').value,
           })
-      if (!res.ok) { submitBtn.disabled = false; render(res.error) } else { close(true) }
+      if (!res.ok) {
+        submitBtn.disabled = false
+        // "Bitte bestätige zuerst deine E-Mail" ohne Ausweg wäre eine Sackgasse.
+        if (/bestätige/i.test(res.error) && username.includes('@')) pendingEmail = username.trim()
+        render(res.error)
+      } else if (res.needsEmailConfirmation) {
+        // Konto angelegt, aber noch keine Session — der Nutzer muss erst den
+        // Link in der Bestätigungsmail klicken. Kein Fehler, ein Hinweis.
+        mode = 'login'
+        pendingEmail = res.email
+        render('', `Fast geschafft! Wir haben dir eine Mail an ${res.email} geschickt — bitte bestätige darin deine Adresse und melde dich dann an.`)
+      } else {
+        close(true)
+      }
     })
     requestAnimationFrame(() => overlay.querySelector('#mm-am-user')?.focus())
   }
@@ -822,11 +966,11 @@ export function openPasswordResetScreen() {
         <form id="mm-rm-form" autocomplete="off">
           <label class="p-auth-field">
             <span class="p-auth-label">Neues Passwort</span>
-            <input class="p-auth-input" id="mm-rm-p1" type="password" minlength="4" autocomplete="new-password" placeholder="••••••••" required>
+            <input class="p-auth-input" id="mm-rm-p1" type="password" minlength="${MIN_PASSWORD_LENGTH}" autocomplete="new-password" placeholder="••••••••" required>
           </label>
           <label class="p-auth-field">
             <span class="p-auth-label">Neues Passwort bestätigen</span>
-            <input class="p-auth-input" id="mm-rm-p2" type="password" minlength="4" autocomplete="new-password" placeholder="••••••••" required>
+            <input class="p-auth-input" id="mm-rm-p2" type="password" minlength="${MIN_PASSWORD_LENGTH}" autocomplete="new-password" placeholder="••••••••" required>
           </label>
           <div class="p-auth-error" id="mm-rm-error" ${error ? '' : 'hidden'}>${esc(error)}</div>
           ${info ? `<div class="p-auth-sub" style="color:#0a0;margin:8px 0 4px">${esc(info)}</div>` : ''}

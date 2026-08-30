@@ -66,6 +66,119 @@ ALTER TABLE profiles DROP CONSTRAINT IF EXISTS avatar_color_fmt;
 ALTER TABLE profiles ADD CONSTRAINT avatar_color_fmt
   CHECK (avatar_color IS NULL OR avatar_color ~* '^(#([0-9a-f]{3,4}|[0-9a-f]{6}|[0-9a-f]{8})|hsl\([0-9]{1,3}(\.[0-9]+)?[[:space:]]+[0-9]{1,3}(\.[0-9]+)?%[[:space:]]+[0-9]{1,3}(\.[0-9]+)?%\))$');
 
+-- ── Profilanlage per Trigger ─────────────────────────────────────
+-- Bisher legte der Client die profiles-Zeile direkt nach signUp() selbst an.
+-- Das funktioniert nur, solange "Confirm email" AUS ist: ohne Bestaetigung
+-- liefert signUp() keine Session, auth.uid() ist dann NULL, und die Policy
+-- profiles_insert (oben) blockt den INSERT — der Nutzer saehe eine rohe
+-- englische Postgres-Meldung.
+--
+-- Der Trigger loest das: er laeuft als SECURITY DEFINER in derselben
+-- Transaktion wie der INSERT auf auth.users — unabhaengig von Session und RLS.
+-- Er greift fuer JEDEN neuen Auth-User: E-Mail-Registrierung wie Google-OAuth.
+--
+-- Den Wunsch-Benutzernamen uebergibt der Client als
+--   signUp({ email, password, options: { data: { username } } })
+-- er landet in auth.users.raw_user_meta_data->>'username'. Bei OAuth fehlt er —
+-- dann wird er wie bisher aus dem E-Mail-Lokalteil abgeleitet.
+--
+-- WICHTIG: Schlaegt diese Funktion fehl, schlaegt die GESAMTE Registrierung
+-- fehl ("Database error saving new user"). Deshalb faengt die Schleife unten
+-- Kollisionen auf profiles.username ab, statt den Unique-Constraint
+-- durchschlagen zu lassen.
+CREATE OR REPLACE FUNCTION public.handle_new_user()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $$
+DECLARE
+  base      text;
+  candidate text;
+  i         int := 0;
+BEGIN
+  -- 1) Wunschname aus den signUp-Metadaten, sonst E-Mail-Lokalteil (OAuth).
+  base := coalesce(
+    nullif(btrim(NEW.raw_user_meta_data ->> 'username'), ''),
+    nullif(split_part(coalesce(NEW.email, ''), '@', 1), ''),
+    'user'
+  );
+  -- Gleiches Zeichenraster wie im Client (siehe _onSignedIn in src/js/auth.js).
+  base := regexp_replace(base, '[^a-zA-Z0-9_]', '_', 'g');
+  base := left(base, 24);
+  IF length(base) < 2 THEN
+    base := 'user_' || left(NEW.id::text, 8);
+  END IF;
+
+  -- 2) Einfuegen; bei Namenskollision mit Suffix erneut versuchen.
+  candidate := base;
+  LOOP
+    BEGIN
+      INSERT INTO public.profiles (id, username)
+      VALUES (NEW.id, candidate)
+      ON CONFLICT (id) DO NOTHING;   -- Profil existiert schon: nichts zu tun
+      RETURN NEW;
+    EXCEPTION WHEN unique_violation THEN
+      i := i + 1;
+      IF i > 26 THEN
+        -- Kann praktisch nicht passieren (Kandidat enthaelt die uuid).
+        -- Lieber laut scheitern als endlos drehen.
+        RAISE;
+      ELSIF i = 26 THEN
+        candidate := left(base, 8) || '_' || replace(NEW.id::text, '-', '');
+      ELSE
+        candidate := base || '_' || i::text;
+      END IF;
+    END;
+  END LOOP;
+END;
+$$;
+
+REVOKE ALL ON FUNCTION public.handle_new_user() FROM PUBLIC;
+
+DROP TRIGGER IF EXISTS on_auth_user_created ON auth.users;
+CREATE TRIGGER on_auth_user_created
+  AFTER INSERT ON auth.users
+  FOR EACH ROW EXECUTE FUNCTION public.handle_new_user();
+
+-- ── Optional, aber empfohlen: Benutzernamen case-insensitiv eindeutig ──
+-- register() prueft den Namen jetzt mit .eq() vor (statt .ilike(), das "_" als
+-- Platzhalter deutete und "max_1" faelschlich mit "maxx1" kollidieren liess).
+-- .eq() ist dafuer case-SENSITIV: "Max" und "max" kaemen beide durch. Das
+-- stoert email_for_username() weiter unten, die per lower(username) sucht und
+-- bei zwei Treffern per LIMIT 1 irgendeinen nimmt.
+--
+-- ZUERST pruefen, ob es solche Paare schon gibt (das Anlegen des Index
+-- schlaegt sonst fehl):
+--
+--   SELECT lower(username) AS name, count(*), array_agg(username)
+--     FROM profiles GROUP BY 1 HAVING count(*) > 1;
+--
+-- Liefert das nichts, den Index setzen — danach faengt der Trigger oben auch
+-- Kollisionen ab, die sich nur in der Gross-/Kleinschreibung unterscheiden:
+--
+-- CREATE UNIQUE INDEX IF NOT EXISTS profiles_username_lower_key
+--   ON profiles (lower(username));
+
+-- ── Einmalig: bestehende Auth-User ohne Profilzeile nachziehen ────
+-- Nur noetig, wenn es Konten aus der Zeit vor dem Trigger gibt (z. B. eine
+-- Registrierung, die am blockierten Client-INSERT gescheitert ist).
+-- Zuerst zaehlen:
+--
+--   SELECT count(*) FROM auth.users au
+--    WHERE NOT EXISTS (SELECT 1 FROM profiles p WHERE p.id = au.id);
+--
+-- Dann nachziehen (Name aus E-Mail + uuid-Suffix — kollisionsfrei, der Nutzer
+-- kann ihn in den Kontoeinstellungen aendern):
+--
+--   INSERT INTO profiles (id, username)
+--   SELECT au.id,
+--          left(regexp_replace(coalesce(nullif(split_part(au.email, '@', 1), ''), 'user'),
+--                              '[^a-zA-Z0-9_]', '_', 'g'), 8)
+--            || '_' || replace(au.id::text, '-', '')
+--     FROM auth.users au
+--    WHERE NOT EXISTS (SELECT 1 FROM profiles p WHERE p.id = au.id);
+
 -- ── Friendships ──────────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS friendships (
   id      bigserial PRIMARY KEY,

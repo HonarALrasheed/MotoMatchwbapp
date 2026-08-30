@@ -214,17 +214,17 @@ function removeMute(key) {
  */
 function _syncMuteToServer(key, untilTs) {
   if (OFFLINE_MODE || !supabase) return
-  const session = getSession(); if (!session?.id) return
+  const session = getSession(); if (!session?.uid) return
   supabase.from('notification_mutes').upsert({
-    user_id: session.id,
+    user_id: session.uid,
     mute_key: key,
     until: untilTs === 'forever' ? null : new Date(untilTs).toISOString(),
   }, { onConflict: 'user_id,mute_key' }).then(() => {})
 }
 function _unsyncMuteFromServer(key) {
   if (OFFLINE_MODE || !supabase) return
-  const session = getSession(); if (!session?.id) return
-  supabase.from('notification_mutes').delete().eq('user_id', session.id).eq('mute_key', key).then(() => {})
+  const session = getSession(); if (!session?.uid) return
+  supabase.from('notification_mutes').delete().eq('user_id', session.uid).eq('mute_key', key).then(() => {})
 }
 
 /* ── Reaktionen — jetzt in community-api.js; UI-Helfer bleiben ──── */

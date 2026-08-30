@@ -299,7 +299,13 @@ async function _loadGroups() {
  * weder gelesen noch geschrieben.
  */
 async function _selectMessages(applyFilter, keyField, { mentions = true } = {}) {
-  const sel = `id, ${keyField}, author_id, text, reply_to_id, edited_at, created_at, profiles(username)`
+  // `profiles!messages_author_id_fkey` statt nur `profiles`: seit
+  // message_reactions existiert, gibt es ZWEI Wege von messages nach profiles —
+  // den direkten Fremdschlüssel author_id und, über message_reactions als
+  // Zwischentabelle, eine many-to-many-Beziehung. PostgREST lehnt den
+  // mehrdeutigen Embed mit PGRST201 ab und liefert dann GAR KEINE Nachrichten.
+  // Der Verweis auf den Fremdschlüssel macht die Absicht eindeutig.
+  const sel = `id, ${keyField}, author_id, text, reply_to_id, edited_at, created_at, profiles!messages_author_id_fkey(username)`
     + (mentions ? ', mentions' : '')
     + ', message_reactions(emoji, profiles(username))'
 

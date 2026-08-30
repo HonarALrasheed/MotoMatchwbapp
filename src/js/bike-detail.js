@@ -1325,12 +1325,12 @@ function buildGearCards(style) {
       const reason = (item.reason || '')
         .replace(/^CE-?Level\s*\d\+?\s*,\s*/i, '')
         .replace(/^./, c => c.toUpperCase())
-      // Echter Shop-Preis wird auf den Cent genau und deutsch formatiert
-      // ausgegeben; die selbst geschaetzte Spanne bekommt ein "ca.", damit
-      // beide nicht als dieselbe Art Angabe gelesen werden.
-      const priceHtml = item.price
-        ? `${item.price.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}\u00a0\u20ac`
-        : `<span class="gear-card-price-ca">ca.</span> ${item.priceMin}\u2013${item.priceMax}\u00a0\u20ac`
+      // Nur noch die geschaetzte Spanne, erkennbar als Schaetzung ("ca.").
+      // Frueher stand hier bei manchen Teilen ein exakter Eurobetrag aus dem
+      // Feld `price`. Den hat nichts je aktualisiert, und bei der Haelfte der
+      // Eintraege lag er ausserhalb der eigenen Spanne — er sah nur genauer
+      // aus, als er war. Der Shop-Link daneben zeigt den echten Tagespreis.
+      const priceHtml = `<span class="gear-card-price-ca">ca.</span> ${item.priceMin}\u2013${item.priceMax}\u00a0\u20ac`
       const cardId = `${style}-${key}-${i}`
       return `
       <a class="gear-card gear-card--product konf-reveal" data-gear="${key}" data-price-min="${item.priceMin}" data-price-max="${item.priceMax}" data-card-id="${cardId}"

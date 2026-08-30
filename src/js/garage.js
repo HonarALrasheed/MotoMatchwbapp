@@ -739,12 +739,16 @@ function renderTab(tab, bikeData, answers) {
       });
   } else if (tab === "gear") {
     const gear = getGear(bikeData.style);
+    /* getGear() liefert je Kategorie eine Liste — hier steht der Einstiegs-
+       Vorschlag, also der erste Eintrag. Vorher wurde die Liste selbst ins
+       Objekt gespreizt ({ ...gear.helmet }), womit name/type/reason undefined
+       waren und die Zeile leer blieb. */
     const items = [
-      { ...gear.helmet, label: "Helm" },
-      { ...gear.jacket, label: "Jacke" },
-      { ...gear.gloves, label: "Handschuhe" },
-      { ...gear.boots, label: "Stiefel" },
-    ];
+      { ...gear.helmet?.[0], label: "Helm", icon: "helmet" },
+      { ...gear.jacket?.[0], label: "Jacke", icon: "jacket" },
+      { ...gear.gloves?.[0], label: "Handschuhe", icon: "gloves" },
+      { ...gear.boots?.[0], label: "Stiefel", icon: "boots" },
+    ].filter((i) => i.name);
     content.innerHTML = `
       <p class="gr-section-label">Empfohlen fur ${bikeData.style}</p>
       ${items
@@ -755,7 +759,7 @@ function renderTab(tab, bikeData, answers) {
           <div class="gr-gear-info">
             <div class="gr-gear-top">
               <span class="gr-gear-name">${i.name}</span>
-              <span class="gr-gear-price">${i.price}</span>
+              <span class="gr-gear-price">ca. ${i.priceMin}\u2013${i.priceMax} EUR</span>
             </div>
             <span class="gr-gear-meta">${i.type} / ${i.reason}</span>
           </div>

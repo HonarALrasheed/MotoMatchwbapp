@@ -896,6 +896,10 @@ function compressPhoto(file) {
       URL.revokeObjectURL(url)
       resolve(canvas.toDataURL('image/jpeg', 0.72))
     }
+    // Ohne diesen Zweig wird das Promise bei einer defekten oder
+    // nicht-dekodierbaren Datei NIE aufgeloest — der await davor haengt dann
+    // fuer immer, und der Nutzer sieht gar keine Rueckmeldung.
+    img.onerror = () => { URL.revokeObjectURL(url); resolve(null) }
     img.src = url
   })
 }
@@ -1846,19 +1850,22 @@ function wireSettings() {
     showFlash('Google-Verknüpfung für bestehende Konten kommt bald')
   })
 
-  // Profilbild hochladen (als Data-URL lokal gespeichert)
-  document.getElementById('acc-avatar-file')?.addEventListener('change', e => {
+  // Profilbild hochladen (als Data-URL in profiles.avatar)
+  document.getElementById('acc-avatar-file')?.addEventListener('change', async e => {
     const file = e.target.files?.[0]
     if (!file) return
     if (file.size > 2 * 1024 * 1024) { showFlash('Bild ist zu groß (max. 2 MB)'); return }
-    const reader = new FileReader()
-    reader.onload = () => {
-      saveAccount({ avatar: reader.result })
-      renderTabContent('settings')
-      refreshAccountHeader()
-      showFlash('Profilbild aktualisiert ✓')
-    }
-    reader.readAsDataURL(file)
+    // Frueher ging hier die rohe FileReader-Data-URL raus — eine 2-MB-Datei
+    // landete als ~2,7 MB base64 in der Zeile. compressPhoto() steht in dieser
+    // Datei und wird an zwei anderen Stellen laengst benutzt (600 px, JPEG
+    // 0.72, typisch unter 150 KB); nur dieser Pfad hat es nicht getan. Das ist
+    // zugleich die Voraussetzung fuer das Constraint profiles_avatar_len.
+    const dataUrl = await compressPhoto(file)
+    if (!dataUrl) { showFlash('Bild konnte nicht gelesen werden'); return }
+    saveAccount({ avatar: dataUrl })
+    renderTabContent('settings')
+    refreshAccountHeader()
+    showFlash('Profilbild aktualisiert ✓')
   })
   document.getElementById('acc-avatar-remove')?.addEventListener('click', () => {
     saveAccount({ avatar: null })

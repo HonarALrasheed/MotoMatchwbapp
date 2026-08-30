@@ -249,6 +249,12 @@ async function submitFeedback(text) {
     }
   }
 
+  // Die Policy bf_insert_auth laesst seit Migration a15_beta_feedback nur noch
+  // angemeldete Nutzer mit der eigenen uid einfuegen — vorher durfte anon mit
+  // user_id = NULL unbegrenzt schreiben. Ohne diese Abfrage saehe ein Gast
+  // hier die rohe englische PostgREST-Meldung.
+  if (!uid) return { ok: false, error: 'Zum Senden von Feedback bitte anmelden.' }
+
   try {
     const { error } = await supabase.from('beta_feedback').insert({ user_id: uid, text, page, user_agent })
     if (error) return { ok: false, error: error.message }

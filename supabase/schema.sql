@@ -1,6 +1,26 @@
 -- ══════════════════════════════════════════════════════════════════
---  MotoMatch — Supabase-Schema
---  Dieses Skript im Supabase-Dashboard unter SQL-Editor ausführen.
+--  MotoMatch — Supabase-Schema (Gesamtsicht)
+--
+--  ⚠  DIESE DATEI IST NICHT DIE WAHRHEIT.
+--
+--  Maßgeblich ist supabase/migrations/. Dort steht, was tatsächlich in
+--  welcher Datenbank gelaufen ist; die Supabase-CLI führt Buch darüber
+--  (`supabase migration list`). Diese Datei ist die zusammenhängende,
+--  kommentierte Lesefassung desselben Standes — gut, um das Schema zu
+--  VERSTEHEN, nicht, um es zu VERWALTEN.
+--
+--  Regeln:
+--   · Eine Schemaänderung entsteht als neue Datei in supabase/migrations/
+--     und wird HIER nachgezogen. Nie umgekehrt.
+--   · Keine auskommentierten „einmalig im SQL-Editor ausführen"-Blöcke
+--     mehr. Genau die haben dazu geführt, dass niemand mehr wusste, was
+--     wo gelaufen ist — und dass src/js/community-api.js an neun Stellen
+--     raten musste, wie das eigene Schema aussieht.
+--   · Das Skript ist wiederholbar ausführbar: jedes CREATE POLICY hat ein
+--     DROP POLICY IF EXISTS davor, Tabellen und Indizes stehen unter
+--     IF NOT EXISTS, Funktionen unter CREATE OR REPLACE. Ein zweiter Lauf
+--     ändert nichts und bricht nicht mehr mitten im Skript ab.
+--
 --  Reihenfolge beachten (Fremdschlüssel).
 -- ══════════════════════════════════════════════════════════════════
 
@@ -22,13 +42,17 @@ CREATE TABLE IF NOT EXISTS profiles (
   created_at    timestamptz DEFAULT now()
 );
 ALTER TABLE profiles ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "profiles_select" ON profiles;
 CREATE POLICY "profiles_select"  ON profiles FOR SELECT USING (true);
+DROP POLICY IF EXISTS "profiles_insert" ON profiles;
 CREATE POLICY "profiles_insert"  ON profiles FOR INSERT WITH CHECK (id = auth.uid());
+DROP POLICY IF EXISTS "profiles_update" ON profiles;
 CREATE POLICY "profiles_update"  ON profiles FOR UPDATE USING (id = auth.uid());
 
--- Migration für bereits bestehende Datenbanken (obiges CREATE TABLE ist dort ein No-Op,
--- da die Tabelle schon existiert) — einmalig im SQL-Editor ausführen:
--- ALTER TABLE profiles ADD COLUMN IF NOT EXISTS avatar text;
+-- Für bestehende Datenbanken: obiges CREATE TABLE ist dort ein No-Op, die
+-- Spalte muss einzeln nachgezogen werden. Steht als Migration in
+-- supabase/migrations/20260830120000_a0_bestandsangleichung.sql.
+ALTER TABLE profiles ADD COLUMN IF NOT EXISTS avatar text;
 
 -- ── avatar_color: Formatzwang ────────────────────────────────────
 -- profiles_update laesst jeden seine eigene Zeile schreiben — auch direkt ueber
@@ -42,29 +66,66 @@ CREATE POLICY "profiles_update"  ON profiles FOR UPDATE USING (id = auth.uid());
 -- Erlaubt ist genau, was die App schreibt: das Leerzeichen-hsl() aus
 -- AVATAR_PALETTE/colorFor() — plus Hex. Muster identisch zu AVATAR_COLOR_RE.
 --
--- ZUERST pruefen, ob bestehende Zeilen das Constraint verletzen wuerden —
--- sonst schlaegt das ALTER mit "check constraint is violated by some row" fehl
--- und nennt die Zeile nicht:
---
---   SELECT id, username, avatar_color
---     FROM profiles
---    WHERE avatar_color IS NOT NULL
---      AND avatar_color !~* '^(#([0-9a-f]{3,4}|[0-9a-f]{6}|[0-9a-f]{8})|hsl\([0-9]{1,3}(\.[0-9]+)?[[:space:]]+[0-9]{1,3}(\.[0-9]+)?%[[:space:]]+[0-9]{1,3}(\.[0-9]+)?%\))$'
---    ORDER BY username;
---
--- Liefert das Zeilen, diese vorher neutralisieren (NULL = "automatische Farbe",
--- der Client faellt dann auf colorFor(username) zurueck — genau das, was er bei
--- einem ungueltigen Wert ohnehin schon anzeigt):
---
---   UPDATE profiles SET avatar_color = NULL
---    WHERE avatar_color IS NOT NULL
---      AND avatar_color !~* '^(#([0-9a-f]{3,4}|[0-9a-f]{6}|[0-9a-f]{8})|hsl\([0-9]{1,3}(\.[0-9]+)?[[:space:]]+[0-9]{1,3}(\.[0-9]+)?%[[:space:]]+[0-9]{1,3}(\.[0-9]+)?%\))$';
---
--- Erst danach das Constraint setzen. DROP … IF EXISTS vorweg, damit dieses
--- Skript wie der Rest der Datei mehrfach ausfuehrbar bleibt:
+-- Hier steht die Endform. Auf einer Datenbank MIT Bestand geht das nicht in
+-- einem Zug: ein ALTER … ADD CONSTRAINT scheitert an der ersten verletzenden
+-- Zeile und nennt sie nicht einmal. Deshalb legt die Migration
+-- a5_avatar_color_format das Constraint als NOT VALID an (greift sofort fuer
+-- neue Werte, laesst den Altbestand in Ruhe) und
+-- a15_constraints_validieren stellt es scharf — mit Pruef-SELECT davor.
 ALTER TABLE profiles DROP CONSTRAINT IF EXISTS avatar_color_fmt;
 ALTER TABLE profiles ADD CONSTRAINT avatar_color_fmt
   CHECK (avatar_color IS NULL OR avatar_color ~* '^(#([0-9a-f]{3,4}|[0-9a-f]{6}|[0-9a-f]{8})|hsl\([0-9]{1,3}(\.[0-9]+)?[[:space:]]+[0-9]{1,3}(\.[0-9]+)?%[[:space:]]+[0-9]{1,3}(\.[0-9]+)?%\))$');
+
+-- ── Laengen- und Formatgrenzen ───────────────────────────────────
+-- `text` ist in Postgres unbegrenzt (bis ~1 GB je Wert). Ohne die Grenzen
+-- hier kann ein einzelner Nutzer die Datenbank vollschreiben, ohne eine
+-- einzige Regel zu verletzen.
+--
+-- Hier steht jeweils die Endform. Auf einer Datenbank mit Bestand legen die
+-- Migrationen a15_laengen_constraints sie als NOT VALID an (greifen sofort
+-- fuer neue und geaenderte Zeilen) und a15_constraints_validieren stellt sie
+-- scharf — mit einem Pruef-SELECT je Constraint davor.
+
+-- UI heute: maxlength 190 (community.js) bzw. 160 (account.js).
+ALTER TABLE profiles DROP CONSTRAINT IF EXISTS profiles_bio_len;
+ALTER TABLE profiles ADD  CONSTRAINT profiles_bio_len
+  CHECK (bio IS NULL OR length(bio) <= 500);
+
+-- Zeichenraster identisch zu handle_new_user() (unten) und _usernameBase()
+-- in src/js/auth.js.
+--
+-- Warum 60 und nicht 24, obwohl die Eingabefelder auf 24 begrenzen: der Code
+-- selbst erzeugt in Kollisionsfaellen laengere Namen.
+--   · handle_new_user(), i = 26:  left(base,8) || '_' || uuid_ohne_striche
+--     → 8 + 1 + 32 = 41 Zeichen
+--   · _repairMissingProfile() in auth.js: `${base}_${bare}`
+--     → bis zu 24 + 1 + 32 = 57 Zeichen
+-- Eine Grenze bei 24 wuerde ausgerechnet den Notnagel gegen Namenskollisionen
+-- sprengen, und zwar mitten in der Registrierung.
+ALTER TABLE profiles DROP CONSTRAINT IF EXISTS profiles_username_fmt;
+ALTER TABLE profiles ADD  CONSTRAINT profiles_username_fmt
+  CHECK (username ~ '^[A-Za-z0-9_]{2,60}$');
+
+-- Das mit Abstand groesste Textfeld: das Profilbild als base64-Data-URL.
+-- 1 000 000 Zeichen ≈ 730 KB binaer. compressPhoto() in src/js/account.js
+-- (600 px, JPEG 0.72) bleibt typisch unter 200 000 Zeichen.
+-- Bis zu dieser Umstellung hat ein Upload-Pfad in account.js die ROHE
+-- Data-URL gespeichert — Bestandszeilen koennen darueber liegen, siehe den
+-- Pruef-SELECT in der Migration a15_constraints_validieren.
+ALTER TABLE profiles DROP CONSTRAINT IF EXISTS profiles_avatar_len;
+ALTER TABLE profiles ADD  CONSTRAINT profiles_avatar_len
+  CHECK (avatar IS NULL OR length(avatar) <= 1000000);
+
+-- UI heute: display_name 40/32, status_text 60, bike_text 60.
+ALTER TABLE profiles DROP CONSTRAINT IF EXISTS profiles_display_name_len;
+ALTER TABLE profiles ADD  CONSTRAINT profiles_display_name_len
+  CHECK (display_name IS NULL OR length(display_name) <= 80);
+ALTER TABLE profiles DROP CONSTRAINT IF EXISTS profiles_status_text_len;
+ALTER TABLE profiles ADD  CONSTRAINT profiles_status_text_len
+  CHECK (status_text IS NULL OR length(status_text) <= 120);
+ALTER TABLE profiles DROP CONSTRAINT IF EXISTS profiles_bike_text_len;
+ALTER TABLE profiles ADD  CONSTRAINT profiles_bike_text_len
+  CHECK (bike_text IS NULL OR length(bike_text) <= 120);
 
 -- ── Profilanlage per Trigger ─────────────────────────────────────
 -- Bisher legte der Client die profiles-Zeile direkt nach signUp() selbst an.
@@ -141,7 +202,12 @@ CREATE TRIGGER on_auth_user_created
   AFTER INSERT ON auth.users
   FOR EACH ROW EXECUTE FUNCTION public.handle_new_user();
 
--- ── Optional, aber empfohlen: Benutzernamen case-insensitiv eindeutig ──
+-- ── OFFENER VORSCHLAG (noch keine Migration) ──────────────────────
+-- Benutzernamen case-insensitiv eindeutig machen.
+-- Bewusst nicht eingespielt: der Index kann an Bestandsdaten scheitern und
+-- die Entscheidung, welches von zwei Konten "Max" und "max" umbenannt wird,
+-- gehoert nicht in eine Migration. Wenn er kommt, kommt er als eigene Datei
+-- in supabase/migrations/.
 -- register() prueft den Namen jetzt mit .eq() vor (statt .ilike(), das "_" als
 -- Platzhalter deutete und "max_1" faelschlich mit "maxx1" kollidieren liess).
 -- .eq() ist dafuer case-SENSITIV: "Max" und "max" kaemen beide durch. Das
@@ -160,10 +226,11 @@ CREATE TRIGGER on_auth_user_created
 -- CREATE UNIQUE INDEX IF NOT EXISTS profiles_username_lower_key
 --   ON profiles (lower(username));
 
--- ── Einmalig: bestehende Auth-User ohne Profilzeile nachziehen ────
--- Nur noetig, wenn es Konten aus der Zeit vor dem Trigger gibt (z. B. eine
--- Registrierung, die am blockierten Client-INSERT gescheitert ist).
--- Zuerst zaehlen:
+-- ── WARTUNG: bestehende Auth-User ohne Profilzeile nachziehen ─────
+-- Keine Migration, sondern eine Diagnose. Konten ohne profiles-Zeile kann es
+-- nur aus der Zeit vor dem Trigger geben; beim naechsten Login repariert
+-- _repairMissingProfile() in src/js/auth.js sie ohnehin selbst.
+-- Zaehlen, wie viele es sind:
 --
 --   SELECT count(*) FROM auth.users au
 --    WHERE NOT EXISTS (SELECT 1 FROM profiles p WHERE p.id = au.id);
@@ -188,12 +255,19 @@ CREATE TABLE IF NOT EXISTS friendships (
   CHECK (user_a < user_b)
 );
 ALTER TABLE friendships ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "friendships_select" ON friendships;
 CREATE POLICY "friendships_select" ON friendships FOR SELECT
   USING (user_a = auth.uid() OR user_b = auth.uid());
+DROP POLICY IF EXISTS "friendships_insert" ON friendships;
 CREATE POLICY "friendships_insert" ON friendships FOR INSERT
   WITH CHECK (user_a = auth.uid() OR user_b = auth.uid());
+DROP POLICY IF EXISTS "friendships_delete" ON friendships;
 CREATE POLICY "friendships_delete" ON friendships FOR DELETE
   USING (user_a = auth.uid() OR user_b = auth.uid());
+-- user_a ist als fuehrende Spalte von UNIQUE (user_a, user_b) schon indiziert;
+-- Postgres nutzt einen mehrspaltigen B-Tree auch fuer Abfragen nur auf die
+-- erste Spalte. Nur user_b braucht einen eigenen Index.
+CREATE INDEX IF NOT EXISTS friendships_user_b_idx ON friendships (user_b);
 
 -- ── Friend requests ───────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS friend_requests (
@@ -204,12 +278,17 @@ CREATE TABLE IF NOT EXISTS friend_requests (
   UNIQUE (from_user, to_user)
 );
 ALTER TABLE friend_requests ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "freq_select" ON friend_requests;
 CREATE POLICY "freq_select" ON friend_requests FOR SELECT
   USING (from_user = auth.uid() OR to_user = auth.uid());
+DROP POLICY IF EXISTS "freq_insert" ON friend_requests;
 CREATE POLICY "freq_insert" ON friend_requests FOR INSERT
   WITH CHECK (from_user = auth.uid());
+DROP POLICY IF EXISTS "freq_delete" ON friend_requests;
 CREATE POLICY "freq_delete" ON friend_requests FOR DELETE
   USING (from_user = auth.uid() OR to_user = auth.uid());
+-- from_user deckt UNIQUE (from_user, to_user) ab, to_user nicht.
+CREATE INDEX IF NOT EXISTS friend_requests_to_user_idx ON friend_requests (to_user);
 
 -- ── Blocks ───────────────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS blocks (
@@ -219,9 +298,12 @@ CREATE TABLE IF NOT EXISTS blocks (
   UNIQUE (blocker, blocked)
 );
 ALTER TABLE blocks ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "blocks_select" ON blocks;
 CREATE POLICY "blocks_select" ON blocks FOR SELECT
   USING (blocker = auth.uid() OR blocked = auth.uid());
+DROP POLICY IF EXISTS "blocks_insert" ON blocks;
 CREATE POLICY "blocks_insert" ON blocks FOR INSERT WITH CHECK (blocker = auth.uid());
+DROP POLICY IF EXISTS "blocks_delete" ON blocks;
 CREATE POLICY "blocks_delete" ON blocks FOR DELETE USING (blocker = auth.uid());
 
 -- ── Ignores ───────────────────────────────────────────────────────
@@ -232,8 +314,11 @@ CREATE TABLE IF NOT EXISTS ignores (
   UNIQUE (ignorer, ignored)
 );
 ALTER TABLE ignores ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "ignores_select" ON ignores;
 CREATE POLICY "ignores_select" ON ignores FOR SELECT USING (ignorer = auth.uid());
+DROP POLICY IF EXISTS "ignores_insert" ON ignores;
 CREATE POLICY "ignores_insert" ON ignores FOR INSERT WITH CHECK (ignorer = auth.uid());
+DROP POLICY IF EXISTS "ignores_delete" ON ignores;
 CREATE POLICY "ignores_delete" ON ignores FOR DELETE USING (ignorer = auth.uid());
 
 -- ── Groups ───────────────────────────────────────────────────────
@@ -249,18 +334,21 @@ CREATE TABLE IF NOT EXISTS groups (
   created_at    timestamptz DEFAULT now()
 );
 ALTER TABLE groups ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "groups_select_public" ON groups;
 CREATE POLICY "groups_select_public" ON groups FOR SELECT USING (true);
+DROP POLICY IF EXISTS "groups_insert" ON groups;
 CREATE POLICY "groups_insert" ON groups FOR INSERT WITH CHECK (created_by = auth.uid());
+DROP POLICY IF EXISTS "groups_update" ON groups;
 CREATE POLICY "groups_update" ON groups FOR UPDATE
   USING (created_by = auth.uid() OR EXISTS (
     SELECT 1 FROM group_members WHERE group_id = groups.id AND user_id = auth.uid() AND role = 'mod'
   ));
+DROP POLICY IF EXISTS "groups_delete" ON groups;
 CREATE POLICY "groups_delete" ON groups FOR DELETE USING (created_by = auth.uid());
 
--- Migration für bereits bestehende Datenbanken (obiges CREATE TABLE ist dort ein No-Op,
--- da die Tabelle schon existiert) — einmalig im SQL-Editor ausführen:
--- ALTER TABLE groups ADD COLUMN IF NOT EXISTS event_at timestamptz;
--- ALTER TABLE groups ADD COLUMN IF NOT EXISTS meeting_point text;
+-- Für bestehende Datenbanken nachgezogen (Migration a0_bestandsangleichung):
+ALTER TABLE groups ADD COLUMN IF NOT EXISTS event_at      timestamptz;
+ALTER TABLE groups ADD COLUMN IF NOT EXISTS meeting_point text;
 
 -- ── Group RSVPs ("Ich fahre mit" für Touren mit Termin) ────────────
 CREATE TABLE IF NOT EXISTS group_rsvps (
@@ -270,14 +358,19 @@ CREATE TABLE IF NOT EXISTS group_rsvps (
   PRIMARY KEY (group_id, user_id)
 );
 ALTER TABLE group_rsvps ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "rsvp_select" ON group_rsvps;
 CREATE POLICY "rsvp_select" ON group_rsvps FOR SELECT
   USING (EXISTS (
     SELECT 1 FROM group_members WHERE group_id = group_rsvps.group_id AND user_id = auth.uid()
   ) OR EXISTS (
     SELECT 1 FROM groups WHERE id = group_rsvps.group_id AND join_mode = 'open'
   ));
+DROP POLICY IF EXISTS "rsvp_insert" ON group_rsvps;
 CREATE POLICY "rsvp_insert" ON group_rsvps FOR INSERT WITH CHECK (user_id = auth.uid());
+DROP POLICY IF EXISTS "rsvp_delete" ON group_rsvps;
 CREATE POLICY "rsvp_delete" ON group_rsvps FOR DELETE USING (user_id = auth.uid());
+-- group_id deckt PRIMARY KEY (group_id, user_id) ab, user_id nicht.
+CREATE INDEX IF NOT EXISTS group_rsvps_user_id_idx ON group_rsvps (user_id);
 
 -- ── Group members ─────────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS group_members (
@@ -289,23 +382,93 @@ CREATE TABLE IF NOT EXISTS group_members (
   UNIQUE (group_id, user_id)
 );
 ALTER TABLE group_members ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "gm_select" ON group_members;
 CREATE POLICY "gm_select" ON group_members FOR SELECT USING (true);
-CREATE POLICY "gm_insert" ON group_members FOR INSERT WITH CHECK (user_id = auth.uid());
+-- Vorher: WITH CHECK (user_id = auth.uid()). Postgres verknuepft mehrere
+-- permissive INSERT-Policies mit ODER — "ich trage mich selbst ein" war damit
+-- immer erlaubt, und weder join_mode noch group_bans kamen in irgendeiner
+-- Policy vor. invite-only-Gruppen waren offen, Sperren wirkungslos.
+DROP POLICY IF EXISTS "gm_insert" ON group_members;
+CREATE POLICY "gm_insert" ON group_members FOR INSERT
+  WITH CHECK (
+    user_id = auth.uid()
+    -- Ohne diese Zeile traegt man sich selbst als 'owner' oder 'mod' ein.
+    AND role = 'member'
+    AND EXISTS (
+      SELECT 1 FROM groups g WHERE g.id = group_members.group_id AND g.join_mode = 'open'
+    )
+    AND NOT EXISTS (
+      SELECT 1 FROM group_bans b
+      WHERE b.group_id = group_members.group_id AND b.user_id = auth.uid()
+    )
+  );
+
+-- WICHTIG: ohne diese Policy ist das Anlegen einer Gruppe kaputt.
+-- createGroup() legt die Gruppe an und traegt sich unmittelbar danach mit
+-- role='owner' ein — das lief bisher ueber gm_insert, das gerade zugemacht
+-- wurde. gm_insert_mod greift hier nicht: es verlangt eine bereits bestehende
+-- owner/mod-Zeile, die es in genau diesem Moment noch nicht gibt.
+DROP POLICY IF EXISTS "gm_insert_owner" ON group_members;
+CREATE POLICY "gm_insert_owner" ON group_members FOR INSERT
+  WITH CHECK (
+    user_id = auth.uid()
+    AND role = 'owner'
+    AND EXISTS (
+      SELECT 1 FROM groups g WHERE g.id = group_members.group_id AND g.created_by = auth.uid()
+    )
+  );
+-- Vorher prueft das WITH CHECK nur, dass der Aufrufer owner/mod ist — die
+-- Rolle der neuen Zeile war frei. Ein Mod konnte ein beliebiges Konto als
+-- 'owner' eintragen. Die App ruft diese Policy gar nicht auf.
+DROP POLICY IF EXISTS "gm_insert_mod" ON group_members;
 CREATE POLICY "gm_insert_mod" ON group_members FOR INSERT
-  WITH CHECK (EXISTS (
-    SELECT 1 FROM group_members gm WHERE gm.group_id = group_members.group_id
-    AND gm.user_id = auth.uid() AND gm.role IN ('owner','mod')
-  ));
+  WITH CHECK (
+    role IN ('member','mod')
+    AND EXISTS (
+      SELECT 1 FROM group_members gm WHERE gm.group_id = group_members.group_id
+      AND gm.user_id = auth.uid() AND gm.role IN ('owner','mod')
+    )
+    -- Sperre des EINGETRAGENEN, nicht die des Aufrufers.
+    AND NOT EXISTS (
+      SELECT 1 FROM group_bans b
+      WHERE b.group_id = group_members.group_id AND b.user_id = group_members.user_id
+    )
+  );
+-- Austreten darf jeder aus seiner eigenen Zeile — auch der Gruender.
+-- Fremde Zeilen nur owner/mod, und die Owner-Zeile gar nicht: ein Mod
+-- konnte den Gruender sonst entfernen und die Gruppe ohne Besitzer lassen.
+DROP POLICY IF EXISTS "gm_delete" ON group_members;
 CREATE POLICY "gm_delete" ON group_members FOR DELETE
-  USING (user_id = auth.uid() OR EXISTS (
-    SELECT 1 FROM group_members gm WHERE gm.group_id = group_members.group_id
-    AND gm.user_id = auth.uid() AND gm.role IN ('owner','mod')
-  ));
+  USING (
+    user_id = auth.uid()
+    OR (
+      group_members.role <> 'owner'
+      AND EXISTS (
+        SELECT 1 FROM group_members gm WHERE gm.group_id = group_members.group_id
+        AND gm.user_id = auth.uid() AND gm.role IN ('owner','mod')
+      )
+    )
+  );
+-- Vorher nur ein USING und kein WITH CHECK. Postgres setzt die
+-- USING-Bedingung dann auch fuer die NEUE Zeile ein — die ist mit "Aufrufer
+-- ist owner/mod" schon erfuellt, egal was danach in `role` steht. Ein Mod
+-- konnte sich damit SELBST auf 'owner' setzen. Das ist die eigentliche
+-- Rechteausweitung: sie braucht kein zweites Konto.
+-- toggleMod() in community-api.js schaltet nur zwischen 'member' und 'mod' —
+-- mehr braucht die App an dieser Stelle nicht.
+DROP POLICY IF EXISTS "gm_update" ON group_members;
 CREATE POLICY "gm_update" ON group_members FOR UPDATE
-  USING (EXISTS (
-    SELECT 1 FROM group_members gm WHERE gm.group_id = group_members.group_id
-    AND gm.user_id = auth.uid() AND gm.role IN ('owner','mod')
-  ));
+  USING (
+    group_members.role <> 'owner'
+    AND EXISTS (
+      SELECT 1 FROM group_members gm WHERE gm.group_id = group_members.group_id
+      AND gm.user_id = auth.uid() AND gm.role IN ('owner','mod')
+    )
+  )
+  WITH CHECK (role IN ('member','mod'));
+-- group_id deckt UNIQUE (group_id, user_id) ab. user_id wird bei jedem
+-- Ladevorgang und in fast jeder Gruppen-Policy gefiltert und fehlte.
+CREATE INDEX IF NOT EXISTS group_members_user_id_idx ON group_members (user_id);
 
 -- ── Channels ─────────────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS channels (
@@ -315,22 +478,27 @@ CREATE TABLE IF NOT EXISTS channels (
   position  int NOT NULL DEFAULT 0
 );
 ALTER TABLE channels ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "channels_select" ON channels;
 CREATE POLICY "channels_select" ON channels FOR SELECT
   USING (EXISTS (
     SELECT 1 FROM group_members WHERE group_id = channels.group_id AND user_id = auth.uid()
   ) OR EXISTS (
     SELECT 1 FROM groups WHERE id = channels.group_id AND join_mode = 'open'
   ));
+DROP POLICY IF EXISTS "channels_insert" ON channels;
 CREATE POLICY "channels_insert" ON channels FOR INSERT
   WITH CHECK (EXISTS (
     SELECT 1 FROM group_members WHERE group_id = channels.group_id
     AND user_id = auth.uid() AND role IN ('owner','mod')
   ));
+DROP POLICY IF EXISTS "channels_delete" ON channels;
 CREATE POLICY "channels_delete" ON channels FOR DELETE
   USING (EXISTS (
     SELECT 1 FROM group_members WHERE group_id = channels.group_id
     AND user_id = auth.uid() AND role IN ('owner','mod')
   ));
+-- Nur der Primaerschluessel auf id; gefiltert wird ueber group_id.
+CREATE INDEX IF NOT EXISTS channels_group_id_idx ON channels (group_id);
 
 -- ── Voice rooms (Sprachkanäle) ────────────────────────────────────
 -- Nur Metadaten (Titel, Kapazität) werden persistiert. Wer gerade live im
@@ -345,21 +513,30 @@ CREATE TABLE IF NOT EXISTS voice_rooms (
   created_at timestamptz DEFAULT now()
 );
 ALTER TABLE voice_rooms ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "vr_select" ON voice_rooms;
 CREATE POLICY "vr_select" ON voice_rooms FOR SELECT
   USING (EXISTS (
     SELECT 1 FROM group_members WHERE group_id = voice_rooms.group_id AND user_id = auth.uid()
   ) OR EXISTS (
     SELECT 1 FROM groups WHERE id = voice_rooms.group_id AND join_mode = 'open'
   ));
+DROP POLICY IF EXISTS "vr_insert" ON voice_rooms;
 CREATE POLICY "vr_insert" ON voice_rooms FOR INSERT
   WITH CHECK (created_by = auth.uid() AND EXISTS (
     SELECT 1 FROM group_members WHERE group_id = voice_rooms.group_id AND user_id = auth.uid()
   ));
+DROP POLICY IF EXISTS "vr_delete" ON voice_rooms;
 CREATE POLICY "vr_delete" ON voice_rooms FOR DELETE
   USING (created_by = auth.uid() OR EXISTS (
     SELECT 1 FROM group_members WHERE group_id = voice_rooms.group_id
     AND user_id = auth.uid() AND role IN ('owner','mod')
   ));
+CREATE INDEX IF NOT EXISTS voice_rooms_group_id_idx ON voice_rooms (group_id);
+
+-- UI heute: maxlength 40 (community.js). Siehe Sammelkommentar bei profiles.
+ALTER TABLE voice_rooms DROP CONSTRAINT IF EXISTS voice_rooms_title_len;
+ALTER TABLE voice_rooms ADD  CONSTRAINT voice_rooms_title_len
+  CHECK (length(title) <= 80);
 
 -- ── Messages ─────────────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS messages (
@@ -397,19 +574,19 @@ INSERT INTO storage.buckets (id, name, public, file_size_limit)
 VALUES ('chat-attachments', 'chat-attachments', true, 26214400)
 ON CONFLICT (id) DO NOTHING;
 
-DROP POLICY IF EXISTS "chat_attach_read"   ON storage.objects;
-DROP POLICY IF EXISTS "chat_attach_insert" ON storage.objects;
-DROP POLICY IF EXISTS "chat_attach_delete" ON storage.objects;
-
+DROP POLICY IF EXISTS "chat_attach_read" ON storage.objects;
 CREATE POLICY "chat_attach_read" ON storage.objects FOR SELECT
   USING (bucket_id = 'chat-attachments');
 -- Schreiben nur in den eigenen Ordner
+DROP POLICY IF EXISTS "chat_attach_insert" ON storage.objects;
 CREATE POLICY "chat_attach_insert" ON storage.objects FOR INSERT TO authenticated
   WITH CHECK (bucket_id = 'chat-attachments' AND (storage.foldername(name))[1] = auth.uid()::text);
+DROP POLICY IF EXISTS "chat_attach_delete" ON storage.objects;
 CREATE POLICY "chat_attach_delete" ON storage.objects FOR DELETE TO authenticated
   USING (bucket_id = 'chat-attachments' AND (storage.foldername(name))[1] = auth.uid()::text);
 
 -- Gruppenkanal: nur Mitglieder
+DROP POLICY IF EXISTS "msg_select_channel" ON messages;
 CREATE POLICY "msg_select_channel" ON messages FOR SELECT
   USING (
     channel_id IS NOT NULL AND EXISTS (
@@ -419,6 +596,7 @@ CREATE POLICY "msg_select_channel" ON messages FOR SELECT
     )
   );
 -- DM: nur Beteiligte
+DROP POLICY IF EXISTS "msg_select_dm" ON messages;
 CREATE POLICY "msg_select_dm" ON messages FOR SELECT
   USING (
     dm_thread IS NOT NULL AND (
@@ -426,6 +604,7 @@ CREATE POLICY "msg_select_dm" ON messages FOR SELECT
       dm_thread LIKE '%:' || auth.uid()::text
     )
   );
+DROP POLICY IF EXISTS "msg_insert_channel" ON messages;
 CREATE POLICY "msg_insert_channel" ON messages FOR INSERT
   WITH CHECK (
     author_id = auth.uid() AND channel_id IS NOT NULL AND EXISTS (
@@ -492,6 +671,7 @@ CREATE POLICY "msg_update" ON messages FOR UPDATE
       AND dm_thread ~ '^[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}:[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}$'
     )
   );
+DROP POLICY IF EXISTS "msg_delete" ON messages;
 CREATE POLICY "msg_delete" ON messages FOR DELETE
   USING (author_id = auth.uid() OR EXISTS (
     SELECT 1 FROM channels c
@@ -500,6 +680,18 @@ CREATE POLICY "msg_delete" ON messages FOR DELETE
   ));
 CREATE INDEX IF NOT EXISTS messages_channel_created ON messages(channel_id, created_at);
 CREATE INDEX IF NOT EXISTS messages_dm_created ON messages(dm_thread, created_at);
+-- Gebraucht von export_my_data() und vom ON-DELETE-CASCADE beim Loeschen
+-- eines Kontos.
+CREATE INDEX IF NOT EXISTS messages_author_id_idx ON messages (author_id);
+
+-- KEINE Untergrenze: eine reine Sticker-/Anhang-Nachricht hat text = ''.
+-- Das Eingabefeld hatte bis zu dieser Umstellung gar keine Grenze; das
+-- maxlength am Textfeld (community.js) ist im selben Zug nachgezogen worden,
+-- damit ein zu langer Einfuegevorgang eine deutsche Meldung ergibt und keinen
+-- rohen Postgres-Fehler.
+ALTER TABLE messages DROP CONSTRAINT IF EXISTS messages_text_len;
+ALTER TABLE messages ADD  CONSTRAINT messages_text_len
+  CHECK (length(text) <= 4000);
 
 -- ── Message reactions ─────────────────────────────────────────────
 -- Eine Zeile je (Nachricht, Nutzer, Emoji) — Ersatz fuer die jsonb-Spalte
@@ -528,10 +720,12 @@ ALTER TABLE message_reactions ENABLE ROW LEVEL SECURITY;
 -- laeuft mit den Rechten des Aufrufers, es greifen darin also die
 -- messages-Policies (msg_select_channel / msg_select_dm). Die Sichtbarkeitsregel
 -- steht damit weiterhin an genau EINER Stelle und kann nicht auseinanderlaufen.
+DROP POLICY IF EXISTS "mreact_select" ON message_reactions;
 CREATE POLICY "mreact_select" ON message_reactions FOR SELECT
   USING (EXISTS (SELECT 1 FROM messages m WHERE m.id = message_reactions.message_id));
 -- Anlegen: nur die EIGENE Reaktion, und nur an einer Nachricht, die man sehen
 -- darf. Ohne den zweiten Teil koennte man Reaktionen an beliebige uuids haengen.
+DROP POLICY IF EXISTS "mreact_insert" ON message_reactions;
 CREATE POLICY "mreact_insert" ON message_reactions FOR INSERT
   WITH CHECK (
     user_id = auth.uid()
@@ -539,6 +733,7 @@ CREATE POLICY "mreact_insert" ON message_reactions FOR INSERT
   );
 -- Loeschen: nur die eigene Reaktion. Bewusst ohne Mod-Ausnahme — eine Reaktion
 -- ist kein Nachrichtentext, es gibt nichts zu moderieren.
+DROP POLICY IF EXISTS "mreact_delete" ON message_reactions;
 CREATE POLICY "mreact_delete" ON message_reactions FOR DELETE
   USING (user_id = auth.uid());
 -- Bewusst KEINE UPDATE-Policy: eine Reaktion wird angelegt oder geloescht,
@@ -552,27 +747,15 @@ CREATE POLICY "mreact_delete" ON message_reactions FOR DELETE
 -- Client zum Nachziehen braucht (siehe _handleReactionChange in
 -- src/js/community-api.js).
 
--- ── Migration der Bestandsdaten ───────────────────────────────────
--- Einmalig im SQL-Editor ausfuehren, NACHDEM die Tabelle oben angelegt ist.
--- Form der alten Spalte: { "<emoji>": ["<username>", …] } — Usernamen, keine
--- uuids; der Join ueber profiles.username macht daraus user_id.
--- Idempotent (ON CONFLICT DO NOTHING), darf also gefahrlos zweimal laufen.
--- Reaktionen geloeschter Konten fallen dabei weg (kein Treffer im Join).
+-- ── Uebernahme der Bestandsdaten ──────────────────────────────────
+-- Die alten Reaktionen aus der jsonb-Spalte messages.reactions holt die
+-- Migration a13_message_reactions herueber (idempotent, ON CONFLICT DO
+-- NOTHING). Sie ist die Voraussetzung dafuer, dass _mapReactions() in
+-- src/js/community-api.js NICHT mehr auf die alte Spalte zurueckfaellt —
+-- dieser Rueckfall ist inzwischen entfernt.
 --
---   INSERT INTO message_reactions (message_id, user_id, emoji)
---   SELECT m.id, p.id, r.emoji
---     FROM messages m
---     CROSS JOIN LATERAL jsonb_each(m.reactions)            AS r(emoji, users)
---     CROSS JOIN LATERAL jsonb_array_elements_text(r.users)  AS u(username)
---     JOIN profiles p ON p.username = u.username
---    WHERE m.reactions IS NOT NULL
---      AND jsonb_typeof(m.reactions) = 'object'
---      AND m.reactions <> '{}'::jsonb
---      AND jsonb_typeof(r.users) = 'array'
---   ON CONFLICT DO NOTHING;
---
--- Danach zur Kontrolle (muss 0 liefern, wenn alles uebernommen wurde —
--- ausser den Zeilen geloeschter Konten):
+-- Kontrolle (muss 0 liefern; Reaktionen geloeschter Konten fallen weg,
+-- weil der Join ueber profiles.username sie nicht mehr findet):
 --
 --   SELECT count(*) FROM (
 --     SELECT m.id, u.username
@@ -586,14 +769,12 @@ CREATE POLICY "mreact_delete" ON message_reactions FOR DELETE
 --     AND NOT EXISTS (SELECT 1 FROM message_reactions mr
 --                      WHERE mr.message_id = alt.id AND mr.user_id = p.id);
 --
--- messages.reactions bleibt vorerst stehen: der Client liest sie noch als
--- Rueckfall, solange diese Tabelle in einer Datenbank fehlt. ERST wenn die
--- Migration ueberall gelaufen ist und Reaktionen nachweislich funktionieren:
---   ALTER TABLE messages DROP COLUMN reactions;
+-- messages.reactions bleibt stehen und wird weder gelesen noch geschrieben.
+-- Ein DROP COLUMN waere die einzige unumkehrbare Aenderung in dieser ganzen
+-- Umstellung — sie bringt nichts ausser Platz und bleibt deshalb aus.
 
--- Migration für bereits bestehende Datenbanken (obiges CREATE TABLE ist dort ein No-Op,
--- da die Tabelle schon existiert) — einmalig im SQL-Editor ausführen:
--- ALTER TABLE messages ADD COLUMN IF NOT EXISTS mentions uuid[] NOT NULL DEFAULT '{}';
+-- Für bestehende Datenbanken nachgezogen (Migration a0_bestandsangleichung):
+ALTER TABLE messages ADD COLUMN IF NOT EXISTS mentions uuid[] NOT NULL DEFAULT '{}';
 
 -- ── Group join requests ───────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS group_join_requests (
@@ -605,12 +786,15 @@ CREATE TABLE IF NOT EXISTS group_join_requests (
   UNIQUE (group_id, from_user)
 );
 ALTER TABLE group_join_requests ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "gjr_select" ON group_join_requests;
 CREATE POLICY "gjr_select" ON group_join_requests FOR SELECT
   USING (from_user = auth.uid() OR EXISTS (
     SELECT 1 FROM group_members WHERE group_id = group_join_requests.group_id
     AND user_id = auth.uid() AND role IN ('owner','mod')
   ));
+DROP POLICY IF EXISTS "gjr_insert" ON group_join_requests;
 CREATE POLICY "gjr_insert" ON group_join_requests FOR INSERT WITH CHECK (from_user = auth.uid());
+DROP POLICY IF EXISTS "gjr_delete" ON group_join_requests;
 CREATE POLICY "gjr_delete" ON group_join_requests FOR DELETE
   USING (from_user = auth.uid() OR EXISTS (
     SELECT 1 FROM group_members WHERE group_id = group_join_requests.group_id
@@ -628,18 +812,152 @@ CREATE TABLE IF NOT EXISTS invites (
   created_at  timestamptz DEFAULT now()
 );
 ALTER TABLE invites ENABLE ROW LEVEL SECURITY;
-CREATE POLICY "invites_select" ON invites FOR SELECT USING (true);
+-- Vorher USING (true): jeder, auch anon, las alle Einladungscodes aller
+-- Gruppen. Wer einen Code EINLOEST, liest ihn jetzt nicht mehr selbst,
+-- sondern laesst ihn von redeem_invite() mit Definer-Rechten pruefen.
+DROP POLICY IF EXISTS "invites_select" ON invites;
+CREATE POLICY "invites_select" ON invites FOR SELECT
+  USING (EXISTS (
+    SELECT 1 FROM group_members
+    WHERE group_id = invites.group_id
+      AND user_id = auth.uid() AND role IN ('owner','mod')
+  ));
+DROP POLICY IF EXISTS "invites_insert" ON invites;
 CREATE POLICY "invites_insert" ON invites FOR INSERT
   WITH CHECK (EXISTS (
     SELECT 1 FROM group_members WHERE group_id = invites.group_id
     AND user_id = auth.uid() AND role IN ('owner','mod')
   ));
-CREATE POLICY "invites_update" ON invites FOR UPDATE USING (true);
+-- KEINE invites_update-Policy mehr. Vorher USING (true) und ohne WITH CHECK —
+-- damit galt der Ausdruck auch fuer die neue Zeile, jeder durfte jeden Code
+-- umschreiben. Den Zaehler erhoeht ab jetzt ausschliesslich redeem_invite().
+DROP POLICY IF EXISTS "invites_update" ON invites;
+DROP POLICY IF EXISTS "invites_delete" ON invites;
 CREATE POLICY "invites_delete" ON invites FOR DELETE
   USING (created_by = auth.uid() OR EXISTS (
     SELECT 1 FROM group_members WHERE group_id = invites.group_id
     AND user_id = auth.uid() AND role IN ('owner','mod')
   ));
+
+-- ── Beitritt und Einloesung als Funktionen ────────────────────────
+-- Seit den Policy-Aenderungen oben kann sich niemand mehr selbst in eine
+-- Gruppe mit join_mode 'request' oder 'invite' eintragen. Diese beiden
+-- SECURITY-DEFINER-Funktionen sind der einzige Weg hinein — sie pruefen,
+-- was vorher der Browser geprueft hat, und tun es in EINER Transaktion.
+
+-- redeem_invite(): ersetzt select + insert + update aus dem Client. Das
+-- UPDATE traegt die Grenzen selbst in der WHERE-Bedingung; zwei gleichzeitige
+-- Einloesungen koennen sich damit nicht mehr denselben `uses`-Wert teilen.
+CREATE OR REPLACE FUNCTION redeem_invite(invite_code text)
+RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  v_uid      uuid := auth.uid();
+  v_code     text;
+  v_group_id uuid;
+BEGIN
+  IF v_uid IS NULL THEN
+    RETURN jsonb_build_object('ok', false, 'reason', 'not_authenticated');
+  END IF;
+
+  SELECT i.code, i.group_id INTO v_code, v_group_id
+    FROM invites i
+   WHERE lower(i.code) = lower(btrim(invite_code))
+   LIMIT 1;
+
+  IF v_code IS NULL THEN
+    RETURN jsonb_build_object('ok', false, 'reason', 'unknown_code');
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM groups g WHERE g.id = v_group_id) THEN
+    RETURN jsonb_build_object('ok', false, 'reason', 'no_group');
+  END IF;
+
+  -- Bann und Mitgliedschaft VOR dem Zaehler: sonst verbraucht ein
+  -- abgelehnter Versuch eine Einloesung.
+  IF EXISTS (SELECT 1 FROM group_bans b WHERE b.group_id = v_group_id AND b.user_id = v_uid) THEN
+    RETURN jsonb_build_object('ok', false, 'reason', 'banned');
+  END IF;
+  IF EXISTS (SELECT 1 FROM group_members m WHERE m.group_id = v_group_id AND m.user_id = v_uid) THEN
+    RETURN jsonb_build_object('ok', false, 'reason', 'already_member', 'group_id', v_group_id);
+  END IF;
+
+  UPDATE invites
+     SET uses = uses + 1
+   WHERE code = v_code
+     AND (expires_at IS NULL OR expires_at > now())
+     AND (max_uses  IS NULL OR uses < max_uses);
+
+  IF NOT FOUND THEN
+    IF EXISTS (SELECT 1 FROM invites i
+                WHERE i.code = v_code AND i.expires_at IS NOT NULL AND i.expires_at <= now()) THEN
+      RETURN jsonb_build_object('ok', false, 'reason', 'expired');
+    END IF;
+    RETURN jsonb_build_object('ok', false, 'reason', 'exhausted');
+  END IF;
+
+  INSERT INTO group_members (group_id, user_id, role)
+  VALUES (v_group_id, v_uid, 'member')
+  ON CONFLICT (group_id, user_id) DO NOTHING;
+
+  RETURN jsonb_build_object('ok', true, 'group_id', v_group_id);
+END;
+$$;
+REVOKE ALL ON FUNCTION redeem_invite(text) FROM PUBLIC;
+REVOKE ALL ON FUNCTION redeem_invite(text) FROM anon;
+GRANT EXECUTE ON FUNCTION redeem_invite(text) TO authenticated;
+
+-- accept_join_request(): Aufnehmen und Anfrage schliessen in einer
+-- Transaktion. Die Berechtigungspruefung steht IN der Funktion, weil
+-- SECURITY DEFINER die Policies umgeht.
+CREATE OR REPLACE FUNCTION accept_join_request(request_id uuid)
+RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  v_uid      uuid := auth.uid();
+  v_group_id uuid;
+  v_from     uuid;
+BEGIN
+  IF v_uid IS NULL THEN
+    RETURN jsonb_build_object('ok', false, 'reason', 'not_authenticated');
+  END IF;
+
+  SELECT r.group_id, r.from_user INTO v_group_id, v_from
+    FROM group_join_requests r WHERE r.id = request_id;
+  IF v_group_id IS NULL THEN
+    RETURN jsonb_build_object('ok', false, 'reason', 'unknown_request');
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1 FROM group_members m
+     WHERE m.group_id = v_group_id AND m.user_id = v_uid AND m.role IN ('owner','mod')
+  ) THEN
+    RETURN jsonb_build_object('ok', false, 'reason', 'not_allowed');
+  END IF;
+
+  -- Eine offene Anfrage eines gesperrten Kontos anzunehmen wuerde den Bann
+  -- stillschweigend aufheben. Erst entsperren, dann annehmen.
+  IF EXISTS (SELECT 1 FROM group_bans b WHERE b.group_id = v_group_id AND b.user_id = v_from) THEN
+    RETURN jsonb_build_object('ok', false, 'reason', 'banned');
+  END IF;
+
+  INSERT INTO group_members (group_id, user_id, role)
+  VALUES (v_group_id, v_from, 'member')
+  ON CONFLICT (group_id, user_id) DO NOTHING;
+
+  DELETE FROM group_join_requests WHERE id = request_id;
+
+  RETURN jsonb_build_object('ok', true, 'group_id', v_group_id, 'user_id', v_from);
+END;
+$$;
+REVOKE ALL ON FUNCTION accept_join_request(uuid) FROM PUBLIC;
+REVOKE ALL ON FUNCTION accept_join_request(uuid) FROM anon;
+GRANT EXECUTE ON FUNCTION accept_join_request(uuid) TO authenticated;
 
 -- ── Message reports ───────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS message_reports (
@@ -651,7 +969,9 @@ CREATE TABLE IF NOT EXISTS message_reports (
   created_at  timestamptz DEFAULT now()
 );
 ALTER TABLE message_reports ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "mreports_insert" ON message_reports;
 CREATE POLICY "mreports_insert" ON message_reports FOR INSERT WITH CHECK (reported_by = auth.uid());
+DROP POLICY IF EXISTS "mreports_select" ON message_reports;
 CREATE POLICY "mreports_select" ON message_reports FOR SELECT
   USING (reported_by = auth.uid() OR EXISTS (
     SELECT 1 FROM group_members WHERE group_id = message_reports.group_id
@@ -669,7 +989,9 @@ CREATE TABLE IF NOT EXISTS user_reports (
   created_at  timestamptz DEFAULT now()
 );
 ALTER TABLE user_reports ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "ureports_insert" ON user_reports;
 CREATE POLICY "ureports_insert" ON user_reports FOR INSERT WITH CHECK (from_user = auth.uid());
+DROP POLICY IF EXISTS "ureports_select" ON user_reports;
 CREATE POLICY "ureports_select" ON user_reports FOR SELECT USING (from_user = auth.uid());
 
 -- ── Group bans (separate from members) ───────────────────────────
@@ -682,16 +1004,19 @@ CREATE TABLE IF NOT EXISTS group_bans (
   UNIQUE (group_id, user_id)
 );
 ALTER TABLE group_bans ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "gbans_select" ON group_bans;
 CREATE POLICY "gbans_select" ON group_bans FOR SELECT
   USING (user_id = auth.uid() OR EXISTS (
     SELECT 1 FROM group_members WHERE group_id = group_bans.group_id
     AND user_id = auth.uid() AND role IN ('owner','mod')
   ));
+DROP POLICY IF EXISTS "gbans_insert" ON group_bans;
 CREATE POLICY "gbans_insert" ON group_bans FOR INSERT
   WITH CHECK (EXISTS (
     SELECT 1 FROM group_members WHERE group_id = group_bans.group_id
     AND user_id = auth.uid() AND role IN ('owner','mod')
   ));
+DROP POLICY IF EXISTS "gbans_delete" ON group_bans;
 CREATE POLICY "gbans_delete" ON group_bans FOR DELETE
   USING (EXISTS (
     SELECT 1 FROM group_members WHERE group_id = group_bans.group_id
@@ -738,8 +1063,24 @@ CREATE TABLE IF NOT EXISTS beta_feedback (
   created_at  timestamptz DEFAULT now()
 );
 ALTER TABLE beta_feedback ENABLE ROW LEVEL SECURITY;
-CREATE POLICY "bf_insert_auth" ON beta_feedback FOR INSERT
-  WITH CHECK (user_id = auth.uid() OR user_id IS NULL);
+-- Vorher stand hier `WITH CHECK (user_id = auth.uid() OR user_id IS NULL)`.
+-- Der zweite Zweig gab der Rolle anon ein unbegrenztes INSERT-Recht: der
+-- Anon-Key steht im Client-Bundle, es gibt kein Rate-Limit und kein CAPTCHA,
+-- und weil die Tabelle bewusst KEINE SELECT-Policy hat, faellt ein
+-- vollgeschriebener Bestand erst im Dashboard auf.
+-- `user_id = auth.uid()` schliesst NULL von selbst aus (NULL = NULL ergibt
+-- NULL, nicht true); TO authenticated macht die Absicht sichtbar.
+-- Gegenstueck im Client: submitFeedback() in src/js/feedback.js faengt den
+-- abgemeldeten Fall jetzt vorher ab. Siehe Migration a15_beta_feedback.
+DROP POLICY IF EXISTS "bf_insert_auth" ON beta_feedback;
+CREATE POLICY "bf_insert_auth" ON beta_feedback FOR INSERT TO authenticated
+  WITH CHECK (user_id = auth.uid());
+
+-- Laengengrenze — die Migration legt sie als NOT VALID an und validiert sie
+-- getrennt; hier steht die Endform. UI heute: MAX_LEN = 2000 (feedback.js:16).
+ALTER TABLE beta_feedback DROP CONSTRAINT IF EXISTS beta_feedback_text_len;
+ALTER TABLE beta_feedback ADD  CONSTRAINT beta_feedback_text_len
+  CHECK (length(text) <= 4000);
 
 -- ── Push-Subscriptions (Web Push) ───────────────────────────────────
 -- Ein Browser/Gerät pro Zeile (endpoint ist pro Browser-Installation
@@ -755,9 +1096,15 @@ CREATE TABLE IF NOT EXISTS push_subscriptions (
   created_at timestamptz DEFAULT now()
 );
 ALTER TABLE push_subscriptions ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "push_sub_select" ON push_subscriptions;
 CREATE POLICY "push_sub_select" ON push_subscriptions FOR SELECT USING (user_id = auth.uid());
+DROP POLICY IF EXISTS "push_sub_insert" ON push_subscriptions;
 CREATE POLICY "push_sub_insert" ON push_subscriptions FOR INSERT WITH CHECK (user_id = auth.uid());
+DROP POLICY IF EXISTS "push_sub_delete" ON push_subscriptions;
 CREATE POLICY "push_sub_delete" ON push_subscriptions FOR DELETE USING (user_id = auth.uid());
+-- UNIQUE steht auf endpoint, nicht auf user_id. Diese Spalte wird bei JEDER
+-- Nachricht abgefragt (api/push-trigger.js) — der wichtigste der neuen Indizes.
+CREATE INDEX IF NOT EXISTS push_subscriptions_user_id_idx ON push_subscriptions (user_id);
 
 -- ── Notification-Mutes (serverseitige Sicht auf lokale Mutes) ───────
 -- Spiegelt community.js' isMuted()-Logik (localStorage mm_comm_mutes_v1,
@@ -771,19 +1118,27 @@ CREATE TABLE IF NOT EXISTS notification_mutes (
   PRIMARY KEY (user_id, mute_key)
 );
 ALTER TABLE notification_mutes ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "notif_mutes_select" ON notification_mutes;
 CREATE POLICY "notif_mutes_select" ON notification_mutes FOR SELECT USING (user_id = auth.uid());
+DROP POLICY IF EXISTS "notif_mutes_upsert" ON notification_mutes;
 CREATE POLICY "notif_mutes_upsert" ON notification_mutes FOR INSERT WITH CHECK (user_id = auth.uid());
+DROP POLICY IF EXISTS "notif_mutes_update" ON notification_mutes;
 CREATE POLICY "notif_mutes_update" ON notification_mutes FOR UPDATE USING (user_id = auth.uid());
+DROP POLICY IF EXISTS "notif_mutes_delete" ON notification_mutes;
 CREATE POLICY "notif_mutes_delete" ON notification_mutes FOR DELETE USING (user_id = auth.uid());
 
 -- ══════════════════════════════════════════════════════════════════
---  Realtime aktivieren (einmalig im Supabase-Dashboard unter
---  Database → Replication → Tables):
+--  Realtime
 --  Tabellen: messages, friend_requests, group_members, message_reactions
 --
---  message_reactions ist neu und MUSS mit aktiviert werden: Reaktionen laufen
---  nicht mehr als UPDATE auf messages durch, sondern als INSERT/DELETE hier.
---  Ohne den Haken sieht man fremde Reaktionen erst nach einem Neuladen —
+--  War bisher ein Haken im Dashboard (Database → Replication) und damit
+--  genau die Sorte undokumentierter Handgriff, die diese Umstellung
+--  abschafft. Die Migration a13_message_reactions haengt die vier Tabellen
+--  an die Publikation supabase_realtime — idempotent und nachlesbar.
+--
+--  message_reactions MUSS dabei sein: Reaktionen laufen nicht mehr als
+--  UPDATE auf messages durch, sondern als INSERT/DELETE dort. Ohne die
+--  Publikation sieht man fremde Reaktionen erst nach einem Neuladen —
 --  die eigenen erscheinen weiterhin sofort (optimistisch).
 -- ══════════════════════════════════════════════════════════════════
 

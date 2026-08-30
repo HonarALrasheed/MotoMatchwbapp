@@ -1482,7 +1482,7 @@ function composeHtml(placeholder) {
       <form class="mmc-compose-form" id="mmc-compose-form">
         <input type="file" id="mmc-file-input" style="display:none" aria-hidden="true" tabindex="-1">
         <button type="button" class="mmc-compose-ic" id="mmc-attach" title="Datei anhängen" aria-label="Datei anhängen">${ICON.attach}</button>
-        <textarea class="mmc-compose-input" id="mmc-compose-input" rows="1" placeholder="${placeholder}" autocomplete="off"></textarea>
+        <textarea class="mmc-compose-input" id="mmc-compose-input" rows="1" maxlength="4000" placeholder="${placeholder}" autocomplete="off"></textarea>
         <button type="button" class="mmc-compose-ic mmc-emoji" id="mmc-emoji" title="Sticker" aria-label="Sticker">${ICON.smiley}</button>
         <button class="mmc-send" type="submit" aria-label="Senden">${ICON.send}</button>
       </form>
@@ -2882,9 +2882,6 @@ function renderDMView(main, root) {
     const res = await sendDM(name, text, replyingTo, attachment)
     done()
     if (res && res.ok === false) { toast(root, res.error || 'Senden fehlgeschlagen.'); return }
-    // Text kam durch, der Anhang nicht — das muss man sehen, sonst glaubt man,
-    // der Sticker sei beim Gegenüber angekommen.
-    if (res?.warn) toast(root, res.warn)
     input.value = ''; input.style.height = 'auto'
     form?._clearAttach?.()
     const rb = main.querySelector('#mmc-reply-bar')
@@ -3807,7 +3804,6 @@ function renderGroupChatMain(root) {
     const res = await sendGroupMessage(activeGroup, activeChannel, text, replyingTo, attachment)
     done()
     if (res && res.ok === false) { toast(root, res.error || 'Senden fehlgeschlagen.'); return }
-    if (res?.warn) toast(root, res.warn)
     input.value = ''; input.style.height = 'auto'
     form?._clearAttach?.()
     const rb = main.querySelector('#mmc-reply-bar')

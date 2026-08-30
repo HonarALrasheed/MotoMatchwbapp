@@ -222,30 +222,28 @@ export async function ensureAvatars(usernames) {
 }
 
 async function _loadGroups() {
-  const baseSelect = `
-    id, name, description, category, join_mode, created_at,
-    created_by:profiles!groups_created_by_fkey(username),
-    channels(id, name, position),
-    group_members(user_id, role, profiles(username)),
-    group_bans(user_id, profiles!group_bans_user_id_fkey(username))
-  `
-  const voiceSelect = baseSelect + ', voice_rooms(id, title, capacity, created_by)'
-  const eventSelect = voiceSelect + ', event_at, meeting_point, group_rsvps(profiles(username))'
-  // event_at/meeting_point/group_rsvps und voice_rooms werden per Migration nachgerüstet
-  // (supabase/schema.sql) — falls sie in dieser Supabase-Instanz noch fehlen, fällt der
-  // Embed stufenweise sauber zurück, statt das komplette Gruppen-Laden zu blockieren
-  // (siehe früherer group_bans-Bug).
-  let { data: groups, error } = await supabase
-    .from('groups').select(eventSelect).order('created_at', { ascending: false })
+  // Ein Select, keine Rückfallkette mehr. voice_rooms, group_rsvps sowie
+  // groups.event_at/meeting_point garantiert die Migration
+  // a0_bestandsangleichung; fehlt hier etwas, ist die Datenbank nicht auf
+  // Stand und das soll auffallen, statt sich als stumm fehlende Termine und
+  // verschwundene Sprachkanäle zu tarnen.
+  const { data: groups, error } = await supabase
+    .from('groups')
+    .select(`
+      id, name, description, category, join_mode, created_at,
+      event_at, meeting_point,
+      created_by:profiles!groups_created_by_fkey(username),
+      channels(id, name, position),
+      group_members(user_id, role, profiles(username)),
+      group_bans(user_id, profiles!group_bans_user_id_fkey(username)),
+      voice_rooms(id, title, capacity, created_by),
+      group_rsvps(profiles(username))
+    `)
+    .order('created_at', { ascending: false })
   if (error) {
-    console.warn('[API] event_at/meeting_point/group_rsvps nicht ladbar (Migration evtl. noch nicht ausgeführt):', error.message)
-    ;({ data: groups, error } = await supabase
-      .from('groups').select(voiceSelect).order('created_at', { ascending: false }))
-  }
-  if (error) {
-    console.warn('[API] voice_rooms nicht ladbar (Tabelle fehlt evtl. noch — Migration ausführen):', error.message)
-    ;({ data: groups } = await supabase
-      .from('groups').select(baseSelect).order('created_at', { ascending: false }))
+    console.error('[API] Gruppen nicht ladbar:', error.message)
+    report(error, { where: 'community-api._loadGroups', code: error.code })
+    return
   }
   if (!groups) return
 
@@ -292,51 +290,42 @@ async function _loadGroups() {
 
 /*
  * Reaktionen kommen als Embed aus message_reactions (eine Zeile je Reaktion),
- * das `mentions`-Feld gibt es nur an Kanalnachrichten. Beides kann in einer
- * noch nicht migrierten Datenbank fehlen — deshalb eine absteigende
- * Rückfallkette statt einer Abfrage:
- *   1. Embed + mentions  — Sollzustand
- *   2. ohne Embed        — Reaktionen kommen aus der alten jsonb-Spalte
- *   3. zusätzlich ohne mentions
- * Ohne die Kette scheitert nicht das einzelne Feld, sondern die komplette
- * Nachrichten-Abfrage, und der Chat bliebe leer (siehe früherer group_bans-Bug).
- * `reactions` bleibt in jeder Variante im SELECT: die Spalte ist der Rückfall
- * für Stufe 2/3 und trägt den Bestand, bis die Migration gelaufen ist.
+ * das `mentions`-Feld gibt es nur an Kanalnachrichten. Beides garantieren die
+ * Migrationen a0_bestandsangleichung (messages.mentions) und
+ * a13_message_reactions (Tabelle + Übernahme der Bestandsdaten).
+ *
+ * Die alte jsonb-Spalte messages.reactions steht nicht mehr im SELECT: ihr
+ * Inhalt ist mit a13 nach message_reactions übernommen, sie wird seither
+ * weder gelesen noch geschrieben.
  */
-const MSG_REACT_EMBED = ', message_reactions(emoji, profiles(username))'
-
 async function _selectMessages(applyFilter, keyField, { mentions = true } = {}) {
-  const base = `id, ${keyField}, author_id, text, reply_to_id, reactions, edited_at, created_at, profiles(username)`
-  const variants = mentions
-    ? [base + ', mentions' + MSG_REACT_EMBED, base + ', mentions', base]
-    : [base + MSG_REACT_EMBED, base]
+  const sel = `id, ${keyField}, author_id, text, reply_to_id, edited_at, created_at, profiles(username)`
+    + (mentions ? ', mentions' : '')
+    + ', message_reactions(emoji, profiles(username))'
 
-  let lastError = null
-  for (const sel of variants) {
-    const { data, error } = await applyFilter(supabase.from('messages').select(sel))
-      .order('created_at', { ascending: true })
-    if (!error) {
-      if (lastError) {
-        console.warn('[API] Nachrichten ohne optionale Felder geladen (Migration evtl. noch nicht ausgeführt):', lastError.message)
-      }
-      return data || []
-    }
-    lastError = error
+  const { data, error } = await applyFilter(supabase.from('messages').select(sel))
+    .order('created_at', { ascending: true })
+  if (error) {
+    console.error('[API] Nachrichten nicht ladbar:', error.message)
+    report(error, { where: 'community-api._selectMessages', code: error.code })
+    return []
   }
-  console.warn('[API] Nachrichten nicht ladbar:', lastError?.message)
-  return []
+  return data || []
 }
 
 /**
  * Reaktionen in die Form bringen, die das UI erwartet: { emoji: [username, …] }.
- * Quelle ist der message_reactions-Embed; fehlt er (Tabelle in dieser Datenbank
- * noch nicht angelegt), bleibt die alte jsonb-Spalte die Quelle. Geschrieben
- * wird die Spalte nicht mehr — nach der Migration ist sie nur noch Altbestand.
+ * Einzige Quelle ist der message_reactions-Embed. Der frühere Rückfall auf die
+ * jsonb-Spalte messages.reactions ist weg: a13_message_reactions hat deren
+ * Inhalt übernommen, und ein Embed, der fehlt, ist ab jetzt ein echter Fehler
+ * und keine Schema-Variante.
  */
 function _mapReactions(m) {
-  if (!Array.isArray(m.message_reactions)) return m.reactions || {}
   const out = {}
-  for (const r of m.message_reactions) {
+  // `|| []` deckt NICHT mehr einen fehlenden Embed ab, sondern Zeilen, die gar
+  // nicht per SELECT kamen: die frisch eingefügte Nachricht aus
+  // sendGroupMessage() hat naturgemäß noch keine Reaktionen.
+  for (const r of m.message_reactions || []) {
     const name = r.profiles?.username
     if (!name || !r.emoji) continue
     ;(out[r.emoji] ||= []).push(name)
@@ -440,6 +429,13 @@ async function _loadGroupRequests() {
   }))
 }
 
+/*
+ * Unveraendertes select('*') — die Einschraenkung macht seit A4 die Policy
+ * invites_select: sie liefert nur noch Codes der Gruppen, in denen man Owner
+ * oder Mod ist. Vorher gab dieselbe Abfrage jedem alle Codes aller Gruppen.
+ * Wer einen Code EINLOEST, liest ihn deshalb nicht mehr hier, sondern laesst
+ * ihn von der RPC redeem_invite() mit Definer-Rechten pruefen.
+ */
 async function _loadInvites() {
   const { data } = await supabase.from('invites').select('*')
   _invites = (data || []).map(i => ({
@@ -1112,15 +1108,12 @@ export async function setMyProfile(data) {
     notif_sounds:  data.notifySounds ?? prev.notifySounds,
     notif_desktop: data.notifyDesktop ?? prev.notifyDesktop,
   }
-  return write('setMyProfile', async () => {
-    const first = await supabase.from('profiles').update(dbPatch).eq('id', _myUid)
-    if (first.error?.code !== 'PGRST204') return first
-    // `avatar`-Spalte fehlt noch (Migration aus supabase/schema.sql nicht ausgeführt) —
-    // ohne sie erneut speichern, damit die übrigen Felder nicht mitscheitern.
-    console.warn('[Community] Profilbild wird nicht gespeichert — Spalte `avatar` fehlt in Supabase. Siehe supabase/schema.sql.')
-    const { avatar, ...rest } = dbPatch
-    return supabase.from('profiles').update(rest).eq('id', _myUid)
-  }, rollback)
+  // profiles.avatar garantiert die Migration a0_bestandsangleichung. Der
+  // frühere zweite Versuch ohne die Spalte konnte ein gespeichertes Profil
+  // melden, dessen Bild nie ankam — jetzt scheitert der Aufruf sichtbar.
+  return write('setMyProfile',
+    () => supabase.from('profiles').update(dbPatch).eq('id', _myUid),
+    rollback)
 }
 
 /* ══════════════════════════════════════════════════════════════════
@@ -1167,19 +1160,15 @@ export async function createGroup({ name, desc, category, joinMode, eventAt, mee
     _groups.unshift(g); lsWrite(LS_GROUPS, _groups)
     return { ok: true, group: g }
   }
-  let { data: gRow, error: gErr } = await supabase.from('groups').insert({
+  // groups.event_at/meeting_point garantiert die Migration
+  // a0_bestandsangleichung. Der frühere zweite Versuch ohne die Felder legte
+  // eine Tour ohne Termin und ohne Treffpunkt an und meldete Erfolg — genau
+  // die beiden Angaben, wegen derer man eine Tour anlegt.
+  const { data: gRow, error: gErr } = await supabase.from('groups').insert({
     name, description: desc, category, join_mode: joinMode || 'open', created_by: _myUid,
     event_at: eventAt ? new Date(eventAt).toISOString() : null,
     meeting_point: meetingPoint || null,
   }).select().single()
-  if (gErr) {
-    // Migration (event_at/meeting_point-Spalten) evtl. noch nicht ausgeführt — ohne die
-    // Felder nochmal versuchen, statt die komplette Gruppenerstellung zu blockieren.
-    ;({ data: gRow, error: gErr } = await supabase.from('groups').insert({
-      name, description: desc, category, join_mode: joinMode || 'open', created_by: _myUid,
-    }).select().single())
-    if (!gErr) console.warn('[API] event_at/meeting_point nicht gespeichert (Migration evtl. noch nicht ausgeführt):', 'siehe supabase/schema.sql')
-  }
   if (gErr) return { ok: false, error: gErr.message }
 
   // Muss VOR dem Channel-Insert passieren: die "channels_insert"-RLS-Policy verlangt
@@ -1286,16 +1275,12 @@ export async function updateGroup(groupId, patch) {
   if ('meetingPoint' in patch) dbPatch.meeting_point  = patch.meetingPoint || null
   if (!Object.keys(dbPatch).length) return { ok: true }
 
-  return write('updateGroup', async () => {
-    const first = await supabase.from('groups').update(dbPatch).eq('id', groupId)
-    if (!first.error || !('event_at' in dbPatch || 'meeting_point' in dbPatch)) return first
-    // Migration (event_at/meeting_point-Spalten) evtl. noch nicht ausgeführt — Rest der
-    // Änderung (Name/Beschreibung/Beitrittsmodus) trotzdem speichern.
-    delete dbPatch.event_at; delete dbPatch.meeting_point
-    console.warn('[API] event_at/meeting_point nicht gespeichert (Migration evtl. noch nicht ausgeführt):', 'siehe supabase/schema.sql')
-    if (!Object.keys(dbPatch).length) return first
-    return supabase.from('groups').update(dbPatch).eq('id', groupId)
-  }, rollback)
+  // Wie in createGroup: die Spalten sind seit a0_bestandsangleichung gesetzt.
+  // Der frühere Teilerfolg — Name gespeichert, Termin still verworfen — war
+  // schlechter als ein klarer Fehlschlag mit Rollback.
+  return write('updateGroup',
+    () => supabase.from('groups').update(dbPatch).eq('id', groupId),
+    rollback)
 }
 
 export async function joinGroup(groupId) {
@@ -1308,7 +1293,18 @@ export async function joinGroup(groupId) {
   const { error } = await supabase.from('group_members').insert({
     group_id: groupId, user_id: _myUid, role: 'member',
   })
-  if (error) { g.members.pop(); return { ok: false, error: error.message } }
+  if (error) {
+    g.members.pop()
+    // 42501 = RLS-Verstoß. Seit A4 lässt gm_insert den Selbst-Eintrag nur noch
+    // in Gruppen mit join_mode='open' und nur ohne Bann-Eintrag zu. Das UI
+    // fängt beides vorher ab (_joinGroupUI in community.js) — hier landet man
+    // also nur, wenn der lokale Cache veraltet ist oder jemand am UI vorbei
+    // arbeitet. Die rohe englische Postgres-Meldung hilft dann niemandem.
+    if (error.code === '42501') {
+      return { ok: false, error: 'Dieser Gruppe kannst du nicht einfach beitreten — sie braucht eine Anfrage oder eine Einladung.' }
+    }
+    return { ok: false, error: error.message }
+  }
   return { ok: true }
 }
 
@@ -1530,31 +1526,6 @@ function _safeName(name = 'datei') {
  * Nachricht landet: { url, name, type, size, path? }.
  * @returns {Promise<object|{error:string}|null>}
  */
-/* Die Spalte `attachment` fehlt in manchen Datenbankstaenden — schema.sql
- * legt sie an (`ALTER TABLE messages ADD COLUMN IF NOT EXISTS attachment
- * jsonb;`), aber nur, wenn die Migration auch gelaufen ist. Fehlt sie, nahm
- * der Rueckfall die Nachricht ohne Anhang und meldete Erfolg: der Absender sah
- * den Sticker aus seiner eigenen lokalen Kopie, beim Empfaenger kam nichts an.
- * Ein stiller Datenverlust ist die schlechteste aller Varianten — lieber
- * ehrlich scheitern. */
-const ATTACH_COLUMN_MISSING =
-  'Anhänge können gerade nicht gespeichert werden (Datenbank-Spalte fehlt). ' +
-  'Der Sticker wurde nicht gesendet.'
-
-/** Meldet Postgres/PostgREST eine unbekannte Spalte? */
-function _isMissingColumn(error) {
-  return error?.code === '42703' || error?.code === 'PGRST204'
-}
-
-/**
- * Meldet Postgres/PostgREST eine unbekannte Tabelle?
- * 42P01 = Postgres "undefined table", PGRST205 = PostgRESTs Schema-Cache kennt
- * die Tabelle nicht, PGRST200 = die eingebettete Beziehung ist unbekannt.
- */
-function _isMissingTable(error) {
-  return error?.code === '42P01' || error?.code === 'PGRST205' || error?.code === 'PGRST200'
-}
-
 async function _prepareAttachment(att) {
   if (!att) return null
   if (att.url) return att            // schon fertig (Bestandsdaten/erneutes Senden)
@@ -1604,28 +1575,16 @@ export async function sendGroupMessage(groupId, channelId, text, replyTo = null,
     mentions: _resolveMentions(text, g.members || []),
     ...(att ? { attachment: att } : {}),
   }
-  let { data, error } = await supabase.from('messages').insert({ ...base, ...optional }).select().single()
-  let attachmentVerloren = false
-  if (_isMissingColumn(error)) {
-    // mentions-/attachment-Spalte evtl. noch nicht migriert (supabase/schema.sql)
-    // — ohne Fallback könnte man gar keine Gruppennachrichten mehr senden, nicht
-    // nur diese Felder wären betroffen. 42703 = Postgres "undefined column"
-    // (SELECT-Pfad), PGRST204 = PostgRESTs Schema-Cache kennt die Spalte nicht
-    // (INSERT-Pfad).
-    console.warn('[API] mentions/attachment nicht speicherbar (Migration evtl. noch nicht ausgeführt):', error.message)
-    // Eine reine Anhang-Nachricht (Sticker ohne Text) waere danach leer und
-    // beim Empfaenger nicht von einem Fehler zu unterscheiden.
-    if (att && !text) return { ok: false, error: ATTACH_COLUMN_MISSING }
-    attachmentVerloren = !!att
-    ;({ data, error } = await supabase.from('messages').insert(base).select().single())
-  }
+  // messages.mentions und messages.attachment garantiert die Migration
+  // a0_bestandsangleichung. Der frühere zweite Versuch ohne diese Felder war
+  // die schädlichste Stelle der ganzen Ratekette: er schickte die Nachricht
+  // ohne Anhang los und meldete Erfolg — der Absender sah den Sticker aus
+  // seiner eigenen lokalen Kopie, beim Empfänger kam nichts an.
+  const { data, error } = await supabase.from('messages').insert({ ...base, ...optional }).select().single()
   if (error) return { ok: false, error: error.message }
   const msg = _mapMessage({ ...data, profiles: { username: myName } })
   // Realtime liefert die Nachricht zurück, aber wir fügen sie sofort ein (optimistic)
   if (!ch.messages.some(m => m.id === msg.id)) ch.messages.push(msg)
-  // Der Anhang ist nicht in der Datenbank — dann darf ihn auch der Absender
-  // nicht sehen, sonst zeigen beide Seiten Unterschiedliches.
-  if (attachmentVerloren) { delete msg.attachment; return { ok: true, msg, warn: ATTACH_COLUMN_MISSING } }
   return { ok: true, msg }
 }
 
@@ -1712,30 +1671,22 @@ function _toggleReactionLocal(msg, emoji, username) {
 /**
  * Die eigene Reaktion in der Datenbank anlegen/entfernen und bei Fehler den
  * lokalen Zustand zurückrollen.
- * Fehlt die Tabelle (Migration noch nicht eingespielt), fällt die Funktion auf
- * den alten jsonb-Weg zurück — mit dessen bekannter Einschränkung, aber besser
- * als eine Funktion, die bis zum Ausführen des SQL gar nichts mehr tut.
+ *
+ * Der frühere Rückfall auf `UPDATE messages SET reactions = …` ist weg: die
+ * Tabelle garantiert die Migration a13_message_reactions. Der Rückfall war
+ * ohnehin nur scheinbar einer — die Policy msg_update erlaubt das UPDATE nur
+ * dem Autor oder einem Mod, auf einer fremden Nachricht traf es null Zeilen.
+ * Er hat also genau in dem Fall nicht funktioniert, für den es ihn gab.
  */
-function _persistReaction(msgId, emoji, on, reactionsForFallback, rollback) {
+function _persistReaction(msgId, emoji, on, rollback) {
   return write('toggleReaction', async () => {
     const res = on
       ? await supabase.from('message_reactions').insert({ message_id: msgId, user_id: _myUid, emoji })
       : await supabase.from('message_reactions').delete()
           .eq('message_id', msgId).eq('user_id', _myUid).eq('emoji', emoji)
-    if (!res.error) return res
-
-    if (_isMissingTable(res.error)) {
-      console.warn('[API] Tabelle message_reactions fehlt — Migration aus supabase/schema.sql ausführen.')
-      // Mit .select('id') + expectRows fällt hier auf, was vorher niemand sah:
-      // auf einer FREMDEN Nachricht trifft dieses UPDATE wegen msg_update null
-      // Zeilen. Bis die Migration läuft, sagt die Oberfläche das jetzt wenigstens,
-      // statt eine Reaktion zu zeigen, die kein Neuladen überlebt.
-      return supabase.from('messages')
-        .update({ reactions: reactionsForFallback }).eq('id', msgId).select('id')
-    }
     // 23505 = unique_violation: die Reaktion steht schon da (Doppelklick,
     // zweiter Tab). Der gewünschte Endzustand ist erreicht, kein Fehler.
-    if (on && res.error.code === '23505') return { error: null }
+    if (res.error && on && res.error.code === '23505') return { error: null }
     return res
   }, rollback, { expectRows: true })
 }
@@ -1749,7 +1700,7 @@ export async function toggleReactionInGroup(groupId, msgId, emoji) {
 
   const on = _toggleReactionLocal(msg, emoji, myName)
   if (OFFLINE_MODE || !_myUid) { lsWrite(LS_GROUPS, _groups); return { ok: true } }
-  return _persistReaction(msgId, emoji, on, msg.reactions, () => _toggleReactionLocal(msg, emoji, myName))
+  return _persistReaction(msgId, emoji, on, () => _toggleReactionLocal(msg, emoji, myName))
 }
 
 /**
@@ -1828,20 +1779,38 @@ export async function sendJoinRequest(groupId, text) {
     _groupRequests.push(req); lsWrite(LS_GROUP_REQUESTS, _groupRequests)
     return { ok: true }
   }
-  const { error } = await supabase.from('group_join_requests').insert({
+  // Die vom Server vergebene uuid mitnehmen. Vorher stand hier eine lokale
+  // 'gr-…'-ID; das "Anfrage zurückziehen" schickte die anschließend gegen eine
+  // uuid-Spalte (declineGroupRequest → .eq('id', …)) und lief in einen
+  // 22P02-Fehler, bis einmal neu geladen wurde. Solange Beitrittsanfragen ohne
+  // Wirkung waren, fiel das niemandem auf — seit A4 entscheidet dieser Ablauf
+  // tatsächlich über den Zutritt.
+  const { data, error } = await supabase.from('group_join_requests').insert({
     group_id: groupId, from_user: _myUid, text: text || '',
-  })
+  }).select('id').single()
   if (error) return { ok: false, error: error.message }
-  _groupRequests.push({ id: 'gr-' + Date.now(), groupId, from: myName, text: text || '', ts: Date.now() })
+  _groupRequests.push({ id: data.id, groupId, from: myName, text: text || '', ts: Date.now() })
   return { ok: true }
 }
 
 /*
- * Zwei Tabellen, keine Transaktion. Reihenfolge: erst aufnehmen, dann die
- * Anfrage wegräumen. Bleibt es nach Schritt 1 stehen, ist der Nutzer drin und
- * die Anfrage steht noch da — sichtbar und wiederholbar. Andersherum wäre die
- * Anfrage weg und niemand aufgenommen.
+ * Aufnehmen und die Anfrage schliessen laufen in EINER Transaktion — die
+ * RPC accept_join_request() ist der Transaktionsrahmen. Vorher waren das zwei
+ * getrennte Schreibvorgänge aus dem Browser; scheiterte der zweite, war der
+ * Nutzer aufgenommen und die Anfrage stand weiter als offen in der Liste.
+ *
+ * Die Berechtigungsprüfung (Owner/Mod der Gruppe) steckt jetzt in der
+ * Funktion, nicht mehr nur in der group_members-Policy: seit A4 kann sich
+ * niemand mehr selbst in eine 'request'-Gruppe eintragen, und der Aufnehmende
+ * trägt einen FREMDEN ein.
  */
+const ACCEPT_REASONS = {
+  unknown_request:   'Anfrage nicht gefunden.',
+  not_allowed:       'Dafür fehlen dir die Rechte in dieser Gruppe.',
+  banned:            'Dieses Konto ist in der Gruppe gesperrt — erst entsperren.',
+  not_authenticated: 'Bitte melde dich an.',
+}
+
 export async function acceptGroupRequest(reqId) {
   const r = _groupRequests.find(x => x.id === reqId)
   if (!r) return { ok: false, error: 'Anfrage nicht gefunden.' }
@@ -1858,22 +1827,17 @@ export async function acceptGroupRequest(reqId) {
   if (OFFLINE_MODE || !_myUid) {
     lsWrite(LS_GROUPS, _groups); lsWrite(LS_GROUP_REQUESTS, _groupRequests); return { ok: true }
   }
-  const uid = _usernameToUid(r.from)
-  if (!uid) { rollbackAll(); return { ok: false, error: `${r.from} ist unbekannt.` } }
 
-  const joinRes = await write('acceptGroupRequest.join', async () => {
-    const res = await supabase.from('group_members')
-      .insert({ group_id: r.groupId, user_id: uid, role: 'member' })
-    // 23505 = unique_violation: schon Mitglied. Gewünschter Endzustand.
-    return res.error?.code === '23505' ? { error: null } : res
-  }, rollbackAll)
-  if (!joinRes.ok) return joinRes
-
-  const cleanRes = await write('acceptGroupRequest.cleanup',
-    () => supabase.from('group_join_requests').delete().eq('id', reqId),
-    () => { _groupRequests = beforeReqs })
-  if (!cleanRes.ok) {
-    return { ok: false, error: `${r.from} wurde aufgenommen, die Anfrage konnte aber nicht geschlossen werden.` }
+  const { data, error } = await supabase.rpc('accept_join_request', { request_id: reqId })
+  if (error) {
+    rollbackAll()
+    report(error, { where: 'community-api.acceptGroupRequest', code: error.code })
+    return { ok: false, error: 'Anfrage konnte nicht angenommen werden: ' + error.message }
+  }
+  if (!data?.ok) {
+    rollbackAll()
+    const reason = data?.reason || 'unknown_request'
+    return { ok: false, error: ACCEPT_REASONS[reason] || 'Anfrage konnte nicht angenommen werden.' }
   }
   return { ok: true }
 }
@@ -1932,42 +1896,70 @@ export async function revokeInvite(code) {
     { expectRows: true })
 }
 
+/*
+ * Fehlerkennungen der RPC redeem_invite() in Klartext. `unknown_code` behält
+ * das UI in community.js gesondert im Blick: nur dann war die Eingabe
+ * womöglich gar kein Code, sondern ein Gruppenname, und es sucht weiter.
+ */
+const REDEEM_REASONS = {
+  unknown_code:      'Einladungscode unbekannt.',
+  no_group:          'Die Gruppe existiert nicht mehr.',
+  banned:            'Du wurdest aus dieser Gruppe gesperrt.',
+  already_member:    'Du bist bereits Mitglied dieser Gruppe.',
+  expired:           'Dieser Einladungscode ist abgelaufen.',
+  exhausted:         'Dieser Einladungscode wurde bereits zu oft verwendet.',
+  not_authenticated: 'Bitte melde dich an.',
+}
+
 export async function redeemInvite(rawCode) {
   const myName = _myUsername
-  const inv = _invites.find(i => i.code.toLowerCase() === rawCode.toLowerCase())
-  // `reason` erlaubt dem UI, genau diesen Fall von echten Code-Fehlern
-  // (abgelaufen, aufgebraucht, gesperrt, bereits Mitglied) zu unterscheiden:
-  // nur hier war die Eingabe womöglich gar kein Code, sondern ein Gruppenname.
-  if (!inv) return { ok: false, reason: 'unknown_code', error: 'Einladungscode unbekannt.' }
-  if (inv.expiresAt && Date.now() > inv.expiresAt) return { ok: false, error: 'Dieser Einladungscode ist abgelaufen.' }
-  if (inv.maxUses !== null && inv.uses >= inv.maxUses) return { ok: false, error: 'Dieser Einladungscode wurde bereits zu oft verwendet.' }
-  const g = _groups.find(x => x.id === inv.groupId)
-  if (!g) return { ok: false, error: 'Die Gruppe existiert nicht mehr.' }
-  if (isGroupBanned(g, myName)) return { ok: false, error: 'Du wurdest aus dieser Gruppe gesperrt.' }
-  if (g.members.some(m => m.toLowerCase() === myName.toLowerCase())) return { ok: false, error: 'Du bist bereits Mitglied dieser Gruppe.' }
-  g.members.push(myName); inv.uses++
-  const rollbackAll = () => {
-    const i = g.members.lastIndexOf(myName)
-    if (i >= 0) g.members.splice(i, 1)
-    inv.uses--
+
+  if (OFFLINE_MODE || !_myUid) {
+    // Demo-Modus: kein Supabase, also weiterhin alles lokal. Die Prüfungen
+    // stehen hier bewusst doppelt — online macht sie jetzt die Datenbank.
+    const inv = _invites.find(i => i.code.toLowerCase() === rawCode.toLowerCase())
+    if (!inv) return { ok: false, reason: 'unknown_code', error: REDEEM_REASONS.unknown_code }
+    if (inv.expiresAt && Date.now() > inv.expiresAt) return { ok: false, error: REDEEM_REASONS.expired }
+    if (inv.maxUses !== null && inv.uses >= inv.maxUses) return { ok: false, error: REDEEM_REASONS.exhausted }
+    const g = _groups.find(x => x.id === inv.groupId)
+    if (!g) return { ok: false, error: REDEEM_REASONS.no_group }
+    if (isGroupBanned(g, myName)) return { ok: false, error: REDEEM_REASONS.banned }
+    if (g.members.some(m => m.toLowerCase() === myName.toLowerCase())) {
+      return { ok: false, error: REDEEM_REASONS.already_member }
+    }
+    g.members.push(myName); inv.uses++
+    lsWrite(LS_GROUPS, _groups); lsWrite(LS_INVITES, _invites)
+    return { ok: true, group: g }
   }
-  if (OFFLINE_MODE || !_myUid) { lsWrite(LS_GROUPS, _groups); lsWrite(LS_INVITES, _invites); return { ok: true, group: g } }
 
-  const joinRes = await write('redeemInvite.join', async () => {
-    const res = await supabase.from('group_members')
-      .insert({ group_id: g.id, user_id: _myUid, role: 'member' })
-    // 23505 = unique_violation: schon Mitglied. Gewünschter Endzustand.
-    return res.error?.code === '23505' ? { error: null } : res
-  }, rollbackAll)
-  if (!joinRes.ok) return joinRes
+  // Online: EIN Aufruf, der alles in einer Transaktion erledigt — Prüfen,
+  // Zähler erhöhen, aufnehmen. Vorher liefen das drei getrennte Anfragen aus
+  // dem Browser; `uses` wurde dabei clientseitig gerechnet, zwei gleichzeitige
+  // Einlösungen zählten als eine. Und seit invites_select nur noch Owner und
+  // Mods sieht, könnte der Einlösende die Zeile gar nicht mehr lesen.
+  const { data, error } = await supabase.rpc('redeem_invite', { invite_code: rawCode })
+  if (error) {
+    report(error, { where: 'community-api.redeemInvite', code: error.code })
+    return { ok: false, error: 'Einlösung fehlgeschlagen: ' + error.message }
+  }
+  if (!data?.ok) {
+    const reason = data?.reason || 'unknown_code'
+    return { ok: false, reason, error: REDEEM_REASONS[reason] || 'Einlösung fehlgeschlagen.' }
+  }
 
-  // Der Zähler ist die harmlose Hälfte: schlägt er fehl, ist der Beitritt
-  // trotzdem echt, der Code gilt nur weiterhin als unverbraucht. Deshalb wird
-  // hier NUR der Zähler zurückgedreht und der Beitritt als Erfolg gemeldet —
-  // eine Fehlermeldung wäre an dieser Stelle schlicht falsch.
-  await write('redeemInvite.uses',
-    () => supabase.from('invites').update({ uses: inv.uses }).eq('code', rawCode),
-    () => { inv.uses-- })
+  const g = _groups.find(x => x.id === data.group_id)
+  if (!g) {
+    // Der Beitritt ist echt, nur der lokale Cache kennt die Gruppe nicht —
+    // das UI braucht aber Name und ID. Neu laden statt raten.
+    await _loadGroups()
+    const fresh = _groups.find(x => x.id === data.group_id)
+    if (!fresh) return { ok: false, error: REDEEM_REASONS.no_group }
+    if (!fresh.members.includes(myName)) fresh.members.push(myName)
+    return { ok: true, group: fresh }
+  }
+  if (!g.members.some(m => m.toLowerCase() === myName.toLowerCase())) g.members.push(myName)
+  const inv = _invites.find(i => i.code.toLowerCase() === rawCode.toLowerCase())
+  if (inv) inv.uses++   // nur Anzeige; maßgeblich ist der Zähler in der Datenbank
   return { ok: true, group: g }
 }
 
@@ -2067,32 +2059,19 @@ export async function sendDM(to, text, replyTo = null, attachment = null) {
   if (!thread) { removeLocal(); return { ok: false, error: 'Empfänger nicht gefunden.' } }
 
   const base = { dm_thread: thread, author_id: _myUid, text, reply_to_id: replyTo?.id || null }
-  let attachmentVerloren = false
   let serverId = null
 
+  // messages.attachment garantiert die Migration a0_bestandsangleichung —
+  // dasselbe wie in sendGroupMessage, hier für Direktnachrichten.
   const res = await write('sendDM', async () => {
-    let first = await supabase
+    const first = await supabase
       .from('messages').insert({ ...base, ...(att ? { attachment: att } : {}) }).select().single()
-    if (_isMissingColumn(first.error)) {
-      console.warn('[API] attachment nicht speicherbar (Migration evtl. noch nicht ausgeführt):', first.error.message)
-      // Eine reine Anhang-Nachricht (Sticker ohne Text) wäre danach leer und
-      // beim Empfänger nicht von einem Fehler zu unterscheiden.
-      if (att && !text) return { error: { message: ATTACH_COLUMN_MISSING, code: 'ATTACH_COLUMN_MISSING' } }
-      attachmentVerloren = !!att
-      first = await supabase.from('messages').insert(base).select().single()
-    }
     if (first.data) serverId = first.data.id
     return first
   }, removeLocal)
 
   if (!res.ok) return res
   if (serverId) msg.id = serverId
-  if (attachmentVerloren) {
-    // Der Anhang ist nicht in der Datenbank — dann darf ihn auch der Absender
-    // nicht sehen, sonst zeigen beide Seiten Unterschiedliches.
-    delete msg.attachment
-    return { ok: true, warn: ATTACH_COLUMN_MISSING }
-  }
   return { ok: true }
 }
 
@@ -2168,7 +2147,7 @@ export async function toggleReactionInDM(peer, msgId, emoji) {
   }
 
   if (OFFLINE_MODE || !_myUid) { lsWrite(LS_DMS, _dms); return { ok: true } }
-  return _persistReaction(msgId, emoji, on, objs[0].reactions, rollback)
+  return _persistReaction(msgId, emoji, on, rollback)
 }
 
 function _markUnreadCache(forUser, fromUser) {

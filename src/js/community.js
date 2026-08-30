@@ -18,7 +18,7 @@
  */
 
 import commBg from '../assets/community-bg.jpeg'
-import { esc, safeUrl } from './util.js'
+import { esc, safeUrl, LS_QUIZ_ANSWERS } from './util.js'
 import { HAS_STICKER_API, searchStickerApi, trendingStickerApi } from './stickers.js'
 import {
   joinVoiceRoom, leaveVoiceRoom, toggleVoiceMute, toggleVoiceDeafen,
@@ -3756,7 +3756,7 @@ function openSettingsPanel(root) {
     try {
       const primary = localStorage.getItem('mm_primary_bike')
       if (primary) bikes.push(primary)
-      const answers = JSON.parse(localStorage.getItem('motoMatchAnswers') || 'null')
+      const answers = JSON.parse(localStorage.getItem(LS_QUIZ_ANSWERS) || 'null')
     } catch {}
     return [...new Set(bikes)].filter(Boolean)
   }

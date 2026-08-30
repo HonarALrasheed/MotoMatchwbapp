@@ -61,3 +61,34 @@ export function fmtRelative(ts) {
   if (d < 7) return `vor ${d} Tagen`
   return fmtDate(ts)
 }
+
+/* ── Quiz-Antworten: localStorage-Schluessel ────────────────────── */
+
+/**
+ * Fuehrerscheinklasse, Fahrerfahrung, Budget, Koerpergroesse und
+ * Beifahrer-Angabe. Hiess frueher 'motoMatchAnswers' und war damit der
+ * einzige Schluessel ohne mm_-Praefix — "Alle lokalen Daten loeschen" und der
+ * Datenexport im Konto arbeiten beide ueber mm_*, der Datensatz ueberlebte
+ * also das Loeschen und fehlte im Export.
+ */
+export const LS_QUIZ_ANSWERS = 'mm_quiz_answers_v1'
+const LS_QUIZ_ANSWERS_LEGACY = 'motoMatchAnswers'
+
+/**
+ * Einmalige Uebernahme des alten Schluessels — wer vor dieser Version ein
+ * Quiz gemacht hat, soll seine Antworten behalten. Laeuft beim Laden des
+ * Moduls, damit sie vor jedem Lesezugriff steht (util.js wird von allen
+ * lesenden Modulen importiert); der alte Schluessel wird danach entfernt,
+ * sonst bliebe genau der Datensatz liegen, um den es hier geht.
+ */
+function migrateQuizAnswersKey() {
+  try {
+    const legacy = localStorage.getItem(LS_QUIZ_ANSWERS_LEGACY)
+    if (legacy === null) return
+    if (localStorage.getItem(LS_QUIZ_ANSWERS) === null) {
+      localStorage.setItem(LS_QUIZ_ANSWERS, legacy)
+    }
+    localStorage.removeItem(LS_QUIZ_ANSWERS_LEGACY)
+  } catch {}
+}
+migrateQuizAnswersKey()

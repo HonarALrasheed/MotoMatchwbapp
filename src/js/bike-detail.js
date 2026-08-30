@@ -10,7 +10,7 @@ import { DRACOLoader } from 'three/addons/loaders/DRACOLoader.js'
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js'
 import { getGear } from './gear.js'
 import { initHubMap, searchNearby, getHubSearchResults, onHubResults, focusHubResult, recenterHubMap, zoomHubMap, getUserCoords, searchNearbyAt, retryHubLocation, hasMapsConsent, onHubMapMoved, panHubToCoords, haversineKm } from './garage.js'
-import { esc, fmtRelative } from './util.js'
+import { esc, fmtRelative, LS_QUIZ_ANSWERS } from './util.js'
 import { enterScreen, goBack } from './nav.js'
 import { findBikeByShortName, findTopMatches, findSimilarBikes, scoreBikeAgainst, MATCH_WEIGHTS } from './matching.js'
 import { getMatches, addMatch, removeMatch, clearMatches, restoreMatch, hasMatch, getLastAnswers, getPrimaryBike, setPrimaryBike } from './match-history.js'
@@ -3282,7 +3282,7 @@ function buildKonfiguratorHTML(data, initialTab = KONF_DEFAULT_TAB) {
 
 function getUserHeight() {
   try {
-    const stored = localStorage.getItem('motoMatchAnswers')
+    const stored = localStorage.getItem(LS_QUIZ_ANSWERS)
     if (stored) {
       const answers = JSON.parse(stored)
       const q6 = Number(answers.q6)

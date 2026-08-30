@@ -3,6 +3,7 @@ import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 import { DRACOLoader } from "three/addons/loaders/DRACOLoader.js";
 import { MeshoptDecoder } from "three/addons/libs/meshopt_decoder.module.js";
 import { startDropAnimation } from "./drop-animation.js";
+import { LS_QUIZ_ANSWERS } from "./util.js";
 
 /* ═══ Questions ═══ */
 const questions = [
@@ -185,7 +186,7 @@ export function preloadQuizAssets() {
 }
 
 /* ═══ Persistence helpers ═══ */
-const LS_KEY = 'motoMatchAnswers';
+const LS_KEY = LS_QUIZ_ANSWERS;
 
 function saveAnswers() {
   try { localStorage.setItem(LS_KEY, JSON.stringify(answers)); } catch (e) { /* ignore */ }

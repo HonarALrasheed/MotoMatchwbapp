@@ -12,8 +12,10 @@
  * ══════════════════════════════════════════════════════════════════
  */
 
+import { LS_QUIZ_ANSWERS } from './util.js'
+
 const LS_KEY = 'mm_matches_v1'
-const LS_ANSWERS = 'motoMatchAnswers' // von quiz.js geschrieben
+const LS_ANSWERS = LS_QUIZ_ANSWERS // von quiz.js geschrieben
 const MAX_ENTRIES = 24
 
 /**

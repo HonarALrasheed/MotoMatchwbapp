@@ -14,6 +14,7 @@
 import { supabase, OFFLINE_MODE } from './supabase.js'
 import { report } from './monitoring.js'
 import { initCommunityData, unsubscribeAll, setMyProfile } from './community-api.js'
+import { esc } from './util.js'
 
 const LS_USERS   = 'mm_auth_users_v1'    // [{ username, password, name, email, bio, avatar, joinedAt, notif, theme, provider }]
 const LS_SESSION = 'mm_auth_session_v1'  // { username } | { username:'Gast', guest:true } | null
@@ -682,9 +683,6 @@ try {
    GEMEINSAMER LOGIN-DIALOG (für die Haupt-Website / Konto)
    Nutzt dieselbe Auth wie die Community — keine zweite Passwort-Eingabe.
    ══════════════════════════════════════════════════════════════════ */
-function esc(s = '') {
-  return String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]))
-}
 export function openAuthModal(onDone) {
   if (document.getElementById('mm-authmodal')) return
   let mode = 'login'

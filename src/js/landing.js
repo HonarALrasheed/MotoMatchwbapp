@@ -1,5 +1,6 @@
 import { maybeShowOnboarding } from "./onboarding.js";
 import { getCatalog, findBikeByShortName } from "./matching.js";
+import { esc } from "./util.js";
 
 let landingObserver = null;
 let _scrollHandler = null;
@@ -20,12 +21,6 @@ const USE_SECTIONS = [
   { id: "lc-garage",    label: "Deine Garage im Blick",     img: "/dealer-lifestyle.jpeg",    action: "garage"    },
   { id: "lc-community", label: "Fahr nicht allein",         img: "/community-lifestyle.jpeg", action: "community" },
 ];
-
-function esc(s) {
-  return String(s ?? "").replace(/[&<>"']/g, (c) => ({
-    "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;",
-  }[c]));
-}
 
 const FEATURED_BIKES = [
   {

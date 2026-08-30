@@ -22,10 +22,6 @@ const DRAG_THRESHOLD = 6
 /** Luft, die oben frei bleibt — darueber liegen Kopfzeilen und Zurueck-Pfeil. */
 const TOP_GUARD = 76
 
-function esc(s = '') {
-  return String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]))
-}
-
 function readFabPos() {
   try {
     const v = JSON.parse(localStorage.getItem(LS_FAB_POS) || 'null')

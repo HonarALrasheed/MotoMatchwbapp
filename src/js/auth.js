@@ -153,51 +153,9 @@ async function _onSignedIn(session) {
   await initCommunityData(uid, username)
 }
 
-/* ── Social Login (Google / Apple) ────────────────────────────────
-   Client-IDs kommen aus .env (VITE_GOOGLE_CLIENT_ID / VITE_APPLE_CLIENT_ID).
-   Ohne echte, in der jeweiligen Entwicklerkonsole registrierte Client-ID
-   funktioniert der jeweilige Button nicht — das ist von Google/Apple aus
-   nicht anders möglich (siehe Hinweise am Ende der Konversation). */
-const GOOGLE_CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID || ''
-const APPLE_CLIENT_ID = import.meta.env.VITE_APPLE_CLIENT_ID || ''
-
-function loadScriptOnce(src, id) {
-  return new Promise((resolve, reject) => {
-    if (document.getElementById(id)) return resolve()
-    const s = document.createElement('script')
-    s.id = id
-    s.src = src
-    s.async = true
-    s.defer = true
-    s.onload = resolve
-    s.onerror = () => reject(new Error(`Skript konnte nicht geladen werden: ${src}`))
-    document.head.appendChild(s)
-  })
-}
-
-/** JWT-Payload clientseitig dekodieren (nur zum Auslesen von email/name — keine Verifizierung!). */
-function decodeJwtPayload(token) {
-  try {
-    const base64 = token.split('.')[1].replace(/-/g, '+').replace(/_/g, '/')
-    return JSON.parse(decodeURIComponent(atob(base64).split('').map(c =>
-      '%' + c.charCodeAt(0).toString(16).padStart(2, '0')).join('')))
-  } catch { return {} }
-}
-
-/** Legt bei Bedarf ein lokales Konto für einen Social-Login-Nutzer an und meldet ihn an. */
-function loginOrRegisterFromProvider(provider, { sub, email, name, avatar }) {
-  const username = `${provider}_${sub}`.slice(0, 40)
-  const users = getUsers()
-  let u = users.find(x => x.username === username)
-  if (!u) {
-    u = { ...DEFAULT_PROFILE, username, provider, name: name || email || username, email: email || '', avatar: avatar || null, joinedAt: Date.now() }
-    users.push(u)
-    saveUsers(users)
-  }
-  setSessionRaw({ username: u.username })
-  notify()
-  return { ok: true, user: u }
-}
+/* ── Social Login (Google) ────────────────────────────────────────
+   Keine Client-ID im Frontend: den Ablauf führt Supabase, die ID liegt in
+   den Provider-Einstellungen des Projekts. */
 
 /**
  * Rendert einen "Mit Google anmelden"-Button, der Supabase OAuth nutzt.
@@ -231,35 +189,6 @@ export function renderGoogleButton(container, onDone, _theme) {
   })
   container.innerHTML = ''
   container.appendChild(btn)
-}
-
-/**
- * Startet den "Mit Apple anmelden"-Flow über Sign in with Apple JS.
- * Erfordert eine echte Services-ID (siehe VITE_APPLE_CLIENT_ID) mit
- * verifizierter Domain im Apple Developer Portal — funktioniert NICHT
- * auf localhost, nur auf einer echten, dort hinterlegten Domain.
- */
-export async function loginWithApple(onDone, onError) {
-  if (!APPLE_CLIENT_ID) {
-    if (onError) onError('Apple-Login noch nicht eingerichtet (VITE_APPLE_CLIENT_ID fehlt).')
-    return
-  }
-  try {
-    await loadScriptOnce('https://appleid.cdn-apple.com/appleauth/static/jsapi/appleid/1/en_US/appleid.auth.js', 'mm-apple-jsapi')
-    window.AppleID.auth.init({
-      clientId: APPLE_CLIENT_ID,
-      scope: 'name email',
-      redirectURI: window.location.origin,
-      usePopup: true,
-    })
-    const res = await window.AppleID.auth.signIn()
-    const payload = decodeJwtPayload(res.authorization.id_token)
-    const name = res.user ? `${res.user.name?.firstName || ''} ${res.user.name?.lastName || ''}`.trim() : ''
-    loginOrRegisterFromProvider('apple', { sub: payload.sub, email: payload.email, name })
-    if (typeof onDone === 'function') onDone()
-  } catch (err) {
-    if (onError) onError('Apple-Login fehlgeschlagen oder abgebrochen.')
-  }
 }
 
 function read(key, fallback) {

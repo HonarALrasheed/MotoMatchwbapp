@@ -453,6 +453,9 @@ async function _loadInvites() {
   }))
 }
 
+/** Erkennt eine vom Server vergebene uuid (im Gegensatz zu lokalen 'rp-…'-IDs). */
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+
 /* ── UID ↔ Username Mapping ─────────────────────────────────────── */
 function _uidToUsername(uid) {
   for (const [name, p] of Object.entries(_profileCache)) {
@@ -1002,6 +1005,62 @@ async function _handleNewOwnedGroup(groupId, attempt = 0) {
 }
 
 /* ══════════════════════════════════════════════════════════════════
+   SCHREIBEN MIT ROLLBACK
+   ══════════════════════════════════════════════════════════════════ */
+
+/**
+ * Sichert ein optimistisches lokales Update gegen die Datenbank ab.
+ *
+ * Das häufigste Fehlermuster in dieser Datei war: lokal ändern, dann
+ * `await supabase…` ohne einen Blick auf das Ergebnis. Die Oberfläche meldete
+ * Erfolg, die Datenbank hatte nichts — der Moderator sah den Nutzer
+ * verschwinden, der Nutzer blieb Mitglied.
+ *
+ * Der Rollback ist PFLICHT und deshalb ein eigener Parameter: fehlt er, wirft
+ * die Funktion. Wer wirklich nichts zurückzurollen hat, übergibt `() => {}`
+ * und begründet das an Ort und Stelle.
+ *
+ * Vorlage waren joinGroup() und sendFriendRequest() — die beiden Funktionen,
+ * die es von Anfang an richtig gemacht haben.
+ *
+ * @param {string} where Kurzname der Operation; geht in Log und Sentry.
+ * @param {() => PromiseLike<{error?: any, data?: any}>} op Der Supabase-Aufruf.
+ * @param {() => void} rollback Macht das lokale Update rückgängig.
+ * @param {{expectRows?: boolean}} [opts] `expectRows: true` wertet "kein
+ *   Treffer" als Fehler. Genau das war BEFUND 1: eine RLS-Policy lässt die
+ *   Zeile nicht durch, PostgREST meldet aber keinen Fehler, sondern null
+ *   veränderte Zeilen. Dafür muss `op` ein `.select(…)` anhängen, sonst kommen
+ *   die veränderten Zeilen gar nicht zurück.
+ * @returns {Promise<{ok: true} | {ok: false, error: string}>}
+ */
+async function write(where, op, rollback, { expectRows = false } = {}) {
+  if (typeof rollback !== 'function') {
+    throw new TypeError(`write(${where}): Rollback fehlt — er ist Pflicht, nicht optional.`)
+  }
+
+  let error = null
+  try {
+    const res = (await op()) || {}
+    error = res.error || null
+    if (!error && expectRows && Array.isArray(res.data) && res.data.length === 0) {
+      error = { code: 'NO_ROWS', message: 'Die Datenbank hat die Änderung abgelehnt (keine Berechtigung).' }
+    }
+  } catch (err) {
+    // Netzwerkabbruch: supabase-js wirft, statt { error } zu liefern.
+    error = err
+  }
+  if (!error) return { ok: true }
+
+  // Erst zurückrollen, dann melden — die Oberfläche darf keinen Zustand
+  // zeigen, den es nicht gibt.
+  try { rollback() } catch (rbErr) { report(rbErr, { where: `community-api.${where}.rollback` }) }
+  const message = error.message || 'Speichern fehlgeschlagen.'
+  console.error('[API]', where, message)
+  report(error, { where: `community-api.${where}`, code: error.code })
+  return { ok: false, error: message }
+}
+
+/* ══════════════════════════════════════════════════════════════════
    PROFIL
    ══════════════════════════════════════════════════════════════════ */
 
@@ -1037,8 +1096,9 @@ export async function setMyProfile(data) {
   const prev = _profileCache[_myUsername] || {}
   _profileCache[_myUsername] = { ...prev, ...data }
   if (OFFLINE_MODE || !_myUid) {
-    lsWrite(LS_PROFILE, _profileCache); return
+    lsWrite(LS_PROFILE, _profileCache); return { ok: true }
   }
+  const rollback = () => { _profileCache[_myUsername] = prev }
   const dbPatch = {
     display_name:  data.displayName  ?? prev.displayName,
     bio:           data.bio          ?? prev.bio,
@@ -1052,14 +1112,15 @@ export async function setMyProfile(data) {
     notif_sounds:  data.notifySounds ?? prev.notifySounds,
     notif_desktop: data.notifyDesktop ?? prev.notifyDesktop,
   }
-  const { error } = await supabase.from('profiles').update(dbPatch).eq('id', _myUid)
-  if (error?.code === 'PGRST204') {
+  return write('setMyProfile', async () => {
+    const first = await supabase.from('profiles').update(dbPatch).eq('id', _myUid)
+    if (first.error?.code !== 'PGRST204') return first
     // `avatar`-Spalte fehlt noch (Migration aus supabase/schema.sql nicht ausgeführt) —
     // ohne sie erneut speichern, damit die übrigen Felder nicht mitscheitern.
     console.warn('[Community] Profilbild wird nicht gespeichert — Spalte `avatar` fehlt in Supabase. Siehe supabase/schema.sql.')
     const { avatar, ...rest } = dbPatch
-    await supabase.from('profiles').update(rest).eq('id', _myUid)
-  }
+    return supabase.from('profiles').update(rest).eq('id', _myUid)
+  }, rollback)
 }
 
 /* ══════════════════════════════════════════════════════════════════
@@ -1073,6 +1134,20 @@ export async function setGroups(groups) {
   if (OFFLINE_MODE || !_myUid) { lsWrite(LS_GROUPS, groups); return }
   // Nur im Offline-Modus als Ganzes gespeichert;
   // Online wird jede Operation einzeln per Supabase-Aufruf ausgeführt.
+}
+
+/**
+ * Aufräumen nach einer halb erstellten Gruppe. Bewusst OHNE write(): lokal ist
+ * noch nichts passiert (die Gruppe kommt erst am Ende in _groups), es gibt also
+ * nichts zurückzurollen. Scheitert das Aufräumen, bleibt eine leere Gruppe ohne
+ * Mitglieder und ohne Kanal stehen — die fällt niemandem auf, deshalb muss sie
+ * wenigstens gemeldet werden.
+ */
+async function _cleanupOrphanGroup(groupId) {
+  const { error } = await supabase.from('groups').delete().eq('id', groupId)
+  if (!error) return
+  console.error('[API] Verwaiste Gruppe konnte nicht entfernt werden:', error.message)
+  report(error, { where: 'community-api.createGroup.cleanup', code: error.code })
 }
 
 export async function createGroup({ name, desc, category, joinMode, eventAt, meetingPoint }) {
@@ -1112,12 +1187,12 @@ export async function createGroup({ name, desc, category, joinMode, eventAt, mee
   const { error: gmErr } = await supabase.from('group_members').insert({
     group_id: gRow.id, user_id: _myUid, role: 'owner',
   })
-  if (gmErr) { await supabase.from('groups').delete().eq('id', gRow.id); return { ok: false, error: gmErr.message } }
+  if (gmErr) { await _cleanupOrphanGroup(gRow.id); return { ok: false, error: gmErr.message } }
 
   const { data: cRow, error: cErr } = await supabase.from('channels').insert({
     group_id: gRow.id, name: 'allgemein', position: 0,
   }).select().single()
-  if (cErr) { await supabase.from('groups').delete().eq('id', gRow.id); return { ok: false, error: cErr.message } }
+  if (cErr) { await _cleanupOrphanGroup(gRow.id); return { ok: false, error: cErr.message } }
 
   const g = {
     id: gRow.id, name, desc, category, joinMode: joinMode || 'open',
@@ -1134,9 +1209,14 @@ export async function createGroup({ name, desc, category, joinMode, eventAt, mee
 }
 
 export async function deleteGroup(groupId) {
-  _groups = _groups.filter(g => g.id !== groupId)
-  if (OFFLINE_MODE || !_myUid) { lsWrite(LS_GROUPS, _groups); return }
-  await supabase.from('groups').delete().eq('id', groupId)
+  const idx = _groups.findIndex(g => g.id === groupId)
+  if (idx < 0) return { ok: false, error: 'Gruppe nicht gefunden.' }
+  const [removed] = _groups.splice(idx, 1)
+  if (OFFLINE_MODE || !_myUid) { lsWrite(LS_GROUPS, _groups); return { ok: true } }
+  return write('deleteGroup',
+    () => supabase.from('groups').delete().eq('id', groupId).select('id'),
+    () => { _groups.splice(idx, 0, removed) },
+    { expectRows: true })
 }
 
 /**
@@ -1169,33 +1249,53 @@ export async function createVoiceRoom(groupId, title, capacity) {
 
 export async function deleteVoiceRoom(groupId, roomId) {
   const g = _groups.find(x => x.id === groupId)
-  if (g) g.voiceRooms = (g.voiceRooms || []).filter(r => r.id !== roomId)
-  if (OFFLINE_MODE || !_myUid) { lsWrite(LS_GROUPS, _groups); return }
-  await supabase.from('voice_rooms').delete().eq('id', roomId)
-  _broadcastGroupLiveEvent(groupId, 'room_deleted', { roomId })
+  if (!g) return { ok: false, error: 'Gruppe nicht gefunden.' }
+  const rooms = (g.voiceRooms ||= [])
+  const idx = rooms.findIndex(r => r.id === roomId)
+  if (idx < 0) return { ok: true }   // schon weg
+  const [removed] = rooms.splice(idx, 1)
+  if (OFFLINE_MODE || !_myUid) { lsWrite(LS_GROUPS, _groups); return { ok: true } }
+
+  const res = await write('deleteVoiceRoom',
+    () => supabase.from('voice_rooms').delete().eq('id', roomId).select('id'),
+    () => { rooms.splice(idx, 0, removed) },
+    { expectRows: true })
+  // Erst nach dem Erfolg broadcasten: sonst räumen die anderen Mitglieder
+  // einen Talk aus ihrer Ansicht, den es noch gibt.
+  if (res.ok) _broadcastGroupLiveEvent(groupId, 'room_deleted', { roomId })
+  return res
 }
 
 export async function updateGroup(groupId, patch) {
   const g = _groups.find(x => x.id === groupId)
-  if (!g) return
+  if (!g) return { ok: false, error: 'Gruppe nicht gefunden.' }
+  // Vorzustand genau der geänderten Schlüssel merken. `k in g` ist nötig, weil
+  // eventAt/meetingPoint optional sind — "war undefined" und "gab es nicht"
+  // sind für einen späteren Object.assign nicht dasselbe.
+  const before = Object.keys(patch).map(k => [k, k in g, g[k]])
+  const rollback = () => {
+    for (const [k, had, val] of before) { if (had) g[k] = val; else delete g[k] }
+  }
   Object.assign(g, patch)
-  if (OFFLINE_MODE || !_myUid) { lsWrite(LS_GROUPS, _groups); return }
+  if (OFFLINE_MODE || !_myUid) { lsWrite(LS_GROUPS, _groups); return { ok: true } }
   const dbPatch = {}
   if ('name'         in patch) dbPatch.name          = patch.name
   if ('desc'         in patch) dbPatch.description   = patch.desc
   if ('joinMode'     in patch) dbPatch.join_mode      = patch.joinMode
   if ('eventAt'      in patch) dbPatch.event_at       = patch.eventAt ? new Date(patch.eventAt).toISOString() : null
   if ('meetingPoint' in patch) dbPatch.meeting_point  = patch.meetingPoint || null
-  if (!Object.keys(dbPatch).length) return
+  if (!Object.keys(dbPatch).length) return { ok: true }
 
-  const { error } = await supabase.from('groups').update(dbPatch).eq('id', groupId)
-  if (error && ('event_at' in dbPatch || 'meeting_point' in dbPatch)) {
+  return write('updateGroup', async () => {
+    const first = await supabase.from('groups').update(dbPatch).eq('id', groupId)
+    if (!first.error || !('event_at' in dbPatch || 'meeting_point' in dbPatch)) return first
     // Migration (event_at/meeting_point-Spalten) evtl. noch nicht ausgeführt — Rest der
     // Änderung (Name/Beschreibung/Beitrittsmodus) trotzdem speichern.
     delete dbPatch.event_at; delete dbPatch.meeting_point
     console.warn('[API] event_at/meeting_point nicht gespeichert (Migration evtl. noch nicht ausgeführt):', 'siehe supabase/schema.sql')
-    if (Object.keys(dbPatch).length) await supabase.from('groups').update(dbPatch).eq('id', groupId)
-  }
+    if (!Object.keys(dbPatch).length) return first
+    return supabase.from('groups').update(dbPatch).eq('id', groupId)
+  }, rollback)
 }
 
 export async function joinGroup(groupId) {
@@ -1214,52 +1314,121 @@ export async function joinGroup(groupId) {
 
 export async function leaveGroup(groupId) {
   const g = _groups.find(x => x.id === groupId)
-  if (!g) return
+  if (!g) return { ok: false, error: 'Gruppe nicht gefunden.' }
+  const before = g.members
   g.members = g.members.filter(m => m !== _myUsername)
-  if (OFFLINE_MODE || !_myUid) { lsWrite(LS_GROUPS, _groups); return }
-  await supabase.from('group_members').delete()
-    .eq('group_id', groupId).eq('user_id', _myUid)
+  if (OFFLINE_MODE || !_myUid) { lsWrite(LS_GROUPS, _groups); return { ok: true } }
+  return write('leaveGroup',
+    () => supabase.from('group_members').delete()
+      .eq('group_id', groupId).eq('user_id', _myUid).select('id'),
+    () => { g.members = before },
+    { expectRows: true })
 }
 
 export async function kickMember(groupId, username) {
-  const g = _groups.find(x => x.id === groupId); if (!g) return
-  g.members = g.members.filter(m => m.toLowerCase() !== username.toLowerCase())
-  g.moderators = (g.moderators || []).filter(m => m.toLowerCase() !== username.toLowerCase())
-  if (OFFLINE_MODE || !_myUid) { lsWrite(LS_GROUPS, _groups); return }
-  const uid = _usernameToUid(username); if (!uid) return
-  await supabase.from('group_members').delete().eq('group_id', groupId).eq('user_id', uid)
+  const g = _groups.find(x => x.id === groupId)
+  if (!g) return { ok: false, error: 'Gruppe nicht gefunden.' }
+  const low = username.toLowerCase()
+  const beforeMembers = g.members
+  const beforeMods    = g.moderators
+  g.members    = g.members.filter(m => m.toLowerCase() !== low)
+  g.moderators = (g.moderators || []).filter(m => m.toLowerCase() !== low)
+  const rollback = () => { g.members = beforeMembers; g.moderators = beforeMods }
+
+  if (OFFLINE_MODE || !_myUid) { lsWrite(LS_GROUPS, _groups); return { ok: true } }
+  // Vorher wurde hier nur `return` gemacht — die Liste blieb lokal gefiltert,
+  // ohne dass je etwas geschrieben wurde. Genau der Zustand, den der Audit meint.
+  const uid = _usernameToUid(username)
+  if (!uid) { rollback(); return { ok: false, error: `${username} ist unbekannt.` } }
+  return write('kickMember',
+    () => supabase.from('group_members').delete()
+      .eq('group_id', groupId).eq('user_id', uid).select('id'),
+    rollback,
+    { expectRows: true })
 }
 
+/*
+ * Zwei Tabellen, keine Transaktion — PostgREST kennt keine. Die Reihenfolge ist
+ * deshalb Absicht: ERST der Bann, DANN der Rauswurf. Bleibt es nach Schritt 1
+ * stehen, ist der Nutzer gesperrt, steht aber noch in der Mitgliederliste —
+ * sichtbar und mit einem zweiten Versuch zu beheben. Andersherum wäre er
+ * spurlos draußen und könnte sofort wieder beitreten.
+ * Schritt 1 wird bei einem Fehler in Schritt 2 bewusst NICHT per Gegen-Write
+ * zurückgenommen: der könnte selbst scheitern, und eine frühere Mod-Rolle käme
+ * dabei ohnehin nur als 'member' zurück.
+ */
 export async function banMember(groupId, username) {
-  const g = _groups.find(x => x.id === groupId); if (!g) return
-  g.members    = g.members.filter(m => m.toLowerCase() !== username.toLowerCase())
-  g.moderators = (g.moderators || []).filter(m => m.toLowerCase() !== username.toLowerCase())
+  const g = _groups.find(x => x.id === groupId)
+  if (!g) return { ok: false, error: 'Gruppe nicht gefunden.' }
+  const low = username.toLowerCase()
+  const beforeMembers = g.members
+  const beforeMods    = g.moderators
+  const beforeBanned  = g.banned
+  g.members    = g.members.filter(m => m.toLowerCase() !== low)
+  g.moderators = (g.moderators || []).filter(m => m.toLowerCase() !== low)
   g.banned     = Array.from(new Set([...(g.banned || []), username]))
-  if (OFFLINE_MODE || !_myUid) { lsWrite(LS_GROUPS, _groups); return }
-  const uid = _usernameToUid(username); if (!uid) return
-  await supabase.from('group_members').delete().eq('group_id', groupId).eq('user_id', uid)
-  await supabase.from('group_bans').insert({ group_id: groupId, user_id: uid, banned_by: _myUid })
+  const rollbackAll = () => {
+    g.members = beforeMembers; g.moderators = beforeMods; g.banned = beforeBanned
+  }
+
+  if (OFFLINE_MODE || !_myUid) { lsWrite(LS_GROUPS, _groups); return { ok: true } }
+  const uid = _usernameToUid(username)
+  if (!uid) { rollbackAll(); return { ok: false, error: `${username} ist unbekannt.` } }
+
+  const banRes = await write('banMember.ban', async () => {
+    const res = await supabase.from('group_bans')
+      .insert({ group_id: groupId, user_id: uid, banned_by: _myUid })
+    // 23505 = unique_violation: schon gesperrt. Gewünschter Endzustand, kein Fehler.
+    return res.error?.code === '23505' ? { error: null } : res
+  }, rollbackAll)
+  if (!banRes.ok) return banRes
+
+  const kickRes = await write('banMember.kick',
+    () => supabase.from('group_members').delete()
+      .eq('group_id', groupId).eq('user_id', uid).select('id'),
+    () => { g.members = beforeMembers; g.moderators = beforeMods })
+  if (!kickRes.ok) {
+    return { ok: false, error: `${username} ist gesperrt, konnte aber nicht aus der Mitgliederliste entfernt werden. Bitte erneut versuchen.` }
+  }
+  return { ok: true }
 }
 
 export async function unbanMember(groupId, username) {
-  const g = _groups.find(x => x.id === groupId); if (!g) return
+  const g = _groups.find(x => x.id === groupId)
+  if (!g) return { ok: false, error: 'Gruppe nicht gefunden.' }
+  const before = g.banned
   g.banned = (g.banned || []).filter(b => b.toLowerCase() !== username.toLowerCase())
-  if (OFFLINE_MODE || !_myUid) { lsWrite(LS_GROUPS, _groups); return }
-  const uid = _usernameToUid(username); if (!uid) return
-  await supabase.from('group_bans').delete().eq('group_id', groupId).eq('user_id', uid)
+  const rollback = () => { g.banned = before }
+
+  if (OFFLINE_MODE || !_myUid) { lsWrite(LS_GROUPS, _groups); return { ok: true } }
+  const uid = _usernameToUid(username)
+  if (!uid) { rollback(); return { ok: false, error: `${username} ist unbekannt.` } }
+  return write('unbanMember',
+    () => supabase.from('group_bans').delete()
+      .eq('group_id', groupId).eq('user_id', uid).select('id'),
+    rollback,
+    { expectRows: true })
 }
 
 export async function toggleMod(groupId, username) {
-  const g = _groups.find(x => x.id === groupId); if (!g) return
+  const g = _groups.find(x => x.id === groupId)
+  if (!g) return { ok: false, error: 'Gruppe nicht gefunden.' }
   g.moderators = g.moderators || []
+  const before = [...g.moderators]
   const idx = g.moderators.findIndex(m => m.toLowerCase() === username.toLowerCase())
   const isMod = idx >= 0
   if (isMod) g.moderators.splice(idx, 1)
   else g.moderators.push(username)
-  if (OFFLINE_MODE || !_myUid) { lsWrite(LS_GROUPS, _groups); return }
-  const uid = _usernameToUid(username); if (!uid) return
-  await supabase.from('group_members').update({ role: isMod ? 'member' : 'mod' })
-    .eq('group_id', groupId).eq('user_id', uid)
+  const rollback = () => { g.moderators = before }
+
+  if (OFFLINE_MODE || !_myUid) { lsWrite(LS_GROUPS, _groups); return { ok: true } }
+  const uid = _usernameToUid(username)
+  if (!uid) { rollback(); return { ok: false, error: `${username} ist unbekannt.` } }
+  return write('toggleMod',
+    () => supabase.from('group_members').update({ role: isMod ? 'member' : 'mod' })
+      .eq('group_id', groupId).eq('user_id', uid).select('id'),
+    rollback,
+    { expectRows: true })
 }
 
 export function isGroupBanned(g, username) {
@@ -1268,21 +1437,27 @@ export function isGroupBanned(g, username) {
 
 export async function toggleRsvp(groupId) {
   const myName = _myUsername
-  const g = _groups.find(x => x.id === groupId); if (!g) return
+  const g = _groups.find(x => x.id === groupId)
+  if (!g) return { ok: false, error: 'Gruppe nicht gefunden.' }
   g.rsvp = g.rsvp || []
   const idx = g.rsvp.findIndex(u => u.toLowerCase() === myName.toLowerCase())
   const wasOn = idx >= 0
   if (wasOn) g.rsvp.splice(idx, 1)
   else g.rsvp.push(myName)
-  if (OFFLINE_MODE || !_myUid) { lsWrite(LS_GROUPS, _groups); return }
-
-  if (wasOn) {
-    const { error } = await supabase.from('group_rsvps').delete().eq('group_id', groupId).eq('user_id', _myUid)
-    if (error) console.warn('[API] RSVP nicht gespeichert (group_rsvps evtl. noch nicht migriert):', error.message)
-  } else {
-    const { error } = await supabase.from('group_rsvps').insert({ group_id: groupId, user_id: _myUid })
-    if (error) console.warn('[API] RSVP nicht gespeichert (group_rsvps evtl. noch nicht migriert):', error.message)
+  const rollback = () => {
+    if (wasOn) g.rsvp.splice(idx, 0, myName)
+    else g.rsvp = g.rsvp.filter(u => u.toLowerCase() !== myName.toLowerCase())
   }
+  if (OFFLINE_MODE || !_myUid) { lsWrite(LS_GROUPS, _groups); return { ok: true } }
+
+  // Fehlt die Tabelle group_rsvps noch (Migration nicht gelaufen), wird die
+  // Zusage jetzt zurückgerollt statt nur in die Konsole geschrieben — ein
+  // "Ich fahre mit", das nur der Anzeigende sieht, ist schlimmer als keins.
+  return write('toggleRsvp',
+    () => wasOn
+      ? supabase.from('group_rsvps').delete().eq('group_id', groupId).eq('user_id', _myUid)
+      : supabase.from('group_rsvps').insert({ group_id: groupId, user_id: _myUid }),
+    rollback)
 }
 
 /* ── Kanäle ──────────────────────────────────────────────────────── */
@@ -1305,11 +1480,20 @@ export async function createChannel(groupId, name) {
 }
 
 export async function deleteChannel(groupId, channelId) {
-  const g = _groups.find(x => x.id === groupId); if (!g) return
-  g.channels = (g.channels || []).filter(c => c.id !== channelId)
-  if (OFFLINE_MODE || !_myUid) { lsWrite(LS_GROUPS, _groups); return }
-  await supabase.from('channels').delete().eq('id', channelId)
-  _broadcastGroupLiveEvent(groupId, 'channel_deleted', { channelId })
+  const g = _groups.find(x => x.id === groupId)
+  if (!g) return { ok: false, error: 'Gruppe nicht gefunden.' }
+  const channels = (g.channels ||= [])
+  const idx = channels.findIndex(c => c.id === channelId)
+  if (idx < 0) return { ok: true }   // schon weg
+  const [removed] = channels.splice(idx, 1)
+  if (OFFLINE_MODE || !_myUid) { lsWrite(LS_GROUPS, _groups); return { ok: true } }
+
+  const res = await write('deleteChannel',
+    () => supabase.from('channels').delete().eq('id', channelId).select('id'),
+    () => { channels.splice(idx, 0, removed) },
+    { expectRows: true })
+  if (res.ok) _broadcastGroupLiveEvent(groupId, 'channel_deleted', { channelId })
+  return res
 }
 
 /* ── Nachrichten in Gruppen ──────────────────────────────────────── */
@@ -1446,20 +1630,41 @@ export async function sendGroupMessage(groupId, channelId, text, replyTo = null,
 }
 
 export async function editMessageInGroup(groupId, msgId, newText) {
-  const g = _groups.find(x => x.id === groupId); if (!g) return
+  const g = _groups.find(x => x.id === groupId)
+  if (!g) return { ok: false, error: 'Gruppe nicht gefunden.' }
   let msg = null
   for (const ch of (g.channels || [])) { msg = ch.messages.find(m => m.id === msgId); if (msg) break }
-  if (!msg) return
-  msg.text = newText; msg.editedTs = Date.now()
-  if (OFFLINE_MODE || !_myUid) { lsWrite(LS_GROUPS, _groups); return }
-  await supabase.from('messages').update({ text: newText, edited_at: new Date().toISOString() }).eq('id', msgId)
+  if (!msg) return { ok: false, error: 'Nachricht nicht gefunden.' }
+  const rollback = _editMessageLocal(msg, newText)
+  if (OFFLINE_MODE || !_myUid) { lsWrite(LS_GROUPS, _groups); return { ok: true } }
+  return write('editMessageInGroup',
+    () => supabase.from('messages')
+      .update({ text: newText, edited_at: new Date().toISOString() }).eq('id', msgId).select('id'),
+    rollback,
+    { expectRows: true })
 }
 
 export async function deleteGroupMessage(groupId, msgId) {
-  const g = _groups.find(x => x.id === groupId); if (!g) return
-  for (const ch of (g.channels || [])) ch.messages = ch.messages.filter(m => m.id !== msgId)
-  if (OFFLINE_MODE || !_myUid) { lsWrite(LS_GROUPS, _groups); lsWrite(LS_MSG_REPORTS, _msgReports.filter(r => !(r.groupId === groupId && r.msgId === msgId))); return }
-  await supabase.from('messages').delete().eq('id', msgId)
+  const g = _groups.find(x => x.id === groupId)
+  if (!g) return { ok: false, error: 'Gruppe nicht gefunden.' }
+  // Position merken, damit die Nachricht bei einem Fehler wieder an ihrer
+  // Stelle im Verlauf landet und nicht am Ende.
+  const removed = []
+  for (const ch of (g.channels || [])) {
+    const idx = ch.messages.findIndex(m => m.id === msgId)
+    if (idx >= 0) { removed.push({ ch, idx, msg: ch.messages[idx] }); ch.messages.splice(idx, 1) }
+  }
+  const rollback = () => { for (const r of removed) r.ch.messages.splice(r.idx, 0, r.msg) }
+
+  if (OFFLINE_MODE || !_myUid) {
+    lsWrite(LS_GROUPS, _groups)
+    lsWrite(LS_MSG_REPORTS, _msgReports.filter(r => !(r.groupId === groupId && r.msgId === msgId)))
+    return { ok: true }
+  }
+  return write('deleteGroupMessage',
+    () => supabase.from('messages').delete().eq('id', msgId).select('id'),
+    rollback,
+    { expectRows: true })
 }
 
 /* ── Reaktionen ───────────────────────────────────────────────────
@@ -1511,32 +1716,28 @@ function _toggleReactionLocal(msg, emoji, username) {
  * den alten jsonb-Weg zurück — mit dessen bekannter Einschränkung, aber besser
  * als eine Funktion, die bis zum Ausführen des SQL gar nichts mehr tut.
  */
-async function _persistReaction(msgId, emoji, on, reactionsForFallback, rollback) {
-  const { error } = on
-    ? await supabase.from('message_reactions').insert({ message_id: msgId, user_id: _myUid, emoji })
-    : await supabase.from('message_reactions').delete()
-        .eq('message_id', msgId).eq('user_id', _myUid).eq('emoji', emoji)
+function _persistReaction(msgId, emoji, on, reactionsForFallback, rollback) {
+  return write('toggleReaction', async () => {
+    const res = on
+      ? await supabase.from('message_reactions').insert({ message_id: msgId, user_id: _myUid, emoji })
+      : await supabase.from('message_reactions').delete()
+          .eq('message_id', msgId).eq('user_id', _myUid).eq('emoji', emoji)
+    if (!res.error) return res
 
-  if (!error) return { ok: true }
-
-  if (_isMissingTable(error)) {
-    console.warn('[API] Tabelle message_reactions fehlt — Migration aus supabase/schema.sql ausführen. Reaktionen auf fremde Nachrichten überleben bis dahin kein Neuladen.')
-    const { error: legacyErr } = await supabase.from('messages')
-      .update({ reactions: reactionsForFallback }).eq('id', msgId)
-    if (!legacyErr) return { ok: true }
-    rollback()
-    report(legacyErr, { where: 'community-api._persistReaction.legacy' })
-    return { ok: false, error: legacyErr.message }
-  }
-
-  // 23505 = unique_violation: die Reaktion steht schon in der Tabelle (Doppelklick,
-  // parallel geöffneter Tab). Der gewünschte Endzustand ist erreicht, kein Fehler.
-  if (on && error.code === '23505') return { ok: true }
-
-  rollback()
-  console.error('[API] Reaktion nicht gespeichert:', error.message)
-  report(error, { where: 'community-api._persistReaction', code: error.code })
-  return { ok: false, error: error.message }
+    if (_isMissingTable(res.error)) {
+      console.warn('[API] Tabelle message_reactions fehlt — Migration aus supabase/schema.sql ausführen.')
+      // Mit .select('id') + expectRows fällt hier auf, was vorher niemand sah:
+      // auf einer FREMDEN Nachricht trifft dieses UPDATE wegen msg_update null
+      // Zeilen. Bis die Migration läuft, sagt die Oberfläche das jetzt wenigstens,
+      // statt eine Reaktion zu zeigen, die kein Neuladen überlebt.
+      return supabase.from('messages')
+        .update({ reactions: reactionsForFallback }).eq('id', msgId).select('id')
+    }
+    // 23505 = unique_violation: die Reaktion steht schon da (Doppelklick,
+    // zweiter Tab). Der gewünschte Endzustand ist erreicht, kein Fehler.
+    if (on && res.error.code === '23505') return { error: null }
+    return res
+  }, rollback, { expectRows: true })
 }
 
 export async function toggleReactionInGroup(groupId, msgId, emoji) {
@@ -1551,6 +1752,23 @@ export async function toggleReactionInGroup(groupId, msgId, emoji) {
   return _persistReaction(msgId, emoji, on, msg.reactions, () => _toggleReactionLocal(msg, emoji, myName))
 }
 
+/**
+ * Text einer Nachricht lokal ersetzen und den passenden Rollback zurückgeben.
+ * `editedTs` kann vorher gefehlt haben — dann muss der Rollback es wieder
+ * entfernen, nicht auf undefined setzen (renderText prüft auf Anwesenheit).
+ */
+function _editMessageLocal(msg, newText) {
+  const prevText   = msg.text
+  const hadEdited  = 'editedTs' in msg
+  const prevEdited = msg.editedTs
+  msg.text = newText
+  msg.editedTs = Date.now()
+  return () => {
+    msg.text = prevText
+    if (hadEdited) msg.editedTs = prevEdited; else delete msg.editedTs
+  }
+}
+
 /* ── Nachrichten-Meldungen ──────────────────────────────────────── */
 export function getMsgReports() { return _msgReports }
 export function reportsForGroup(groupId) { return _msgReports.filter(r => r.groupId === groupId) }
@@ -1559,19 +1777,34 @@ export async function reportMessage(groupId, msgId, msgAuthor, msgText, channelI
   const myName = _myUsername
   if (_msgReports.some(r => r.groupId === groupId && r.msgId === msgId && r.reportedBy === myName))
     return { ok: false, error: 'Du hast diese Nachricht bereits gemeldet.' }
-  const report = { id: 'rp-' + Date.now(), groupId, channelId, msgId, msgAuthor, msgText, reportedBy: myName, ts: Date.now() }
-  _msgReports.push(report)
+  // `report` schattet hier bewusst nicht den Sentry-Helfer aus monitoring.js —
+  // deshalb heißt der Eintrag entry.
+  const entry = { id: 'rp-' + Date.now(), groupId, channelId, msgId, msgAuthor, msgText, reportedBy: myName, ts: Date.now() }
+  _msgReports.push(entry)
   if (OFFLINE_MODE || !_myUid) { lsWrite(LS_MSG_REPORTS, _msgReports); return { ok: true } }
-  await supabase.from('message_reports').insert({
-    message_id: msgId, group_id: groupId, reported_by: _myUid,
-  })
-  return { ok: true }
+  return write('reportMessage',
+    () => supabase.from('message_reports').insert({
+      message_id: msgId, group_id: groupId, reported_by: _myUid,
+    }),
+    () => { _msgReports = _msgReports.filter(r => r.id !== entry.id) })
 }
 
 export async function dismissReport(reportId) {
-  _msgReports = _msgReports.filter(r => r.id !== reportId)
-  if (OFFLINE_MODE || !_myUid) { lsWrite(LS_MSG_REPORTS, _msgReports); return }
-  await supabase.from('message_reports').delete().eq('id', reportId)
+  const idx = _msgReports.findIndex(r => r.id === reportId)
+  if (idx < 0) return { ok: true }
+  const [removed] = _msgReports.splice(idx, 1)
+  if (OFFLINE_MODE || !_myUid) { lsWrite(LS_MSG_REPORTS, _msgReports); return { ok: true } }
+
+  // Online trägt jeder Eintrag eine lokal vergebene 'rp-…'-ID: message_reports
+  // wird beim Start gar nicht geladen (siehe _loadGroups — die Liste enthält
+  // nur die in dieser Sitzung erzeugten Meldungen), und reportMessage bekommt
+  // die vom Server vergebene uuid nie zu sehen. Ein DELETE mit dieser ID würde
+  // an der uuid-Prüfung scheitern und das Wegklicken unmöglich machen.
+  // Deshalb: nur echte uuids löschen, alles andere bleibt rein lokal.
+  if (!UUID_RE.test(reportId)) return { ok: true }
+  return write('dismissReport',
+    () => supabase.from('message_reports').delete().eq('id', reportId),
+    () => { _msgReports.splice(idx, 0, removed) })
 }
 
 /* ── Gruppe beitreten / Anfragen ─────────────────────────────────── */
@@ -1603,21 +1836,56 @@ export async function sendJoinRequest(groupId, text) {
   return { ok: true }
 }
 
+/*
+ * Zwei Tabellen, keine Transaktion. Reihenfolge: erst aufnehmen, dann die
+ * Anfrage wegräumen. Bleibt es nach Schritt 1 stehen, ist der Nutzer drin und
+ * die Anfrage steht noch da — sichtbar und wiederholbar. Andersherum wäre die
+ * Anfrage weg und niemand aufgenommen.
+ */
 export async function acceptGroupRequest(reqId) {
-  const r = _groupRequests.find(x => x.id === reqId); if (!r) return
+  const r = _groupRequests.find(x => x.id === reqId)
+  if (!r) return { ok: false, error: 'Anfrage nicht gefunden.' }
   const g = _groups.find(x => x.id === r.groupId)
-  if (g && !g.members.includes(r.from)) g.members.push(r.from)
+  const added = !!g && !g.members.includes(r.from)
+  if (added) g.members.push(r.from)
+  const beforeReqs = _groupRequests
   _groupRequests = _groupRequests.filter(x => x.id !== reqId)
-  if (OFFLINE_MODE || !_myUid) { lsWrite(LS_GROUPS, _groups); lsWrite(LS_GROUP_REQUESTS, _groupRequests); return }
+  const rollbackAll = () => {
+    if (added) g.members = g.members.filter(m => m !== r.from)
+    _groupRequests = beforeReqs
+  }
+
+  if (OFFLINE_MODE || !_myUid) {
+    lsWrite(LS_GROUPS, _groups); lsWrite(LS_GROUP_REQUESTS, _groupRequests); return { ok: true }
+  }
   const uid = _usernameToUid(r.from)
-  if (uid) await supabase.from('group_members').insert({ group_id: r.groupId, user_id: uid, role: 'member' })
-  await supabase.from('group_join_requests').delete().eq('id', reqId)
+  if (!uid) { rollbackAll(); return { ok: false, error: `${r.from} ist unbekannt.` } }
+
+  const joinRes = await write('acceptGroupRequest.join', async () => {
+    const res = await supabase.from('group_members')
+      .insert({ group_id: r.groupId, user_id: uid, role: 'member' })
+    // 23505 = unique_violation: schon Mitglied. Gewünschter Endzustand.
+    return res.error?.code === '23505' ? { error: null } : res
+  }, rollbackAll)
+  if (!joinRes.ok) return joinRes
+
+  const cleanRes = await write('acceptGroupRequest.cleanup',
+    () => supabase.from('group_join_requests').delete().eq('id', reqId),
+    () => { _groupRequests = beforeReqs })
+  if (!cleanRes.ok) {
+    return { ok: false, error: `${r.from} wurde aufgenommen, die Anfrage konnte aber nicht geschlossen werden.` }
+  }
+  return { ok: true }
 }
 
 export async function declineGroupRequest(reqId) {
-  _groupRequests = _groupRequests.filter(x => x.id !== reqId)
-  if (OFFLINE_MODE || !_myUid) { lsWrite(LS_GROUP_REQUESTS, _groupRequests); return }
-  await supabase.from('group_join_requests').delete().eq('id', reqId)
+  const before = _groupRequests
+  if (!before.some(x => x.id === reqId)) return { ok: true }
+  _groupRequests = before.filter(x => x.id !== reqId)
+  if (OFFLINE_MODE || !_myUid) { lsWrite(LS_GROUP_REQUESTS, _groupRequests); return { ok: true } }
+  return write('declineGroupRequest',
+    () => supabase.from('group_join_requests').delete().eq('id', reqId),
+    () => { _groupRequests = before })
 }
 
 /* ── Einladungen ─────────────────────────────────────────────────── */
@@ -1640,19 +1908,28 @@ export async function createInvite(groupId, { validityDays, maxUses }) {
     uses: 0,
   }
   _invites.push(inv)
-  if (OFFLINE_MODE || !_myUid) { lsWrite(LS_INVITES, _invites); return inv }
-  await supabase.from('invites').insert({
-    code, group_id: groupId, created_by: _myUid,
-    expires_at: inv.expiresAt ? new Date(inv.expiresAt).toISOString() : null,
-    max_uses: inv.maxUses,
-  })
-  return inv
+  if (OFFLINE_MODE || !_myUid) { lsWrite(LS_INVITES, _invites); return { ok: true, invite: inv } }
+  const res = await write('createInvite',
+    () => supabase.from('invites').insert({
+      code, group_id: groupId, created_by: _myUid,
+      expires_at: inv.expiresAt ? new Date(inv.expiresAt).toISOString() : null,
+      max_uses: inv.maxUses,
+    }),
+    () => { _invites = _invites.filter(i => i.code !== code) })
+  // Ein Code, der nur lokal existiert, ist schlimmer als kein Code: er lässt
+  // sich weitergeben und funktioniert bei niemandem.
+  return res.ok ? { ok: true, invite: inv } : res
 }
 
 export async function revokeInvite(code) {
-  _invites = _invites.filter(i => i.code !== code)
-  if (OFFLINE_MODE || !_myUid) { lsWrite(LS_INVITES, _invites); return }
-  await supabase.from('invites').delete().eq('code', code)
+  const before = _invites
+  if (!before.some(i => i.code === code)) return { ok: true }
+  _invites = before.filter(i => i.code !== code)
+  if (OFFLINE_MODE || !_myUid) { lsWrite(LS_INVITES, _invites); return { ok: true } }
+  return write('revokeInvite',
+    () => supabase.from('invites').delete().eq('code', code).select('code'),
+    () => { _invites = before },
+    { expectRows: true })
 }
 
 export async function redeemInvite(rawCode) {
@@ -1669,9 +1946,28 @@ export async function redeemInvite(rawCode) {
   if (isGroupBanned(g, myName)) return { ok: false, error: 'Du wurdest aus dieser Gruppe gesperrt.' }
   if (g.members.some(m => m.toLowerCase() === myName.toLowerCase())) return { ok: false, error: 'Du bist bereits Mitglied dieser Gruppe.' }
   g.members.push(myName); inv.uses++
+  const rollbackAll = () => {
+    const i = g.members.lastIndexOf(myName)
+    if (i >= 0) g.members.splice(i, 1)
+    inv.uses--
+  }
   if (OFFLINE_MODE || !_myUid) { lsWrite(LS_GROUPS, _groups); lsWrite(LS_INVITES, _invites); return { ok: true, group: g } }
-  await supabase.from('group_members').insert({ group_id: g.id, user_id: _myUid, role: 'member' })
-  await supabase.from('invites').update({ uses: inv.uses }).eq('code', rawCode)
+
+  const joinRes = await write('redeemInvite.join', async () => {
+    const res = await supabase.from('group_members')
+      .insert({ group_id: g.id, user_id: _myUid, role: 'member' })
+    // 23505 = unique_violation: schon Mitglied. Gewünschter Endzustand.
+    return res.error?.code === '23505' ? { error: null } : res
+  }, rollbackAll)
+  if (!joinRes.ok) return joinRes
+
+  // Der Zähler ist die harmlose Hälfte: schlägt er fehl, ist der Beitritt
+  // trotzdem echt, der Code gilt nur weiterhin als unverbraucht. Deshalb wird
+  // hier NUR der Zähler zurückgedreht und der Beitritt als Erfolg gemeldet —
+  // eine Fehlermeldung wäre an dieser Stelle schlicht falsch.
+  await write('redeemInvite.uses',
+    () => supabase.from('invites').update({ uses: inv.uses }).eq('code', rawCode),
+    () => { inv.uses-- })
   return { ok: true, group: g }
 }
 
@@ -1749,53 +2045,98 @@ export async function sendDM(to, text, replyTo = null, attachment = null) {
     if (!ignoredByRecipient) _markUnreadCache(to, myName)
   }
 
-  if (OFFLINE_MODE || !_myUid) {
-    lsWrite(LS_DMS, _dms); lsWrite(LS_UNREAD, _unread); return
-  }
-  if (blockedByRecipient) return
-  const thread = _dmThread(myName, to)
-  if (!thread) return
-  const base = { dm_thread: thread, author_id: _myUid, text, reply_to_id: replyTo?.id || null }
-  let { data, error } = await supabase
-    .from('messages').insert({ ...base, ...(att ? { attachment: att } : {}) }).select().single()
-  if (_isMissingColumn(error)) {
-    console.warn('[API] attachment nicht speicherbar (Migration evtl. noch nicht ausgeführt):', error.message)
-    if (att) {
-      // Anhang aus der lokalen Kopie beider Seiten entfernen: er existiert
-      // nirgends, und ein nur beim Absender sichtbarer Sticker ist genau der
-      // Zustand, der die Sache so lange unbemerkt gelassen hat.
-      delete msg.attachment
-      if (!text) {
-        for (const [a, b] of [[myName, to], [to, myName]]) {
-          if (_dms[a]?.[b]) _dms[a][b] = _dms[a][b].filter(m => m.id !== msg.id)
-        }
-        return { ok: false, error: ATTACH_COLUMN_MISSING }
-      }
+  // Die Nachricht steckt lokal in beiden Richtungen — der Rollback muss sie
+  // aus beiden wieder entfernen (und die Ungelesen-Markierung mitnehmen, sonst
+  // leuchtet ein Punkt für eine Nachricht, die es nicht gibt).
+  const removeLocal = () => {
+    for (const [a, b] of [[myName, to], [to, myName]]) {
+      if (_dms[a]?.[b]) _dms[a][b] = _dms[a][b].filter(m => m.id !== msg.id)
     }
-    ;({ data } = await supabase.from('messages').insert(base).select().single())
-    if (data) msg.id = data.id
-    return att ? { ok: true, warn: ATTACH_COLUMN_MISSING } : undefined
+    if (!(_dms[to]?.[myName] || []).length) {
+      _unread[to] = (_unread[to] || []).filter(x => x !== myName)
+    }
   }
-  if (data) msg.id = data.id
+
+  if (OFFLINE_MODE || !_myUid) {
+    lsWrite(LS_DMS, _dms); lsWrite(LS_UNREAD, _unread); return { ok: true }
+  }
+  // Blockiert: die Nachricht bleibt bewusst in der eigenen Ansicht stehen und
+  // geht nicht raus — der Absender soll nicht erfahren, dass er blockiert ist.
+  if (blockedByRecipient) return { ok: true }
+  const thread = _dmThread(myName, to)
+  if (!thread) { removeLocal(); return { ok: false, error: 'Empfänger nicht gefunden.' } }
+
+  const base = { dm_thread: thread, author_id: _myUid, text, reply_to_id: replyTo?.id || null }
+  let attachmentVerloren = false
+  let serverId = null
+
+  const res = await write('sendDM', async () => {
+    let first = await supabase
+      .from('messages').insert({ ...base, ...(att ? { attachment: att } : {}) }).select().single()
+    if (_isMissingColumn(first.error)) {
+      console.warn('[API] attachment nicht speicherbar (Migration evtl. noch nicht ausgeführt):', first.error.message)
+      // Eine reine Anhang-Nachricht (Sticker ohne Text) wäre danach leer und
+      // beim Empfänger nicht von einem Fehler zu unterscheiden.
+      if (att && !text) return { error: { message: ATTACH_COLUMN_MISSING, code: 'ATTACH_COLUMN_MISSING' } }
+      attachmentVerloren = !!att
+      first = await supabase.from('messages').insert(base).select().single()
+    }
+    if (first.data) serverId = first.data.id
+    return first
+  }, removeLocal)
+
+  if (!res.ok) return res
+  if (serverId) msg.id = serverId
+  if (attachmentVerloren) {
+    // Der Anhang ist nicht in der Datenbank — dann darf ihn auch der Absender
+    // nicht sehen, sonst zeigen beide Seiten Unterschiedliches.
+    delete msg.attachment
+    return { ok: true, warn: ATTACH_COLUMN_MISSING }
+  }
+  return { ok: true }
 }
 
 export async function editMessageInDM(peer, msgId, newText) {
-  const myName = _myUsername
-  for (const [a, b] of [[myName, peer], [peer, myName]]) {
-    const msg = (_dms[a]?.[b] || []).find(m => m.id === msgId)
-    if (msg) { msg.text = newText; msg.editedTs = Date.now() }
-  }
-  if (OFFLINE_MODE || !_myUid) { lsWrite(LS_DMS, _dms); return }
-  await supabase.from('messages').update({ text: newText, edited_at: new Date().toISOString() }).eq('id', msgId)
+  const objs = _dmMessageObjects(peer, msgId)
+  if (!objs.length) return { ok: false, error: 'Nachricht nicht gefunden.' }
+  const undo = objs.map(m => _editMessageLocal(m, newText))
+  const rollback = () => { for (const fn of undo) fn() }
+
+  if (OFFLINE_MODE || !_myUid) { lsWrite(LS_DMS, _dms); return { ok: true } }
+  return write('editMessageInDM',
+    () => supabase.from('messages')
+      .update({ text: newText, edited_at: new Date().toISOString() }).eq('id', msgId).select('id'),
+    rollback,
+    { expectRows: true })
 }
 
 export async function deleteDMMessage(peer, msgId) {
   const myName = _myUsername
+  // Position je Richtung merken — sonst landet die Nachricht beim Rollback am
+  // Ende des Verlaufs statt an ihrer Stelle.
+  const removed = []
   for (const [a, b] of [[myName, peer], [peer, myName]]) {
-    if (_dms[a]?.[b]) _dms[a][b] = _dms[a][b].filter(m => m.id !== msgId)
+    const arr = _dms[a]?.[b]
+    if (!arr) continue
+    const idx = arr.findIndex(m => m.id === msgId)
+    if (idx < 0) continue
+    removed.push({ a, b, idx, msg: arr[idx] })
+    _dms[a][b] = arr.filter(m => m.id !== msgId)
   }
-  if (OFFLINE_MODE || !_myUid) { lsWrite(LS_DMS, _dms); return }
-  await supabase.from('messages').delete().eq('id', msgId)
+  if (!removed.length) return { ok: true }
+  const rollback = () => {
+    for (const r of removed) {
+      const arr = [...(_dms[r.a]?.[r.b] || [])]
+      arr.splice(r.idx, 0, r.msg)
+      ;(_dms[r.a] ||= {})[r.b] = arr
+    }
+  }
+
+  if (OFFLINE_MODE || !_myUid) { lsWrite(LS_DMS, _dms); return { ok: true } }
+  return write('deleteDMMessage',
+    () => supabase.from('messages').delete().eq('id', msgId).select('id'),
+    rollback,
+    { expectRows: true })
 }
 
 /**
@@ -1855,21 +2196,35 @@ export function getFriends() { return (_friends[_myUsername] || []) }
 async function _addFriendPair(a, b) {
   ;(_friends[a] ||= []).push(b)
   ;(_friends[b] ||= []).push(a)
-  if (OFFLINE_MODE || !_myUid) { lsWrite(LS_FRIENDS, _friends); return }
+  const rollback = () => {
+    const ia = _friends[a].lastIndexOf(b); if (ia >= 0) _friends[a].splice(ia, 1)
+    const ib = _friends[b].lastIndexOf(a); if (ib >= 0) _friends[b].splice(ib, 1)
+  }
+  if (OFFLINE_MODE || !_myUid) { lsWrite(LS_FRIENDS, _friends); return { ok: true } }
   const aUid = _usernameToUid(a); const bUid = _usernameToUid(b)
-  if (!aUid || !bUid) { lsWrite(LS_FRIENDS, _friends); return }
+  if (!aUid || !bUid) { rollback(); return { ok: false, error: 'Nutzer nicht gefunden.' } }
   const [u1, u2] = [aUid, bUid].sort()
-  await supabase.from('friendships').upsert({ user_a: u1, user_b: u2 })
+  return write('addFriendPair',
+    () => supabase.from('friendships').upsert({ user_a: u1, user_b: u2 }),
+    rollback)
 }
 
 export async function removeFriendPair(a, b) {
-  _friends[a] = (_friends[a] || []).filter(x => x !== b)
-  _friends[b] = (_friends[b] || []).filter(x => x !== a)
-  if (OFFLINE_MODE || !_myUid) { lsWrite(LS_FRIENDS, _friends); return }
+  const beforeA = _friends[a] || []
+  const beforeB = _friends[b] || []
+  _friends[a] = beforeA.filter(x => x !== b)
+  _friends[b] = beforeB.filter(x => x !== a)
+  const rollback = () => { _friends[a] = beforeA; _friends[b] = beforeB }
+
+  if (OFFLINE_MODE || !_myUid) { lsWrite(LS_FRIENDS, _friends); return { ok: true } }
   const aUid = _usernameToUid(a); const bUid = _usernameToUid(b)
-  if (!aUid || !bUid) return
+  // Vorher wurde hier stumm zurückgekehrt — die Freundschaft war lokal weg und
+  // in der Datenbank noch da.
+  if (!aUid || !bUid) { rollback(); return { ok: false, error: 'Nutzer nicht gefunden.' } }
   const [u1, u2] = [aUid, bUid].sort()
-  await supabase.from('friendships').delete().eq('user_a', u1).eq('user_b', u2)
+  return write('removeFriendPair',
+    () => supabase.from('friendships').delete().eq('user_a', u1).eq('user_b', u2),
+    rollback)
 }
 
 /* ── Freundschaftsanfragen ───────────────────────────────────────── */
@@ -1899,14 +2254,22 @@ export async function sendFriendRequest(toUsername) {
   // Umgekehrte Anfrage → direkt annehmen
   const reverse = _requests.find(r => r.from.toLowerCase() === toUsername.toLowerCase() && r.to.toLowerCase() === myName.toLowerCase())
   if (reverse) {
+    const beforeReqs = _requests
     _requests = _requests.filter(r => r.id !== reverse.id)
-    await _addFriendPair(myName, toUsername)
+    // Reihenfolge: erst die Freundschaft, dann die Anfrage wegräumen. Scheitert
+    // die Freundschaft, ist nichts passiert und die Anfrage steht noch.
+    const pairRes = await _addFriendPair(myName, toUsername)
+    if (!pairRes.ok) { _requests = beforeReqs; return pairRes }
     if (OFFLINE_MODE || !_myUid) {
       lsWrite(LS_REQUESTS, _requests)
-    } else {
-      const toUid = _usernameToUid(toUsername)
-      if (toUid) await supabase.from('friend_requests').delete().eq('id', reverse.id)
+      return { ok: true, autoAccepted: true, username: toUsername }
     }
+    // Die Freundschaft steht. Bleibt die Anfrage liegen, ist das kosmetisch —
+    // sie verschwindet spätestens beim nächsten Laden, weil sie zu einer
+    // bestehenden Freundschaft gehört. Deshalb kein Fehler nach außen.
+    await write('sendFriendRequest.cleanup',
+      () => supabase.from('friend_requests').delete().eq('id', reverse.id),
+      () => { _requests = beforeReqs })
     return { ok: true, autoAccepted: true, username: toUsername }
   }
 
@@ -1932,17 +2295,34 @@ export async function sendFriendRequest(toUsername) {
 }
 
 export async function acceptRequest(id) {
-  const r = _requests.find(x => x.id === id); if (!r) return
+  const r = _requests.find(x => x.id === id)
+  if (!r) return { ok: false, error: 'Anfrage nicht gefunden.' }
+  const beforeReqs = _requests
   _requests = _requests.filter(x => x.id !== id)
-  await _addFriendPair(r.from, r.to)
-  if (OFFLINE_MODE || !_myUid) { lsWrite(LS_REQUESTS, _requests); return }
-  await supabase.from('friend_requests').delete().eq('id', id)
+
+  // Erst die Freundschaft, dann die Anfrage wegräumen — scheitert sie, ist
+  // nichts passiert und die Anfrage steht noch da.
+  const pairRes = await _addFriendPair(r.from, r.to)
+  if (!pairRes.ok) { _requests = beforeReqs; return pairRes }
+
+  if (OFFLINE_MODE || !_myUid) { lsWrite(LS_REQUESTS, _requests); return { ok: true } }
+  // Liegengebliebene Anfrage ist kosmetisch (die Freundschaft besteht bereits),
+  // deshalb wird sie nur gemeldet, nicht als Fehler nach außen gereicht.
+  await write('acceptRequest.cleanup',
+    () => supabase.from('friend_requests').delete().eq('id', id),
+    () => { _requests = beforeReqs })
+  return { ok: true }
 }
 
 export async function declineRequest(id) {
-  _requests = _requests.filter(x => x.id !== id)
-  if (OFFLINE_MODE || !_myUid) { lsWrite(LS_REQUESTS, _requests); return }
-  await supabase.from('friend_requests').delete().eq('id', id)
+  const before = _requests
+  if (!before.some(x => x.id === id)) return { ok: true }
+  _requests = before.filter(x => x.id !== id)
+  if (OFFLINE_MODE || !_myUid) { lsWrite(LS_REQUESTS, _requests); return { ok: true } }
+  return write('declineRequest',
+    () => supabase.from('friend_requests').delete().eq('id', id).select('id'),
+    () => { _requests = before },
+    { expectRows: true })
 }
 
 export async function cancelRequest(id) { return declineRequest(id) }
@@ -1957,47 +2337,94 @@ export function isBlockedBy(username) {
   return (_blocked[username] || []).some(x => x.toLowerCase() === _myUsername.toLowerCase())
 }
 
+/**
+ * Blockieren/Entblockieren.
+ * @returns {Promise<{ok: boolean, blocked: boolean, error?: string}>} `blocked`
+ *   ist der Zustand, der jetzt tatsächlich gilt — im Fehlerfall also der ALTE.
+ *   Früher gab die Funktion nur den optimistischen Wunschzustand als boolean
+ *   zurück, auch wenn nichts gespeichert wurde.
+ */
 export async function toggleBlock(username) {
   const myName = _myUsername
   const list   = _blocked[myName] || []
   const idx    = list.findIndex(x => x.toLowerCase() === username.toLowerCase())
   const nowBlocked = idx < 0
-  if (nowBlocked) {
-    list.push(username)
-    _blocked[myName] = list
-    await removeFriendPair(myName, username)
-  } else {
-    list.splice(idx, 1)
-    _blocked[myName] = list
+  if (nowBlocked) list.push(username)
+  else list.splice(idx, 1)
+  _blocked[myName] = list
+  const rollback = () => {
+    if (nowBlocked) {
+      const i = list.findIndex(x => x.toLowerCase() === username.toLowerCase())
+      if (i >= 0) list.splice(i, 1)
+    } else {
+      list.splice(idx, 0, username)
+    }
   }
-  if (OFFLINE_MODE || !_myUid) { lsWrite(LS_BLOCKED, _blocked); return nowBlocked }
+
+  if (OFFLINE_MODE || !_myUid) {
+    if (nowBlocked) await removeFriendPair(myName, username)
+    lsWrite(LS_BLOCKED, _blocked)
+    return { ok: true, blocked: nowBlocked }
+  }
   const uid = _usernameToUid(username)
-  if (uid) {
-    if (nowBlocked) await supabase.from('blocks').insert({ blocker: _myUid, blocked: uid })
-    else await supabase.from('blocks').delete().eq('blocker', _myUid).eq('blocked', uid)
+  if (!uid) { rollback(); return { ok: false, blocked: !nowBlocked, error: `${username} ist unbekannt.` } }
+
+  // Erst die Blockade, dann die Freundschaft lösen: die Blockade ist die
+  // schützende Handlung, sie darf nicht von der Aufräumarbeit abhängen.
+  const res = await write('toggleBlock', async () => {
+    if (!nowBlocked) return supabase.from('blocks').delete().eq('blocker', _myUid).eq('blocked', uid)
+    const r = await supabase.from('blocks').insert({ blocker: _myUid, blocked: uid })
+    // 23505 = unique_violation: schon blockiert. Gewünschter Endzustand.
+    return r.error?.code === '23505' ? { error: null } : r
+  }, rollback)
+  if (!res.ok) return { ...res, blocked: !nowBlocked }
+
+  if (nowBlocked) {
+    // Folge, nicht Voraussetzung: bleibt die Freundschaft stehen, gilt die
+    // Blockade trotzdem — DMs stoppt bereits die Policy msg_insert_dm.
+    const unfriend = await removeFriendPair(myName, username)
+    if (!unfriend.ok) {
+      return { ok: false, blocked: true, error: `${username} ist blockiert, die Freundschaft konnte aber nicht gelöst werden.` }
+    }
   }
-  return nowBlocked
+  return { ok: true, blocked: nowBlocked }
 }
 
 export function getIgnored() { return (_ignored[_myUsername] || []) }
 export function isIgnored(username) { return getIgnored().some(x => x.toLowerCase() === username.toLowerCase()) }
 
+/**
+ * @returns {Promise<{ok: boolean, ignored: boolean, error?: string}>} `ignored`
+ *   ist der Zustand, der jetzt tatsächlich gilt — im Fehlerfall der alte.
+ */
 export async function toggleIgnore(username) {
-  if (username.toLowerCase() === _myUsername.toLowerCase()) return false
   const myName = _myUsername
+  if (username.toLowerCase() === myName.toLowerCase()) return { ok: false, ignored: false, error: 'Du kannst dich nicht selbst ignorieren.' }
   const list = _ignored[myName] || []
   const idx  = list.findIndex(x => x.toLowerCase() === username.toLowerCase())
   const nowIgnored = idx < 0
   if (nowIgnored) list.push(username)
   else list.splice(idx, 1)
   _ignored[myName] = list
-  if (OFFLINE_MODE || !_myUid) { lsWrite(LS_IGNORED, _ignored); return nowIgnored }
-  const uid = _usernameToUid(username)
-  if (uid) {
-    if (nowIgnored) await supabase.from('ignores').insert({ ignorer: _myUid, ignored: uid })
-    else await supabase.from('ignores').delete().eq('ignorer', _myUid).eq('ignored', uid)
+  const rollback = () => {
+    if (nowIgnored) {
+      const i = list.findIndex(x => x.toLowerCase() === username.toLowerCase())
+      if (i >= 0) list.splice(i, 1)
+    } else {
+      list.splice(idx, 0, username)
+    }
   }
-  return nowIgnored
+
+  if (OFFLINE_MODE || !_myUid) { lsWrite(LS_IGNORED, _ignored); return { ok: true, ignored: nowIgnored } }
+  const uid = _usernameToUid(username)
+  if (!uid) { rollback(); return { ok: false, ignored: !nowIgnored, error: `${username} ist unbekannt.` } }
+
+  const res = await write('toggleIgnore', async () => {
+    if (!nowIgnored) return supabase.from('ignores').delete().eq('ignorer', _myUid).eq('ignored', uid)
+    const r = await supabase.from('ignores').insert({ ignorer: _myUid, ignored: uid })
+    return r.error?.code === '23505' ? { error: null } : r   // schon ignoriert
+  }, rollback)
+  return res.ok ? { ok: true, ignored: nowIgnored } : { ...res, ignored: !nowIgnored }
 }
 
 /* ══════════════════════════════════════════════════════════════════
@@ -2010,12 +2437,18 @@ export async function reportUser(reported, reason, text) {
   const todayStart = new Date(); todayStart.setHours(0, 0, 0, 0)
   if (_userReports.some(r => r.from === myName && r.reported.toLowerCase() === reported.toLowerCase() && r.ts >= todayStart.getTime()))
     return { ok: false, error: 'Du hast diese Person heute bereits gemeldet.' }
-  const report = { id: 'ur-' + Date.now(), from: myName, reported, reason, text: text || '', ts: Date.now(), status: 'open' }
-  _userReports.push(report)
+  // `entry` statt `report`: report() ist der Sentry-Helfer aus monitoring.js.
+  const entry = { id: 'ur-' + Date.now(), from: myName, reported, reason, text: text || '', ts: Date.now(), status: 'open' }
+  _userReports.push(entry)
+  const rollback = () => { _userReports = _userReports.filter(r => r.id !== entry.id) }
   if (OFFLINE_MODE || !_myUid) { lsWrite(LS_USER_REPORTS, _userReports); return { ok: true } }
   const uid = _usernameToUid(reported)
-  if (uid) await supabase.from('user_reports').insert({ from_user: _myUid, reported: uid, reason, text: text || '' })
-  return { ok: true }
+  // Vorher wurde ohne uid stumm { ok: true } gemeldet — die Meldung ging
+  // nirgends hin, der Meldende bekam trotzdem eine Bestätigung.
+  if (!uid) { rollback(); return { ok: false, error: `${reported} ist unbekannt.` } }
+  return write('reportUser',
+    () => supabase.from('user_reports').insert({ from_user: _myUid, reported: uid, reason, text: text || '' }),
+    rollback)
 }
 
 /* ══════════════════════════════════════════════════════════════════

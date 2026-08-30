@@ -1043,9 +1043,10 @@ function _appendMessageToGroupChat(root, msg) {
         confirmLabel: 'Löschen',
         isDanger: true,
         onConfirm: async () => {
-          await deleteGroupMessage(g.id, msg.id)
+          const res = await deleteGroupMessage(g.id, msg.id)
           const updated = getGroups().find(x => x.id === g.id)
           if (updated) { groupDefaults(updated); renderMessagesInto(root || _rootRef, box, channelMsgs(updated, activeChannel), emptyCtx, updated) }
+          if (!res.ok) toast(root || _rootRef, 'Nachricht konnte nicht gelöscht werden.')
         },
       })
     })
@@ -1067,9 +1068,10 @@ function _appendMessageToGroupChat(root, msg) {
       const save = async () => {
         const newText = ta.value.trim()
         if (!newText || newText === msg.text) { cancel(); return }
-        await editMessageInGroup(g.id, msg.id, newText)
+        const res = await editMessageInGroup(g.id, msg.id, newText)
         const updated = getGroups().find(x => x.id === g.id)
         if (updated) { groupDefaults(updated); renderMessagesInto(root || _rootRef, box, channelMsgs(updated, activeChannel), emptyCtx, updated) }
+        if (!res.ok) toast(root || _rootRef, 'Änderung konnte nicht gespeichert werden.')
       }
       ta.addEventListener('keydown', ev => {
         if (ev.key === 'Enter' && !ev.shiftKey) { ev.preventDefault(); save() }
@@ -1167,8 +1169,9 @@ function _appendMessageToDMChat(root, msg) {
         confirmLabel: 'Löschen',
         isDanger: true,
         onConfirm: async () => {
-          await deleteDMMessage(activeDM, msgId)
+          const res = await deleteDMMessage(activeDM, msgId)
           renderMessagesInto(root || _rootRef, box, getDMs()[activeDM] || [], { title: displayName(activeDM), text: '', avatar: activeDM }, null)
+          if (!res.ok) toast(root || _rootRef, 'Nachricht konnte nicht gelöscht werden.')
         },
       })
     })
@@ -1190,8 +1193,9 @@ function _appendMessageToDMChat(root, msg) {
       const save = async () => {
         const newText = ta.value.trim()
         if (!newText || newText === msg.text) { cancel(); return }
-        await editMessageInDM(activeDM, msg.id, newText)
+        const res = await editMessageInDM(activeDM, msg.id, newText)
         renderMessagesInto(root || _rootRef, box, getDMs()[activeDM] || [], { title: displayName(activeDM), text: '', avatar: activeDM }, null)
+        if (!res.ok) toast(root || _rootRef, 'Änderung konnte nicht gespeichert werden.')
       }
       ta.addEventListener('keydown', ev => {
         if (ev.key === 'Enter' && !ev.shiftKey) { ev.preventDefault(); save() }
@@ -2359,12 +2363,24 @@ function openUserProfile(root, username) {
       close(); render(); refreshFriendsChrome(root)
     })
     pop.querySelector('[data-act="accept"]')?.addEventListener('click', async () => {
-      await acceptRequest(inReq.id); toast(root, 'Freundschaftsanfrage angenommen.'); close(); render(); refreshFriendsChrome(root)
+      const res = await acceptRequest(inReq.id)
+      toast(root, res.ok ? 'Freundschaftsanfrage angenommen.' : res.error)
+      close(); render(); refreshFriendsChrome(root)
     })
-    pop.querySelector('[data-act="decline"]')?.addEventListener('click', async () => { await declineRequest(inReq.id); close(); render(); refreshFriendsChrome(root) })
-    pop.querySelector('[data-act="cancel"]')?.addEventListener('click', async () => { await cancelRequest(outReq.id); close(); render(); refreshFriendsChrome(root) })
+    pop.querySelector('[data-act="decline"]')?.addEventListener('click', async () => {
+      const res = await declineRequest(inReq.id)
+      close(); render(); refreshFriendsChrome(root)
+      if (!res.ok) toast(root, 'Anfrage konnte nicht abgelehnt werden.')
+    })
+    pop.querySelector('[data-act="cancel"]')?.addEventListener('click', async () => {
+      const res = await cancelRequest(outReq.id)
+      close(); render(); refreshFriendsChrome(root)
+      if (!res.ok) toast(root, 'Anfrage konnte nicht zurückgezogen werden.')
+    })
     pop.querySelector('[data-act="unblock"]')?.addEventListener('click', async () => {
-      await toggleBlock(username); toast(root, `${username} entblockt.`); close()
+      const res = await toggleBlock(username)
+      toast(root, res.ok ? `${username} entblockt.` : res.error)
+      close()
       refreshFriendsChrome(root)
       if (activeGroup) renderGroupChatMain(root)
       else render()
@@ -2390,8 +2406,8 @@ function openUserProfile(root, username) {
 
       menu.querySelector('[data-mact="ignore"]')?.addEventListener('click', async () => {
         menu.remove()
-        const nowIgnored = await toggleIgnore(username)
-        toast(root, nowIgnored ? `${username} wird ignoriert.` : `${username} wird nicht mehr ignoriert.`)
+        const res = await toggleIgnore(username)
+        toast(root, res.ok ? (res.ignored ? `${username} wird ignoriert.` : `${username} wird nicht mehr ignoriert.`) : res.error)
         close(); refreshFriendsChrome(root)
       })
 
@@ -2401,8 +2417,9 @@ function openUserProfile(root, username) {
       })
 
       menu.querySelector('[data-mact="block"]')?.addEventListener('click', async () => {
-        const nowBlocked = await toggleBlock(username)
-        menu.remove(); toast(root, nowBlocked ? `${username} blockiert.` : `${username} entblockt.`)
+        const res = await toggleBlock(username)
+        menu.remove()
+        toast(root, res.ok ? (res.blocked ? `${username} blockiert.` : `${username} entblockt.`) : res.error)
         close()
         refreshFriendsChrome(root)
         if (activeGroup) renderGroupChatMain(root)
@@ -2698,10 +2715,20 @@ function renderFriendsView(main, root) {
         ${out.length ? `<div class="mmc-friends-count">Ausgehende Anfragen — ${out.length}</div><div class="mmc-friends-list">${out.map(r => row(r, 'out')).join('')}</div>` : ''}`
       : `<div class="mmc-friends-empty"><p>Keine ausstehenden Anfragen.</p></div>`
     body.querySelectorAll('[data-accept]').forEach(b => b.addEventListener('click', async () => {
-      await acceptRequest(b.dataset.accept); toast(root, 'Freundschaftsanfrage angenommen.'); fillMain(root); refreshFriendsChrome(root)
+      const res = await acceptRequest(b.dataset.accept)
+      toast(root, res.ok ? 'Freundschaftsanfrage angenommen.' : res.error)
+      fillMain(root); refreshFriendsChrome(root)
     }))
-    body.querySelectorAll('[data-decline]').forEach(b => b.addEventListener('click', async () => { await declineRequest(b.dataset.decline); fillMain(root); refreshFriendsChrome(root) }))
-    body.querySelectorAll('[data-cancel]').forEach(b => b.addEventListener('click', async () => { await cancelRequest(b.dataset.cancel); fillMain(root); refreshFriendsChrome(root) }))
+    body.querySelectorAll('[data-decline]').forEach(b => b.addEventListener('click', async () => {
+      const res = await declineRequest(b.dataset.decline)
+      fillMain(root); refreshFriendsChrome(root)
+      if (!res.ok) toast(root, 'Anfrage konnte nicht abgelehnt werden.')
+    }))
+    body.querySelectorAll('[data-cancel]').forEach(b => b.addEventListener('click', async () => {
+      const res = await cancelRequest(b.dataset.cancel)
+      fillMain(root); refreshFriendsChrome(root)
+      if (!res.ok) toast(root, 'Anfrage konnte nicht zurückgezogen werden.')
+    }))
     bindFriendsTabs(main, root)
     return
   }
@@ -2792,13 +2819,17 @@ function renderDiscoverView(main, root) {
     e.stopPropagation()
     const groupId = b.dataset.cancelReq
     const req = myGroupRequest(groupId)
-    if (req) await declineGroupRequest(req.id)
+    if (req) {
+      const res = await declineGroupRequest(req.id)
+      if (!res.ok) toast(root, 'Anfrage konnte nicht zurückgezogen werden.')
+    }
     renderDiscoverView(main, root)
   }))
   body.querySelectorAll('[data-rsvp]').forEach(b => b.addEventListener('click', async e => {
     e.stopPropagation()
-    await toggleRsvp(b.dataset.rsvp)
+    const res = await toggleRsvp(b.dataset.rsvp)
     renderDiscoverView(main, root)
+    if (!res.ok) toast(root, 'Zusage konnte nicht gespeichert werden.')
   }))
   body.querySelectorAll('[data-mappoint]').forEach(b => b.addEventListener('click', e => {
     e.stopPropagation()
@@ -2988,13 +3019,17 @@ function renderGroupList(main, root) {
     e.stopPropagation()
     const groupId = b.dataset.cancelReq
     const req = myGroupRequest(groupId)
-    if (req) await declineGroupRequest(req.id)
+    if (req) {
+      const res = await declineGroupRequest(req.id)
+      if (!res.ok) toast(root, 'Anfrage konnte nicht zurückgezogen werden.')
+    }
     renderGroupList(main, root)
   }))
   main.querySelectorAll('[data-rsvp]').forEach(b => b.addEventListener('click', async e => {
     e.stopPropagation()
-    await toggleRsvp(b.dataset.rsvp)
+    const res = await toggleRsvp(b.dataset.rsvp)
     renderGroupList(main, root)
+    if (!res.ok) toast(root, 'Zusage konnte nicht gespeichert werden.')
   }))
   main.querySelectorAll('[data-mappoint]').forEach(b => b.addEventListener('click', e => {
     e.stopPropagation()
@@ -3131,7 +3166,8 @@ function openJoinRequestModal(root, g) {
 async function _leaveGroupUI(root) {
   const g = getGroups().find(x => x.id === activeGroup); if (!g) return
   if (isOwner(g)) return
-  await leaveGroup(activeGroup)
+  const res = await leaveGroup(activeGroup)
+  if (!res.ok) { toast(root, `Gruppe konnte nicht verlassen werden: ${res.error}`); return }
   activeGroup = null
   renderApp(root)
 }
@@ -3218,6 +3254,10 @@ function _scheduleEmptyTalkCleanup(groupId, roomId) {
     // Inzwischen doch wieder jemand drin (oder ich selbst)? Dann bleibt er.
     if (r.members?.length || currentRoomId() === roomId) return
     if (!_mayDeleteTalk(g, r)) return
+    // Automatisches Aufräumen im Hintergrund — bewusst ohne Toast: der Nutzer
+    // hat nichts angestoßen, eine Fehlermeldung wäre hier nur Rauschen. Der
+    // Fehler steht in Konsole und Sentry (write() in community-api.js), und
+    // der Talk bleibt einfach stehen.
     await deleteVoiceRoom(groupId, roomId)
     _onVoiceWatchUpdate()
   }, EMPTY_TALK_TTL_MS))
@@ -3425,7 +3465,9 @@ function fillGroupChannels(root) {
   box.querySelector('#mmc-group-back')?.addEventListener('click', () => { activeGroup = null; activeChannel = null; renderApp(root) })
   box.querySelector('#mmc-group-bell')?.addEventListener('click', e => { e.stopPropagation(); openMuteMenu(root, g.id, false) })
   box.querySelector('#mmc-head-rsvp')?.addEventListener('click', async () => {
-    await toggleRsvp(activeGroup); fillGroupChannels(root)
+    const res = await toggleRsvp(activeGroup)
+    fillGroupChannels(root)
+    if (!res.ok) toast(root, 'Zusage konnte nicht gespeichert werden.')
   })
   box.querySelector('#mmc-head-map')?.addEventListener('click', () => {
     const gCur = getGroups().find(x => x.id === activeGroup)
@@ -3436,9 +3478,10 @@ function fillGroupChannels(root) {
   box.querySelector('#mmc-ra-leave')?.addEventListener('click', () => _leaveGroupUI(root))
   box.querySelector('#mmc-ra-invite')?.addEventListener('click', async () => {
     const gCur = getGroups().find(x => x.id === activeGroup); if (!gCur) return
-    const inv = await createInvite(activeGroup, { validityDays: 7, maxUses: 0 })
-    navigator.clipboard?.writeText(inv.code).catch(() => {})
-    toast(root, `Code „${inv.code}" erstellt und kopiert (7 Tage, unbegrenzte Nutzungen).`)
+    const res = await createInvite(activeGroup, { validityDays: 7, maxUses: 0 })
+    if (!res.ok) { toast(root, `Code konnte nicht erstellt werden: ${res.error}`); return }
+    navigator.clipboard?.writeText(res.invite.code).catch(() => {})
+    toast(root, `Code „${res.invite.code}" erstellt und kopiert (7 Tage, unbegrenzte Nutzungen).`)
   })
   box.querySelector('#mmc-text-chan-add')?.addEventListener('click', () => openCreateChannel(root))
   box.querySelector('#mmc-voice-open')?.addEventListener('click', () => openVoiceRoom(root))
@@ -3536,8 +3579,9 @@ function fillGroupChannels(root) {
       isDanger: true,
       onConfirm: async () => {
         if (currentRoomId() === roomId) await leaveVoiceRoom()
-        await deleteVoiceRoom(activeGroup, roomId)
+        const res = await deleteVoiceRoom(activeGroup, roomId)
         fillGroupChannels(root)
+        if (!res.ok) toast(root, `Talk konnte nicht gelöscht werden: ${res.error}`)
       },
     })
   }))
@@ -4026,7 +4070,7 @@ function openSettingsPanel(root) {
         e.preventDefault()
         navLocked = true; setTimeout(() => { navLocked = false }, 300)
         const selectedSwatch = overlay.querySelector('.mmc-sp-swatch.is-selected')
-        await setMyProfile({
+        const res = await setMyProfile({
           displayName: overlay.querySelector('#mmc-sp-displayname')?.value.trim() || '',
           bio: overlay.querySelector('#mmc-sp-bio')?.value.trim() || '',
           statusText: overlay.querySelector('#mmc-sp-statustext')?.value.trim() || '',
@@ -4034,7 +4078,7 @@ function openSettingsPanel(root) {
           showBike: overlay.querySelector('#mmc-sp-showbike')?.checked || false,
           bikeText: overlay.querySelector('#mmc-sp-biketext')?.value.trim() || '',
         })
-        toast(root, 'Profil gespeichert.')
+        toast(root, res.ok ? 'Profil gespeichert.' : `Nicht gespeichert: ${res.error}`)
         // Refresh userbar to reflect display name / color
         const bar = root.querySelector('.mmc-userbar')
         if (bar) { bar.outerHTML = userbarHtml(getSession(), getPrefs()); bindApp(root) }
@@ -4045,14 +4089,20 @@ function openSettingsPanel(root) {
     // Datenschutz tab
     if (activeSettingsTab === 'datenschutz') {
       overlay.querySelectorAll('[data-unblock]').forEach(btn => {
-        btn.addEventListener('click', async () => { await toggleBlock(btn.dataset.unblock); toast(root, `${btn.dataset.unblock} entblockt.`); renderPanel() })
+        btn.addEventListener('click', async () => {
+          const res = await toggleBlock(btn.dataset.unblock)
+          toast(root, res.ok ? `${btn.dataset.unblock} entblockt.` : res.error)
+          renderPanel()
+        })
       })
       overlay.querySelector('#mmc-sp-privacy-save')?.addEventListener('click', async () => {
-        await setMyProfile({
+        const res = await setMyProfile({
           dmPolicy: overlay.querySelector('#mmc-sp-dmpolicy')?.value || 'all',
           showOnline: overlay.querySelector('#mmc-sp-showonline')?.checked !== false,
         })
-        toast(root, 'Datenschutzeinstellungen gespeichert.')
+        // dmPolicy entscheidet, wer einem schreiben darf — eine Einstellung,
+        // die nur lokal ankommt, ist hier besonders unangenehm.
+        toast(root, res.ok ? 'Datenschutzeinstellungen gespeichert.' : `Nicht gespeichert: ${res.error}`)
       })
     }
 
@@ -4291,8 +4341,16 @@ function openManagePanel(root, initialTab = null) {
     overlay.querySelectorAll('[data-mtab]').forEach(b => b.addEventListener('click', () => { activeTab = b.dataset.mtab; renderPanel() }))
 
     // Anfragen
-    overlay.querySelectorAll('[data-accept]').forEach(b => b.addEventListener('click', async () => { await acceptGroupRequest(b.dataset.accept); renderPanel(); fillGroupChannels(root) }))
-    overlay.querySelectorAll('[data-decline]').forEach(b => b.addEventListener('click', async () => { await declineGroupRequest(b.dataset.decline); renderPanel() }))
+    overlay.querySelectorAll('[data-accept]').forEach(b => b.addEventListener('click', async () => {
+      const res = await acceptGroupRequest(b.dataset.accept)
+      renderPanel(); fillGroupChannels(root)
+      if (!res.ok) toast(root, res.error)
+    }))
+    overlay.querySelectorAll('[data-decline]').forEach(b => b.addEventListener('click', async () => {
+      const res = await declineGroupRequest(b.dataset.decline)
+      renderPanel()
+      if (!res.ok) toast(root, 'Anfrage konnte nicht abgelehnt werden.')
+    }))
 
     // Mitglieder
     overlay.querySelectorAll('[data-kick]').forEach(b => b.addEventListener('click', () => {
@@ -4302,7 +4360,11 @@ function openManagePanel(root, initialTab = null) {
         text: 'Die Person kann der Gruppe danach wieder beitreten.',
         confirmLabel: 'Entfernen',
         isDanger: true,
-        onConfirm: async () => { await kickMember(activeGroup, member); renderPanel(); fillGroupChannels(root) },
+        onConfirm: async () => {
+          const res = await kickMember(activeGroup, member)
+          renderPanel(); fillGroupChannels(root)
+          if (!res.ok) toast(root, `${member} konnte nicht entfernt werden: ${res.error}`)
+        },
       })
     }))
     overlay.querySelectorAll('[data-ban]').forEach(b => b.addEventListener('click', () => {
@@ -4312,21 +4374,31 @@ function openManagePanel(root, initialTab = null) {
         text: 'Die Person kann dieser Gruppe nicht mehr beitreten.',
         confirmLabel: 'Sperren',
         isDanger: true,
-        onConfirm: async () => { await banMember(activeGroup, member); renderPanel(); fillGroupChannels(root) },
+        onConfirm: async () => {
+          const res = await banMember(activeGroup, member)
+          renderPanel(); fillGroupChannels(root)
+          if (!res.ok) toast(root, res.error)
+        },
       })
     }))
     overlay.querySelectorAll('[data-unban]').forEach(b => b.addEventListener('click', async () => {
-      await unbanMember(activeGroup, b.dataset.unban)
+      const res = await unbanMember(activeGroup, b.dataset.unban)
       renderPanel()
+      if (!res.ok) toast(root, `Sperre konnte nicht aufgehoben werden: ${res.error}`)
     }))
     overlay.querySelectorAll('[data-toggle-mod]').forEach(b => b.addEventListener('click', async () => {
-      await toggleMod(activeGroup, b.dataset.toggleMod); renderPanel(); fillGroupChannels(root)
+      const res = await toggleMod(activeGroup, b.dataset.toggleMod)
+      renderPanel(); fillGroupChannels(root)
+      if (!res.ok) toast(root, `Rolle konnte nicht geändert werden: ${res.error}`)
     }))
 
     // Meldungen: Nachricht löschen
     overlay.querySelectorAll('[data-rep-delete]').forEach(b => b.addEventListener('click', async () => {
-      await deleteGroupMessage(activeGroup, b.dataset.repMsg)
-      await dismissReport(b.dataset.repDelete)
+      const delRes = await deleteGroupMessage(activeGroup, b.dataset.repMsg)
+      // Die Meldung nur wegräumen, wenn die Nachricht wirklich weg ist — sonst
+      // verschwindet der Hinweis und der Inhalt bleibt stehen.
+      if (delRes.ok) await dismissReport(b.dataset.repDelete)
+      else toast(root, `Nachricht konnte nicht gelöscht werden: ${delRes.error}`)
       const main = root.querySelector('#mmc-main')
       const msgBox = main?.querySelector('#mmc-messages')
       if (msgBox) {
@@ -4338,7 +4410,9 @@ function openManagePanel(root, initialTab = null) {
 
     // Meldungen: Nur Meldung verwerfen (Nachricht bleibt)
     overlay.querySelectorAll('[data-rep-dismiss]').forEach(b => b.addEventListener('click', async () => {
-      await dismissReport(b.dataset.repDismiss); renderPanel()
+      const res = await dismissReport(b.dataset.repDismiss)
+      renderPanel()
+      if (!res.ok) toast(root, 'Meldung konnte nicht verworfen werden.')
     }))
 
     // Einladen-Tab
@@ -4346,9 +4420,10 @@ function openManagePanel(root, initialTab = null) {
       e.preventDefault()
       const validityDays = parseInt(overlay.querySelector('#mmc-inv-validity').value, 10)
       const maxUses = parseInt(overlay.querySelector('#mmc-inv-maxuses').value, 10)
-      const inv = await createInvite(activeGroup, { validityDays, maxUses })
-      navigator.clipboard?.writeText(inv.code).catch(() => {})
-      toast(root, `Code „${inv.code}" erstellt und kopiert.`)
+      const res = await createInvite(activeGroup, { validityDays, maxUses })
+      if (!res.ok) { toast(root, `Code konnte nicht erstellt werden: ${res.error}`); return }
+      navigator.clipboard?.writeText(res.invite.code).catch(() => {})
+      toast(root, `Code „${res.invite.code}" erstellt und kopiert.`)
       renderPanel()
     })
     overlay.querySelectorAll('[data-copy-code]').forEach(b => b.addEventListener('click', () => {
@@ -4357,7 +4432,9 @@ function openManagePanel(root, initialTab = null) {
       toast(root, `Code „${code}" kopiert.`)
     }))
     overlay.querySelectorAll('[data-revoke-code]').forEach(b => b.addEventListener('click', async () => {
-      await revokeInvite(b.dataset.revokeCode); renderPanel()
+      const res = await revokeInvite(b.dataset.revokeCode)
+      renderPanel()
+      if (!res.ok) toast(root, 'Code konnte nicht zurückgezogen werden.')
     }))
 
     // Einstellungen speichern
@@ -4375,8 +4452,9 @@ function openManagePanel(root, initialTab = null) {
         patch.eventAt = dtVal ? new Date(dtVal).getTime() : null
         patch.meetingPoint = overlay.querySelector('#mmc-set-meetingpoint')?.value.trim() || ''
       }
-      await updateGroup(activeGroup, patch)
-      toast(root, 'Einstellungen gespeichert.'); fillGroupChannels(root); renderPanel()
+      const res = await updateGroup(activeGroup, patch)
+      toast(root, res.ok ? 'Einstellungen gespeichert.' : `Nicht gespeichert: ${res.error}`)
+      fillGroupChannels(root); renderPanel()
     })
 
     // Gruppe löschen
@@ -4387,7 +4465,8 @@ function openManagePanel(root, initialTab = null) {
         confirmLabel: 'Gruppe löschen',
         isDanger: true,
         onConfirm: async () => {
-          await deleteGroup(activeGroup)
+          const res = await deleteGroup(activeGroup)
+          if (!res.ok) { toast(root, `Gruppe konnte nicht gelöscht werden: ${res.error}`); return }
           activeGroup = null; close(); renderApp(root)
         },
       })
@@ -4787,12 +4866,14 @@ function renderMessagesInto(root, box, msgs, empty, groupCtx = null, prevReadTs 
       const newText = ta.value.trim()
       if (!newText || newText === origMsg.text) { cancel(); return }
       if (groupCtx) {
-        await editMessageInGroup(groupCtx.id, msgId, newText)
+        const res = await editMessageInGroup(groupCtx.id, msgId, newText)
         const updated = getGroups().find(g => g.id === groupCtx.id)
         if (updated) { groupDefaults(updated); renderMessagesInto(root, box, channelMsgs(updated, activeChannel), empty, updated) }
+        if (!res.ok) toast(root, 'Änderung konnte nicht gespeichert werden.')
       } else if (activeDM) {
-        await editMessageInDM(activeDM, msgId, newText)
+        const res = await editMessageInDM(activeDM, msgId, newText)
         renderMessagesInto(root, box, getDMs()[activeDM] || [], empty, null)
+        if (!res.ok) toast(root, 'Änderung konnte nicht gespeichert werden.')
       }
     }
     ta.addEventListener('keydown', ev => {
@@ -4811,9 +4892,10 @@ function renderMessagesInto(root, box, msgs, empty, groupCtx = null, prevReadTs 
         confirmLabel: 'Löschen',
         isDanger: true,
         onConfirm: async () => {
-          await deleteGroupMessage(groupCtx.id, msgId)
+          const res = await deleteGroupMessage(groupCtx.id, msgId)
           const updated = getGroups().find(g => g.id === groupCtx.id)
           if (updated) { groupDefaults(updated); renderMessagesInto(root, box, channelMsgs(updated, activeChannel), empty, updated) }
+          if (!res.ok) toast(root, 'Nachricht konnte nicht gelöscht werden.')
         },
       })
     }))
@@ -4836,8 +4918,9 @@ function renderMessagesInto(root, box, msgs, empty, groupCtx = null, prevReadTs 
         confirmLabel: 'Löschen',
         isDanger: true,
         onConfirm: async () => {
-          await deleteDMMessage(activeDM, msgId)
+          const res = await deleteDMMessage(activeDM, msgId)
           renderMessagesInto(root, box, getDMs()[activeDM] || [], empty, null)
+          if (!res.ok) toast(root, 'Nachricht konnte nicht gelöscht werden.')
         },
       })
     }))

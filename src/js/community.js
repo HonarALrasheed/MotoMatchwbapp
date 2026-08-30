@@ -18,7 +18,7 @@
  */
 
 import commBg from '../assets/community-bg.jpeg'
-import { esc } from './util.js'
+import { esc, safeUrl } from './util.js'
 import { HAS_STICKER_API, searchStickerApi, trendingStickerApi } from './stickers.js'
 import {
   joinVoiceRoom, leaveVoiceRoom, toggleVoiceMute, toggleVoiceDeafen,
@@ -85,6 +85,22 @@ const AVATAR_PALETTE = [
   'hsl(330 45% 42%)',
 ]
 
+/* Zulaessige Farbwerte fuer profiles.avatar_color.
+
+   Die Spalte ist `text` ohne CHECK und die RLS-Policy profiles_update laesst
+   jeden seine eigene Zeile schreiben — ueber die REST-API direkt, das UI mit
+   seinen Farbfeldern ist keine Grenze. Der Wert landet an gut zwei Dutzend
+   Stellen unmaskiert in einem style-Attribut; `red" onmouseover="…` bricht
+   dort aus dem Attribut aus.
+
+   esc() darueberzulegen wuerde den Ausbruch zwar verhindern, aber &quot; im
+   style stehen lassen und damit jede Farbe zerstoeren. Darum eine Whitelist
+   genau der Formate, die die App selbst schreibt: das Leerzeichen-hsl() aus
+   AVATAR_PALETTE und colorFor() — plus Hex, falls je ein Farbwaehler dazukommt.
+   Beide Alternativen sind verankert und lassen kein " < > & ' durch; was hier
+   herauskommt, ist im Attribut ohne weiteres Escaping sicher. */
+const AVATAR_COLOR_RE = /^(?:#(?:[0-9a-f]{3,4}|[0-9a-f]{6}|[0-9a-f]{8})|hsl\(\d{1,3}(?:\.\d+)?\s+\d{1,3}(?:\.\d+)?%\s+\d{1,3}(?:\.\d+)?%\))$/i
+
 /* ── UI-Preference keys (bleiben in localStorage) ───────────────── */
 const LS_READSTATE = 'mm_comm_readstate_v1'
 const LS_MUTES     = 'mm_comm_mutes_v1'
@@ -103,14 +119,21 @@ function me() { return getSession()?.username || '' }
 /* ── Profil-Helfer (liest aus API-Cache) ────────────────────────── */
 function avatarColor(username) {
   const p = getProfile(username)
-  return p.avatarColor || colorFor(username)
+  const c = typeof p.avatarColor === 'string' ? p.avatarColor.trim() : ''
+  // Alles, was nicht wie eine von der App geschriebene Farbe aussieht, wird
+  // verworfen — nicht maskiert. Der Fallback ist die aus dem Namen abgeleitete
+  // Farbe, das Avatar bleibt also immer eingefaerbt.
+  return AVATAR_COLOR_RE.test(c) ? c : colorFor(username)
 }
 function displayName(username) {
   return getProfile(username).displayName || username
 }
 /** Innerer Avatar-Inhalt: echtes Profilbild, falls vorhanden, sonst Initialen des Anzeigenamens. */
 function avatarInner(username) {
-  const img = getProfile(username).avatarImg
+  // profiles.avatar ist wie avatar_color frei beschreibbar — dieselbe Vorsicht:
+  // esc() maskiert nur Zeichen, das Schema kaeme unbeschadet durch. Ohne
+  // gueltige URL zeigen wir die Initialen statt eines toten <img>.
+  const img = safeUrl(getProfile(username).avatarImg)
   return img ? `<img class="mmc-avatar-img" src="${esc(img)}" alt="">` : initials(displayName(username))
 }
 
@@ -1175,19 +1198,27 @@ function attachmentHtml(msg) {
   const att = msg.attachment || (msg.image ? { url: msg.image, type: 'image/*', name: 'Anhang' } : null)
   if (!att?.url) return ''
 
+  // messages.attachment ist eine jsonb-Spalte, deren Inhalt keine Policy prueft —
+  // der Absender bestimmt sie frei. esc() maskiert nur Zeichen: bei
+  // {"url":"javascript:…","name":"Rechnung.pdf"} bleibt das Schema heil und die
+  // Datei-Karte sieht harmlos aus. Haelt die URL der Pruefung nicht stand, wird
+  // der Anhang gar nicht gerendert — lieber keine Karte als eine gefaehrliche.
+  const url = safeUrl(att.url)
+  if (!url) return ''
+
   if (att.sticker) {
     // Freigestellte Grafik — ohne Rahmen und ohne Lightbox, wie im Messenger
-    return `<img class="mmc-msg-sticker" src="${esc(att.url)}" alt="${esc(att.name || 'Sticker')}" loading="lazy">`
+    return `<img class="mmc-msg-sticker" src="${esc(url)}" alt="${esc(att.name || 'Sticker')}" loading="lazy">`
   }
   if ((att.type || '').startsWith('image/')) {
-    return `<img class="mmc-msg-image" src="${esc(att.url)}" alt="${esc(att.name || 'Anhang')}" loading="lazy" data-img-src="${esc(att.url)}">`
+    return `<img class="mmc-msg-image" src="${esc(url)}" alt="${esc(att.name || 'Anhang')}" loading="lazy" data-img-src="${esc(url)}">`
   }
   const name = att.name || 'Datei'
   const ext  = fileExtLabel(name, att.type || '')
   const size = fileSizeLabel(att.size)
   const tone = FILE_TONE[ext] || 'plain'
   return `
-    <a class="mmc-msg-file" href="${esc(att.url)}" download="${esc(name)}" title="${esc(name)} herunterladen">
+    <a class="mmc-msg-file" href="${esc(url)}" download="${esc(name)}" title="${esc(name)} herunterladen">
       <span class="mmc-msg-file-ic mmc-msg-file-ic--${tone}">${ICON.doc}</span>
       <span class="mmc-msg-file-meta">
         <span class="mmc-msg-file-name">${esc(name)}</span>
@@ -1657,20 +1688,25 @@ function bindComposeExtras(scope, root, sendTypingFn, mentionableUsers = []) {
 /** Kachel in der Vorschlagsleiste. */
 function stickerSugHtml(it) {
   const data = esc(JSON.stringify(it))
-  return it.emoji
-    ? `<button type="button" class="mmc-sticker-sug" data-sticker="${data}" title="${esc(it.desc || '')}">${it.emoji}</button>`
-    : `<button type="button" class="mmc-sticker-sug mmc-sticker-sug--img" data-sticker="${data}" title="${esc(it.desc || '')}">
-         <img src="${esc(it.preview)}" alt="${esc(it.desc || 'Sticker')}" loading="lazy"></button>`
+  if (it.emoji) return `<button type="button" class="mmc-sticker-sug" data-sticker="${data}" title="${esc(it.desc || '')}">${it.emoji}</button>`
+  // preview/url stammen aus der KLIPY-Antwort — fremder Dienst, also dieselbe
+  // Schema-Pruefung wie bei Anhaengen. Ohne brauchbare URL faellt die Kachel weg.
+  const prev = safeUrl(it.preview)
+  if (!prev) return ''
+  return `<button type="button" class="mmc-sticker-sug mmc-sticker-sug--img" data-sticker="${data}" title="${esc(it.desc || '')}">
+         <img src="${esc(prev)}" alt="${esc(it.desc || 'Sticker')}" loading="lazy"></button>`
 }
 
 /** Kachel im Picker, inkl. Favoriten-Stern. */
 function stickerTileHtml(it, fav) {
   const data = esc(JSON.stringify(it))
   const label = fav ? 'Aus Favoriten entfernen' : 'Zu Favoriten hinzufügen'
+  const prev = it.emoji ? null : safeUrl(it.preview)   // s. stickerSugHtml
+  if (!it.emoji && !prev) return ''
   const inner = it.emoji
     ? `<button type="button" class="mmc-emoji-item" data-sticker="${data}" title="${esc(it.desc || '')}">${it.emoji}</button>`
     : `<button type="button" class="mmc-emoji-item mmc-emoji-item--img" data-sticker="${data}" title="${esc(it.desc || 'Sticker')}">
-         <img src="${esc(it.preview)}" alt="${esc(it.desc || 'Sticker')}" loading="lazy"></button>`
+         <img src="${esc(prev)}" alt="${esc(it.desc || 'Sticker')}" loading="lazy"></button>`
   return `
     <span class="mmc-sticker-cell">
       ${inner}

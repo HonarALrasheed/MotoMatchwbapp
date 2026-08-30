@@ -168,6 +168,20 @@ Eine SQL-Sitzung: `email_for_username` (E-Mail-Preisgabe an anonyme Aufrufer), `
 
 ---
 
+## Nachtrag — beim Schließen von #6 und #7 gefunden (29.08.2026)
+
+Beim Reparieren von `email_for_username`, `msg_insert_dm` und `msg_update` fielen drei weitere Policies auf, die noch nicht im Backlog stehen. Nicht mitgeändert — die SQL-Sitzung sollte auf die vier Löcher aus Schritt 4 beschränkt bleiben.
+
+| # | Titel | Schweregrad | Bereich | Datei(en) | Aufwand | Abhängig von | Warum |
+|---|---|---|---|---|---|---|---|
+| 81 | `email_for_username`: Abfrage begrenzen — Edge Function mit Rate-Limit, oder gar keine Klartext-Adresse zurückgeben | P1 | 3 Auth | `supabase/schema.sql:467-480`, `src/js/auth.js:303-306` | M | 6 | #6 beendet das Abklappern per `%`, aber die Funktion liefert weiterhin die echte E-Mail zu einem **exakt** geratenen Benutzernamen. Benutzernamen sind über `profiles_select` öffentlich (#42) — wer die Liste zieht, löst sie einzeln in Adressen auf. Aus einem Aufruf werden N, verhindert ist der Bestandsabzug damit nicht. |
+| 82 | `groups_update`: eigenes `WITH CHECK`, `created_by` festnageln | P1 | 3 Auth | `supabase/schema.sql:105-108` | S | 1 | Ohne eigenes `WITH CHECK` setzt Postgres die `USING`-Bedingung auch für die neue Zeile ein — die erfüllt ein `mod` bereits. Er kann `created_by` auf sich selbst setzen und damit die Gruppe übernehmen, samt Löschrecht (`groups_delete` prüft nur `created_by`). |
+| 83 | `msg_update`: Kanalzweig im `WITH CHECK` nachziehen | P2 | 3 Auth | `supabase/schema.sql:320-338` | S | 7 | Das `WITH CHECK` aus #7 deckt bewusst nur DMs ab; für Kanalnachrichten gilt weiter allein `USING`. Ein Autor kann seine Nachricht per UPDATE in einen beliebigen anderen Kanal umhängen, ein Mod die `author_id` einer Nachricht in seinem Kanal auf eine fremde uuid umschreiben. |
+
+Vier weitere Beobachtungen aus derselben Durchsicht sind bereits erfasst und brauchen keinen neuen Eintrag: `invites_select`/`invites_update` → **#9**, `gm_insert` → **#8**, `bf_insert_auth` mit `user_id IS NULL` → **#32**, `profiles_select`/`gm_select` öffentlich → **#42**. Die `ILIKE`-Prüfung in der Registrierung (`auth.js:346`) steht als **#70**.
+
+---
+
 ## Was ich nicht entscheiden konnte
 
 - **Gibt es ein Backup der Supabase-Datenbank?** Weder im Repo noch über die CLI sichtbar. Im Free-Plan legt Supabase keine automatischen Sicherungen an. Falls nein, ist Punkt 1 nicht optional.

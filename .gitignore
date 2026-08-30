@@ -34,3 +34,6 @@ dist-ssr
 .vercel
 .env*.local
 .env*
+# ...ausser der Vorlage: die soll gerade jeder bekommen. Ohne diese Zeile
+# fiel .env.example unter `.env*` oben und war nie versioniert.
+!.env.example

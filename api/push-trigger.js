@@ -1,33 +1,26 @@
-import * as Sentry from "@sentry/node";
 import webpush from "web-push";
 import { createClient } from "@supabase/supabase-js";
-
-if (process.env.SENTRY_DSN && !Sentry.getClient()) {
-  Sentry.init({ dsn: process.env.SENTRY_DSN, tracesSampleRate: 0, sendDefaultPii: false });
-}
-
-function report(err, extra) {
-  if (process.env.SENTRY_DSN) {
-    Sentry.captureException(err, { extra });
-  }
-}
+import { sendError, report } from "./_shared.js";
 
 /**
  * Wird von einem Supabase Database Webhook aufgerufen (INSERT auf
- * friend_requests, messages) — kein Browser-Origin, daher kein
- * checkOriginAndRate, sondern ein geteiltes Secret im Header.
+ * friend_requests, messages) — kein Browser-Origin, daher bewusst KEIN
+ * checkOriginAndRate und auch kein requireUser: der Aufrufer ist kein
+ * angemeldeter Nutzer, sondern die Datenbank. Authentifiziert wird über ein
+ * geteiltes Secret im Header. Nur das Fehlerformat ist dasselbe wie bei den
+ * übrigen Endpoints.
  * Scope: Freundschaftsanfragen, DMs, und @Mentions in Gruppenkanälen (nur
  * bei tatsächlicher Erwähnung, nicht jede Gruppennachricht — allgemeine
  * Gruppennachrichten-Pushes bleiben ein separater Fast-Follow, Fan-out-Risiko).
  */
 export default async function handler(req, res) {
   if (req.method !== "POST") {
-    return res.status(405).json({ error: "Method Not Allowed" });
+    return sendError(res, 405, "method_not_allowed", "Method Not Allowed");
   }
 
   const WEBHOOK_SECRET = process.env.SUPABASE_WEBHOOK_SECRET;
   if (!WEBHOOK_SECRET || req.headers["x-webhook-secret"] !== WEBHOOK_SECRET) {
-    return res.status(401).json({ error: "Unauthorized" });
+    return sendError(res, 401, "unauthorized", "Unauthorized");
   }
 
   const VAPID_PUBLIC_KEY = process.env.VITE_VAPID_PUBLIC_KEY;
@@ -36,7 +29,8 @@ export default async function handler(req, res) {
   const SUPABASE_URL = process.env.VITE_SUPABASE_URL;
   const SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
   if (!VAPID_PUBLIC_KEY || !VAPID_PRIVATE_KEY || !VAPID_SUBJECT || !SUPABASE_URL || !SERVICE_ROLE_KEY) {
-    return res.status(500).json({ error: "Push not fully configured" });
+    report(new Error("Push not fully configured"));
+    return sendError(res, 500, "not_configured", "Push ist nicht vollständig konfiguriert.");
   }
   webpush.setVapidDetails(VAPID_SUBJECT, VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY);
 
@@ -47,7 +41,7 @@ export default async function handler(req, res) {
 
   try {
     const { table, record } = req.body || {};
-    if (!table || !record) return res.status(400).json({ error: "Malformed webhook payload" });
+    if (!table || !record) return sendError(res, 400, "invalid_body", "Malformed webhook payload");
 
     let recipientId, title, body, url, tag, muteKey = null;
 
@@ -176,6 +170,6 @@ export default async function handler(req, res) {
     return res.status(200).json({ sent });
   } catch (err) {
     report(err);
-    return res.status(500).json({ error: err.message });
+    return sendError(res, 500, "server_error", "Unerwarteter Fehler.");
   }
 }

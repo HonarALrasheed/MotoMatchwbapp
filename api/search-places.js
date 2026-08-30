@@ -1,30 +1,54 @@
-import * as Sentry from "@sentry/node";
-import { checkOriginAndRate } from "./_shared.js";
+import {
+  checkOriginAndRate,
+  requireUser,
+  checkDailyLimit,
+  sendError,
+  report,
+  takeString,
+  isPlainObject,
+} from "./_shared.js";
 
-if (process.env.SENTRY_DSN && !Sentry.getClient()) {
-  Sentry.init({ dsn: process.env.SENTRY_DSN, tracesSampleRate: 0, sendDefaultPii: false });
-}
+/**
+ * Gebraucht-Angebote zu einem Modell (Tavily, kostenpflichtig).
+ *
+ * Der Zugang hängt an einer gültigen Supabase-Session, nicht am Origin-Header —
+ * warum, steht ausführlich in _shared.js über checkOriginAndRate().
+ */
 
-function report(err, extra) {
-  if (process.env.SENTRY_DSN) {
-    Sentry.captureException(err, { extra });
-  }
-}
+/** Modellnamen sind kurz ("Yamaha MT-07"). Der längste Eintrag in
+ *  matching.js/BIKE_DATA liegt weit darunter; 80 Zeichen sind Puffer, keine
+ *  Einladung, ganze Absätze in die Suchanfrage zu schieben. */
+const MAX_BIKE_NAME = 80;
 
 export default async function handler(req, res) {
   if (checkOriginAndRate(req, res)) return;
 
   if (req.method !== "POST") {
-    return res.status(405).json({ error: "Method Not Allowed" });
-  }
-
-  const TAVILY_KEY = process.env.TAVILY_KEY;
-  if (!TAVILY_KEY) {
-    return res.status(500).json({ error: "TAVILY_KEY not configured" });
+    return sendError(res, 405, "method_not_allowed", "Method Not Allowed");
   }
 
   try {
-    const { bikeName } = req.body;
+    const auth = await requireUser(req);
+    if (!auth) {
+      return sendError(res, 401, "unauthorized", "Anmeldung erforderlich.");
+    }
+
+    // Konfigurationsprüfung bewusst NACH der Session — siehe ai-match.js.
+    const TAVILY_KEY = process.env.TAVILY_KEY;
+    if (!TAVILY_KEY) {
+      report(new Error("TAVILY_KEY not configured"));
+      return sendError(res, 500, "not_configured", "Dienst ist nicht verfügbar.");
+    }
+
+    if (!(await checkDailyLimit(auth.supabase, "search-places"))) {
+      return sendError(res, 429, "daily_limit", "Tageslimit für Marktsuchen erreicht.");
+    }
+
+    const body = isPlainObject(req.body) ? req.body : {};
+    const bikeName = takeString(body.bikeName, MAX_BIKE_NAME);
+    if (!bikeName) {
+      return sendError(res, 400, "invalid_body", "bikeName fehlt oder ist kein Text.");
+    }
 
     const upstream = await fetch("https://api.tavily.com/search", {
       method: "POST",
@@ -44,22 +68,33 @@ export default async function handler(req, res) {
     });
 
     if (!upstream.ok) {
-      const err = await upstream.text();
-      report(new Error(`Tavily upstream ${upstream.status}`), { body: err });
-      return res.status(500).json({ error: `Tavily error: ${err}` });
+      // Upstream-Text nur nach Sentry — siehe ai-match.js.
+      const detail = await upstream.text();
+      report(new Error(`Tavily upstream ${upstream.status}`), { body: detail });
+      return sendError(res, 502, "upstream_error", "Marktsuche gerade nicht verfügbar.");
     }
 
     const data = await upstream.json();
-    const items = (data.results || []).map((r) => ({
-      title: r.title,
-      url: r.url,
-      snippet: r.content?.slice(0, 120) || "",
-      source: new URL(r.url).hostname.replace("www.", ""),
-    }));
+    // new URL() wirft bei kaputten Treffer-URLs und riss früher die ganze
+    // Antwort in den 500er-Zweig; ein unbrauchbarer Treffer fällt jetzt raus.
+    const items = (Array.isArray(data.results) ? data.results : []).flatMap((r) => {
+      let source;
+      try {
+        source = new URL(r.url).hostname.replace("www.", "");
+      } catch {
+        return [];
+      }
+      return [{
+        title: takeString(r.title, 160),
+        url: r.url,
+        snippet: takeString(r.content, 120),
+        source,
+      }];
+    });
 
     return res.status(200).json({ items });
   } catch (err) {
     report(err);
-    return res.status(500).json({ error: err.message });
+    return sendError(res, 500, "server_error", "Unerwarteter Fehler.");
   }
 }

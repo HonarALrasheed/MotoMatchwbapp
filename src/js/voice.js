@@ -21,6 +21,7 @@
 
 import { Room, RoomEvent, Track, ScreenSharePresets } from 'livekit-client'
 import { supabase, OFFLINE_MODE } from './supabase.js'
+import { report } from './monitoring.js'
 
 /* ── State ─────────────────────────────────────────────────────────── */
 let _room = null
@@ -74,9 +75,22 @@ export async function joinVoiceRoom(roomId, userId, username, prefs, onUpdate) {
       body: JSON.stringify({ roomId }),
     })
     const body = await res.json().catch(() => ({}))
-    // Statuscode mitgeben: ohne ihn sah ein 404 (Endpoint gar nicht da) im UI
-    // exakt aus wie ein 403 (kein Zugriff) — beides nur "fehlgeschlagen".
-    if (!res.ok) return { ok: false, error: body.error || `Talk-Zugang fehlgeschlagen (HTTP ${res.status}).` }
+    // Serverformat aller api/-Endpoints: { error: { code, message } }.
+    // Statuscode als Rückfall mitgeben: ohne ihn sah ein 404 (Endpoint gar
+    // nicht da, also gar kein Body) im UI exakt aus wie ein 403 (kein
+    // Zugriff) — beides nur "fehlgeschlagen".
+    if (!res.ok) {
+      // Eine serverseitig abgelaufene Sitzung bekommt denselben
+      // Anmelden-Knopf wie eine lokal fehlende (s. o.) — vorher endete
+      // dieser Fall in einem Modal ohne Ausweg.
+      const code = body?.error?.code
+      const isAuth = code === 'missing_token' || code === 'invalid_session'
+      return {
+        ok: false,
+        ...(isAuth ? { code: 'auth' } : {}),
+        error: body?.error?.message || `Talk-Zugang fehlgeschlagen (HTTP ${res.status}).`,
+      }
+    }
     token = body.token
   } catch {
     return { ok: false, error: 'Talk-Zugang fehlgeschlagen (Netzwerkfehler).' }
@@ -364,7 +378,10 @@ export async function listAudioDevices({ prompt = false } = {}) {
     const outputs = await Room.getLocalDevices('audiooutput', prompt)
     _deviceCache = { inputs, outputs }
     return _deviceCache
-  } catch {
+  } catch (err) {
+    // Leere Listen sehen im Menü aus wie „keine Geräte vorhanden“. Der
+    // Unterschied zu „Aufzählung fehlgeschlagen“ wäre sonst nirgends sichtbar.
+    report(err, { where: 'voice.listAudioDevices', prompt })
     return { inputs: [], outputs: [] }
   }
 }
@@ -373,7 +390,9 @@ export async function listAudioDevices({ prompt = false } = {}) {
 export async function switchMicrophone(deviceId) {
   _preferredMicId = deviceId
   if (!_room) return
-  try { await _room.switchActiveDevice('audioinput', deviceId) } catch {}
+  // Ohne Meldung bliebe für den Nutzer nur: ausgewähltes Mikro, altes Signal.
+  try { await _room.switchActiveDevice('audioinput', deviceId) }
+  catch (err) { report(err, { where: 'voice.switchMicrophone' }) }
 }
 
 /**
@@ -383,7 +402,8 @@ export async function switchMicrophone(deviceId) {
 export async function switchSpeaker(deviceId) {
   _preferredSinkId = deviceId
   if (!_room) return true
-  try { return await _room.switchActiveDevice('audiooutput', deviceId) } catch { return false }
+  try { return await _room.switchActiveDevice('audiooutput', deviceId) }
+  catch (err) { report(err, { where: 'voice.switchSpeaker' }); return false }
 }
 
 /* ── Private Implementierung ────────────────────────────────────────── */

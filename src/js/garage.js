@@ -27,9 +27,8 @@ import {
 } from "./matching.js";
 import { addMatch } from "./match-history.js";
 import { getGear } from "./gear.js";
-import { getStaticListings, getLiveListings } from "./marketplace.js";
+import { buildSearchUrls, getLiveListings } from "./marketplace.js";
 import { getAIExplanation } from "./ai.js";
-import { findNearby } from "./dealers.js";
 import { esc } from "./util.js";
 
 // Einmaliger, dezenter Puls auf der Tab-Leiste, damit Nutzer merken, dass
@@ -769,10 +768,7 @@ function renderTab(tab, bikeData, answers) {
         .join("")}
     `;
   } else if (tab === "market") {
-    const { items: staticItems, urls } = getStaticListings(
-      bikeData.id,
-      bikeData.name,
-    );
+    const urls = buildSearchUrls(bikeData.name);
     content.innerHTML = `
       <p class="gr-section-label">Gebrauchtmarkt</p>
       <div id="gr-market-listings" class="gr-market-list">
@@ -784,10 +780,27 @@ function renderTab(tab, bikeData, answers) {
         <a href="${urls.ebay}" target="_blank" rel="noopener" class="gr-market-link">eBay</a>
       </div>
     `;
+    /* Liefert die Suche nichts, steht hier ein Hinweis statt einer Liste.
+       Frueher sprangen an dieser Stelle erfundene Inserate mit Preisen und
+       Kilometerstaenden ein — die sahen aus wie echte Angebote, waren aber
+       keine. Die drei Suchlinks direkt darunter sind der Weg nach vorn. */
+    const renderMarketEmpty = () => {
+      const el = document.getElementById("gr-market-listings");
+      if (!el) return;
+      el.innerHTML = `
+        <p class="gr-meta-text">
+          Aktuell keine Angebote abrufbar. Suche direkt bei Kleinanzeigen,
+          Mobile.de oder eBay \u2014 die Links stehen darunter.
+        </p>`;
+    };
     getLiveListings(bikeData.name)
       .then(({ items }) => {
         const el = document.getElementById("gr-market-listings");
-        if (!el || items.length === 0) throw new Error("no results");
+        if (!el) return;
+        if (!items.length) {
+          renderMarketEmpty();
+          return;
+        }
         el.innerHTML = items
           .map(
             (item) => `
@@ -799,23 +812,7 @@ function renderTab(tab, bikeData, answers) {
           )
           .join("");
       })
-      .catch(() => {
-        const el = document.getElementById("gr-market-listings");
-        if (!el) return;
-        el.innerHTML = staticItems
-          .map(
-            (item) => `
-          <div class="gr-listing-item">
-            <div style="display:flex;justify-content:space-between;align-items:baseline;">
-              <span class="gr-listing-title">${item.title}</span>
-              <span class="gr-listing-price">${item.price}</span>
-            </div>
-            <span class="gr-listing-meta">${item.year} / ${item.km} km / ${item.location}</span>
-          </div>
-        `,
-          )
-          .join("");
-      });
+      .catch(renderMarketEmpty);
   } else if (tab === "map") {
     // Redirect to hub section
     document
@@ -1044,13 +1041,6 @@ const QUERY_COLORS = {
     label: "H\u00e4ndler",
   },
   Fahrschule: { fill: "#d0d0d0", stroke: "#999", label: "Fahrschule" },
-};
-
-// Map filter → dealers.js type for fallback
-const FILTER_TO_DEALER_TYPE = {
-  Motorradwerkstatt: "Werkstatt",
-  "Motorradh\u00e4ndler": "H\u00e4ndler",
-  Fahrschule: "Fahrschule",
 };
 
 // All possible search keywords per filter
@@ -1300,17 +1290,6 @@ function buildInfoContent(place, query) {
   </div>`;
 }
 
-function buildDealerInfoContent(dealer, query) {
-  const colors = QUERY_COLORS[query] || QUERY_COLORS["Motorradwerkstatt"];
-  return `<div class="hub-info">
-    <span class="hub-info-name">${esc(dealer.name)}</span>
-    <span class="hub-info-type" style="color:${colors.fill}">${colors.label}</span>
-    <span class="hub-info-addr">${esc(dealer.city)}</span>
-    ${dealer.phone ? `<a class="hub-info-phone" href="tel:${esc(dealer.phone)}">${esc(dealer.phone)}</a>` : ""}
-    <span class="hub-info-addr" style="margin-top:4px;font-size:10px;opacity:0.55">Beispieldaten · keine echten Betriebe</span>
-  </div>`;
-}
-
 let hubPlacesService = null;
 let hubMapInitToken = 0;
 
@@ -1404,52 +1383,44 @@ export async function initHubMap() {
       hubPlacesService = null;
     }
 
-    // Search for active pill (falls back to dealers.js if Places unavailable)
+    // Search for active pill
     const activePill = document.querySelector(".hub-pill.active");
     if (activePill) searchNearby(activePill.dataset.query);
   } catch (err) {
     console.warn("[hub] Map init failed:", err);
     // Karte nicht verf\u00fcgbar (z. B. Netzwerk/CSP blockiert Google Maps) \u2014
-    // trotzdem die lokal bekannten Eintr\u00e4ge in der N\u00e4he anzeigen, statt nichts zu tun.
-    const activePill = document.querySelector(".hub-pill.active");
-    renderDealerFallbackList(activePill?.dataset.query || "Motorradwerkstatt");
+    // das sagen wir dem Nutzer, statt Ersatzeintr\u00e4ge zu erfinden.
+    renderMapUnavailable();
   }
 }
 
-// Reine Liste ohne Karte \u2014 greift auf die lokalen H\u00e4ndlerdaten zur\u00fcck,
-// z. B. wenn Google Maps nicht laden konnte oder noch l\u00e4dt.
-function renderDealerFallbackList(filter) {
+/* Steht statt der Karte da, wenn Google Maps nicht geladen werden konnte.
+   Frueher stand hier eine Liste erfundener Werkstaetten und Fahrschulen, die
+   wie echte Betriebe in der Naehe aussah. Ohne Karte gibt es keine echten
+   Treffer \u2014 also nennt der Block die Ursache und bietet einen zweiten
+   Versuch an, statt eine Naehe vorzutaeuschen, die niemand geprueft hat. */
+function renderMapUnavailable() {
   const el = document.getElementById("hub-gmap");
   if (!el) return;
-  const dealerType = FILTER_TO_DEALER_TYPE[filter] || filter;
-  const nearby = findNearby(userLat, userLng, 80)
-    .filter((d) => d.type === dealerType)
-    .slice(0, MAX_RESULTS);
-
-  if (!nearby.length) {
+  el.innerHTML = `
+    <div class="hub-map-loading" id="hub-map-loading">
+      <div style="font-size:32px;margin-bottom:8px">\ud83d\uddfa\ufe0f</div>
+      <div style="font-weight:700;color:#fff;margin-bottom:4px">Karte nicht verf\u00fcgbar</div>
+      <div style="font-size:12px;color:#888;max-width:280px;text-align:center;line-height:1.4">
+        Google Maps konnte gerade nicht geladen werden \u2014 deshalb lassen sich
+        keine Betriebe in deiner N\u00e4he anzeigen. Pr\u00fcfe deine Verbindung
+        und versuch es noch einmal.
+      </div>
+      <button type="button" id="hub-map-retry-btn" class="hub-retry-btn">Erneut versuchen</button>
+    </div>`;
+  el.querySelector("#hub-map-retry-btn")?.addEventListener("click", () => {
     el.innerHTML = `
       <div class="hub-map-loading" id="hub-map-loading">
-        <div style="font-size:32px;margin-bottom:8px">\ud83d\udccd</div>
-        <div style="font-weight:700;color:#fff;margin-bottom:4px">Keine Ergebnisse in der N\u00e4he</div>
-        <div style="font-size:12px;color:#888;max-width:280px;text-align:center;line-height:1.4">
-          F\u00fcr diese Kategorie wurden keine Eintr\u00e4ge in deiner Umgebung gefunden.
-        </div>
+        <span class="hub-map-spinner"></span>
+        <span>Karte wird geladen\u2026</span>
       </div>`;
-    return;
-  }
-
-  el.innerHTML = `
-    <div class="hub-fallback-list" style="height:100%;overflow-y:auto;padding:16px;display:flex;flex-direction:column;gap:10px">
-      ${nearby
-        .map(
-          (d) => `
-        <div style="background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.08);border-radius:12px;padding:14px 16px">
-          <div style="font-weight:700;color:#fff;font-size:14px;margin-bottom:2px">${esc(d.name)}</div>
-          <div style="font-size:12px;color:#888">${esc(d.city)}${d.phone ? " \u00b7 " + esc(d.phone) : ""}</div>
-        </div>`,
-        )
-        .join("")}
-    </div>`;
+    initHubMap();
+  });
 }
 
 let searchGeneration = 0;
@@ -1491,8 +1462,8 @@ let _allSeenIds = new Set();
 
 export function searchNearby(filter, radius = 5000) {
   if (!hubMapInstance) {
-    // Karte (noch) nicht verfügbar — trotzdem lokale Ergebnisse anzeigen
-    renderDealerFallbackList(filter);
+    // Ohne Karte gibt es keine echten Treffer — Ursache benennen statt raten.
+    renderMapUnavailable();
     return;
   }
 
@@ -1523,7 +1494,7 @@ export function searchNearby(filter, radius = 5000) {
 
     searchTimeout = setTimeout(() => {
       if (gen !== searchGeneration) return;
-      if (!_allSearchResults.length) showDealerResults(filter, gen);
+      if (!_allSearchResults.length) clearHubResults(gen);
     }, 10000);
 
     keywords.forEach((kw) => {
@@ -1574,14 +1545,15 @@ export function searchNearby(filter, radius = 5000) {
               );
               showPlacesResults(_allSearchResults, filter, gen);
             } else {
-              showDealerResults(filter, gen);
+              clearHubResults(gen);
             }
           }
         },
       );
     });
   } else {
-    showDealerResults(filter, gen);
+    // Places-Dienst nicht verf\u00fcgbar — ohne ihn gibt es nichts zu zeigen.
+    clearHubResults(gen);
   }
 }
 
@@ -1619,40 +1591,18 @@ function showPlacesResults(results, filter, gen) {
   });
 }
 
-function showDealerResults(filter, gen) {
-  const dealerType = FILTER_TO_DEALER_TYPE[filter] || filter;
-  const nearby = findNearby(userLat, userLng, 80)
-    .filter((d) => d.type === dealerType)
-    .slice(0, MAX_RESULTS);
-
-  if (!nearby.length) return;
-
+/* Die Places-Suche hat nichts geliefert \u2014 sei es, weil es in der Umgebung
+   nichts gibt, weil die Suche in die Zeitgrenze gelaufen ist oder weil der
+   Places-Dienst gar nicht bereitsteht. Frueher setzte an dieser Stelle eine
+   Liste erfundener Betriebe Marker auf die Karte. Jetzt bleibt die Karte leer
+   und die Trefferliste erfaehrt es, damit sie ihren eigenen Leerzustand
+   zeigen kann. */
+function clearHubResults(gen) {
+  if (gen !== searchGeneration) return;
   hubMarkers.forEach((m) => m.setMap(null));
   hubMarkers = [];
-
-  nearby.forEach((dealer, i) => {
-    setTimeout(() => {
-      try {
-        if (gen !== searchGeneration) return;
-
-        const marker = new google.maps.Marker({
-          position: { lat: dealer.lat, lng: dealer.lng },
-          map: hubMapInstance,
-          title: dealer.name,
-          icon: createMarkerIcon(filter),
-        });
-
-        marker.addListener("click", () => {
-          hubInfoWindow.setContent(buildDealerInfoContent(dealer, filter));
-          hubInfoWindow.open(hubMapInstance, marker);
-        });
-
-        hubMarkers.push(marker);
-      } catch (err) {
-        console.warn("[hub] Dealer marker error:", err);
-      }
-    }, i * 60);
-  });
+  if (hubInfoWindow) hubInfoWindow.close();
+  emitResultsUpdate();
 }
 
 // ══════════════════════════════════════════════════════════════

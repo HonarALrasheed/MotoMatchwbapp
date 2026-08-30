@@ -17,6 +17,7 @@
  */
 
 import { supabase, OFFLINE_MODE } from './supabase.js'
+import { report } from './monitoring.js'
 import { findUserByUsername, searchUsers, getUserRecord, currentUser } from './auth.js'
 
 /* ── localStorage-Keys (Offline-Modus + UI-Preferences) ─────────── */
@@ -575,7 +576,10 @@ async function _broadcastGroupLiveEvent(groupId, event, payload) {
   const chan = reused ? _groupLiveChan : supabase.channel(`group-live:${groupId}`, {
     config: { broadcast: { self: false } },
   })
-  try { await chan.send({ type: 'broadcast', event, payload }) } catch {}
+  // Kein Empfänger zu haben ist normal; ein Fehler beim Senden ist es nicht —
+  // dann sehen die anderen Mitglieder die Änderung schlicht nie.
+  try { await chan.send({ type: 'broadcast', event, payload }) }
+  catch (err) { report(err, { where: 'community-api._broadcastGroupLiveEvent', event, reused }) }
   if (!reused) { try { supabase.removeChannel(chan) } catch {} }
 }
 
@@ -621,7 +625,11 @@ export async function sendUserEvent(toUsername, event, payload = {}) {
   try {
     await new Promise(resolve => chan.subscribe(status => { if (status === 'SUBSCRIBED') resolve() }))
     await chan.send({ type: 'broadcast', event, payload: { ...payload, from: _myUsername } })
-  } catch {}
+  } catch (err) {
+    // Geht das hier verloren, klingelt es auf der Gegenseite nie und der Anruf
+    // stirbt still — für den Anrufer sieht es aus, als würde niemand abheben.
+    report(err, { where: 'community-api.sendUserEvent', event })
+  }
   try { await supabase.removeChannel(chan) } catch {}
 }
 

@@ -1,60 +1,49 @@
-import * as Sentry from "@sentry/node";
 import { AccessToken } from "livekit-server-sdk";
-import { createClient } from "@supabase/supabase-js";
-import { checkOriginAndRate } from "./_shared.js";
+import { checkOriginAndRate, requireUser, sendError, report } from "./_shared.js";
 
-if (process.env.SENTRY_DSN && !Sentry.getClient()) {
-  Sentry.init({ dsn: process.env.SENTRY_DSN, tracesSampleRate: 0, sendDefaultPii: false });
-}
-
-function report(err, extra) {
-  if (process.env.SENTRY_DSN) {
-    Sentry.captureException(err, { extra });
-  }
-}
-
+/**
+ * LiveKit-Zugangstoken für einen Sprachraum.
+ *
+ * Die `message` der Fehler hier landet ungefiltert im UI: src/js/voice.js
+ * reicht sie an community.js weiter, das sie in einem Modal zeigt. Sie ist
+ * deshalb auf Deutsch und für Menschen geschrieben. Der `code` daneben ist das,
+ * woran der Client verzweigt — bei `missing_token`/`invalid_session` bietet das
+ * Modal zusätzlich einen Anmelden-Knopf an.
+ */
 export default async function handler(req, res) {
   if (checkOriginAndRate(req, res)) return;
 
   if (req.method !== "POST") {
-    return res.status(405).json({ error: "Method Not Allowed" });
-  }
-
-  const LIVEKIT_API_KEY = process.env.LIVEKIT_API_KEY;
-  const LIVEKIT_API_SECRET = process.env.LIVEKIT_API_SECRET;
-  if (!LIVEKIT_API_KEY || !LIVEKIT_API_SECRET) {
-    return res.status(500).json({ error: "LIVEKIT_API_KEY/LIVEKIT_API_SECRET not configured" });
-  }
-
-  const SUPABASE_URL = process.env.VITE_SUPABASE_URL;
-  const SUPABASE_ANON_KEY = process.env.VITE_SUPABASE_ANON_KEY;
-  if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
-    return res.status(500).json({ error: "Supabase not configured" });
+    return sendError(res, 405, "method_not_allowed", "Method Not Allowed");
   }
 
   try {
+    // Auth zuerst, noch vor der roomId-Prüfung: ein Fremder soll nicht erst
+    // erfahren, welche Raum-Kennungen gültig aussehen. requireUser() arbeitet
+    // im RLS-Kontext des Nutzers (Anon-Key, nicht Service-Role) — die
+    // Begründung dazu steht in api/_shared.js.
+    const auth = await requireUser(req);
+    if (!auth) {
+      const hasBearer = (req.headers.authorization || "").startsWith("Bearer ");
+      return hasBearer
+        ? sendError(res, 401, "invalid_session", "Deine Sitzung ist abgelaufen. Bitte melde dich erneut an.")
+        : sendError(res, 401, "missing_token", "Bitte melde dich an, um einem Talk beizutreten.");
+    }
+    const { user, supabase } = auth;
+
+    // Konfigurationsprüfung hinter der Anmeldung — so kann niemand von außen
+    // abfragen, ob der Dienst überhaupt Schlüssel hinterlegt hat.
+    const LIVEKIT_API_KEY = process.env.LIVEKIT_API_KEY;
+    const LIVEKIT_API_SECRET = process.env.LIVEKIT_API_SECRET;
+    if (!LIVEKIT_API_KEY || !LIVEKIT_API_SECRET) {
+      report(new Error("LIVEKIT_API_KEY/LIVEKIT_API_SECRET not configured"));
+      return sendError(res, 500, "not_configured", "Sprachchat ist noch nicht konfiguriert.");
+    }
+
     const { roomId } = req.body || {};
     if (!roomId || typeof roomId !== "string") {
-      return res.status(400).json({ error: "roomId required" });
+      return sendError(res, 400, "invalid_room", "Kein Raum angegeben.");
     }
-
-    const authHeader = req.headers.authorization || "";
-    const accessToken = authHeader.startsWith("Bearer ") ? authHeader.slice(7) : null;
-    if (!accessToken) {
-      return res.status(401).json({ error: "Missing Authorization header" });
-    }
-
-    // Client agiert im RLS-Kontext des anfragenden Nutzers (nicht Service-Role) —
-    // dieselben Policies wie im Frontend gelten hier, kein privilegierter Zugriff.
-    const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
-      global: { headers: { Authorization: `Bearer ${accessToken}` } },
-    });
-
-    const { data: userData, error: userErr } = await supabase.auth.getUser(accessToken);
-    if (userErr || !userData?.user) {
-      return res.status(401).json({ error: "Invalid session" });
-    }
-    const user = userData.user;
 
     const { data: profile } = await supabase
       .from("profiles")
@@ -62,7 +51,7 @@ export default async function handler(req, res) {
       .eq("id", user.id)
       .maybeSingle();
     if (!profile?.username) {
-      return res.status(403).json({ error: "No profile" });
+      return sendError(res, 403, "no_profile", "Für dieses Konto gibt es kein Profil.");
     }
 
     // Direktanruf zwischen zwei Freunden: Die Raum-ID trägt beide Beteiligten,
@@ -80,10 +69,10 @@ export default async function handler(req, res) {
     if (dmMatch) {
       const [, first, second] = dmMatch.map(s => (s || "").toLowerCase());
       if (first >= second) {
-        return res.status(400).json({ error: "Invalid room id" });
+        return sendError(res, 400, "invalid_room", "Ungültige Raum-Kennung.");
       }
       if (user.id !== first && user.id !== second) {
-        return res.status(403).json({ error: "Not a participant of this call" });
+        return sendError(res, 403, "not_participant", "Du gehörst nicht zu diesem Anruf.");
       }
       const { data: friendship } = await supabase
         .from("friendships")
@@ -92,7 +81,7 @@ export default async function handler(req, res) {
         .eq("user_b", second)
         .maybeSingle();
       if (!friendship) {
-        return res.status(403).json({ error: "Not friends" });
+        return sendError(res, 403, "not_friends", "Ihr seid nicht (mehr) befreundet.");
       }
     } else {
       // vr_select-RLS (schema.sql) spiegeln: nur Mitglieder ODER offene Gruppen dürfen
@@ -103,7 +92,7 @@ export default async function handler(req, res) {
         .eq("id", roomId)
         .maybeSingle();
       if (roomErr || !room) {
-        return res.status(403).json({ error: "Room not found or not accessible" });
+        return sendError(res, 403, "room_forbidden", "Dieser Talk existiert nicht oder ist für dich nicht offen.");
       }
     }
 
@@ -124,6 +113,6 @@ export default async function handler(req, res) {
     return res.status(200).json({ token: jwt });
   } catch (err) {
     report(err);
-    return res.status(500).json({ error: err.message });
+    return sendError(res, 500, "server_error", "Talk-Zugang fehlgeschlagen.");
   }
 }

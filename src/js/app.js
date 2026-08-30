@@ -1,6 +1,5 @@
 import { initLanding } from './landing.js'
 import { initSupabaseAuth, openPasswordResetScreen } from './auth.js'
-import { initMonitoring } from './monitoring.js'
 import { initFeedbackFab } from './feedback.js'
 import { initNav, setViewResolver, readRestoreView, clearRestoreView } from './nav.js'
 import { initSwipeNav } from './swipe.js'
@@ -37,7 +36,6 @@ async function openView(view) {
 }
 
 export function startApp() {
-  initMonitoring()
   // Misst die Bildschirmtastatur und legt sie als --kb-inset ab; muss stehen,
   // bevor der erste Bildschirm ein Eingabefeld rendert.
   initViewport()

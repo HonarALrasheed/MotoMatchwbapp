@@ -12,6 +12,7 @@
  */
 
 import { supabase, OFFLINE_MODE } from './supabase.js'
+import { report } from './monitoring.js'
 import { initCommunityData, unsubscribeAll, setMyProfile } from './community-api.js'
 
 const LS_USERS   = 'mm_auth_users_v1'    // [{ username, password, name, email, bio, avatar, joinedAt, notif, theme, provider }]
@@ -216,7 +217,12 @@ const listeners = new Set()
 export function subscribe(fn) { listeners.add(fn); return () => listeners.delete(fn) }
 function notify() {
   const s = getSession()
-  listeners.forEach(fn => { try { fn(s) } catch {} })
+  // Ein defekter Abonnent darf die übrigen nicht aufhalten — deshalb der
+  // catch. Er darf aber auch nicht spurlos bleiben: hier hängen Anmeldung,
+  // Abmeldung und Sitzungswechsel dran.
+  listeners.forEach(fn => {
+    try { fn(s) } catch (err) { report(err, { where: 'auth.notify', listener: fn.name || 'anonym' }) }
+  })
   try { window.dispatchEvent(new CustomEvent('mm:auth-changed', { detail: s })) } catch {}
 }
 
@@ -531,16 +537,62 @@ export async function updatePasswordDirect(newPassword) {
   return { ok: true }
 }
 
-/** Konto endgültig löschen (Nutzer aus der DB entfernen + abmelden). */
+/**
+ * Konto endgültig löschen (Art. 17 DSGVO).
+ *
+ * Online läuft das über api/delete-account.js: der Service-Role-Key, den die
+ * Admin-API dafür braucht, darf nicht im Client liegen. Der Endpoint bekommt
+ * nur den Access-Token, die zu löschende uid liest er selbst aus dem
+ * verifizierten Token.
+ *
+ * WICHTIG — abgemeldet wird ausschließlich im Erfolgsfall. Vorher wurde auch
+ * bei einem Fehlschlag abgemeldet: der Nutzer stand dann vor einer
+ * Fehlermeldung, ohne Session, mit weiterhin existierendem Konto. Bleibt die
+ * Session bestehen, ist der Versuch einfach wiederholbar.
+ */
 export async function deleteAccount() {
   const s = getSession(); if (!s || s.guest) return { ok: false, error: 'Als Gast nicht möglich.' }
 
   if (!OFFLINE_MODE) {
-    // Echtes Löschen des auth.users-Datensatzes erfordert den Supabase Service-Role-Key
-    // (Admin-API) und ist im Frontend aus Sicherheitsgründen nicht möglich — noch kein
-    // Backend-Endpunkt dafür vorhanden. Bis dahin: nur abmelden, ehrlich fehlschlagen.
-    await logout()
-    return { ok: false, error: 'Konto-Löschung ist in der Beta noch nicht verfügbar. Du wurdest abgemeldet — bitte kontaktiere uns, falls dein Konto entfernt werden soll.' }
+    const { data: { session } } = await supabase.auth.getSession()
+    if (!session) return { ok: false, error: 'Deine Sitzung ist abgelaufen. Bitte melde dich erneut an — dein Konto wurde nicht gelöscht.' }
+
+    let res, body
+    try {
+      res = await fetch('/api/delete-account', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.access_token}` },
+        body: '{}',
+      })
+      body = await res.json().catch(() => ({}))
+    } catch {
+      return { ok: false, error: 'Konto konnte nicht gelöscht werden (Netzwerkfehler). Du bist weiterhin angemeldet.' }
+    }
+    // Serverformat aller api/-Endpoints: { error: { code, message } }. Den
+    // Statuscode als Rückfall mitnehmen — ohne ihn sähe ein 404 (Endpoint gar
+    // nicht deployt, also gar kein Body) aus wie ein inhaltlicher Fehler.
+    if (!res.ok) {
+      return {
+        ok: false,
+        code: body?.error?.code,
+        error: body?.error?.message || `Konto konnte nicht gelöscht werden (HTTP ${res.status}). Du bist weiterhin angemeldet.`,
+      }
+    }
+
+    // Die lokalen Profil-Overrides (Avatar, Bio, Alter — Felder ohne DB-Spalte)
+    // liegen nur hier im Browser. Ohne diesen Schritt bliebe nach einer als
+    // vollständig angekündigten Löschung das Profilbild im localStorage liegen.
+    if (s.uid) {
+      const all = read(LS_ONLINE_PROFILES, {})
+      delete all[s.uid]
+      write(LS_ONLINE_PROFILES, all)
+    }
+
+    // signOut() spricht mit einem Token, dessen Nutzer es serverseitig nicht
+    // mehr gibt — ein Fehler daraus ist hier bedeutungslos. logout() räumt den
+    // lokalen Zustand auf, bevor es signOut() abwartet.
+    try { await logout() } catch {}
+    return { ok: true }
   }
 
   const users = getUsers().filter(x => x.username.toLowerCase() !== s.username.toLowerCase())
@@ -548,6 +600,29 @@ export async function deleteAccount() {
   setSessionRaw(null)
   notify()
   return { ok: true }
+}
+
+/**
+ * Auskunft nach Art. 15 DSGVO: alle Serverdaten zum eigenen Konto.
+ *
+ * Ruft die SECURITY-DEFINER-Funktion export_my_data() auf (supabase/schema.sql).
+ * Die Funktion nimmt keinen Parameter — sie liest auth.uid() aus dem JWT und
+ * gibt ausschließlich eigene Zeilen zurück; es gibt also keinen Weg, hierüber
+ * fremde Daten abzufragen.
+ *
+ * Der Aufrufer muss den Fehlerfall behandeln: die App funktioniert offline
+ * weiter, ein Export ohne Serverteil ist dann unvollständig und muss als
+ * solcher gekennzeichnet werden (siehe src/js/account.js).
+ */
+export async function exportMyData() {
+  const s = getSession()
+  if (!s) return { ok: false, error: 'Nicht angemeldet.' }
+  if (s.guest) return { ok: false, error: 'Als Gast gibt es keine Serverdaten.' }
+  if (OFFLINE_MODE) return { ok: false, error: 'Offline-Modus — es gibt keine Serverdaten.' }
+
+  const { data, error } = await supabase.rpc('export_my_data')
+  if (error) return { ok: false, error: error.message }
+  return { ok: true, data }
 }
 
 /* Tab-übergreifende Synchronisation */

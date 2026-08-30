@@ -1821,7 +1821,7 @@ function renderSettings() {
             <p class="acc-danger-note">Löscht Favoriten, Kommentare, Posts und Einstellungen.</p>
             ${realUser ? `
             <button class="acc-danger-btn" id="acc-delete-account" style="margin-top:10px">Konto endgültig löschen</button>
-            <p class="acc-danger-note">Löscht dein Konto unwiderruflich — du wirst automatisch abgemeldet.</p>` : ''}
+            <p class="acc-danger-note">Löscht unwiderruflich: Konto und Anmeldedaten, Profil, alle deine Nachrichten in Gruppen und DMs, deine Gruppenmitgliedschaften und Freundschaften, alle von dir hochgeladenen Anhänge sowie Gruppen, die du selbst erstellt hast. Nicht rückgängig zu machen.</p>` : ''}
           </div>
         </div>
       </div>
@@ -1927,10 +1927,60 @@ function wireSettings() {
     })
   })
 
-  document.getElementById('acc-delete-account')?.addEventListener('click', async () => {
-    if (!confirm('Konto wirklich endgültig löschen? Diese Aktion kann nicht rückgängig gemacht werden.')) return
-    const res = await auth.deleteAccount()
-    if (!res.ok) { showFlash(res.error); setTimeout(() => location.reload(), 1200); return }
+  /* Die destruktivste Aktion der App — und seit sie tatsaechlich loescht
+     (api/delete-account.js) auch wirklich endgueltig. Deshalb zwei Stufen:
+     erst der vollstaendige Umfang zum Lesen, dann der eigene Benutzername zum
+     Abtippen. Ein einzelnes confirm() klickt man versehentlich weg, den
+     eigenen Namen tippt man nicht aus Versehen.
+     Der Umfang stammt aus den ON-DELETE-CASCADE-Ketten in schema.sql — inkl.
+     groups.created_by: selbst erstellte Gruppen verschwinden mit. */
+  document.getElementById('acc-delete-account')?.addEventListener('click', async (ev) => {
+    const btn = ev.currentTarget
+    const username = auth.currentUser()?.username || ''
+
+    const scope = [
+      'Konto endgültig löschen?',
+      '',
+      'Unwiderruflich gelöscht werden:',
+      '· dein Konto und deine Anmeldedaten',
+      '· dein Profil (Name, Bio, Profilbild)',
+      '· alle deine Nachrichten in Gruppen und Direktnachrichten',
+      '· deine Gruppenmitgliedschaften, Zusagen und Freundschaften',
+      '· alle Dateien, die du in Chats hochgeladen hast',
+      '· Gruppen, die du selbst erstellt hast — mit allen Kanälen und Nachrichten darin',
+      '',
+      'Das lässt sich nicht rückgängig machen. Es gibt keine Wiederherstellung.',
+      'Wenn du deine Daten vorher sichern willst: Abbrechen und zuerst "Daten exportieren".',
+    ].join('\n')
+    if (!confirm(scope)) return
+
+    const typed = prompt(`Letzter Schritt: Tippe zur Bestätigung deinen Benutzernamen ein.\n\n${username}`)
+    if (typed === null) return
+    if (typed.trim() !== username) {
+      showFlash('Benutzername stimmt nicht — Konto wurde NICHT gelöscht.')
+      return
+    }
+
+    btn.disabled = true
+    btn.textContent = 'Wird gelöscht …'
+    /* Wirft deleteAccount() unerwartet (Supabase-Client nicht erreichbar),
+       bliebe der Knopf sonst dauerhaft auf "Wird gelöscht …" stehen — ohne
+       Meldung und ohne Moeglichkeit, es erneut zu versuchen. */
+    let res
+    try {
+      res = await auth.deleteAccount()
+    } catch (err) {
+      res = { ok: false, error: 'Konto konnte nicht gelöscht werden: ' + (err?.message || 'unbekannter Fehler') }
+    }
+    if (!res.ok) {
+      /* Kein reload mehr im Fehlerfall: die Session besteht jetzt weiter
+         (auth.js meldet nur noch bei Erfolg ab), der Versuch ist also
+         wiederholbar — ein Neuladen wuerde die Meldung nur wegwerfen. */
+      btn.disabled = false
+      btn.textContent = 'Konto endgültig löschen'
+      showFlash(res.error || 'Konto konnte nicht gelöscht werden.')
+      return
+    }
     showFlash('Konto gelöscht')
     setTimeout(() => location.reload(), 600)
   })
@@ -1964,21 +2014,62 @@ function wireSettings() {
     setTimeout(() => location.reload(), 600)
   })
 
-  // Export → download all mm_* keys as JSON
-  document.getElementById('acc-export-data')?.addEventListener('click', () => {
-    const data = { exportedAt: new Date().toISOString(), version: 1, keys: {} }
-    for (let i = 0; i < localStorage.length; i++) {
-      const k = localStorage.key(i)
-      if (k?.startsWith('mm_')) data.keys[k] = localStorage.getItem(k)
+  /* Export = Auskunft nach Art. 15 DSGVO, nicht nur ein Browser-Backup.
+     Vorher wurden ausschliesslich die mm_*-Schluessel aus dem localStorage
+     eingesammelt — Nachrichten, Gruppen, Freundschaften, Meldungen und
+     Feedback liegen aber in Supabase und fehlten damit vollstaendig.
+     Jetzt: erst die Serverdaten (RPC export_my_data(), gibt nur eigene Zeilen
+     zurueck), dann die lokalen Schluessel dazu, alles in eine Datei.
+     Faellt die RPC aus (offline, Endpoint nicht deployt), wird wie bisher nur
+     der lokale Teil exportiert — dann aber mit einem Hinweis IN der Datei,
+     damit niemand die unvollstaendige Datei fuer die ganze Auskunft haelt.
+     `keys` behaelt Name und Form, damit der Import-Pfad unten weiter passt. */
+  document.getElementById('acc-export-data')?.addEventListener('click', async (ev) => {
+    const btn = ev.currentTarget
+    btn.disabled = true
+
+    const data = {
+      exportedAt: new Date().toISOString(),
+      version: 2,
+      hinweis: null,
+      server: null,
+      keys: {},
     }
+
+    let localOk = true
+    try {
+      for (let i = 0; i < localStorage.length; i++) {
+        const k = localStorage.key(i)
+        if (k?.startsWith('mm_')) data.keys[k] = localStorage.getItem(k)
+      }
+    } catch {
+      localOk = false
+    }
+
+    let res
+    try {
+      res = await auth.exportMyData()
+    } catch (err) {
+      res = { ok: false, error: err?.message || 'unbekannter Fehler' }
+    }
+    if (res.ok) {
+      data.server = res.data
+    } else {
+      data.hinweis = `UNVOLLSTÄNDIG: Die Serverdaten (Nachrichten, Gruppen, Freundschaften, Meldungen, Feedback) konnten nicht abgerufen werden — ${res.error}. Diese Datei enthält nur die lokal in diesem Browser gespeicherten Daten.`
+    }
+
     const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' })
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
     a.href = url
-    a.download = `motomatch-backup-${new Date().toISOString().slice(0,10)}.json`
+    a.download = `motomatch-daten-${new Date().toISOString().slice(0,10)}.json`
     a.click()
     URL.revokeObjectURL(url)
-    showFlash('Daten heruntergeladen ✓')
+
+    btn.disabled = false
+    if (!res.ok) showFlash('Nur lokale Daten — Serverdaten nicht abrufbar (Hinweis steht in der Datei)')
+    else if (!localOk) showFlash('Serverdaten heruntergeladen — Browser-Speicher war gesperrt')
+    else showFlash('Daten heruntergeladen ✓')
   })
 
   // Import → read JSON file and restore keys

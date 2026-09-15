@@ -1,0 +1,8 @@
+# Was `vercel --prod` NICHT hochladen soll. Die Vercel-CLI liest nur diese Datei, nicht .gitignore
+# (dazu kommt ihre eingebaute Liste: .git, .vercel, node_modules, .venv, .env.local, .env.*.local …).
+#
+# tools/ ist die Bildwerkstatt (Pressefotos, gerechnete Bilder, Archiv — mehrere GB). Die Website braucht davon
+# nichts; fertige Bilder kommen erst beim Einbau nach public/.
+tools/
+# macOS-Begleitdateien auf diesem Laufwerk (exFAT) — ohne Inhalt für die Website
+._*

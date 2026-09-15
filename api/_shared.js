@@ -68,7 +68,7 @@ function getAllowedOrigins() {
  * anderer Server) setzt ihn frei auf jeden beliebigen Wert. Wer den erlaubten
  * Wert kennt — er steht in jeder Netzwerkanfrage der öffentlichen Seite — kommt
  * durch. Nachweisbar mit einer Zeile:
- *     curl -X POST .../api/ai-match -H 'Origin: <erlaubt>' -d '{...}'
+ *     curl -X POST .../api/search-places -H 'Origin: <erlaubt>' -d '{...}'
  * Die Prüfung bleibt trotzdem: sie fängt fremde Webseiten ab, die den Endpoint
  * aus dem Browser heraus mitbenutzen wollen, und hält Versehen (falsche
  * Preview-URL, vergessene Env-Var) früh auf. Der echte Riegel vor den
@@ -156,13 +156,12 @@ export async function requireUser(req) {
 /**
  * Tageskontingent pro Nutzer und Endpoint.
  *
- * Größenordnung: das Quiz macht 1 ai-match-Aufruf pro Durchlauf, der
- * Markt-Reiter 1 search-places-Aufruf pro geöffnetem Bike. Die Werte liegen
+ * Größenordnung: der Markt-Reiter macht 1 search-places-Aufruf pro
+ * geöffnetem Bike. Die Werte liegen
  * bewusst weit über normaler Nutzung — sie sollen einen durchgedrehten Client
  * oder ein gestohlenes Token deckeln, nicht echte Nutzer bremsen.
  */
 const DAILY_LIMITS = {
-  "ai-match": 30,
   "search-places": 60,
 };
 

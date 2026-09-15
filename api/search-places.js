@@ -33,7 +33,8 @@ export default async function handler(req, res) {
       return sendError(res, 401, "unauthorized", "Anmeldung erforderlich.");
     }
 
-    // Konfigurationsprüfung bewusst NACH der Session — siehe ai-match.js.
+    // Konfigurationsprüfung bewusst NACH der Session: wer nicht angemeldet ist,
+    // soll nicht erfahren, welche Schlüssel hier gesetzt sind.
     const TAVILY_KEY = process.env.TAVILY_KEY;
     if (!TAVILY_KEY) {
       report(new Error("TAVILY_KEY not configured"));
@@ -68,7 +69,7 @@ export default async function handler(req, res) {
     });
 
     if (!upstream.ok) {
-      // Upstream-Text nur nach Sentry — siehe ai-match.js.
+      // Upstream-Text nur nach Sentry, nie in die Antwort an den Client.
       const detail = await upstream.text();
       report(new Error(`Tavily upstream ${upstream.status}`), { body: detail });
       return sendError(res, 502, "upstream_error", "Marktsuche gerade nicht verfügbar.");

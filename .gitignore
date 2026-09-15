@@ -37,3 +37,6 @@ dist-ssr
 # ...ausser der Vorlage: die soll gerade jeder bekommen. Ohne diese Zeile
 # fiel .env.example unter `.env*` oben und war nie versioniert.
 !.env.example
+
+# DRACO-Decoder wird beim Build aus node_modules/three kopiert (vite-plugin-draco.js)
+public/draco/

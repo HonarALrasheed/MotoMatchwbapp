@@ -1,4 +1,5 @@
 import { initLanding } from './landing.js'
+import { findBikeByShortName } from './matching.js'
 import { initSupabaseAuth, openPasswordResetScreen } from './auth.js'
 import { initFeedbackFab } from './feedback.js'
 import { initNav, setViewResolver, readRestoreView, clearRestoreView } from './nav.js'
@@ -19,10 +20,10 @@ import { initInstall } from './install.js'
 async function openView(view) {
   if (!view?.bike) return false
   if (view.screen === 'konfigurator') {
-    const [{ findBikeByShortName }, { openKonfigurator }] = await Promise.all([
-      import('./matching.js'),
-      import('./bike-detail.js'),
-    ])
+    /* matching.js wird von landing.js ohnehin statisch geladen und liegt damit
+       schon im Start-Bundle — der dynamische Import hier brachte kein eigenes
+       Stueck Code, nur eine Build-Warnung. */
+    const { openKonfigurator } = await import('./bike-detail.js')
     const bikeData = findBikeByShortName(view.bike)
     if (!bikeData) return false
     openKonfigurator(bikeData, null, view.tab)

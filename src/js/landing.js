@@ -17,9 +17,9 @@ const LC_INFO = {
 
 // Nutzungs-Sektionen unter dem Hero — adressieren neue und Bestandsfahrer.
 const USE_SECTIONS = [
-  { id: "lc-quiz",      label: "Finde dein perfektes Bike", img: "/quiz-lifestyle.jpeg",      action: "quiz"      },
-  { id: "lc-garage",    label: "Deine Garage im Blick",     img: "/dealer-lifestyle.jpeg",    action: "garage"    },
-  { id: "lc-community", label: "Fahr nicht allein",         img: "/community-lifestyle.jpeg", action: "community" },
+  { id: "lc-quiz",      label: "Finde dein perfektes Bike", img: "/quiz-lifestyle.webp",      action: "quiz"      },
+  { id: "lc-garage",    label: "Deine Garage im Blick",     img: "/dealer-lifestyle.webp",    action: "garage"    },
+  { id: "lc-community", label: "Fahr nicht allein",         img: "/community-lifestyle.webp", action: "community" },
 ];
 
 const FEATURED_BIKES = [
@@ -29,7 +29,7 @@ const FEATURED_BIKES = [
     badgeKey: "cruiser",
     font: "font-harley",
     desc: "Dark Custom mit V-Twin. Minimalistisch, roh, unverkennbar.",
-    img: "/bikes/harley_iron883_2018.jpg",
+    img: "/bikes/harley_iron883_2018_kachel.webp",
   },
   {
     name: "Seventy-Two",
@@ -37,7 +37,7 @@ const FEATURED_BIKES = [
     badgeKey: "cruiser",
     font: "font-harley-classic",
     desc: "Klassischer Chopper-Stil mit V-Twin Power. Purer Cruiser-Charakter.",
-    img: "/bikes/harley_seventytwo_2015.jpg",
+    img: "/bikes/harley_seventytwo_2015_kachel.webp",
   },
   {
     name: "CB 750 F",
@@ -45,7 +45,7 @@ const FEATURED_BIKES = [
     badgeKey: "klassiker",
     font: "font-honda-classic",
     desc: "Die Legende, die alles veränderte. Vier Zylinder, Geschichte.",
-    img: "/bikes/honda_cb750f_1970.jpg",
+    img: "/bikes/honda_cb750f_1970_kachel.webp",
   },
   {
     name: "500 Custom",
@@ -53,7 +53,7 @@ const FEATURED_BIKES = [
     badgeKey: "custom",
     font: "font-yamaha-custom",
     desc: "Moderner Custom-Cruiser. Vielseitig, komfortabel, einzigartig.",
-    img: "/bikes/yamaha_500custom.png",
+    img: "/bikes/yamaha_500custom.webp",
   },
   {
     name: "YZF-R3",
@@ -61,7 +61,7 @@ const FEATURED_BIKES = [
     badgeKey: "sport",
     font: "font-yamaha-sport",
     desc: "Idealer Einstieg in die Sportwelt. Agil, leicht, perfekt für A2.",
-    img: "/bikes/yamaha_yzfr3_2017.jpg",
+    img: "/bikes/yamaha_yzfr3_2017_kachel.webp",
   },
   {
     name: "NR750",
@@ -69,7 +69,7 @@ const FEATURED_BIKES = [
     badgeKey: "sportbike",
     font: "font-honda-tech",
     desc: "Ikonischer V4-Sportler mit ovalen Kolben. Technisches Meisterwerk.",
-    img: "/bikes/honda_nr750_1994.png",
+    img: "/bikes/honda_nr750_1994.webp",
   },
 ];
 
@@ -81,12 +81,12 @@ function resolveFeaturedBike(def) {
 }
 
 const DISCOVER_CATS = [
-  { type: "Stil", name: "Cruiser",   primaryBike: "Iron 883",    bikes: "Iron 883 · Seventy-Two",   desc: "Dark Custom mit V-Twin. Minimalistisch, roh, unverkennbar.",        img: "/bikes/harley_iron883_2018.jpg",    filter: "Cruiser"   },
-  { type: "Stil", name: "Sportbike", primaryBike: "YZF-R3",      bikes: "YZF-R3 · NR750",           desc: "Agilität trifft Technik. Für die Rennstrecke und die Straße.",       img: "/bikes/yamaha_yzfr3_2017.jpg",      filter: "Sport"     },
-  { type: "Stil", name: "Klassiker", primaryBike: "CB 750 F",    bikes: "CB 750 F · RX King",       desc: "Zeitlose Legenden. Geschichte, die man fahren kann.",                img: "/bikes/honda_cb750f_1970.jpg",      filter: "Klassiker" },
-  { type: "Stil", name: "Custom",    primaryBike: "500 Custom",  bikes: "500 Custom · DT 125",      desc: "Einzigartiger Stil. Jedes Bike ein Unikat.",                         img: "/bikes/yamaha_500custom.png",       filter: "Custom"    },
-  { type: "Stil", name: "Naked",     primaryBike: "NR750",       bikes: "CRF450R · Speed Triple",   desc: "Puristische Power ohne Verkleidung. Fahrspaß pur.",                 img: "/bikes/honda_nr750_1994.png",       filter: "Sportbike" },
-  { type: "Stil", name: "Vintage",   primaryBike: "Seventy-Two", bikes: "Seventy-Two · CB 750 F",   desc: "Klassisches Design, moderne Seele. Retro mit Charakter.",           img: "/bikes/harley_seventytwo_2015.jpg", filter: "Cruiser"   },
+  { type: "Stil", name: "Cruiser",   primaryBike: "Iron 883",    bikes: "Iron 883 · Seventy-Two",   desc: "Dark Custom mit V-Twin. Minimalistisch, roh, unverkennbar.",        img: "/bikes/harley_iron883_2018_kachel.webp",    filter: "Cruiser"   },
+  { type: "Stil", name: "Sportbike", primaryBike: "YZF-R3",      bikes: "YZF-R3 · NR750",           desc: "Agilität trifft Technik. Für die Rennstrecke und die Straße.",       img: "/bikes/yamaha_yzfr3_2017_kachel.webp",      filter: "Sport"     },
+  { type: "Stil", name: "Klassiker", primaryBike: "CB 750 F",    bikes: "CB 750 F · RX King",       desc: "Zeitlose Legenden. Geschichte, die man fahren kann.",                img: "/bikes/honda_cb750f_1970_kachel.webp",      filter: "Klassiker" },
+  { type: "Stil", name: "Custom",    primaryBike: "500 Custom",  bikes: "500 Custom · DT 125",      desc: "Einzigartiger Stil. Jedes Bike ein Unikat.",                         img: "/bikes/yamaha_500custom.webp",       filter: "Custom"    },
+  { type: "Stil", name: "Naked",     primaryBike: "NR750",       bikes: "CRF450R · Speed Triple",   desc: "Puristische Power ohne Verkleidung. Fahrspaß pur.",                 img: "/bikes/honda_nr750_1994.webp",       filter: "Sportbike" },
+  { type: "Stil", name: "Vintage",   primaryBike: "Seventy-Two", bikes: "Seventy-Two · CB 750 F",   desc: "Klassisches Design, moderne Seele. Retro mit Charakter.",           img: "/bikes/harley_seventytwo_2015_kachel.webp", filter: "Cruiser"   },
 ];
 
 // ── Toast helper ─────────────────────────────────────────
@@ -340,6 +340,22 @@ function startHeroVideo(root) {
   else window.addEventListener('load', () => setTimeout(attach, 200), { once: true })
 }
 
+/**
+ * Stellt sicher, dass die Startseite ueberhaupt aufgebaut ist.
+ *
+ * Nach einem Neuladen mitten in der App springt app.js direkt in den
+ * gemerkten Bildschirm und ruft initLanding() nie auf — #landing bleibt leer.
+ * Wer dann zurueckging, landete auf einer komplett schwarzen Seite: der
+ * Container wurde sichtbar geschaltet, hatte aber keinen Inhalt. Nur ein
+ * weiteres Neuladen half da wieder raus.
+ */
+export function ensureLandingRendered() {
+  const landing = document.getElementById('landing')
+  if (!landing) return
+  if (landing.innerHTML.trim()) return
+  initLanding()
+}
+
 export function initLanding() {
   if (landingObserver) { landingObserver.disconnect(); landingObserver = null; }
   if (_scrollHandler) { window.removeEventListener("scroll", _scrollHandler); _scrollHandler = null; }
@@ -417,7 +433,7 @@ export function initLanding() {
 
     <!-- ═══ LIFESTYLE HERO ═══ -->
     <div class="p-lifestyle-hero">
-      <img src="/hero-lifestyle.jpeg" alt="Fahrerlebnis" loading="lazy" decoding="async" />
+      <img src="/hero-lifestyle.webp" alt="Fahrerlebnis" loading="lazy" decoding="async" />
     </div>
 
     <!-- ═══ USE SECTIONS ═══ -->
@@ -452,7 +468,7 @@ export function initLanding() {
     <!-- ═══ FINDER ═══ -->
     <section class="p-finder reveal-p" id="p-finder">
       <div class="p-finder-visual">
-        <img src="/bikes/sportbikes_trio.jpg" alt="MotoMatch Motorrad" loading="lazy" decoding="async" />
+        <img src="/bikes/sportbikes_trio.webp" alt="MotoMatch Motorrad" loading="lazy" decoding="async" />
       </div>
       <div class="p-finder-text">
         <h2 class="p-finder-title">Finde mit 7 Fragen<br>dein passendes Bike.</h2>

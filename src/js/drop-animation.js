@@ -1,17 +1,13 @@
-import { findBestBike } from "./matching.js";
+import { findBestBike, getCatalog } from "./matching.js";
 
-const BIKES = [
-  { name: "Honda NR750", img: "/bikes/2/honda_nr750_1994.png" },
-  { name: "Honda CB 750 F", img: "/bikes/2/honda_cb750f_1970.png" },
-  { name: "Yamaha YZF-R3", img: "/bikes/2/yamaha_yzfr3_2017.png" },
-  { name: "Harley Seventy-Two", img: "/bikes/2/harley_seventytwo_2015.png" },
-  { name: "Harley Iron 883", img: "/bikes/2/harley_iron883_2018.png" },
-  { name: "Yamaha 500 Custom", img: "/bikes/2/yamaha_500custom.png" },
-  { name: "Honda CRF 450R", img: "/bikes/2/honda_crf450r_2023.png" },
-  { name: "Yamaha RX-King 135", img: "/bikes/2/yamaha_rxking_135.png" },
-  { name: "Suzuki GSX-R 750", img: "/bikes/2/suzuki_gsxr750_2023.png" },
-  { name: "Yamaha DT 125 E", img: "/bikes/2/yamaha_dt125e_1974.png" },
-];
+/* Die Walze zog ihre Motorraeder frueher aus einer fest eingetragenen Liste
+   von zehn. Neu aufgenommene Modelle tauchten darin nie auf, und schlimmer:
+   lag das ermittelte Bike nicht in der Liste, suchte ein Notbehelf das
+   aehnlichste ueber das letzte Wort des Namens. Bei "Yamaha DT 125 E" ist das
+   der Buchstabe "E" — die Walze hielt dann bei einem voellig anderen Modell,
+   waehrend die Ergebnisseite daneben das richtige zeigte. Jetzt kommen die
+   Karten aus demselben Katalog, aus dem auch das Ergebnis stammt. */
+const bikeKarte = (b) => ({ name: b.name, img: b.image2 || b.image });
 
 const CARD_W = 240;
 const CARD_GAP = 16;
@@ -24,16 +20,14 @@ export function startDropAnimation(answers) {
 
   const winner = findBestBike(answers);
   try { localStorage.setItem('mm_primary_bike', winner.name); } catch (e) { /* ignore */ }
-  const winBike =
-    BIKES.find((b) => b.name === winner.name) ||
-    BIKES.find((b) => winner.name.includes(b.name.split(" ").slice(-1)[0])) ||
-    BIKES[0];
+  const katalog = getCatalog().map(bikeKarte);
+  const winBike = bikeKarte(winner);
 
   // ── Build strip: 70 items, winner near end ──
   const TOTAL = 70;
   const WIN_POS = TOTAL - 8;
   const strip = [];
-  const others = BIKES.filter((b) => b.name !== winBike.name);
+  const others = katalog.filter((b) => b.name !== winBike.name);
   for (let i = 0; i < TOTAL; i++) {
     if (i === WIN_POS) {
       strip.push(winBike);

@@ -19,6 +19,9 @@
 //  DEFAULT CATALOG (10 bikes — production replaces via setCatalog)
 // ══════════════════════════════════════════════════════════════
 
+// Die freigegebenen Bikes der Bildwerkstatt — erzeugt von tools/catalog/einbau.py, kommen zu den zehn Grund-Bikes.
+import { FREIGEGEBENE_BIKES } from "./freigegebene-bikes.js";
+
 const DEFAULT_CATALOG = [
   {
     id: 1,
@@ -43,8 +46,8 @@ const DEFAULT_CATALOG = [
     bgText: "NR750",
     has3D: true,
     glb: "https://quljniqnizxlhczzfkhq.supabase.co/storage/v1/object/public/models/honda_nr750_1994.glb",
-    image: "/bikes/honda_nr750_1994.png",
-    image2: "/bikes/2/honda_nr750_1994.png",
+    image: "/bikes/honda_nr750_1994.webp",
+    image2: "/bikes/2/honda_nr750_1994.webp",
   },
   {
     id: 2,
@@ -69,8 +72,8 @@ const DEFAULT_CATALOG = [
     bgText: "CB750F",
     has3D: true,
     glb: "https://quljniqnizxlhczzfkhq.supabase.co/storage/v1/object/public/models/honda_cb750f_1970.glb",
-    image: "/bikes/honda_cb750f_1970.png",
-    image2: "/bikes/2/honda_cb750f_1970.png",
+    image: "/bikes/honda_cb750f_1970.webp",
+    image2: "/bikes/2/honda_cb750f_1970.webp",
   },
   {
     id: 3,
@@ -95,8 +98,8 @@ const DEFAULT_CATALOG = [
     bgText: "YZF-R3",
     has3D: true,
     glb: "https://quljniqnizxlhczzfkhq.supabase.co/storage/v1/object/public/models/yamaha_yzfr3_2017.glb",
-    image: "/bikes/yamaha_yzfr3_2017.png",
-    image2: "/bikes/2/yamaha_yzfr3_2017.png",
+    image: "/bikes/yamaha_yzfr3_2017.webp",
+    image2: "/bikes/2/yamaha_yzfr3_2017.webp",
   },
   {
     id: 4,
@@ -121,8 +124,8 @@ const DEFAULT_CATALOG = [
     bgText: "GSX-R750",
     has3D: true,
     glb: "https://quljniqnizxlhczzfkhq.supabase.co/storage/v1/object/public/models/suzuki_gsxr750_2023.glb",
-    image: "/bikes/2/suzuki_gsxr750_2023.png",
-    image2: "/bikes/2/suzuki_gsxr750_2023.png",
+    image: "/bikes/2/suzuki_gsxr750_2023.webp",
+    image2: "/bikes/2/suzuki_gsxr750_2023.webp",
   },
   {
     id: 5,
@@ -147,8 +150,8 @@ const DEFAULT_CATALOG = [
     bgText: "Seventy-Two",
     has3D: true,
     glb: "https://quljniqnizxlhczzfkhq.supabase.co/storage/v1/object/public/models/harley_seventytwo_2015.glb",
-    image: "/bikes/harley_seventytwo_2015.png",
-    image2: "/bikes/2/harley_seventytwo_2015.png",
+    image: "/bikes/harley_seventytwo_2015.webp",
+    image2: "/bikes/2/harley_seventytwo_2015.webp",
   },
   {
     id: 6,
@@ -173,8 +176,8 @@ const DEFAULT_CATALOG = [
     bgText: "Iron 883",
     has3D: true,
     glb: "https://quljniqnizxlhczzfkhq.supabase.co/storage/v1/object/public/models/harley_iron883_2018.glb",
-    image: "/bikes/harley_iron883_2018.png",
-    image2: "/bikes/2/harley_iron883_2018.png",
+    image: "/bikes/harley_iron883_2018.webp",
+    image2: "/bikes/2/harley_iron883_2018.webp",
   },
   {
     id: 7,
@@ -199,8 +202,8 @@ const DEFAULT_CATALOG = [
     bgText: "RX-King",
     has3D: true,
     glb: "https://quljniqnizxlhczzfkhq.supabase.co/storage/v1/object/public/models/yamaha_rxking_135.glb",
-    image: "/bikes/yamaha_rxking_135.png",
-    image2: "/bikes/2/yamaha_rxking_135.png",
+    image: "/bikes/yamaha_rxking_135.webp",
+    image2: "/bikes/2/yamaha_rxking_135.webp",
   },
   {
     id: 8,
@@ -225,8 +228,8 @@ const DEFAULT_CATALOG = [
     bgText: "CRF450R",
     has3D: true,
     glb: "https://quljniqnizxlhczzfkhq.supabase.co/storage/v1/object/public/models/honda_crf450r_2023.glb",
-    image: "/bikes/honda_crf450r_2023.png",
-    image2: "/bikes/2/honda_crf450r_2023.png",
+    image: "/bikes/honda_crf450r_2023.webp",
+    image2: "/bikes/2/honda_crf450r_2023.webp",
   },
   {
     id: 9,
@@ -251,8 +254,8 @@ const DEFAULT_CATALOG = [
     bgText: "DT125E",
     has3D: true,
     glb: "https://quljniqnizxlhczzfkhq.supabase.co/storage/v1/object/public/models/yamaha_dt125e_1974.glb",
-    image: "/bikes/yamaha_dt125e_1974.png",
-    image2: "/bikes/2/yamaha_dt125e_1974.png",
+    image: "/bikes/yamaha_dt125e_1974.webp",
+    image2: "/bikes/2/yamaha_dt125e_1974.webp",
   },
   {
     id: 10,
@@ -277,8 +280,8 @@ const DEFAULT_CATALOG = [
     bgText: "500Custom",
     has3D: true,
     glb: "https://quljniqnizxlhczzfkhq.supabase.co/storage/v1/object/public/models/yamaha_500custom.glb",
-    image: "/bikes/yamaha_500custom.png",
-    image2: "/bikes/2/yamaha_500custom.png",
+    image: "/bikes/yamaha_500custom.webp",
+    image2: "/bikes/2/yamaha_500custom.webp",
   },
 ];
 
@@ -295,7 +298,17 @@ const WEIGHT = Object.freeze({
   // otherwise-tied bikes, not just nudges the score
   PASSENGER: 15, // Passenger-capable bonus
   BEGINNER_PENALTY: -35, // Non-beginner bike for beginner rider
+  LICENSE_FIT: 20, // Bike-Klasse entspricht der Fuehrerscheinklasse
+  LICENSE_UNDER: -20, // Bike liegt zwei Klassen unter dem Schein (A -> A1)
 });
+
+/* Rangfolge der Klassen fuer die Passung — NICHT fuer die Zulaessigkeit.
+   Was jemand fahren DARF, steht in LICENSE_ALLOWS und wird vorher hart
+   gefiltert. Hier geht es nur darum, was zu ihm passt: wer den unbegrenzten
+   Schein hat, bekam bisher eine 125er mit derselben Punktzahl wie eine
+   Maschine seiner Klasse. Offroad-Maschinen brauchen fuer die Strasse
+   ohnehin den A-Schein und stehen deshalb auf derselben Stufe. */
+const LICENSE_RANK = Object.freeze({ A1: 1, B196: 1, A2: 2, A: 3, Offroad: 3 });
 
 // License class compatibility (what each class can legally ride)
 const LICENSE_ALLOWS = Object.freeze({
@@ -326,7 +339,7 @@ const USE_ALIASES = Object.freeze({
 //  STATE
 // ══════════════════════════════════════════════════════════════
 
-let catalog = DEFAULT_CATALOG;
+let catalog = [...DEFAULT_CATALOG, ...FREIGEGEBENE_BIKES];
 
 // Pre-built index for fast license filtering at 40K+ scale
 let licenseIndex = buildLicenseIndex(catalog);
@@ -388,9 +401,39 @@ function scoreBike(bike, ctx) {
     breakdown.use = 0;
   }
 
-  // Budget match (already passed hard filter, give full points)
-  score += WEIGHT.BUDGET;
-  breakdown.budget = WEIGHT.BUDGET;
+  /* Budget-Passung.
+     Vorher gab es die Punkte bedingungslos — eine 1.500-EUR-Maschine und eine
+     fuer 13.000 standen bei einem Budget von 13.000 gleichauf. Guenstig ist
+     kein Makel, aber wer eine Klasse hoeher sucht, soll sie auch bekommen:
+     ab 40 % des Budgets gibt es die vollen Punkte, darunter linear weniger,
+     mit einem Boden bei 20 % — ein billiges Bike faellt damit zurueck, wird
+     aber nicht aussortiert. */
+  const bikePrice = parseMinPrice(bike.price);
+  let budgetScore;
+  if (!Number.isFinite(ctx.budgetMax)) {
+    budgetScore = WEIGHT.BUDGET; // keine Budgetangabe -> niemanden bestrafen
+  } else if (!bikePrice) {
+    // Preis unbekannt (freigegebene Bikes ohne Marktpreis, „Preis folgt"): weder Schnaeppchen noch zu teuer.
+    budgetScore = WEIGHT.BUDGET * 0.5;
+  } else if (bikePrice > ctx.budgetMax) {
+    budgetScore = 0;
+  } else {
+    const ratio = ctx.budgetMax > 0 ? bikePrice / ctx.budgetMax : 1;
+    budgetScore = WEIGHT.BUDGET * Math.min(1, Math.max(0.2, ratio / 0.4));
+  }
+  score += budgetScore;
+  breakdown.budget = Math.round(budgetScore * 10) / 10;
+
+  /* Fuehrerschein-Passung. Legal erlaubt ist die Maschine an dieser Stelle
+     bereits (harter Filter). Die Frage ist nur noch, ob sie zur Klasse passt:
+     gleiche Stufe gibt Punkte, zwei Stufen darunter kostet welche. */
+  const riderRank = LICENSE_RANK[ctx.licenseClass] || 3;
+  const bikeRank = LICENSE_RANK[bike.license] || 1;
+  let licenseScore = 0;
+  if (bikeRank === riderRank) licenseScore = WEIGHT.LICENSE_FIT;
+  else if (riderRank - bikeRank >= 2) licenseScore = WEIGHT.LICENSE_UNDER;
+  score += licenseScore;
+  breakdown.license = licenseScore;
 
   // Seat height compatibility (diminishing returns)
   const seatDiff = Math.abs((bike.seat_height || 80) - ctx.idealSeat);
@@ -465,6 +508,9 @@ function buildContext(answers = {}) {
       idealSeat: idealSeatFromHeight(Number(answers.q6)),
       wantsPassenger: answers.q7 === "Ja",
       isBeginner: answers.q2 === "Anfanger" || answers.q2 === "Anfänger",
+      // Beide wandern jetzt in die Bewertung statt nur in den harten Filter.
+      budgetMax: Number(answers.q5) || Infinity,
+      licenseClass: answers.q1,
     },
   };
 }
@@ -483,17 +529,13 @@ function buildContext(answers = {}) {
 export function scoreBikeAgainst(bike, answers) {
   if (!bike) return null;
   const { allowedLicenses, budgetMax, ctx } = buildContext(answers);
-  let { score, breakdown } = scoreBike(bike, ctx);
+  const { score, breakdown } = scoreBike(bike, ctx);
 
+  /* Ueber Budget ergibt in scoreBike() bereits 0 Punkte — das gilt hier
+     genauso, nur ist die Information jetzt zusaetzlich als Merkmal gefragt:
+     das Bike liegt ja schon auf dem Tisch und der Reiter sagt ausdruecklich,
+     ob es passt. */
   const fitsBudget = parseMinPrice(bike.price) <= budgetMax;
-  // scoreBike vergibt die Budget-Punkte bedingungslos — im Katalog-Durchlauf
-  // ist das korrekt, weil der harte Filter zu teure Bikes vorher aussortiert.
-  // Hier liegt das Bike aber schon fest: dann müssen die Punkte weg, sonst
-  // stünde ein voller Budget-Balken neben dem Hinweis "über deinem Budget".
-  if (!fitsBudget) {
-    score = Math.round((score - WEIGHT.BUDGET) * 10) / 10;
-    breakdown = { ...breakdown, budget: 0 };
-  }
 
   // Obergrenze abhängig vom Profil: der Sozius-Bonus ist nur erreichbar,
   // wenn überhaupt zu zweit gefahren werden soll — sonst wäre kein Bike je
@@ -503,6 +545,7 @@ export function scoreBikeAgainst(bike, answers) {
     WEIGHT.USE_CASE +
     WEIGHT.BUDGET +
     WEIGHT.SEAT_HEIGHT +
+    WEIGHT.LICENSE_FIT +
     (ctx.wantsPassenger ? WEIGHT.PASSENGER : 0);
 
   return {

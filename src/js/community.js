@@ -533,40 +533,21 @@ function renderText(text, mentionNames = null) {
   return result
 }
 
-/* Decorative QR-style graphic (not a scannable code — placeholder for app login) */
-function qrSvg() {
-  const N = 25, cell = 6, pad = 8, size = N * cell + pad * 2
-  const rects = []
-  const isFinder = (r, c) => {
-    const inBox = (br, bc) => r >= br && r < br + 7 && c >= bc && c < bc + 7
-    return inBox(0, 0) || inBox(0, N - 7) || inBox(N - 7, 0)
-  }
-  // deterministic pseudo-random modules
-  let seed = 1337
-  const rnd = () => (seed = (seed * 1103515245 + 12345) & 0x7fffffff) / 0x7fffffff
-  for (let r = 0; r < N; r++) {
-    for (let c = 0; c < N; c++) {
-      if (isFinder(r, c)) continue
-      // keep a clear center square for the logo
-      if (r >= 10 && r <= 14 && c >= 10 && c <= 14) continue
-      if (rnd() > 0.52) {
-        rects.push(`<rect x="${pad + c * cell}" y="${pad + r * cell}" width="${cell}" height="${cell}"/>`)
-      }
-    }
-  }
-  // three finder patterns
-  const finder = (x, y) => `
-    <rect x="${pad + x * cell}" y="${pad + y * cell}" width="${cell * 7}" height="${cell * 7}" rx="3"/>
-    <rect x="${pad + (x + 1) * cell}" y="${pad + (y + 1) * cell}" width="${cell * 5}" height="${cell * 5}" rx="2" fill="#fff"/>
-    <rect x="${pad + (x + 2) * cell}" y="${pad + (y + 2) * cell}" width="${cell * 3}" height="${cell * 3}" rx="1.5"/>`
+/* Bild fuer den rechten Anmelde-Bereich.
+   Hier stand ein QR-artiges Muster — deterministisch erzeugt, nicht scannbar.
+   Es sah aus wie ein funktionierender Code, direkt neben dem Satz "App-Login
+   kommt bald": wer es scannte, bekam nichts. Jetzt steht dort ein Telefon mit
+   Schloss, das erkennbar ein Symbol ist und nichts verspricht. */
+function appLoginArt() {
   return `
-    <div class="mmc-qr-box">
-      <svg width="150" height="150" viewBox="0 0 ${size} ${size}" fill="#111">
-        <g>${rects.join('')}</g>
-        ${finder(0, 0)}${finder(N - 7, 0)}${finder(0, N - 7)}
-        <circle cx="${size / 2}" cy="${size / 2}" r="${cell * 3}" fill="#111"/>
-        <circle cx="${size / 2}" cy="${size / 2}" r="${cell * 2.2}" fill="#fff"/>
-        <text x="${size / 2}" y="${size / 2 + 5}" text-anchor="middle" font-size="${cell * 3}" font-weight="900" fill="#111" font-family="Arial, sans-serif">◆</text>
+    <div class="mmc-qr-box mmc-qr-box--art" aria-hidden="true">
+      <svg width="150" height="150" viewBox="0 0 100 100" fill="none"
+           stroke="#111" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
+        <rect x="30" y="10" width="40" height="80" rx="7"/>
+        <line x1="44" y1="19" x2="56" y2="19"/>
+        <rect x="39" y="45" width="22" height="18" rx="3"/>
+        <path d="M44 45v-6a6 6 0 0 1 12 0v6"/>
+        <circle cx="50" cy="54" r="2" fill="#111" stroke="none"/>
       </svg>
     </div>`
 }
@@ -736,6 +717,12 @@ function renderAuth(root, mode = 'login', error = '', info = '', pendingEmail = 
             ${info ? `<div class="mmc-auth-info" style="color:#2e7d32;margin:4px 0 8px;font-size:14px">${esc(info)}</div>` : ''}
             ${pendingEmail ? '<button type="button" class="mmc-forgot" id="mmc-resend">Mail nicht angekommen? Erneut senden</button>' : ''}
             <button class="mmc-auth-submit" type="submit">${isLogin ? 'Anmelden' : 'Registrieren'}</button>
+            ${isLogin ? '' : `
+            <p class="mmc-auth-legal">
+              Wie wir deine Daten verarbeiten, steht in der
+              <a href="/datenschutz.html" target="_blank" rel="noopener">Datenschutzerkl\u00e4rung</a>.
+              Betreiberangaben im <a href="/impressum.html" target="_blank" rel="noopener">Impressum</a>.
+            </p>`}
           </form>
 
           <p class="mmc-auth-switch">
@@ -747,9 +734,9 @@ function renderAuth(root, mode = 'login', error = '', info = '', pendingEmail = 
         <!-- Right: QR panel -->
         <div class="mmc-auth-qr">
           <button type="button" class="mmc-skip" id="mmc-skip" title="Als Gast ansehen — Lesen ja, Schreiben nur angemeldet">Überspringen →</button>
-          ${qrSvg()}
-          <h3 class="mmc-qr-title">Mit QR-Code einloggen</h3>
-          <p class="mmc-qr-text">App-Login kommt bald. Bis dahin: melde dich links mit deinem Benutzernamen an.</p>
+          ${appLoginArt()}
+          <h3 class="mmc-qr-title">App-Login</h3>
+          <p class="mmc-qr-text">Die Anmeldung per App gibt es noch nicht. Melde dich links mit Benutzername oder E-Mail an.</p>
         </div>
       </div>
       <div class="mmc-auth-brand"><span class="mmc-auth-logo">◆</span> MotoMatch Community</div>

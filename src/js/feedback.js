@@ -148,6 +148,9 @@ function scheduleFabPeek(fab) {
   const show = () => fab.classList.remove('mm-fb-fab--peek')
   const nudge = () => {
     if (document.getElementById('mm-fb-modal')) return
+    // Im Hintergrund-Tab sieht das niemand — der Wecker haette dort nur das
+    // Geraet geweckt. Der Takt laeuft weiter, die Bewegung nicht.
+    if (document.hidden) return
     show()
     setTimeout(hide, 2500)
   }

@@ -9,8 +9,10 @@ import { MeshoptDecoder } from 'three/addons/libs/meshopt_decoder.module.js'
 import { DRACOLoader } from 'three/addons/loaders/DRACOLoader.js'
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js'
 import { getGear } from './gear.js'
-import { initHubMap, searchNearby, getHubSearchResults, onHubResults, focusHubResult, recenterHubMap, zoomHubMap, getUserCoords, searchNearbyAt, retryHubLocation, hasMapsConsent, onHubMapMoved, panHubToCoords, haversineKm } from './garage.js'
+import { initHubMap, searchNearby, getHubSearchResults, onHubResults, focusHubResult, recenterHubMap, zoomHubMap, getUserCoords, searchNearbyAt, retryHubLocation, hasMapsConsent, onHubMapMoved, panHubToCoords, haversineKm, resolveOrt } from './garage.js'
 import { esc, fmtRelative, LS_QUIZ_ANSWERS } from './util.js'
+import { partnerLink, hatPartnerLinks } from './affiliate.js'
+import { ensureLandingRendered } from './landing.js'
 import { enterScreen, goBack } from './nav.js'
 import { findBikeByShortName, findTopMatches, findSimilarBikes, scoreBikeAgainst, MATCH_WEIGHTS } from './matching.js'
 import { getMatches, addMatch, removeMatch, clearMatches, restoreMatch, hasMatch, getLastAnswers, getPrimaryBike, setPrimaryBike } from './match-history.js'
@@ -70,7 +72,7 @@ function showToast(message) {
 export const BIKE_DATA = {
   'Iron 883': {
     fullName: 'Iron 883', brand: 'Harley-Davidson', bgText: 'Iron 883',
-    img1: '/bikes/2/harley_iron883_2018.png', img2: '/bikes/harley_iron883_2018.jpg',
+    img1: '/bikes/2/harley_iron883_2018.webp', img2: '/bikes/harley_iron883_2018_kachel.webp',
     glb: 'https://quljniqnizxlhczzfkhq.supabase.co/storage/v1/object/public/models/harley_iron883_2018.glb', style: 'Cruiser',
     specs: { accel: '6.5', topSpeed: '161', power: '38 kW / 51 PS', cc: '883', weight: '256', seat: '65.3', tank: '12.5', gear: '5-Gang' },
     desc: 'Dark Custom mit V-Twin. Minimalistisch, roh, unverkennbar.',
@@ -91,7 +93,7 @@ export const BIKE_DATA = {
   },
   'Seventy-Two': {
     fullName: 'Seventy-Two', brand: 'Harley-Davidson', bgText: 'Seventy-Two',
-    img1: '/bikes/2/harley_seventytwo_2015.png', img2: '/bikes/harley_seventytwo_2015.jpg',
+    img1: '/bikes/2/harley_seventytwo_2015.webp', img2: '/bikes/harley_seventytwo_2015_kachel.webp',
     glb: 'https://quljniqnizxlhczzfkhq.supabase.co/storage/v1/object/public/models/harley_seventytwo_2015.glb', style: 'Cruiser',
     specs: { accel: '5.2', topSpeed: '170', power: '49 kW / 66 PS', cc: '1202', weight: '255', seat: '67.6', tank: '7.9', gear: '5-Gang' },
     desc: 'Klassischer Chopper-Stil mit V-Twin Power. Purer Cruiser-Charakter.',
@@ -112,7 +114,7 @@ export const BIKE_DATA = {
   },
   'CB 750 F': {
     fullName: 'CB 750 F', brand: 'Honda', bgText: 'CB750F',
-    img1: '/bikes/2/honda_cb750f_1970.png', img2: '/bikes/honda_cb750f_1970.jpg',
+    img1: '/bikes/2/honda_cb750f_1970.webp', img2: '/bikes/honda_cb750f_1970_kachel.webp',
     glb: 'https://quljniqnizxlhczzfkhq.supabase.co/storage/v1/object/public/models/honda_cb750f_1970.glb', style: 'Klassiker',
     specs: { accel: '5.8', topSpeed: '200', power: '49 kW / 67 PS', cc: '736', weight: '235', seat: '80.0', tank: '14.0', gear: '5-Gang' },
     desc: 'Die Legende, die alles veränderte. Vier Zylinder, Geschichte.',
@@ -133,7 +135,7 @@ export const BIKE_DATA = {
   },
   '500 Custom': {
     fullName: '500 Custom', brand: 'Yamaha', bgText: '500 Custom',
-    img1: '/bikes/2/yamaha_500custom.png', img2: '/bikes/yamaha_500custom.png',
+    img1: '/bikes/2/yamaha_500custom.webp', img2: '/bikes/yamaha_500custom.webp',
     glb: 'https://quljniqnizxlhczzfkhq.supabase.co/storage/v1/object/public/models/yamaha_500custom.glb', style: 'Custom',
     specs: { accel: '5.5', topSpeed: '180', power: '35 kW / 48 PS', cc: '500', weight: '195', seat: '82.0', tank: '13.0', gear: '5-Gang' },
     desc: 'Moderner Custom-Cruiser. Vielseitig, komfortabel, einzigartig.',
@@ -154,7 +156,7 @@ export const BIKE_DATA = {
   },
   'YZF-R3': {
     fullName: 'YZF-R3', brand: 'Yamaha', bgText: 'YZF-R3',
-    img1: '/bikes/2/yamaha_yzfr3_2017.png', img2: '/bikes/yamaha_yzfr3_2017.jpg',
+    img1: '/bikes/2/yamaha_yzfr3_2017.webp', img2: '/bikes/yamaha_yzfr3_2017_kachel.webp',
     glb: 'https://quljniqnizxlhczzfkhq.supabase.co/storage/v1/object/public/models/yamaha_yzfr3_2017.glb', style: 'Sportbike',
     specs: { accel: '5.6', topSpeed: '180', power: '31 kW / 42 PS', cc: '321', weight: '167', seat: '78.0', tank: '14.0', gear: '6-Gang' },
     desc: 'Idealer Einstieg in die Sportwelt. Agil, leicht, perfekt für A2.',
@@ -175,7 +177,7 @@ export const BIKE_DATA = {
   },
   'NR750': {
     fullName: 'NR750', brand: 'Honda', bgText: 'NR750',
-    img1: '/bikes/2/honda_nr750_1994.png', img2: '/bikes/honda_nr750_1994.png',
+    img1: '/bikes/2/honda_nr750_1994.webp', img2: '/bikes/honda_nr750_1994.webp',
     glb: 'https://quljniqnizxlhczzfkhq.supabase.co/storage/v1/object/public/models/honda_nr750_1994.glb', style: 'Sportbike',
     specs: { accel: '3.5', topSpeed: '259', power: '92 kW / 125 PS', cc: '747', weight: '244', seat: '78.5', tank: '18.0', gear: '6-Gang' },
     desc: 'Ikonischer V4-Sportler mit ovalen Kolben. Technisches Meisterwerk.',
@@ -212,6 +214,18 @@ let isDragging = false, angle = 0.8, prevX = 0
  * Normalize garage bikeData (from matching.js) to our internal format.
  */
 export function normalizeGarageData(bikeData) {
+  const data = normalizeGarageDataRoh(bikeData)
+  // Freigegebene Bikes (tools/catalog/einbau.py) haben nicht jeden Wert — was keine Quelle nennt, ist null. Statt
+  // „null km/h" steht dann „—", und Hervorhebungen oder Ausstattung mit fehlendem Wert fallen weg.
+  const fehlt = (v) => v === undefined || v === null || v === '' || /\b(null|undefined)\b/.test(String(v))
+  for (const k of Object.keys(data.specs)) if (k !== 'license' && fehlt(data.specs[k])) data.specs[k] = '—'
+  data.highlights = data.highlights.filter(h => !fehlt(h.title) && !fehlt(h.text))
+  data.equipment = data.equipment.filter(e => !fehlt(e.name))
+  data.studio = bikeData.studio || null
+  return data
+}
+
+function normalizeGarageDataRoh(bikeData) {
   const shortName = bikeData.name.replace(/^(Honda|Yamaha|Harley-Davidson|Suzuki|Kawasaki|BMW|Ducati|KTM|Triumph)\s+/i, '')
   const existing = BIKE_DATA[shortName]
 
@@ -323,7 +337,20 @@ export function openKonfigurator(bikeData, garageCleanup, initialTab) {
     })
 
     window.scrollTo(0, 0)
-  }, 220)
+  }, isCoveredByOverlay() ? 0 : 220)
+}
+
+/**
+ * Liegt gerade ein Vollbild ueber dem Konfigurator?
+ *
+ * Die Reiter lassen sich auch aus dem Konto-Overlay heraus anklicken, das den
+ * Schirm komplett abdeckt. Die Ueberblendungen beim Umschalten laufen dann
+ * hinter einer undurchsichtigen Flaeche ab — sie sind nicht zu sehen, kosten
+ * aber trotzdem ihre Zeit. In dem Fall wird sofort umgeschaltet; sichtbar
+ * wird ohnehin erst das fertige Bild, sobald sich das Overlay aufloest.
+ */
+function isCoveredByOverlay() {
+  return !!document.getElementById('acc-overlay')
 }
 
 /* ═══════════════════════════════════════════════════
@@ -353,6 +380,10 @@ function closeDetailToLanding() {
     detail.innerHTML = ''
     detail.style.opacity = ''
     detail.style.transition = ''
+    // Kam der Nutzer per Neuladen direkt in diesen Bildschirm, hat die
+    // Startseite nie einen Inhalt bekommen — dann hier nachholen, sonst wird
+    // gleich ein leerer schwarzer Container sichtbar.
+    ensureLandingRendered()
     landing.style.display = 'block'
     // Der Drawer-Weg in landing.js nimmt has-landing beim Verlassen weg —
     // ohne das Zurücksetzen bliebe die Startseite unscrollbar.
@@ -471,11 +502,13 @@ export function buildDetailsAnsichtHTML(content) {
 
 /** Das Kennzahlen-Raster (Hubraum, Gewicht, …) aus einem specs-Objekt. */
 export function buildDetailsGridHTML(specs = {}) {
+  // Fehlt ein Wert (\u201e\u2014", siehe normalizeGarageData), bleibt die Einheit weg.
+  const mit = (v, einheit) => (v === '\u2014' ? v : `${v} ${einheit}`)
   const items = [
-    [`${specs.cc} ccm`, 'Hubraum'],
-    [`${specs.weight} kg`, 'Gewicht'],
-    [`${specs.seat} cm`, 'Sitzh\u00f6he'],
-    [`${specs.tank} L`, 'Tankvolumen'],
+    [mit(specs.cc, 'ccm'), 'Hubraum'],
+    [mit(specs.weight, 'kg'), 'Gewicht'],
+    [mit(specs.seat, 'cm'), 'Sitzh\u00f6he'],
+    [mit(specs.tank, 'L'), 'Tankvolumen'],
     [specs.gear, 'Getriebe'],
   ]
   if (specs.license) items.push([specs.license, 'F\u00fchrerschein'])
@@ -1305,7 +1338,9 @@ function buildGearCards(style) {
       const ceBadge = ceLevel
         ? `<span class="gear-card-ce gear-card-ce--${ceLevel}">CE ${ceLevel}</span>`
         : ''
-      const productUrl = item.url || `https://www.louis.de/suche?query=${searchQ}`
+      const zielUrl = item.url || `https://www.louis.de/suche?query=${searchQ}`
+      // Partnerlink, falls eine Kennung gesetzt ist — sonst unveraendert.
+      const { href: productUrl } = partnerLink(zielUrl)
       /* Der Platzhalter liegt IMMER darunter, das Foto legt sich darueber.
          Vorher stand hinter onerror ein blankes this.remove() — schlug ein
          Bild fehl, blieb eine leere Flaeche stehen, die wie ein kaputter
@@ -1334,7 +1369,7 @@ function buildGearCards(style) {
       const cardId = `${style}-${key}-${i}`
       return `
       <a class="gear-card gear-card--product konf-reveal" data-gear="${key}" data-price-min="${item.priceMin}" data-price-max="${item.priceMax}" data-card-id="${cardId}"
-         href="${productUrl}" target="_blank" rel="noopener sponsored">
+         href="${esc(productUrl)}" target="_blank" rel="noopener sponsored nofollow">
         <div class="gear-card-img">
           ${photoHtml}
           <button class="gear-card-heart" aria-label="Merken">
@@ -1366,18 +1401,11 @@ let activeKonfTab = KONF_DEFAULT_TAB
 let konfData = null
 let _accountUpdatedListenerRegistered = false
 
-/* Startzustand des Sekundaerblocks ("Mehr anzeigen").
- *
- * Ab 769px scrollt .bd-ansicht-embed in sich (max-height in main.css) — dort
- * kostet der offene Block nichts, die Karten bleiben in ihrem Rahmen und das
- * 3D-Modell daneben stehen. Darunter stapelt sich alles: offen ist die Spalte
- * ~2200px hoch und das Modell haengt hinter der gesamten Strecke. Auf
- * Handybreite startet der Block deshalb zugeklappt, aufklappen bleibt ein Tipp
- * entfernt. Bewusst derselbe Breakpoint wie das max-height im CSS, damit
- * Startzustand und Scrollverhalten nicht auseinanderlaufen.
+/* Startzustand des Sekundaerblocks ("Mehr anzeigen") — immer zugeklappt,
+ * unabhaengig von der Breite. Aufklappen bleibt ein Tipp entfernt.
  */
 function mehrStartsOpen() {
-  return window.matchMedia('(min-width: 769px)').matches
+  return false
 }
 
 export function buildAnsichtView(data, headerCard) {
@@ -1401,19 +1429,19 @@ export function buildAnsichtView(data, headerCard) {
         <p class="konf-desc">${data.desc}</p>
         <div class="konf-price-row">
           <span class="konf-price-tag">${data.price}</span>
-          <span class="konf-price-note">inkl. MwSt.</span>
+          ${/\d/.test(data.price) ? '<span class="konf-price-note">inkl. MwSt.</span>' : ''}
         </div>
       </div>`}
 
       <div class="konf-card konf-reveal" id="konf-bars-card">
       <h3 class="konf-card-title">Leistungsdaten</h3>
-      <div class="konf-bar-group">
+      ${Number.isFinite(accel) ? `<div class="konf-bar-group">
         <div class="konf-bar-header">
           <span class="konf-bar-label">Beschleunigung 0\u2013100 km/h</span>
           <span class="konf-bar-value"><span class="konf-bar-counter" data-target="${accel}" data-decimals="1">0</span> s</span>
         </div>
         <div class="konf-bar-track"><div class="konf-bar-fill" data-pct="${accelPct}" style="width:0%"></div></div>
-      </div>
+      </div>` : ''}<!-- ohne Quelle (freigegebene Bikes): Balken weglassen statt \u201e0 s" -->
       <div class="konf-bar-group">
         <div class="konf-bar-header">
           <span class="konf-bar-label">Leistung</span>
@@ -1421,13 +1449,13 @@ export function buildAnsichtView(data, headerCard) {
         </div>
         <div class="konf-bar-track"><div class="konf-bar-fill" data-pct="${psPct}" style="width:0%"></div></div>
       </div>
-      <div class="konf-bar-group">
+      ${Number.isFinite(topSpeed) ? `<div class="konf-bar-group">
         <div class="konf-bar-header">
           <span class="konf-bar-label">H\u00f6chstgeschwindigkeit</span>
           <span class="konf-bar-value"><span class="konf-bar-counter" data-target="${topSpeed}" data-decimals="0">0</span> km/h</span>
         </div>
         <div class="konf-bar-track"><div class="konf-bar-fill" data-pct="${speedPct}" style="width:0%"></div></div>
-      </div>
+      </div>` : ''}
     </div>
     </div><!-- end konf-top-row -->
 
@@ -1449,14 +1477,17 @@ export function buildAnsichtView(data, headerCard) {
       <div class="konf-card">
         <h3 class="konf-card-title">Technische Daten</h3>
         <div class="konf-table">
-          <div class="konf-table-row"><span class="konf-table-key">Hubraum</span><span class="konf-table-val">${data.specs.cc} ccm</span></div>
-          <div class="konf-table-row"><span class="konf-table-key">Leistung</span><span class="konf-table-val">${data.specs.power}</span></div>
-          <div class="konf-table-row"><span class="konf-table-key">H\u00f6chstgeschwindigkeit</span><span class="konf-table-val">${data.specs.topSpeed} km/h</span></div>
-          <div class="konf-table-row"><span class="konf-table-key">Beschleunigung 0\u2013100</span><span class="konf-table-val">${data.specs.accel} s</span></div>
-          <div class="konf-table-row"><span class="konf-table-key">Gewicht</span><span class="konf-table-val">${data.specs.weight} kg</span></div>
-          <div class="konf-table-row"><span class="konf-table-key">Sitzh\u00f6he</span><span class="konf-table-val">${data.specs.seat} cm</span></div>
-          <div class="konf-table-row"><span class="konf-table-key">Tankvolumen</span><span class="konf-table-val">${data.specs.tank} L</span></div>
-          <div class="konf-table-row"><span class="konf-table-key">Getriebe</span><span class="konf-table-val">${data.specs.gear}</span></div>
+          ${[
+            ['Hubraum', data.specs.cc, 'ccm'],
+            ['Leistung', data.specs.power, ''],
+            ['H\u00f6chstgeschwindigkeit', data.specs.topSpeed, 'km/h'],
+            ['Beschleunigung 0\u2013100', data.specs.accel, 's'],
+            ['Gewicht', data.specs.weight, 'kg'],
+            ['Sitzh\u00f6he', data.specs.seat, 'cm'],
+            ['Tankvolumen', data.specs.tank, 'L'],
+            ['Getriebe', data.specs.gear, ''],
+          ].filter(([, v]) => v !== '\u2014')   // fehlender Wert (normalizeGarageData): Zeile weglassen
+           .map(([k, v, e]) => `<div class="konf-table-row"><span class="konf-table-key">${k}</span><span class="konf-table-val">${v}${e ? ' ' + e : ''}</span></div>`).join('')}
         </div>
       </div>
 
@@ -1564,6 +1595,13 @@ function buildAusstattungView(data) {
       <span>Keine Produkte in dieser Preisspanne</span>
     </div>
 
+    ${hatPartnerLinks() ? `
+    <p class="gear-affiliate-note">
+      <span class="gear-affiliate-tag">Anzeige</span>
+      Die Produktlinks sind Partnerlinks. Kaufst du darüber etwas, erhalten wir
+      eine Provision — für dich ändert sich der Preis dadurch nicht.
+    </p>` : ''}
+
     ${buildGearCards(data.style)}
 
     <div class="konf-next-cta konf-reveal">
@@ -1576,114 +1614,12 @@ function buildAusstattungView(data) {
 }
 
 
-function buildCommunityView(data) {
-  return `
-    <div class="gear-price-row">
-      <div class="gear-price-top cc-topbar">
-        <button class="cc-menu-btn" id="cc-menu-btn" aria-label="Menü">
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 6h18M3 12h18M3 18h18"/></svg>
-        </button>
-        <div class="cc-filter-strip cc-filter-strip--hidden">
-          <button class="cc-filter-pill gear-filter-btn gear-filter-btn--active" data-filter="all">Alle</button>
-          <button class="cc-filter-pill gear-filter-btn" data-filter="video">Videos</button>
-          <button class="cc-filter-pill gear-filter-btn" data-filter="short">Shorts</button>
-          <button class="cc-filter-pill gear-filter-btn" data-filter="tour">Touren</button>
-          <button class="cc-filter-pill gear-filter-btn" data-filter="event">Events</button>
-          <button class="cc-filter-pill gear-filter-btn" data-filter="group">Gruppen</button>
-          <button class="cc-filter-pill gear-filter-btn" data-filter="stammtisch">Stammtische</button>
-          <button class="cc-filter-pill gear-filter-btn" data-filter="forum">Forum</button>
-        </div>
-        <div class="cc-search-wrap">
-          <div class="cc-search-field">
-            <input type="text" class="cc-search-input" id="cc-search-input" placeholder="Suchen">
-            <button class="cc-search-go" aria-label="Suchen">
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>
-            </button>
-          </div>
-          <button class="cc-mic-btn" aria-label="Spracheingabe">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2M12 19v4M8 23h8"/></svg>
-          </button>
-        </div>
-        <div class="cc-topbar-right">
-          <button class="cc-create-btn" id="cc-create-btn">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"/></svg>
-            <span>Erstellen</span>
-          </button>
-          <button class="cc-notif-btn" id="cc-notif-btn" aria-label="Benachrichtigungen">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
-            <span class="cc-notif-badge">9+</span>
-          </button>
-          <button class="cc-profile-btn" aria-label="Profil" id="cc-profile-btn">${getCurrentUserInitials()}</button>
-        </div>
-      </div>
-    </div>
-
-    <div class="gear-empty-state" id="gear-empty" style="display:none">
-      <div class="gear-empty-icon">\ud83d\udd0d</div>
-      <span>Keine Eintr\u00e4ge in dieser Kategorie</span>
-    </div>
-
-    ${buildCommunityCards()}
-
-    <button class="cc-fab" id="cc-fab" aria-label="Eigenen Eintrag hinzuf\u00fcgen">
-      <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"/></svg>
-    </button>
-
-    <div class="cc-detail-overlay" id="cc-detail-overlay" style="display:none"></div>
-
-    <div class="cc-modal" id="cc-modal" style="display:none">
-      <div class="cc-modal-backdrop" id="cc-modal-backdrop"></div>
-      <div class="cc-modal-card">
-        <button class="cc-modal-close" id="cc-modal-close" aria-label="Schlie\u00dfen">\u00d7</button>
-        <h3 class="cc-modal-title">Eigenen Eintrag hinzuf\u00fcgen</h3>
-        <p class="cc-modal-sub">Teile etwas mit der Community</p>
-        <form id="cc-modal-form">
-          <label class="cc-field">
-            <span class="cc-field-label">Kategorie</span>
-            <select class="cc-input" id="cc-form-category" required>
-              <option value="video">Video</option>
-              <option value="short">Short</option>
-              <option value="tour">Tour</option>
-              <option value="event">Event</option>
-              <option value="group">Gruppe</option>
-              <option value="stammtisch">Stammtisch</option>
-              <option value="forum">Forum-Thread</option>
-            </select>
-          </label>
-          <label class="cc-field">
-            <span class="cc-field-label">Titel</span>
-            <input class="cc-input" id="cc-form-title" type="text" maxlength="40" placeholder="z.B. Schwarzwald Sonntagstour" required>
-          </label>
-          <label class="cc-field">
-            <span class="cc-field-label">Beschreibung</span>
-            <textarea class="cc-input" id="cc-form-desc" rows="2" maxlength="80" placeholder="Kurze Beschreibung..." required></textarea>
-          </label>
-          <div class="cc-field-row">
-            <label class="cc-field">
-              <span class="cc-field-label">Meta</span>
-              <input class="cc-input" id="cc-form-meta" type="text" maxlength="20" placeholder="z.B. Kurvig">
-            </label>
-            <label class="cc-field">
-              <span class="cc-field-label">Info</span>
-              <input class="cc-input" id="cc-form-extra" type="text" maxlength="25" placeholder="z.B. 120 km \u00b7 4.8\u2605">
-            </label>
-          </div>
-          <div class="cc-modal-actions">
-            <button type="button" class="cc-btn-secondary" id="cc-modal-cancel">Abbrechen</button>
-            <button type="submit" class="cc-btn-primary">Ver\u00f6ffentlichen</button>
-          </div>
-        </form>
-      </div>
-    </div>
-
-    <div class="konf-next-cta konf-reveal">
-      <button class="konf-next-btn" data-next="karte">
-        <span class="konf-next-label">Karte \u00f6ffnen</span>
-        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
-      </button>
-    </div>
-  `
-}
+/* Hier stand buildCommunityView() — eine zweite, YouTube-artige Community-
+   Ansicht mit erfundenen Likes, Aufrufen, Abonnenten- und Follower-Zahlen
+   (hashInt(...)). Sie war seit dem Umbau auf buildCommunityRoot() aus
+   tabViewBuilders nicht mehr erreichbar, wurde aber weiter mit ausgeliefert.
+   Entfernt statt auskommentiert: erfundene Reichweitenzahlen sind nichts,
+   was versehentlich wieder verdrahtet werden sollte. */
 
 function buildKarteView(data) {
   return `
@@ -1821,8 +1757,6 @@ let matchSort = 'recent' // 'recent' | 'score'
 /** Zuletzt gelöschter Eintrag für "Rückgängig" — { entry, index, timer }. */
 let matchUndo = null
 
-const RING_CIRCUMFERENCE = 2 * Math.PI * 28
-
 /** Katalog-Bike zum gerade geöffneten (normalisierten) Datensatz. */
 function catalogBikeFor(data) {
   if (!data) return null
@@ -1864,35 +1798,93 @@ const MM_ICON_X = '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" s
 const MM_ICON_PLUS = '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"/></svg>'
 const MM_ICON_CHECK = '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"/></svg>'
 
-function buildMatchView(data) {
-  const bike = catalogBikeFor(data)
-  // Der Suchbegriff hing vorher an `data.name` — das Feld gibt es auf dem
-  // normalisierten Objekt nicht, die Gebraucht-Links landeten dadurch auf
-  // einer leeren Suche.
-  const q = encodeURIComponent(matchDisplayName(data, bike))
-  const kleinanzeigenUrl = `https://www.kleinanzeigen.de/s-motorraeder-roller/${q}/k0c305`
-  const mobileUrl = `https://suchen.mobile.de/fahrzeuge/search.html?ms=&s=Motorbike&fr=&sfmr=false&isSearchRequest=true&makeModelVariantExact=true&fnai=prem&keyword=${q}`
-  const ebayUrl = `https://www.ebay.de/sch/i.html?_from=R40&_trksid=p2334524.m570.l1313&_nkw=${q}&_sacat=6024`
+const MM_RADAR_SHORT_LABEL = {
+  style: 'Stil',
+  use: 'Nutzung',
+  budget: 'Budget',
+  seatHeight: 'Sitzhöhe',
+  license: 'Führerschein',
+  passenger: 'Sozius',
+}
+
+/**
+ * Spinnennetz statt fünf gestapelter Balken — dieselben Faktoren, aber als
+ * Form auf einen Blick statt als lange Liste. Startpunkt jeder Achse ist
+ * oben (12 Uhr), von dort im Uhrzeigersinn verteilt.
+ */
+function buildMatchRadar(factors, res) {
+  const n = factors.length
+  const cx = 160
+  const cy = 148
+  const R = 84
+  const labelR = R + 40
+  const angleFor = i => -Math.PI / 2 + i * ((2 * Math.PI) / n)
+  const pointAt = (r, i) => {
+    const a = angleFor(i)
+    return [cx + r * Math.cos(a), cy + r * Math.sin(a)]
+  }
+
+  const pcts = factors.map(([key, , weight]) =>
+    Math.max(0, Math.min(100, Math.round(((res.breakdown[key] ?? 0) / weight) * 100)))
+  )
+
+  const rings = [0.25, 0.5, 0.75, 1]
+    .map(level => {
+      const pts = factors.map((_, i) => pointAt(R * level, i).join(',')).join(' ')
+      return `<polygon points="${pts}" class="mm-radar-ring"/>`
+    })
+    .join('')
+
+  const axes = factors
+    .map((_, i) => {
+      const [x, y] = pointAt(R, i)
+      return `<line x1="${cx}" y1="${cy}" x2="${x.toFixed(1)}" y2="${y.toFixed(1)}" class="mm-radar-axis"/>`
+    })
+    .join('')
+
+  const targetPoints = factors.map((_, i) => pointAt(R * pcts[i] / 100, i).join(',')).join(' ')
+
+  const dots = factors
+    .map((_, i) => {
+      const [x, y] = pointAt(R * pcts[i] / 100, i)
+      return `<circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="3.5" class="mm-radar-dot"/>`
+    })
+    .join('')
+
+  const labels = factors
+    .map(([key, label], i) => {
+      const [x, y] = pointAt(labelR, i)
+      let anchor = 'middle'
+      if (x > cx + 4) anchor = 'start'
+      else if (x < cx - 4) anchor = 'end'
+      const short = esc(MM_RADAR_SHORT_LABEL[key] || label)
+      return `
+        <text x="${x.toFixed(1)}" y="${(y - 3).toFixed(1)}" text-anchor="${anchor}" class="mm-radar-label">${short}</text>
+        <text x="${x.toFixed(1)}" y="${(y + 12).toFixed(1)}" text-anchor="${anchor}" class="mm-radar-pct">${pcts[i]}%</text>`
+    })
+    .join('')
 
   return `
-    ${buildMatchScoreCard(data, bike)}
-    ${buildMatchSavedCard(bike)}
-    ${buildMatchRecoCard(bike)}
-    <div class="konf-card konf-card-cta konf-reveal">
-      <span class="konf-overline konf-overline--light">Nächster Schritt</span>
-      <h3 class="konf-card-title konf-card-title--lg">Bereit für dein Bike?</h3>
-      <p class="konf-card-text">Finde einen Händler in deiner Nähe oder starte das Quiz für eine personalisierte Empfehlung.</p>
-      <div class="konf-cta-row">
-        <button class="konf-cta-btn konf-cta-primary" id="konf-cta-dealer">Händler finden</button>
-        <button class="konf-cta-btn konf-cta-secondary" id="konf-cta-quiz">Neues Match finden</button>
-      </div>
-      <div class="konf-used-row">
-        <span class="konf-used-label">Gebraucht suchen:</span>
-        <a class="konf-used-btn" href="${kleinanzeigenUrl}" target="_blank" rel="noopener noreferrer">Kleinanzeigen</a>
-        <a class="konf-used-btn" href="${mobileUrl}" target="_blank" rel="noopener noreferrer">mobile.de</a>
-        <a class="konf-used-btn" href="${ebayUrl}" target="_blank" rel="noopener noreferrer">eBay</a>
-      </div>
+    <svg class="mm-radar-svg" viewBox="0 4 320 264" aria-hidden="true">
+      ${rings}
+      ${axes}
+      <g class="mm-radar-data" style="transform-origin:${cx}px ${cy}px">
+        <polygon points="${targetPoints}" class="mm-radar-shape"/>
+        ${dots}
+      </g>
+      ${labels}
+    </svg>`
+}
+
+function buildMatchView(data) {
+  const bike = catalogBikeFor(data)
+
+  return `
+    <div class="konf-top-row">
+      ${buildMatchScoreCard(data, bike)}
+      ${buildMatchRecoCard(bike)}
     </div>
+    ${buildMatchSavedCard(bike)}
   `
 }
 
@@ -1949,10 +1941,6 @@ function buildMatchScoreCard(data, bike) {
         <p class="konf-card-text">${answers
           ? 'Für dieses Modell liegen noch keine Matching-Daten vor.'
           : 'Beantworte das Quiz — danach siehst du hier, wie gut dieses Bike zu Führerschein, Budget, Körpergröße und Einsatzzweck passt.'}</p>
-        <div class="mm-match-actions">
-          ${buildMatchSaveBtn(bike)}
-          <button class="mm-match-btn" id="mm-match-quiz">${answers ? 'Quiz wiederholen' : 'Quiz starten'}</button>
-        </div>
       </div>`
   }
 
@@ -1963,25 +1951,20 @@ function buildMatchScoreCard(data, bike) {
     ['use', 'Einsatzzweck', W.USE_CASE],
     ['budget', 'Budget', W.BUDGET],
     ['seatHeight', 'Sitzhöhe', W.SEAT_HEIGHT],
+    // Muss mit in die Liste: die Fuehrerschein-Passung geht in den Prozentwert
+    // im Ring ein — fehlte sie hier, ergaeben die Balken darunter eine andere
+    // Rechnung als die Zahl darueber.
+    ['license', 'Führerschein-Klasse', W.LICENSE_FIT],
   ]
   if (answers.q7 === 'Ja') factors.push(['passenger', 'Sozius-Tauglichkeit', W.PASSENGER])
 
-  const bars = factors.map(([key, label, weight]) => {
-    const pct = Math.max(0, Math.min(100, Math.round(((res.breakdown[key] ?? 0) / weight) * 100)))
-    return `
-      <div class="konf-bar-group">
-        <div class="konf-bar-header">
-          <span class="konf-bar-label">${label}</span>
-          <span class="konf-bar-value"><span class="konf-bar-counter" data-target="${pct}" data-decimals="0">0</span>&thinsp;%</span>
-        </div>
-        <div class="konf-bar-track"><div class="konf-bar-fill" data-pct="${pct}" style="width:0%"></div></div>
-      </div>`
-  }).join('')
+  const radar = buildMatchRadar(factors, res)
 
   const notes = []
   if (!res.fits.license) notes.push(`Braucht Führerschein <b>${esc(bike.license)}</b> — dein Profil: <b>${esc(answers.q1 || '–')}</b>.`)
   if (!res.fits.budget) notes.push(`Liegt über deinem Budget von <b>${fmtBudget(answers.q5)}</b>.`)
   if ((res.breakdown.beginnerPenalty ?? 0) < 0) notes.push('Für den Einstieg anspruchsvoll — viel Leistung, wenig Fehlerverzeihung.')
+  if ((res.breakdown.license ?? 0) < 0) notes.push('Liegt zwei Klassen unter deinem Führerschein — fahren darfst du sie, gereizt wirst du damit kaum.')
 
   return `
     <div class="konf-card mm-match-card konf-reveal" id="mm-match-score">
@@ -1990,33 +1973,15 @@ function buildMatchScoreCard(data, bike) {
           <span class="konf-overline">Passgenauigkeit</span>
           <h3 class="konf-card-title konf-card-title--lg">${title}</h3>
           ${priceRow}
-          <p class="mm-match-score-sub">${esc(matchVerdict(res.pct))}</p>
         </div>
-        <div class="mm-match-ring">
-          <svg viewBox="0 0 64 64" aria-hidden="true">
-            <circle class="mm-match-ring-bg" cx="32" cy="32" r="28"/>
-            <circle class="mm-match-ring-fill" cx="32" cy="32" r="28"
-                    data-pct="${res.pct}"
-                    stroke-dasharray="${RING_CIRCUMFERENCE.toFixed(1)}"
-                    stroke-dashoffset="${RING_CIRCUMFERENCE.toFixed(1)}"/>
-          </svg>
-          <span class="mm-match-ring-num"><span class="konf-bar-counter" data-target="${res.pct}" data-decimals="0">0</span><i>%</i></span>
-        </div>
+        <div class="mm-match-score-num"><span class="konf-bar-counter" data-target="${res.pct}" data-decimals="0">0</span><i>%</i></div>
       </div>
-      <div class="mm-match-bars">${bars}</div>
       ${notes.length ? `<ul class="mm-match-notes">${notes.map(n => `<li>${n}</li>`).join('')}</ul>` : ''}
-      <div class="mm-match-actions">
-        ${buildMatchSaveBtn(bike)}
-        <button class="mm-match-btn" id="mm-match-quiz">Quiz wiederholen</button>
+      <div class="mm-match-bars-section">
+        <span class="mm-match-bars-label">Bewertung im Detail</span>
+        <div class="mm-match-radar">${radar}</div>
       </div>
     </div>`
-}
-
-function matchVerdict(pct) {
-  if (pct >= 85) return 'Passt hervorragend zu deinem Profil.'
-  if (pct >= 65) return 'Passt gut — mit kleinen Abstrichen.'
-  if (pct >= 45) return 'Teilweise passend. Sieh dir die Punkte unten an.'
-  return 'Passt nur bedingt zu deinen Angaben.'
 }
 
 function fmtBudget(value) {
@@ -2134,15 +2099,11 @@ function buildMatchRecoCard(currentBike) {
 
   const overline = useProfile ? 'Aus deinem Profil' : 'Alternativen'
   const title = useProfile ? 'Passt auch zu dir' : 'Könnte dir auch gefallen'
-  const sub = useProfile
-    ? 'Aus deinen Quiz-Antworten berechnet.'
-    : `Ähnliche Modelle zur ${esc(currentBike?.style || 'Auswahl')}-Klasse, die du gerade ansiehst.`
 
   return `
     <div class="konf-card mm-match-card konf-reveal" id="mm-match-reco">
       <span class="konf-overline">${overline}</span>
       <h3 class="konf-card-title konf-card-title--lg">${title}</h3>
-      <p class="mm-match-score-sub">${sub}</p>
       <div class="mm-reco-grid">
         ${recs.map(r => {
           const b = r.bike
@@ -2208,6 +2169,7 @@ function switchTab(tabName, data) {
       split.classList.toggle('konf-split--ausstattung', tabName === 'ausstattung')
       split.classList.toggle('konf-split--community', tabName === 'community')
       split.classList.toggle('konf-split--karte', tabName === 'karte')
+      split.classList.toggle('konf-split--match', tabName === 'match')
       split.classList.remove('konf-bars-hidden') // reset scroll-hide state
     }
 
@@ -2229,7 +2191,7 @@ function switchTab(tabName, data) {
       if (tabName === 'karte') bindKarteViewEvents()
       if (tabName === 'community') import('./community.js').then(m => m.mountCommunity(document.getElementById('mm-comm-root')))
     })
-  }, 100)
+  }, isCoveredByOverlay() ? 0 : 100)
 }
 
 // Fallback fuer die eingeklappte Hoehe, falls die Messung (syncKvPeek) noch
@@ -2876,8 +2838,43 @@ function bindKarteViewEvents() {
     searchToggle?.setAttribute('aria-expanded', 'false')
     document.getElementById('mm-recent-dd')?.remove()
   }
+  /* Ort/PLZ aufloesen und die Suche dorthin verlegen. Eine Stelle fuer beide
+     Ausloeser: Eingabetaste und Lupe. */
+  const ortSuchen = async () => {
+    const eingabe = document.getElementById('kv-search-input')
+    const query = eingabe?.value.trim()
+    if (!query) return
+    try {
+      const zuletzt = JSON.parse(localStorage.getItem('mm_recent_kv') || '[]').filter(q => q !== query)
+      zuletzt.unshift(query)
+      localStorage.setItem('mm_recent_kv', JSON.stringify(zuletzt.slice(0, 5)))
+    } catch { /* gesperrter Speicher: dann eben ohne Verlauf */ }
+    document.getElementById('mm-recent-dd')?.remove()
+    eingabe.blur()
+    eingabe.placeholder = 'Suche \u2026'
+
+    const treffer = await resolveOrt(query)
+    if (treffer.ok) {
+      eingabe.placeholder = 'PLZ oder Ort eingeben\u2026'
+      searchNearbyAt(treffer.lat, treffer.lng)
+      return
+    }
+    /* Zwei Ursachen, zwei Meldungen. Vorher stand bei jedem Fehlschlag
+       "Ort nicht gefunden" — auch wenn Google den Aufruf abgelehnt hatte und
+       der Ort voellig in Ordnung war. */
+    eingabe.value = ''
+    eingabe.placeholder = treffer.grund === 'nicht_gefunden'
+      ? `\u201e${query}\u201c nicht gefunden`
+      : 'Ortssuche gerade nicht m\u00f6glich'
+  }
+
   searchToggle?.addEventListener('click', () => {
-    searchField?.classList.contains('kv-search-field--open') ? closeSearch() : openSearch()
+    if (!searchField?.classList.contains('kv-search-field--open')) { openSearch(); return }
+    /* Steht schon etwas im Feld, ist die Lupe der Absende-Knopf. Vorher klappte
+       sie das Feld samt Eingabe wieder zu — der naheliegendste Weg, die Suche
+       auszuloesen, war damit der einzige, der nichts tat. */
+    if (document.getElementById('kv-search-input')?.value.trim()) { ortSuchen(); return }
+    closeSearch()
   })
   document.addEventListener('mousedown', e => {
     if (searchWrap && !searchWrap.contains(e.target)) closeSearch()
@@ -2945,8 +2942,8 @@ function bindKarteViewEvents() {
         btn.addEventListener('mousedown', ev => {
           ev.preventDefault()
           searchInput.value = btn.dataset.q
-          searchInput.dispatchEvent(new KeyboardEvent('keypress', { key: 'Enter' }))
           dd.remove()
+          ortSuchen()
         })
       })
       dd.querySelector('.mm-recent-clear')?.addEventListener('mousedown', ev => {
@@ -2964,62 +2961,22 @@ function bindKarteViewEvents() {
       }, 0)
     })
   }
-  searchInput?.addEventListener('keypress', async (e) => {
-    if (e.key !== 'Enter' || !searchInput.value.trim()) return
-    const query = searchInput.value.trim()
-    // Save recent
-    try {
-      let recent = JSON.parse(localStorage.getItem('mm_recent_kv') || '[]').filter(q => q !== query)
-      recent.unshift(query)
-      localStorage.setItem('mm_recent_kv', JSON.stringify(recent.slice(0, 5)))
-    } catch {}
-    document.getElementById('mm-recent-dd')?.remove()
-    if (typeof google === 'undefined' || !google.maps?.Geocoder) return
-    const geocoder = new google.maps.Geocoder()
-    geocoder.geocode({ address: query + ', Deutschland' }, (results, status) => {
-      if (status !== 'OK' || !results[0]) {
-        const input = document.getElementById('kv-search-input')
-        if (input) input.placeholder = 'Ort nicht gefunden'
-        return
-      }
-      const loc = results[0].geometry.location
-      searchNearbyAt(loc.lat(), loc.lng())
-    })
+  /* keydown statt des veralteten keypress: Bildschirmtastaturen auf dem Handy
+     melden die Eingabetaste zuverlaessig nur hier. Genau dort wird die
+     Ortssuche aber gebraucht. */
+  searchInput?.addEventListener('keydown', (e) => {
+    if (e.key !== 'Enter') return
+    e.preventDefault()
+    ortSuchen()
   })
 }
 
 function bindMatchViewEvents(data) {
   const bike = catalogBikeFor(data)
 
-  // "Händler finden" führte bisher in einen alert(). Der Karten-Reiter IST
-  // die Händlersuche — also dorthin wechseln und gleich die richtige Kachel
-  // auslösen, statt auf ein späteres Feature zu vertrösten.
-  document.getElementById('konf-cta-dealer')?.addEventListener('click', () => {
-    switchTab('karte', data)
-    setTimeout(() => {
-      document.querySelector('.konf-karte-hub .hub-pill[data-query="Motorradhändler"]')?.click()
-    }, 320)
-  })
-
-  document.getElementById('konf-cta-quiz')?.addEventListener('click', startQuizFromKonfigurator)
-  document.getElementById('mm-match-quiz')?.addEventListener('click', startQuizFromKonfigurator)
-
-  // Merken/Vergessen des offenen Bikes
-  document.getElementById('mm-match-save')?.addEventListener('click', (e) => {
-    if (!bike) return
-    const btn = e.currentTarget
-    if (btn.dataset.saved === 'true') {
-      removeMatch(bike.name)
-      showToast('Aus deinen Matches entfernt.')
-    } else {
-      const answers = getLastAnswers()
-      const res = answers ? scoreBikeAgainst(bike, answers) : null
-      addMatch(bike, { score: res?.score, pct: res?.pct, source: 'manual' })
-      showToast('Als Match gemerkt.')
-    }
-    refreshSaveBtn(bike)
-    refreshMatchList(bike)
-  })
+  // Merken/Vergessen und Quiz-Neustart sitzen jetzt dauerhaft in .konf-left
+  // (siehe bindKonfiguratorEvents) — hier nur noch refreshMatchList/-SaveBtn
+  // nach Aenderungen ueber die Karte anstossen (Reco-Add etc. binden davon).
 
   // Sortierung
   document.getElementById('mm-match-sort')?.addEventListener('click', (e) => {
@@ -3094,25 +3051,19 @@ function bindMatchViewEvents(data) {
   animateMatchScore()
 }
 
-/** Ring + Balken der Score-Karte einlaufen lassen. */
+/** Ring + Spinnennetz der Score-Karte einlaufen lassen. */
 function animateMatchScore() {
   const card = document.getElementById('mm-match-score')
   if (!card) return
-  const ring = card.querySelector('.mm-match-ring-fill')
-  const groups = card.querySelectorAll('.konf-bar-group')
+  const radarData = card.querySelector('.mm-radar-data')
 
   requestAnimationFrame(() => {
-    if (ring) {
-      const pct = Number(ring.dataset.pct) || 0
-      ring.style.strokeDashoffset = String(RING_CIRCUMFERENCE * (1 - pct / 100))
+    card.querySelectorAll('.mm-match-score-num .konf-bar-counter').forEach(animateBarNumber)
+    if (radarData) {
+      setTimeout(() => radarData.classList.add('mm-radar-data--in'), 150)
     }
-    card.querySelectorAll('.mm-match-ring-num .konf-bar-counter').forEach(animateBarNumber)
-    groups.forEach((group, i) => {
-      setTimeout(() => {
-        const fill = group.querySelector('.konf-bar-fill')
-        if (fill) fill.style.width = fill.dataset.pct + '%'
-        group.querySelectorAll('.konf-bar-counter').forEach(animateBarNumber)
-      }, i * 110)
+    card.querySelectorAll('.mm-radar-pct').forEach((el, i) => {
+      setTimeout(() => { el.style.opacity = '1' }, 150 + i * 60)
     })
   })
 }
@@ -3232,6 +3183,8 @@ function buildKonfiguratorHTML(data, initialTab = KONF_DEFAULT_TAB) {
   konfData = data
   const tab = tabViewBuilders[initialTab] ? initialTab : KONF_DEFAULT_TAB
   const fullscreen = tab === 'ausstattung' || tab === 'community' || tab === 'karte'
+  const konfLeftBike = catalogBikeFor(data)
+  const konfLeftAnswers = getLastAnswers()
 
   return `
     <!-- Touchbar Navigation -->
@@ -3249,7 +3202,7 @@ function buildKonfiguratorHTML(data, initialTab = KONF_DEFAULT_TAB) {
     </button>
 
     <!-- Split Screen -->
-    <div class="konf-split${fullscreen ? ' konf-split--fullscreen' : ''}${tab === 'ausstattung' ? ' konf-split--ausstattung' : ''}${tab === 'community' ? ' konf-split--community' : ''}${tab === 'karte' ? ' konf-split--karte' : ''}">
+    <div class="konf-split${fullscreen ? ' konf-split--fullscreen' : ''}${tab === 'ausstattung' ? ' konf-split--ausstattung' : ''}${tab === 'community' ? ' konf-split--community' : ''}${tab === 'karte' ? ' konf-split--karte' : ''}${tab === 'match' ? ' konf-split--match' : ''}">
 
       <!-- Left: Cinematic 2D Viewer -->
       <div class="konf-left">
@@ -3261,9 +3214,9 @@ function buildKonfiguratorHTML(data, initialTab = KONF_DEFAULT_TAB) {
         <div class="konf-viewer-label" id="konf-height-label" style="display:none">
           Fahrgr\u00f6\u00dfe: ${userHeight} cm
         </div>
-        <div class="konf-pills" id="konf-pills">
-          <button class="konf-pill konf-pill--active" data-view="bike">Motorrad</button>
-          <button class="konf-pill" data-view="rider">Mit Fahrer</button>
+        <div class="mm-match-actions konf-left-actions">
+          ${buildMatchSaveBtn(konfLeftBike)}
+          <button class="mm-match-btn" id="mm-match-quiz">${konfLeftAnswers ? 'Quiz wiederholen' : 'Quiz starten'}</button>
         </div>
       </div>
 
@@ -3325,8 +3278,10 @@ function initViewerPills(data) {
   })
 }
 
-// Muss zur CSS-Transition von .konf-bar-fill passen (main.css: width 0.8s cubic-bezier(0.16,1,0.3,1))
-const KONF_BAR_FILL_MS = 800
+// Muss zur CSS-Transition von .konf-bar-fill und .mm-radar-data passen
+// (main.css: je 1.4s cubic-bezier(0.16,1,0.3,1)) — Zahl, Balken und Radar
+// laufen gemeinsam los, ein abweichender Wert laesst sie auseinanderlaufen.
+const KONF_BAR_FILL_MS = 1400
 function konfBarEase(t) { return 1 - Math.pow(1 - t, 4) } // ~ cubic-bezier(0.16,1,0.3,1)
 
 function animateBarNumber(el) {
@@ -3376,6 +3331,27 @@ function bindKonfiguratorEvents(data, garageBikeData) {
   // Back button
   document.getElementById('konf-back')?.addEventListener('click', () => {
     if (!goBack()) konfiguratorBack(data, garageBikeData)
+  })
+
+  // Merken/Vergessen + Quiz-Neustart sitzen in .konf-left — dort einmal pro
+  // Konfigurator-Mount gebunden statt bei jedem Match-Tab-Rerender, sonst
+  // haeuften sich doppelte Listener auf demselben (nie neu gerenderten) Knoten.
+  const konfLeftBike = catalogBikeFor(data)
+  document.getElementById('mm-match-quiz')?.addEventListener('click', startQuizFromKonfigurator)
+  document.getElementById('mm-match-save')?.addEventListener('click', (e) => {
+    if (!konfLeftBike) return
+    const btn = e.currentTarget
+    if (btn.dataset.saved === 'true') {
+      removeMatch(konfLeftBike.name)
+      showToast('Aus deinen Matches entfernt.')
+    } else {
+      const answers = getLastAnswers()
+      const res = answers ? scoreBikeAgainst(konfLeftBike, answers) : null
+      addMatch(konfLeftBike, { score: res?.score, pct: res?.pct, source: 'manual' })
+      showToast('Als Match gemerkt.')
+    }
+    refreshSaveBtn(konfLeftBike)
+    refreshMatchList(konfLeftBike)
   })
 
   // Profil-Reiter → Konto-Overlay (kein eigener Tab-View, daher kein switchTab)
@@ -4445,6 +4421,15 @@ function rebindPointerEvents(container) {
 }
 
 function initDetail3D(data, darkMode) {
+  if (!data.glb) {
+    // Freigegebene Bikes ohne 3D-Modell: Studio-Bild statt 3D (wie garage.js, init3DViewer).
+    const wrap = document.getElementById('bd-3d-wrap')
+    if (wrap && data.studio) {
+      wrap.classList.add('bd-3d-canvas-wrap--studio')
+      wrap.innerHTML = `<img class="bd-studio-img" src="${data.studio}" alt="${data.fullName} im Studio" loading="lazy" decoding="async">`
+    }
+    return
+  }
   const wrap = document.getElementById('bd-3d-wrap') || document.getElementById('konf-3d-wrap')
   const canvas = wrap?.querySelector('canvas')
   if (!wrap || !canvas) return
@@ -4498,7 +4483,7 @@ function initDetail3D(data, darkMode) {
   const loader = new GLTFLoader()
   loader.setMeshoptDecoder(MeshoptDecoder)
   const dracoLoader = new DRACOLoader()
-  dracoLoader.setDecoderPath('https://www.gstatic.com/draco/versioned/decoders/1.5.7/')
+  dracoLoader.setDecoderPath('/draco/')
   loader.setDRACOLoader(dracoLoader)
   loader.load(data.glb, (gltf) => {
     if (!detailScene || !detailRenderer) {

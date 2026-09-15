@@ -2146,13 +2146,70 @@ function mountAccountTabbar(sourceBar) {
   clone.querySelectorAll('.tb-btn').forEach((btn, i) => {
     btn.classList.toggle('tb-btn-active', isProfil[i])
     btn.addEventListener('click', () => {
-      closeAccount()
-      if (isProfil[i]) return
-      // Erst nach dem Schliessen, sonst steigt openAccount() im Original-
-      // Handler aus, weil das Overlay noch im DOM haengt.
-      setTimeout(() => originals[i]?.click(), 300)
+      // Profil ist der Reiter, auf dem man schon steht — nur schliessen.
+      if (isProfil[i]) { closeAccount(); return }
+      /* Reihenfolge ist hier der ganze Punkt.
+         Vorher lief es: Overlay ausblenden → 300 ms warten → navigieren.
+         In der Luecke dazwischen lag die Seite, von der man gerade kam, gut
+         sichtbar auf dem Schirm — es sah aus, als ginge es erst zurueck und
+         dann erst vorwaerts.
+         Jetzt startet der Wechsel zuerst und laeuft hinter dem noch
+         stehenden Overlay ab; aufgeloest wird es erst, wenn der neue
+         Bildschirm da ist. Zu sehen ist damit nur noch ein Uebergang. */
+      const original = originals[i]
+      /* Der Reiter, auf dem man ohnehin schon steht — der uebliche Weg
+         zurueck aus dem Konto. Sein Original-Handler tut dann nichts
+         ("if (tab !== activeKonfTab)"), es gibt also nichts, worauf sich
+         warten liesse. Ohne diesen Zweig lief der Waechter bis zur Notbremse
+         und das Konto blieb ueber eine Sekunde stehen. */
+      if (original?.classList.contains('tb-btn-active')) { closeAccount({ fast: true }); return }
+      original?.click()
+      closeAccountWhenTargetReady()
     })
   })
+}
+
+/**
+ * Schliesst das Konto-Overlay, sobald das Ziel wirklich steht.
+ *
+ * Zwei Arten von Zielen, beide muessen erkannt werden:
+ *   1. ein anderer Bildschirm (Garage -> Konfigurator): einer der
+ *      `display`-geschalteten Container auf oberster Ebene wechselt.
+ *   2. ein anderer Reiter im selben Konfigurator: dort bleibt alles
+ *      sichtbar, ausgetauscht wird nur der Inhalt von #konf-right — und
+ *      zwar erst nach dessen Ausblenden. Deshalb NICHT auf die aktive
+ *      Schaltflaeche schauen: die springt sofort um, der Inhalt darunter
+ *      aber erst 200 ms spaeter. Wer darauf schliesst, zeigt fuer einen
+ *      Moment den alten Reiter.
+ * Erkannt wird der Tausch am neuen ersten Kindknoten — billig zu pruefen,
+ * anders als der serialisierte innerHTML jedes Einzelbild.
+ *
+ * Der Wecker ist die Notbremse fuer echte Aussetzer (Modul laedt nicht o. Ae.).
+ * Der haeufige Fall "es passiert nichts, weil man den Reiter anklickt, auf dem
+ * man schon steht" wird oben abgefangen und laeuft gar nicht erst hier durch.
+ */
+const SCREEN_IDS = ['landing', 'bike-detail', 'quiz-screen', 'garage-container', 'drop-container']
+
+function closeAccountWhenTargetReady() {
+  /* Der Waechter gehoert zu genau diesem Overlay. Ohne diese Bindung konnte
+     ein Lauf aus einer frueheren Runde ein inzwischen neu geoeffnetes
+     Overlay wegschliessen. */
+  const meins = document.getElementById('acc-overlay')
+  if (!meins) return
+  const screens = SCREEN_IDS.map((id) => document.getElementById(id)).filter(Boolean)
+  const displaysBefore = screens.map((el) => getComputedStyle(el).display)
+  const rightPane = document.getElementById('konf-right')
+  const paneChildBefore = rightPane?.firstElementChild || null
+  const start = performance.now()
+
+  const tick = () => {
+    if (document.getElementById('acc-overlay') !== meins) return // fremdes Overlay, nicht anfassen
+    const screenChanged = screens.some((el, i) => getComputedStyle(el).display !== displaysBefore[i])
+    const paneChanged = !!rightPane && rightPane.firstElementChild !== paneChildBefore
+    if (screenChanged || paneChanged || performance.now() - start > 600) { closeAccount({ fast: true }); return }
+    requestAnimationFrame(tick)
+  }
+  requestAnimationFrame(tick)
 }
 
 /**
@@ -2160,7 +2217,17 @@ function mountAccountTabbar(sourceBar) {
  *   dem Overlay gespiegelt, damit man von hier direkt weiternavigieren kann.
  */
 export function openAccount(sourceBar) {
-  if (document.getElementById('acc-overlay')) return
+  const bestehend = document.getElementById('acc-overlay')
+  if (bestehend) {
+    /* Steht schon offen: nichts zu tun.
+       Ist es dagegen noch im Ausblenden (Reiterwechsel, 130 ms), dann lag hier
+       bisher ein totes Zeitfenster: der Klick auf "Profil" lief ins Leere,
+       weil das Element noch im Dokument haengt. Wer zuegig hin und her
+       wechselt, traf es regelmaessig — es sah aus, als reagiere der Reiter
+       nicht. Also: Rest wegraeumen und frisch aufbauen. */
+    if (bestehend.classList.contains('acc-overlay--open')) return
+    bestehend.remove()
+  }
   const wrapper = document.createElement('div')
   wrapper.innerHTML = buildAccountHTML()
   document.body.appendChild(wrapper.firstElementChild)
@@ -2220,10 +2287,24 @@ function reopenAccount() {
 function escHandler(e) {
   if (e.key === 'Escape') closeAccount()
 }
-export function closeAccount() {
+/**
+ * @param {{fast?: boolean}} [opts] `fast` beim Reiterwechsel: der neue
+ *   Bildschirm steht schon darunter, das Overlay soll ihn zuegig freigeben.
+ *   Wird die Funktion direkt als Ereignis-Empfaenger benutzt (Kreuz, Backdrop),
+ *   kommt hier das Event an — es hat kein `fast`, also der ruhige Weg.
+ */
+export function closeAccount(opts) {
   const overlay = document.getElementById('acc-overlay')
   if (!overlay) return
+  const fast = opts?.fast === true
+  if (fast) overlay.classList.add('acc-overlay--switching')
   overlay.classList.remove('acc-overlay--open')
   document.removeEventListener('keydown', escHandler)
-  setTimeout(() => { overlay.remove(); document.body.style.overflow = '' }, 280)
+  setTimeout(() => {
+    overlay.remove()
+    /* Nur freigeben, wenn inzwischen nicht schon wieder eines steht: bei
+       schnellem Hin und Her kann in diesen 130 ms ein neues Overlay geoeffnet
+       haben, dem die Scroll-Sperre gehoert. */
+    if (!document.getElementById('acc-overlay')) document.body.style.overflow = ''
+  }, fast ? 130 : 280)
 }

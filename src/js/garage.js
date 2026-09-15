@@ -6,7 +6,7 @@
  *  Layout (scrollable, like bike-detail.js):
  *    Section 1: Hero — bg text + cutout image + name/badge/price/actions
  *    Section 2: Specs — animated counters (left) + 3D model (right)
- *    Section 3: KI-Analyse + Gear + Markt + Map (tabbed)
+ *    Section 3: Gear + Markt + Map (tabbed)
  *    Footer
  *
  *  3D: DRACOLoader + MeshoptDecoder, adaptive shadows, PMREM env
@@ -28,7 +28,6 @@ import {
 import { addMatch } from "./match-history.js";
 import { getGear } from "./gear.js";
 import { buildSearchUrls, getLiveListings } from "./marketplace.js";
-import { getAIExplanation } from "./ai.js";
 import { esc } from "./util.js";
 
 // Einmaliger, dezenter Puls auf der Tab-Leiste, damit Nutzer merken, dass
@@ -244,7 +243,7 @@ function buildPage(bike, fromQuiz = true) {
         ${fromQuiz ? '<p class="gr-match-label">Dein perfektes Match</p>' : ""}
         <h1 class="bd-model-name">${bike.name}</h1>
         <span class="bd-badge">${bike.style}</span>
-        <p class="bd-price">${priceDisplay} inkl. MwSt.</p>
+        <p class="bd-price">${priceDisplay}${/\d/.test(priceDisplay) ? " inkl. MwSt." : ""}</p>
       </div>
     </section>
 
@@ -252,10 +251,10 @@ function buildPage(bike, fromQuiz = true) {
     <div class="tb-wrap" id="bd-sticky-nav">
       <nav class="tb-bar" id="gr-tabbar">
         <button class="tb-btn" type="button" id="gr-profil-btn">Profil</button>
-        <button class="tb-btn" id="gr-nav-gear">Ausr\u00fcstung</button>
-        <button class="tb-btn tb-btn-active" id="gr-share-btn"><span class="tb-lbl-lang">Match finden</span><span class="tb-lbl-kurz">Match</span></button>
-        <button class="tb-btn" id="gr-nav-hub">Community</button>
-        <button class="tb-btn" id="gr-nav-market">Karte</button>
+        <button class="tb-btn" data-tab="ausstattung">Ausr\u00fcstung</button>
+        <button class="tb-btn" data-tab="match"><span class="tb-lbl-lang">Match finden</span><span class="tb-lbl-kurz">Match</span></button>
+        <button class="tb-btn" data-tab="community">Community</button>
+        <button class="tb-btn" data-tab="karte">Karte</button>
       </nav>
     </div>
 
@@ -363,7 +362,33 @@ function animateCounters(container) {
 // ══════════════════════════════════════════════════════════════
 
 function init3DViewer(bikeData) {
-  if (!bikeData.has3D || !bikeData.glb) return;
+  if (!bikeData.has3D || !bikeData.glb) {
+    // Ohne 3D-Modell steht hier der 3D-Ersatz: dasselbe Motorrad mit Fahrer im dunklen Studio
+    // (freigegebene Bikes, tools/catalog/einbau.py).
+    const wrap = document.getElementById("gr-3d-wrap");
+    if (wrap && bikeData.studio) {
+      wrap.classList.add("bd-3d-canvas-wrap--studio");
+      wrap.innerHTML = `<img class="bd-studio-img" src="${bikeData.studio}" alt="${bikeData.name} im Studio" loading="lazy" decoding="async">`;
+      // Höhe der Specs-Karte einfrieren, damit das Studio-Bild beim Aufklappen nicht mitwächst.
+      // mountAnsicht() ist async → bd-ansicht-embed existiert erst nach dem Import. MutationObserver abwarten.
+      const host = document.getElementById("gr-ansicht-host");
+      if (host) {
+        const obs = new MutationObserver(() => {
+          const specsCard = host.querySelector(".bd-ansicht-embed");
+          if (specsCard) {
+            obs.disconnect();
+            requestAnimationFrame(() => {
+              const h = specsCard.offsetHeight + "px";
+              wrap.style.height = h;
+              wrap.style.maxHeight = h;
+            });
+          }
+        });
+        obs.observe(host, { childList: true, subtree: true });
+      }
+    }
+    return;
+  }
 
   const wrap = document.getElementById("gr-3d-wrap");
   const canvas = document.getElementById("gr-3d-canvas");
@@ -412,9 +437,7 @@ function init3DViewer(bikeData) {
   const loader = new GLTFLoader();
   loader.setMeshoptDecoder(MeshoptDecoder);
   const dracoLoader = new DRACOLoader();
-  dracoLoader.setDecoderPath(
-    "https://www.gstatic.com/draco/versioned/decoders/1.5.7/",
-  );
+  dracoLoader.setDecoderPath("/draco/");
   loader.setDRACOLoader(dracoLoader);
 
   loader.load(bikeData.glb, (gltf) => {
@@ -612,39 +635,31 @@ function bindEvents(bikeData, answers) {
     openAccount(document.getElementById("gr-tabbar"));
   });
 
-  // Match finden button → start quiz
-  document.getElementById("gr-share-btn")?.addEventListener("click", () => {
-    setActiveBtn("gr-share-btn");
-    cleanup();
-    const container = document.getElementById("garage-container");
-    container.style.display = "none";
-    container.innerHTML = "";
-    document.getElementById("quiz-screen").style.display = "flex";
-    import("./quiz.js").then((m) => m.initQuiz());
-  });
-
-  // Helper: set active button
-  function setActiveBtn(activeId) {
+  // Aktiven Reiter setzen — nur innerhalb dieser Leiste, nicht ueber alle
+  // .tb-btn im Dokument (die Konto-Leiste ist ein Klon derselben Klasse).
+  function setActiveBtn(btn) {
     document
-      .querySelectorAll(".tb-btn")
+      .querySelectorAll("#gr-tabbar .tb-btn")
       .forEach((b) => b.classList.remove("tb-btn-active"));
-    document.getElementById(activeId)?.classList.add("tb-btn-active");
+    btn?.classList.add("tb-btn-active");
     // Erster Klick auf einen Tab → Hinweis-Puls beenden/verhindern und nie wieder zeigen
     markTabHintSeen();
     stopTabHint();
   }
 
-  // Nav buttons → direkt zum passenden Konfigurator-Tab wechseln (kein Scrollen auf dem Deckblatt)
-  const navMap = {
-    "gr-nav-gear": "ausstattung",
-    "gr-nav-market": "karte",
-    "gr-nav-hub": "community",
-  };
-  Object.entries(navMap).forEach(([id, tab]) => {
-    document.getElementById(id)?.addEventListener("click", async () => {
-      setActiveBtn(id);
+  /* Alle vier Reiter fuehren in denselben Konfigurator-Tab wie die
+     gleichnamigen Reiter dort — eine Leiste, ein Verhalten.
+
+     "Match finden" sprang hier frueher direkt ins Quiz, waehrend derselbe
+     Reiter im Konfigurator die Passgenauigkeits-Ansicht oeffnete: gleiche
+     Beschriftung, gleiche Stelle, zwei verschiedene Ziele. Das Quiz startet
+     jetzt von dort aus ueber "Quiz starten" — ein Klick mehr, dafuer sieht
+     man vorher, worauf man sich einlaesst. */
+  document.querySelectorAll("#gr-tabbar .tb-btn[data-tab]").forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      setActiveBtn(btn);
       const { openKonfigurator } = await import("./bike-detail.js");
-      openKonfigurator(bikeData, cleanup, tab);
+      openKonfigurator(bikeData, cleanup, btn.dataset.tab);
     });
   });
 
@@ -713,30 +728,12 @@ function renderTab(tab, bikeData, answers) {
   const extras = document.getElementById("gr-extras-section");
   if (extras) extras.classList.add("has-content");
 
-  if (tab === "ai") {
-    if (!answers) {
-      content.innerHTML = `
-        <div class="gr-ai-section">
-          <p class="gr-ai-text">Starte das Quiz, um eine personalisierte KI-Analyse zu erhalten.</p>
-        </div>
-      `;
-      return;
-    }
-    content.innerHTML = `
-      <div class="gr-ai-section">
-        <p class="gr-ai-text" id="gr-ai-text">Wird geladen...</p>
-      </div>
-    `;
-    getAIExplanation(answers, bikeData)
-      .then((text) => {
-        const el = document.getElementById("gr-ai-text");
-        if (el) el.textContent = text;
-      })
-      .catch(() => {
-        const el = document.getElementById("gr-ai-text");
-        if (el) el.textContent = "Nicht verfügbar.";
-      });
-  } else if (tab === "gear") {
+  /* Der Reiter "ai" ist entfallen. Er zeigte eine von OpenAI erzeugte
+     Begruendung zum Quiz-Ergebnis — sichtbar wurde sie nie, weil renderTab()
+     von keiner Stelle aufgerufen wird. Ein Aufruf pro Anzeige haette Geld
+     gekostet, gesehen hat ihn niemand. Mit ihm sind src/js/ai.js und
+     api/ai-match.js weg. */
+  if (tab === "gear") {
     const gear = getGear(bikeData.style);
     /* getGear() liefert je Kategorie eine Liste — hier steht der Einstiegs-
        Vorschlag, also der erste Eintrag. Vorher wurde die Liste selbst ins
@@ -869,14 +866,16 @@ function renderMapsConsentPlaceholder(el) {
      maps      → Map, InfoWindow
      marker    → Marker
      places    → PlacesService, PlacesServiceStatus
-     geocoding → Geocoder
+   "geocoding" stand hier ebenfalls, wird aber nicht mehr gebraucht: die
+   Ortssuche laeuft ueber Places (resolveOrt), weil die Geocoding-API im
+   Google-Projekt nicht freigeschaltet ist.
    Mit loading=async liefert der Bootstrap beim script.onload nur einen
    Platzhalter: google.maps existiert, die Konstruktoren und Konstanten aber
    noch nicht. Wer direkt danach google.maps.Map oder ControlPosition benutzt,
    läuft in "Cannot read properties of undefined". Erst importLibrary() füllt
    den Namensraum — und zwar auch den klassischen google.maps.*, sodass die
    bestehenden Aufrufstellen unverändert gültig bleiben. */
-const GMAPS_LIBRARIES = ["core", "maps", "marker", "places", "geocoding"];
+const GMAPS_LIBRARIES = ["core", "maps", "marker", "places"];
 let gmapsReady = false;
 
 function loadGoogleMapsScript() {
@@ -1009,17 +1008,27 @@ const MAP_STYLES = [
   },
   {
     featureType: "road",
-    elementType: "geometry.fill",
-    stylers: [{ color: "#5c5c5c" }],
-  },
-  {
-    featureType: "road",
     elementType: "geometry.stroke",
     stylers: [{ visibility: "off" }],
   },
+  /* Strassen nach Rang abgestuft.
+     Vorher lag alles auf #5c5c5c — jeder Feldweg so hell wie eine Autobahn.
+     Im Muensterland ergab das ein dichtes graues Geflecht, in dem sich nichts
+     unterscheiden liess; genau daher kam der ueberfuellte Eindruck, mehr noch
+     als von den Ortsnamen. Jetzt tragen die Hauptstrassen das Bild und die
+     kleinen Wege liegen knapp ueber dem Untergrund. */
+  { featureType: "road", elementType: "geometry.fill", stylers: [{ color: "#3a3a3a" }] },
+  { featureType: "road.local", elementType: "geometry.fill", stylers: [{ color: "#2f2f2f" }] },
+  { featureType: "road.arterial", elementType: "geometry.fill", stylers: [{ color: "#4a4a4a" }] },
+  { featureType: "road.highway", elementType: "geometry.fill", stylers: [{ color: "#6b6b6b" }] },
   { featureType: "poi", stylers: [{ visibility: "off" }] },
   { featureType: "transit", stylers: [{ visibility: "off" }] },
-  { featureType: "administrative", stylers: [{ visibility: "off" }] },
+  // Verwaltungsgrenzen bleiben aus — die Namen darin kommen unten zurueck.
+  {
+    featureType: "administrative",
+    elementType: "geometry",
+    stylers: [{ visibility: "off" }],
+  },
   {
     featureType: "landscape",
     elementType: "geometry.stroke",
@@ -1030,81 +1039,126 @@ const MAP_STYLES = [
     elementType: "geometry.fill",
     stylers: [{ color: "#242424" }],
   },
+
+  /* ── Beschriftung ───────────────────────────────────────────────────
+     Die Regel `labels: off` weiter oben nimmt saemtliche Beschriftungen weg.
+     Uebrig blieb ein graues Liniengeflecht: man sah, DASS da Strassen sind,
+     aber nicht, wo man ist. Deshalb hier gezielt zurueck — und nur Text,
+     keine Symbole, damit die eigenen Marker die einzigen Zeichen auf der
+     Karte bleiben.
+
+     Die Helligkeit ist bewusst zurueckgenommen (#969696 statt #e2e2e2): in
+     Google fuehren auch Bauerschaften und Ortsteile als "locality", und in
+     Muensterland sind das viele. Ueber den Feature-Typ lassen sie sich nicht
+     von Staedten trennen — geprueft, "administrative.neighborhood" aus
+     aendert nichts daran. Was bleibt, ist das Gewicht: gross geschriebene
+     Stadtnamen setzt Google ohnehin groesser, die vielen kleinen treten mit
+     gedaempfter Farbe zurueck, statt das Bild zu fuellen. Bei der
+     Startzoomstufe (13,5) stehen ohnehin nur eine Handvoll Namen da; dicht
+     wird es erst zwei Stufen weiter draussen. */
+  {
+    featureType: "administrative.locality",
+    elementType: "labels.text.fill",
+    stylers: [{ visibility: "on" }, { color: "#7d7d7d" }],
+  },
+  {
+    featureType: "administrative.locality",
+    elementType: "labels.text.stroke",
+    stylers: [{ visibility: "on" }, { color: "#141414" }, { weight: 3 }],
+  },
+  // Die kleinen Punkte neben Ortsnamen: weg. Auf der Karte sollen nur die
+  // eigenen Marker Zeichen sein.
+  {
+    featureType: "administrative.locality",
+    elementType: "labels.icon",
+    stylers: [{ visibility: "off" }],
+  },
+  {
+    featureType: "road",
+    elementType: "labels.text.fill",
+    stylers: [{ visibility: "on" }, { color: "#6f6f6f" }],
+  },
+  {
+    featureType: "road",
+    elementType: "labels.text.stroke",
+    stylers: [{ visibility: "on" }, { color: "#141414" }, { weight: 3 }],
+  },
+  // Autobahn- und Bundesstrassenschilder: die Nummer ist unterwegs die
+  // schnellste Orientierung, das Schild selbst waere nur ein bunter Fleck.
+  { featureType: "road", elementType: "labels.icon", stylers: [{ visibility: "off" }] },
 ];
 
 // Premium marker colors per filter type
 const QUERY_COLORS = {
-  Motorradwerkstatt: { fill: "#c9a84c", stroke: "#a88a3a", label: "Werkstatt" },
+  /* Die Farben der drei gezeichneten Bilder sind uebernommen — Orange,
+     Gruen, Lila waren bereits die Erkennungsfarben auf der Karte. */
+  Motorradwerkstatt: { fill: "#ff6a13", stroke: "#c24f0d", label: "Werkstatt" },
   "Motorradh\u00e4ndler": {
-    fill: "#7ab8f5",
-    stroke: "#4a90d9",
+    fill: "#5ee61e",
+    stroke: "#3fae12",
     label: "H\u00e4ndler",
   },
-  Fahrschule: { fill: "#d0d0d0", stroke: "#999", label: "Fahrschule" },
+  Fahrschule: { fill: "#a020f0", stroke: "#7a17b8", label: "Fahrschule" },
+  Tankstelle: { fill: "#e63946", stroke: "#b32a35", label: "Tankstelle" },
+  Parkplatz: { fill: "#2f7dd1", stroke: "#215a99", label: "Parkplatz" },
+  Cafe: { fill: "#a9652e", stroke: "#7d4a20", label: "Biker-Treff" },
+  Notdienst: { fill: "#ffc300", stroke: "#c69800", label: "Notdienst" },
 };
 
-// All possible search keywords per filter
+/* Markersymbole fuer alle sieben Kacheln.
+   Frueher lagen drei gezeichnete .webp-Dateien im Ordner map-icons, die
+   restlichen vier Kacheln fielen mangels eigenem Bild auf das Werkstatt-Bild
+   zurueck — eine Tankstelle bekam also einen Schraubenschluessel.
+
+   Jetzt kommen alle sieben aus denselben Pfaden, die auch auf den
+   Filter-Knoepfen liegen: Knopf und Marker zeigen dasselbe Zeichen.
+   Gezeichnet wird zweilagig — dicke schwarze Linie darunter, farbige darueber.
+   Das ergibt die kraeftige Kontur der vorhandenen Bilder, bleibt aber als
+   Vektor bei jeder Zoomstufe scharf. */
+const MARKER_GLYPHS = {
+  Motorradwerkstatt:
+    '<path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/>',
+  "Motorradh\u00e4ndler": '<path d="M20 7H4l1-3h14zM2 7h20v5H2zM4 12v9h4v-5h8v5h4v-9"/>',
+  Fahrschule:
+    '<path d="M22 10v6M2 10l10-5 10 5-10 5z"/><path d="M6 12v5c3 3 9 3 12 0v-5"/>',
+  Tankstelle:
+    '<path d="M3 21h12M5 21V5a2 2 0 0 1 2-2h6a2 2 0 0 1 2 2v16M5 11h10M15 6l3 3v8a2 2 0 0 1-4 0v-2"/>',
+  Parkplatz:
+    '<rect x="3" y="3" width="18" height="18" rx="2"/><path d="M9 17V7h4a3 3 0 0 1 0 6H9"/>',
+  Cafe:
+    '<path d="M17 8h1a4 4 0 0 1 0 8h-1M3 8h14v9a4 4 0 0 1-4 4H7a4 4 0 0 1-4-4zM6 1v3M10 1v3M14 1v3"/>',
+  Notdienst:
+    '<path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><path d="M12 9v4M12 17h.01"/>',
+};
+
+function glyphIconUrl(filter) {
+  const pfade = MARKER_GLYPHS[filter];
+  if (!pfade) return null;
+  const farbe = (QUERY_COLORS[filter] || {}).fill || "#fff";
+  const svg =
+    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="-2 -2 28 28" width="34" height="34">' +
+    '<g fill="none" stroke-linecap="round" stroke-linejoin="round">' +
+    `<g stroke="#111" stroke-width="6">${pfade}</g>` +
+    `<g stroke="${farbe}" stroke-width="3">${pfade}</g>` +
+    "</g></svg>";
+  return "data:image/svg+xml," + encodeURIComponent(svg);
+}
+
+/* Suchbegriffe je Filter.
+   Bewusst kurz: JEDER Begriff ist ein eigener, kostenpflichtiger
+   Text-Search-Aufruf bei Google. Vorher standen hier 46 Begriffe ueber alle
+   Filter — ein einmaliges Durchklicken der sieben Kacheln kostete damit 46
+   Aufrufe, ohne die auf 30 Treffer gedeckelte Liste besser zu fuellen.
+   "Zweirad*" ist zusaetzlich raus: im Deutschen sind das ueberwiegend
+   Fahrradlaeden, sie haben die Werkstattliste mit Radstationen geflutet. */
 const FILTER_KEYWORDS = {
-  Motorradwerkstatt: [
-    "Motorrad Werkstatt",
-    "Motorrad Service",
-    "Zweirad Werkstatt",
-    "Motorrad Reparatur",
-    "Zweirad Service",
-    "Motorrad Inspektion",
-    "Motorrad Meisterbetrieb",
-    "Motorrad Garage",
-    "Motorrad Tuning",
-    "Zweiradmechatroniker",
-  ],
-  Motorradhändler: [
-    "Motorrad Händler",
-    "Motorrad Shop",
-    "Zweirad Händler",
-    "Motorrad Center",
-    "Motorradhaus",
-    "Bike Shop",
-    "Motorrad Verkauf",
-    "BMW Motorrad",
-    "Honda Motorrad",
-    "Harley Davidson",
-  ],
-  Fahrschule: [
-    "Fahrschule",
-    "Fahrschule Motorrad",
-    "Führerschein Motorrad",
-    "Motorrad Fahrschule",
-    "Fahrschule Klasse A",
-    "Führerschein A2",
-    "Fahrausbildung Motorrad",
-    "Motorradausbildung",
-  ],
-  Tankstelle: [
-    "Tankstelle",
-    "Aral Tankstelle",
-    "Shell Tankstelle",
-    "Esso Tankstelle",
-    "Total Tankstelle",
-    "Jet Tankstelle",
-  ],
-  Parkplatz: [
-    "Motorrad Parkplatz",
-    "Parkhaus",
-    "Parkplatz",
-  ],
-  Cafe: [
-    "Motorrad Café",
-    "Biker Treffpunkt",
-    "Café",
-    "Motorrad Treff",
-  ],
-  Notdienst: [
-    "Motorrad Pannendienst",
-    "ADAC",
-    "Pannenhilfe",
-    "Motorrad Notdienst",
-    "Abschleppdienst Motorrad",
-  ],
+  Motorradwerkstatt: ["Motorradwerkstatt", "Motorrad Service"],
+  "Motorradh\u00e4ndler": ["Motorradh\u00e4ndler", "Motorradhaus"],
+  Fahrschule: ["Fahrschule Motorrad", "Fahrschule"],
+  Tankstelle: ["Tankstelle"],
+  Parkplatz: ["Parkplatz"],
+  Cafe: ["Motorrad Caf\u00e9", "Biker Treffpunkt"],
+  Notdienst: ["Motorrad Pannendienst"],
 };
 
 // Helper: get current search results with full place data
@@ -1127,7 +1181,7 @@ export function getHubSearchResults() {
 }
 // Helper: get current visible search markers (used by bike-detail Karte view)
 export function getHubMarkers() {
-  return (hubMarkers || []).map((m) => ({
+  return (hubMarkers || []).filter(Boolean).map((m) => ({
     title: m.getTitle?.() || '',
     position: m.getPosition?.()?.toJSON?.() || null,
     marker: m,
@@ -1173,12 +1227,60 @@ export function panHubToCoords(lat, lng) {
 export function searchNearbyAt(lat, lng) {
   userLat = lat
   userLng = lng
-  if (hubMapInstance) {
-    hubMapInstance.panTo({ lat, lng })
-    hubMapInstance.setZoom(13)
+  /* Ein eingegebener Ort ist ein vollwertiger Standort.
+     Ohne diese Zeile blieb userLocationKnown false — und initHubMap() steigt
+     genau darauf aus. Die Ortssuche konnte damit ausgerechnet in dem Fall
+     nichts ausrichten, fuer den es sie gibt: wenn der Browser den Standort
+     verweigert. Die Karte blieb "nicht verfuegbar", die Eingabe wirkungslos. */
+  userLocationKnown = true
+
+  if (!hubMapInstance) {
+    // Karte wurde mangels Standort nie gebaut — jetzt nachholen. initHubMap()
+    // startet am Ende selbst die Suche fuer die aktive Kachel.
+    initHubMap()
+    return
   }
+  hubMapInstance.panTo({ lat, lng })
+  hubMapInstance.setZoom(13)
   const activePill = document.querySelector('.konf-karte-hub .hub-pill.active')
   searchNearby(activePill ? activePill.dataset.query : _lastSearchFilter || 'Motorradwerkstatt')
+}
+
+/**
+ * Ort oder Postleitzahl zu Koordinaten aufloesen.
+ *
+ * Bewusst ueber die Places-Textsuche und NICHT ueber google.maps.Geocoder:
+ * die Geocoding-API ist im Google-Projekt nicht freigeschaltet, sie antwortet
+ * mit REQUEST_DENIED. Die Oberflaeche machte daraus "Ort nicht gefunden" und
+ * schob den Fehler damit dem Nutzer zu. Places ist ohnehin in Benutzung und
+ * loest beides sauber auf — an "Köln", "48143" und "Lüdinghausen" geprueft.
+ *
+ * @returns {Promise<{ok:true,lat:number,lng:number,label:string}|{ok:false,grund:'nicht_gefunden'|'technisch'}>}
+ */
+export function resolveOrt(query) {
+  return new Promise((fertig) => {
+    if (typeof google === 'undefined' || !google.maps?.places) {
+      fertig({ ok: false, grund: 'technisch' })
+      return
+    }
+    // Eigener Dienst ohne Karte: die Ortssuche muss auch dann gehen, wenn
+    // mangels Standort noch gar keine Karte steht.
+    const dienst = new google.maps.places.PlacesService(document.createElement('div'))
+    dienst.textSearch({ query: `${query}, Deutschland` }, (treffer, status) => {
+      const S = google.maps.places.PlacesServiceStatus
+      if (status === S.OK && treffer?.[0]?.geometry?.location) {
+        const ort = treffer[0]
+        fertig({
+          ok: true,
+          lat: ort.geometry.location.lat(),
+          lng: ort.geometry.location.lng(),
+          label: ort.formatted_address || ort.name || query,
+        })
+        return
+      }
+      fertig({ ok: false, grund: status === S.ZERO_RESULTS ? 'nicht_gefunden' : 'technisch' })
+    })
+  })
 }
 // Get current coordinates
 export function getUserCoords() {
@@ -1211,23 +1313,21 @@ const MAX_RESULTS = 30;
 
 // Icon sizes tuned so all appear visually equal on the map
 const MARKER_SIZES = {
-  Motorradwerkstatt: { w: 36, h: 36 },
-  Motorradhändler: { w: 50, h: 32 },
-  Fahrschule: { w: 45, h: 29 },
+  // Einheitlich, seit alle Symbole aus derselben 24er-Zeichenflaeche kommen.
+  // Die krummen Masse davor (50x32, 45x29) stammten von den Bildseitenverhaeltnissen.
+  Motorradwerkstatt: { w: 34, h: 34 },
+  Motorradhändler: { w: 34, h: 34 },
+  Fahrschule: { w: 34, h: 34 },
+  Tankstelle: { w: 34, h: 34 },
+  Parkplatz: { w: 34, h: 34 },
+  Cafe: { w: 34, h: 34 },
+  Notdienst: { w: 34, h: 34 },
 };
 
 function createMarkerIcon(filter) {
-  let url;
-  switch (filter) {
-    case "Motorradhändler":
-      url = "/map-icons/haendler.png";
-      break;
-    case "Fahrschule":
-      url = "/map-icons/fahrschule.png";
-      break;
-    default:
-      url = "/map-icons/werkstatt.png";
-  }
+  // Eine Herkunft fuer alle Kacheln; der Rueckfall gilt nur noch fuer eine
+  // Kachel, die versehentlich ohne Symbol angelegt wird.
+  const url = glyphIconUrl(filter) || glyphIconUrl("Motorradwerkstatt");
   const sz = MARKER_SIZES[filter] || MARKER_SIZES["Motorradwerkstatt"];
   return {
     url,
@@ -1245,7 +1345,7 @@ function onZoomChanged() {
   // Marker-Größe anpassen
   const scale = zoom < 12 ? 0.5 : 1;
   hubMarkers.forEach((m) => {
-    const icon = m.getIcon();
+    const icon = m?.getIcon();
     if (icon && icon.url && icon._baseW) {
       const w = Math.round(icon._baseW * scale);
       const h = Math.round(icon._baseH * scale);
@@ -1259,15 +1359,12 @@ function onZoomChanged() {
     }
   });
 
-  // Bei Rauszoomen: weitere Ergebnisse nachladen
-  if (
-    _lastSearchFilter &&
-    _lastSearchRadius > 0 &&
-    _lastSearchRadius < 30000 &&
-    zoom < 12
-  ) {
-    searchNearby(_lastSearchFilter, 30000);
-  }
+  /* Frueher lief hier bei jedem Zoom unter Stufe 12 automatisch eine neue
+     Suche mit 30 km Radius an — also ein kompletter Satz kostenpflichtiger
+     Text-Search-Aufrufe fuer eine reine Kartengeste. Die Startstufe ist 13,5;
+     zweimal rauszoomen genuegte. Wer weiter weg suchen will, hat dafuer die
+     Radius-Kacheln und "Hier suchen". Zoom aendert jetzt nur noch die
+     Markergroesse. */
 }
 
 function buildInfoContent(place, query) {
@@ -1301,14 +1398,36 @@ export async function initHubMap() {
     renderMapsConsentPlaceholder(el);
     return;
   }
-  // Reset stale instance if its DOM element is no longer in the document
-  if (hubMapInstance && !document.body.contains(hubMapInstance.getDiv?.())) {
-    hubMapInstance = null;
-  }
-  if (hubMapInstance) {
-    // Existing instance still valid → bind it to the new element
+  /* Bestehende Karte weiterverwenden statt eine neue zu bauen.
+     Jedes `new google.maps.Map(...)` ist ein kostenpflichtiger Kartenaufruf
+     bei Google. Der Karten-Reiter wirft beim Wechseln sein DOM weg, also war
+     der bisherige Test ("liegt das Element noch im Dokument?") nach jedem
+     Reiterwechsel negativ — und es entstand jedes Mal eine neue Karte. Ein
+     paar Mal hin und her, und das Tageskontingent war weg
+     (Google meldet dann OverQuotaMapError, die Karte erscheint hell und
+     unformatiert mit dem Hinweis "For development purposes only").
+
+     Jetzt zieht die vorhandene Kartenflaeche in den neuen Platzhalter um.
+     Das Element mit seinem Kartenzustand bleibt dasselbe, Google erfaehrt nur
+     die neue Groesse. */
+  const bestehendesFeld = hubMapInstance?.getDiv?.() || null;
+  if (bestehendesFeld) {
+    if (bestehendesFeld !== el) {
+      el.replaceWith(bestehendesFeld);
+      // Ohne resize bleibt die Karte auf der Groesse des alten Platzhalters.
+      google.maps.event.trigger(hubMapInstance, "resize");
+    }
+    /* Suche auch auf diesem Weg anstossen. Der Karten-Reiter verlaesst sich
+       darauf, dass initHubMap() das tut, und laesst seine Platzhalterzeilen
+       sonst stehen, bis onHubResults() meldet — was nie kaeme.
+       Kostet in aller Regel keinen Google-Aufruf: gleicher Filter, gleiche
+       Gegend, der Ergebnisspeicher antwortet. */
+    const aktiveKachel = document.querySelector(".hub-pill.active");
+    if (aktiveKachel) searchNearby(aktiveKachel.dataset.query);
     return;
   }
+  // Kein brauchbares Feld mehr (Karte nie gebaut oder Instanz verloren).
+  hubMapInstance = null;
 
   // Merkt sich diesen Aufruf: wird die Karte inzwischen erneut initialisiert
   // (schnelles Weg-/Zurückklicken) oder die Kartenfläche entfernt, brechen
@@ -1460,6 +1579,81 @@ let _lastSearchFilter = null;
 let _allSearchResults = [];
 let _allSeenIds = new Set();
 
+/* ── Welche Treffer gehoeren in welche Kachel ──────────────────────────
+   Die Textsuche liefert, wonach sie gefragt wird, aber nicht nur das: unter
+   "Werkstatt" standen Radstationen, ein Kaufhaus und die Handwerkskammer.
+
+   An echten Antworten aus Muenster abgelesen:
+     Motorrad Mallek, Moto Basler, Motorrad Christiansen  -> car_repair
+     Motorrad Technik Druffel                             -> car_dealer
+     Radstation, Drahtesel, Bike-Corner, Zweirad Civak    -> bicycle_store
+   Die Unterscheidung liegt also im Typ, nicht im Namen. Zwei Ausnahmen
+   fangen die Wortlisten ab: "Triumph Muenster" fuehrt nur `store`, wird aber
+   ueber die Marke erkannt; "Fahrradwerkstatt ... Bike & more" traegt gar
+   keinen Typ und faellt ueber das Wort.
+
+   Fahrschulen liefern ueberhaupt keine Typen (geprueft: acht von acht ohne).
+   Fuer sie und die uebrigen Kacheln darf deshalb nichts verlangt werden —
+   dort wird nur aussortiert, nicht ausgewaehlt. */
+const RAD_WORTE = ["fahrrad", "e-bike", "ebike", "pedelec", "radstation", "velo"];
+const MOTOR_WORTE = [
+  "motorrad", "motorcycle", "moto", "biker", "kraftrad", "roller", "vespa",
+  "harley", "yamaha", "honda", "suzuki", "kawasaki", "ducati", "ktm",
+  "triumph", "aprilia", "husqvarna", "piaggio",
+];
+// Google fuehrt Motorradbetriebe unter den Kfz-Typen — einen eigenen gibt es nicht.
+const KFZ_TYPEN = ["car_repair", "car_dealer", "motorcycle_dealer"];
+// Nur hier wird eine Motorrad-Zugehoerigkeit verlangt.
+const NUR_MOTORISIERT = new Set(["Motorradwerkstatt", "Motorradh\u00e4ndler"]);
+
+function passtZurKategorie(place, filter) {
+  const name = (place.name || "").toLowerCase();
+  const typen = place.types || [];
+
+  // Gilt fuer jede Kachel: Fahrradlaeden sind nie gemeint.
+  if (typen.includes("bicycle_store")) return false;
+  if (RAD_WORTE.some((w) => name.includes(w))) return false;
+
+  if (!NUR_MOTORISIERT.has(filter)) return true;
+
+  return (
+    typen.some((t) => KFZ_TYPEN.includes(t)) ||
+    MOTOR_WORTE.some((w) => name.includes(w))
+  );
+}
+
+/* Ergebnis-Zwischenspeicher.
+   Ohne ihn kostete jedes Hin- und Herklicken zwischen Filtern und Radien
+   erneut Geld, obwohl sich weder Standort noch Umgebung geaendert hatten.
+   Schluessel ist der Filter plus die auf zwei Nachkommastellen (~1 km)
+   gerundete Suchmitte. Gemerkt wird der groesste bereits gesuchte Radius:
+   eine Suche mit kleinerem Radius ist darin enthalten und wird ohne einen
+   einzigen neuen Aufruf bedient. Auch leere Ergebnisse werden gemerkt —
+   sonst fragt eine tote Gegend bei jedem Klick erneut nach. */
+const SEARCH_CACHE_TTL_MS = 30 * 60 * 1000;
+const searchCache = new Map();
+
+function searchCacheKey(filter, lat, lng) {
+  return `${filter}|${lat.toFixed(2)}|${lng.toFixed(2)}`;
+}
+
+function readSearchCache(filter, radius, lat, lng) {
+  const hit = searchCache.get(searchCacheKey(filter, lat, lng));
+  if (!hit) return null;
+  if (Date.now() - hit.at > SEARCH_CACHE_TTL_MS) return null;
+  // Enger gesucht als jetzt gefragt: der Speicher deckt die Frage nicht ab.
+  if (hit.radius < radius) return null;
+  return hit.results;
+}
+
+function writeSearchCache(filter, radius, lat, lng, results) {
+  const key = searchCacheKey(filter, lat, lng);
+  const prev = searchCache.get(key);
+  // Einen weiter gefassten Treffer nicht durch einen engeren ersetzen.
+  if (prev && prev.radius > radius && Date.now() - prev.at <= SEARCH_CACHE_TTL_MS) return;
+  searchCache.set(key, { radius, results, at: Date.now() });
+}
+
 export function searchNearby(filter, radius = 5000) {
   if (!hubMapInstance) {
     // Ohne Karte gibt es keine echten Treffer — Ursache benennen statt raten.
@@ -1473,7 +1667,7 @@ export function searchNearby(filter, radius = 5000) {
   if (!isExpand) {
     // New filter — clear everything
     searchGeneration++;
-    hubMarkers.forEach((m) => m.setMap(null));
+    hubMarkers.forEach((m) => m?.setMap(null));
     hubMarkers = [];
     _allSearchResults = [];
     _allSeenIds = new Set();
@@ -1487,6 +1681,22 @@ export function searchNearby(filter, radius = 5000) {
   _lastSearchFilter = filter;
   _lastSearchRadius = radius;
 
+  /* Suchmitte einmal festhalten. searchNearbyAt() kann userLat/userLng
+     verschieben, waehrend die Antworten noch unterwegs sind — dann sortierte
+     die Rueckmeldung unten nach einer Mitte, um die gar nicht gesucht wurde. */
+  const originLat = userLat;
+  const originLng = userLng;
+
+  // Schon gesucht? Dann ohne einen einzigen Google-Aufruf beantworten.
+  const cached = readSearchCache(filter, radius, originLat, originLng);
+  if (cached) {
+    _allSearchResults = cached.slice();
+    _allSeenIds = new Set(cached.map((p) => p.place_id));
+    if (_allSearchResults.length) showPlacesResults(_allSearchResults, filter, gen);
+    else clearHubResults(gen);
+    return;
+  }
+
   const keywords = FILTER_KEYWORDS[filter] || [filter];
 
   if (hubPlacesService) {
@@ -1499,7 +1709,7 @@ export function searchNearby(filter, radius = 5000) {
 
     keywords.forEach((kw) => {
       hubPlacesService.textSearch(
-        { location: { lat: userLat, lng: userLng }, radius, query: kw },
+        { location: { lat: originLat, lng: originLng }, radius, query: kw },
         (results, status) => {
           if (gen !== searchGeneration) return;
           done++;
@@ -1511,14 +1721,7 @@ export function searchNearby(filter, radius = 5000) {
                 place.business_status !== "OPERATIONAL"
               )
                 return;
-              const n = (place.name || "").toLowerCase();
-              if (
-                n.includes("fahrrad") ||
-                n.includes("e-bike") ||
-                n.includes("ebike") ||
-                n.includes("pedelec")
-              )
-                return;
+              if (!passtZurKategorie(place, filter)) return;
               if (!_allSeenIds.has(place.place_id)) {
                 _allSeenIds.add(place.place_id);
                 _allSearchResults.push(place);
@@ -1531,20 +1734,22 @@ export function searchNearby(filter, radius = 5000) {
               _allSearchResults.sort(
                 (a, b) =>
                   haversineKm(
-                    userLat,
-                    userLng,
+                    originLat,
+                    originLng,
                     a.geometry.location.lat(),
                     a.geometry.location.lng(),
                   ) -
                   haversineKm(
-                    userLat,
-                    userLng,
+                    originLat,
+                    originLng,
                     b.geometry.location.lat(),
                     b.geometry.location.lng(),
                   ),
               );
+              writeSearchCache(filter, radius, originLat, originLng, _allSearchResults);
               showPlacesResults(_allSearchResults, filter, gen);
             } else {
+              writeSearchCache(filter, radius, originLat, originLng, []);
               clearHubResults(gen);
             }
           }
@@ -1558,11 +1763,23 @@ export function searchNearby(filter, radius = 5000) {
 }
 
 function showPlacesResults(results, filter, gen) {
-  hubMarkers.forEach((m) => m.setMap(null));
-  hubMarkers = [];
+  hubMarkers.forEach((m) => m?.setMap(null));
 
   // Only the nearest locations
   const limited = results.slice(0, MAX_RESULTS);
+
+  /* Feste Plaetze statt push(): die Marker entstehen versetzt (i * 40 ms) und
+     einzelne koennen ausfallen. Mit push() rutschten die nachfolgenden eine
+     Stelle vor, und focusHubResult() — das ueber den Index aus
+     _allSearchResults zugreift — oeffnete danach den falschen Ort. */
+  hubMarkers = new Array(limited.length);
+
+  /* Die Trefferliste haengt nicht an den Markern, sie liest _allSearchResults.
+     Sobald hier sortiert vorliegt, ist sie vollstaendig — also genau einmal
+     melden. Vorher stand diese Zeile im Timeout jedes einzelnen Markers: bei
+     30 Treffern baute sich die Liste 30-mal in 1,2 Sekunden neu auf. Genau
+     das war das Zappeln beim Laden. */
+  emitResultsUpdate();
 
   limited.forEach((place, i) => {
     setTimeout(() => {
@@ -1582,8 +1799,7 @@ function showPlacesResults(results, filter, gen) {
           hubInfoWindow.open(hubMapInstance, marker);
         });
 
-        hubMarkers.push(marker);
-        emitResultsUpdate();
+        hubMarkers[i] = marker;
       } catch (err) {
         console.warn("[hub] Marker error:", err);
       }
@@ -1599,7 +1815,7 @@ function showPlacesResults(results, filter, gen) {
    zeigen kann. */
 function clearHubResults(gen) {
   if (gen !== searchGeneration) return;
-  hubMarkers.forEach((m) => m.setMap(null));
+  hubMarkers.forEach((m) => m?.setMap(null));
   hubMarkers = [];
   if (hubInfoWindow) hubInfoWindow.close();
   emitResultsUpdate();
@@ -1850,15 +2066,20 @@ function cleanup() {
   garageCamera = null;
   garageBike = null;
 
-  // Reset hub map state
+  /* Suchzustand zuruecksetzen — die Karte selbst aber behalten.
+     hubMapInstance, das zugehoerige Infofenster und der Places-Dienst haengen
+     an genau einem `new google.maps.Map(...)`, und das ist bei Google ein
+     kostenpflichtiger Kartenaufruf. Wurden sie hier verworfen, entstand beim
+     naechsten Oeffnen der Karte eine neue — jedes Mal. Zusammen mit dem
+     Reiterwechsel summierte sich das bis zum ausgeschoepften Tageskontingent
+     (OverQuotaMapError: Karte hell, unformatiert, "For development purposes
+     only"). Die Instanz kostet im Speicher wenig und wird beim naechsten
+     initHubMap() samt ihrer Kartenflaeche weiterverwendet. */
   if (searchTimeout) clearTimeout(searchTimeout);
   searchTimeout = null;
-  hubMarkers.forEach((m) => m.setMap(null));
+  hubMarkers.forEach((m) => m?.setMap(null));
   hubMarkers = [];
   if (hubInfoWindow) hubInfoWindow.close();
-  hubInfoWindow = null;
-  hubPlacesService = null;
-  hubMapInstance = null;
   searchGeneration = 0;
   geoPromise = null;
   gmapsLoadPromise = null;

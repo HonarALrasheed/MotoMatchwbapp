@@ -167,9 +167,7 @@ let preloadedBikeGLTF = null;
 function createLoader() {
   const loader = new GLTFLoader();
   const draco = new DRACOLoader();
-  draco.setDecoderPath(
-    "https://www.gstatic.com/draco/versioned/decoders/1.5.7/",
-  );
+  draco.setDecoderPath("/draco/");
   loader.setDRACOLoader(draco);
   loader.setMeshoptDecoder(MeshoptDecoder);
   return loader;
@@ -1256,10 +1254,21 @@ function showQuestion(i) {
     const numberInput = document.getElementById("q-slider-input");
     const nextBtn = document.getElementById("next-btn");
 
-    const initial = Number(answers[`q${i + 1}`]) || q.default;
+    const stored = answers[`q${i + 1}`];
+    const initial = Number(stored) || q.default;
     slider.value = Math.min(q.max, Math.max(q.min, initial));
     numberInput.value = initial;
-    nextBtn.disabled = !answers[`q${i + 1}`];
+
+    /* Der Vorschlagswert steht sichtbar im Feld — dann darf "Weiter" nicht
+       gesperrt sein. Vorher blieb der Knopf grau, bis jemand den Regler
+       bewegte: wer 10.000 EUR oder 175 cm einfach uebernehmen wollte, kam
+       ohne erkennbaren Grund nicht weiter. Der gezeigte Wert gilt jetzt als
+       gegebene Antwort und wird auch so gespeichert. */
+    if (!stored) {
+      answers[`q${i + 1}`] = String(initial);
+      saveAnswers();
+    }
+    nextBtn.disabled = false;
 
     const commitValue = (value) => {
       answers[`q${i + 1}`] = String(value);

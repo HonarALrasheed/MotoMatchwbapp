@@ -1039,19 +1039,37 @@ select.p-auth-input {
   width: 100%;
   max-width: 460px;
   min-height: 260px;
-  background: rgba(12, 12, 12, 0.95);
-  border: 1px solid rgba(255, 255, 255, 0.12);
+  /* Weiß mit schwarzer Schrift wie Ergebnis- und Detailseite — dorthin führt das Quiz ja.
+     Vorher stand hier eine fast schwarze Karte mit Goldakzenten: eigene Farbwelt, die zu keiner
+     der Seiten danach passte (Nutzer 2026-09-19: „das design passt zu unserer seite, aber die
+     farben nicht"). Gold bleibt, wo es hingehört — Community und Karte. */
+  /* Milchglas: die Straße im Hintergrund bleibt sichtbar, die Schrift trotzdem schwarz und lesbar
+     (Nutzer 2026-09-19: „es soll durchsichtig sein"). Wo backdrop-filter fehlt, greift die
+     Rückfallfarbe weiter unten — dann ist die Karte deckend statt unlesbar. */
+  background: rgba(10, 10, 10, 0.55);
+  -webkit-backdrop-filter: blur(18px) saturate(140%);
+  backdrop-filter: blur(18px) saturate(140%);
+  border: 1px solid rgba(255, 255, 255, 0.14);
   border-radius: 16px;
   padding: 16px 24px 16px;
   text-align: center;
-  box-shadow:
-    0 0 40px rgba(0, 0, 0, 0.5),
-    inset 0 1px 0 rgba(255, 255, 255, 0.04);
+  box-shadow: 0 18px 60px rgba(0, 0, 0, 0.45);
   transition: transform 0.15s var(--ease-out);
   will-change: transform;
   display: flex;
   flex-direction: column;
   justify-content: center;
+}
+
+/* Ohne backdrop-filter (ältere Browser) fehlt die Unschärfe — dann wäre die Karte nur blass und
+   die Straße stünde als Muster in der Schrift. Deshalb dort deckend. */
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  .quiz-card {
+    background: rgba(10, 10, 10, 0.92);
+  }
+  .opt-btn {
+    background: rgba(255, 255, 255, 0.06);
+  }
 }
 
 /* ── Card entrance animation ── */
@@ -1072,7 +1090,7 @@ select.p-auth-input {
 .quiz-step {
   font-size: 10px;
   letter-spacing: 0.25em;
-  color: var(--text-dim);
+  color: rgba(255, 255, 255, 0.45);
   text-transform: uppercase;
   margin-bottom: 8px;
 }
@@ -1084,6 +1102,15 @@ select.p-auth-input {
   margin-bottom: 16px;
   line-height: 1.3;
   letter-spacing: 0.01em;
+}
+
+/* Erklärender Satz unter einer Frage (Schrittlänge): leiser als die Frage, damit er nicht mit ihr
+   konkurriert, aber gut genug lesbar, um den Vorschlagswert zu erklären. */
+.quiz-hinweis {
+  font-size: 13px;
+  line-height: 1.45;
+  color: rgba(255, 255, 255, 0.55);
+  margin: -8px 0 16px;
 }
 
 .quiz-options {
@@ -1103,20 +1130,26 @@ select.p-auth-input {
 }
 
 /* ── Progress ── */
+/* Der Balken ist das einzige Stück Bewegung in der Karte — er soll die Antwort quittieren, nicht
+   blinken. Deshalb: etwas dicker mit runden Enden, ein weicher Schein am Rand (deshalb sichtbarer
+   Überlauf; die Schlieren werden im Balken selbst beschnitten) und ein Lauf, der zügig anschiebt und
+   sanft ausläuft. Die Schlieren ziehen in Ruhe alle 3,4 s einmal durch statt im Zwei-Sekunden-Takt. */
 .progress-track {
   width: 100%;
-  height: 2px;
-  background: rgba(255, 255, 255, 0.04);
+  height: 3px;
+  background: rgba(255, 255, 255, 0.12);
   margin-bottom: 16px;
-  overflow: hidden;
-  border-radius: 1px;
+  overflow: visible;
+  border-radius: 999px;
 }
 .progress-fill {
   height: 100%;
-  background: linear-gradient(90deg, var(--gold), #e0c66a);
-  transition: width 0.6s var(--ease-in-out);
+  background: #fff;
+  border-radius: 999px;
+  transition: width 0.7s var(--ease-out);
   position: relative;
-  box-shadow: 0 0 8px rgba(201, 168, 76, 0.4);
+  overflow: hidden;
+  box-shadow: 0 0 10px rgba(255, 255, 255, 0.45);
 }
 .progress-fill::after {
   content: "";
@@ -1125,26 +1158,40 @@ select.p-auth-input {
   background: linear-gradient(
     90deg,
     transparent 0%,
-    rgba(255, 255, 255, 0.35) 50%,
+    rgba(255, 255, 255, 0.9) 50%,
     transparent 100%
   );
-  animation: shimmer 2s infinite;
+  /* Der Strahl läuft durch, ohne Pause — er ist das Lebenszeichen der Karte (Nutzer 2026-09-19:
+     „es soll noch dieser strahl animation sein"). Gleichmäßiges Tempo, damit er gleitet statt zu
+     zucken. */
+  animation: shimmer 2.2s linear infinite;
 }
 @keyframes shimmer {
   from {
-    transform: translateX(-100%);
+    transform: translateX(-130%);
   }
   to {
-    transform: translateX(200%);
+    transform: translateX(130%);
+  }
+}
+
+/* Wer Bewegung abgestellt hat, bekommt einen ruhigen Balken — ohne Schlieren, ohne Wandern. */
+@media (prefers-reduced-motion: reduce) {
+  .progress-fill {
+    transition: none;
+  }
+  .progress-fill::after {
+    animation: none;
+    opacity: 0;
   }
 }
 
 /* ── Option Buttons ── */
 .opt-btn {
   padding: 8px 16px;
-  background: rgba(255, 255, 255, 0.03);
-  border: 1px solid rgba(255, 255, 255, 0.06);
-  color: var(--text-secondary);
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  color: rgba(255, 255, 255, 0.85);
   border-radius: 10px;
   cursor: pointer;
   font-size: 14px;
@@ -1161,10 +1208,10 @@ select.p-auth-input {
   }
 }
 .opt-btn.selected {
-  background: var(--gold-dim);
-  border-color: var(--gold);
-  color: var(--gold);
-  box-shadow: 0 0 16px rgba(201, 168, 76, 0.15);
+  background: rgba(255, 255, 255, 0.92);
+  border-color: rgba(255, 255, 255, 0.92);
+  color: #0a0a0a;
+  box-shadow: none;
   animation: selectPulse 0.3s var(--ease-out);
 }
 @keyframes selectPulse {
@@ -1204,8 +1251,8 @@ select.p-auth-input {
   width: 18px;
   height: 18px;
   border-radius: 50%;
-  background: var(--gold);
-  box-shadow: 0 0 10px rgba(201, 168, 76, 0.5);
+  background: #fff;
+  box-shadow: none;
   cursor: pointer;
   transition: transform 0.2s var(--ease-out);
 }
@@ -1219,8 +1266,8 @@ select.p-auth-input {
   height: 18px;
   border: none;
   border-radius: 50%;
-  background: var(--gold);
-  box-shadow: 0 0 10px rgba(201, 168, 76, 0.5);
+  background: #fff;
+  box-shadow: none;
   cursor: pointer;
 }
 .q-slider::-moz-range-track {
@@ -1247,13 +1294,13 @@ select.p-auth-input {
   transition: border-color 0.2s var(--ease-out);
 }
 .quiz-slider-input-wrap:focus-within {
-  border-color: var(--gold);
+  border-color: rgba(255, 255, 255, 0.6);
 }
 .q-slider-input {
   width: 64px;
   background: transparent;
   border: none;
-  color: var(--gold);
+  color: #fff;
   font-size: 15px;
   font-family: var(--font);
   text-align: right;
@@ -1277,7 +1324,7 @@ select.p-auth-input {
 /* ── CTA Buttons ── */
 .btn-next {
   padding: 8px 32px;
-  background: linear-gradient(135deg, var(--gold), #b89a3e);
+  background: rgba(255, 255, 255, 0.92);
   color: #0a0a0a;
   border: none;
   border-radius: 8px;
@@ -1291,13 +1338,13 @@ select.p-auth-input {
 }
 @media (hover: hover) and (pointer: fine) {
   .btn-next:hover {
-    box-shadow: 0 4px 24px rgba(201, 168, 76, 0.3);
+    box-shadow: 0 6px 20px rgba(255, 255, 255, 0.18);
     transform: translateY(-1px);
     filter: brightness(1.1);
   }
 }
 .btn-next:disabled {
-  opacity: 0.15;
+  opacity: 0.3;
   cursor: not-allowed;
   transform: none;
   box-shadow: none;
@@ -1307,8 +1354,8 @@ select.p-auth-input {
 .btn-back {
   padding: 12px 24px;
   background: transparent;
-  color: var(--text-dim);
-  border: 1px solid rgba(255, 255, 255, 0.06);
+  color: rgba(255, 255, 255, 0.5);
+  border: 1px solid rgba(255, 255, 255, 0.18);
   border-radius: 8px;
   cursor: pointer;
   font-size: 12px;
@@ -2161,9 +2208,9 @@ select.p-auth-input {
      skalieren beide mit der Fensterbreite — ein Prozentwert der Boxhoehe (70vh)
      tut das nicht, dadurch schaute die Wortmarke mal 46px, mal 3px ueber dem
      Bike heraus. Clamp spiegelt das Clamp der font-size. */
-  bottom: clamp(60px, 10vw, 170px);
+  top: 50%;
   left: 50%;
-  transform: translateX(-50%);
+  transform: translate(-50%, -50%);
   font-size: clamp(120px, 20vw, 340px);
   font-weight: 900;
   color: rgba(0, 0, 0, 0.06);
@@ -2174,21 +2221,36 @@ select.p-auth-input {
   line-height: 1;
 }
 
+/* Gleiche Bühne wie im Konfigurator (.konf-viewer): das Motorrad steht mittig und ganz im Bild,
+   nicht bündig an der Unterkante und nicht über den Rand geschnitten (Nutzer 2026-09-19: „ich will
+   das es genau wie bei konf-viewer ist, das motorrad ist etwas unten"). Auf dem Handy bleibt es beim
+   gezoomten Ausschnitt — dort ist die Fläche zu flach für das ganze Bike. */
 .bd-hero-img-wrap {
   position: relative;
   z-index: 2;
   width: 100%;
   display: flex;
-  align-items: flex-end;
+  align-items: center;
   justify-content: center;
-  min-height: 70vh;
+  /* Die Bühne war 70vh hoch, das Bild füllt davon aber nur gut die Hälfte — darunter klaffte Leere.
+     Jetzt umschließt sie das Motorrad so eng wie der Konfigurator-Betrachter. */
+  min-height: 46vh;
   padding: 0;
 }
+/* Das picture-Element darf die Flex-Anordnung nicht stören — das Bild bleibt das Kind der Bühne. */
+.bd-hero-pic {
+  display: contents;
+}
 .bd-hero-img {
-  width: 100%;
+  width: auto;
+  max-width: 85%;
+  max-height: 56vh;          /* 80 % der Bühne, wie max-height: 80% im Konfigurator */
   height: auto;
-  object-fit: cover;
+  object-fit: contain;
   position: relative;
+  /* Etwas unterhalb der Mitte. In vh statt Prozent: die Bühne hat nur eine Mindesthöhe, gegen eine
+     automatische Höhe rechnet ein Prozentwert zu Null — das Bike blieb exakt mittig. */
+  top: 3vh;
   z-index: 2;
   animation: bdHeroIn 1s var(--ease-out) forwards;
 }
@@ -2211,7 +2273,9 @@ select.p-auth-input {
   width: 100%;
   background: transparent;
   text-align: center;
-  padding: 60px 24px 40px;
+  /* War 60/40: zusammen mit dem Abstand unter der Preiszeile und dem Vorlauf der Reiterleiste
+     standen zwischen Preis und Reitern 148 px Leere (gemessen 2026-09-19). */
+  padding: 36px 24px 16px;
 }
 .bd-model-name {
   font-size: clamp(40px, 7vw, 80px);
@@ -2221,21 +2285,42 @@ select.p-auth-input {
   margin-bottom: 10px;
   line-height: 1.05;
 }
-.bd-badge {
-  display: inline-block;
-  font-size: 12px;
-  letter-spacing: 0.04em;
-  color: #333;
-  border: 1px solid #bbb;
-  border-radius: 999px;
-  padding: 5px 16px;
-  margin-bottom: 16px;
-}
 .bd-price {
   font-size: 15px;
   font-weight: 600;
   color: #000;
-  margin-bottom: 32px;
+  margin-bottom: 8px;
+}
+/* Neu- und Gebrauchtpreis unter dem Hauptpreis (Marktpreise 1000PS, seit 2026-09-17 im Katalog) */
+.bd-price-detail {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 500;
+  color: rgba(0, 0, 0, 0.56);
+}
+/* Bikes ohne eigenes Foto zeigen die Silhouette ihrer Bauart — der Hinweis macht das klar. */
+.bd-hero-foto-folgt,
+.bd-studio-folgt {
+  position: absolute;
+  z-index: 3;
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+.bd-hero-foto-folgt {
+  right: 16px;
+  bottom: 16px;
+  background: rgba(0, 0, 0, 0.06);
+  color: rgba(0, 0, 0, 0.5);
+}
+.bd-studio-folgt {
+  left: 14px;
+  bottom: 12px;
+  background: rgba(255, 255, 255, 0.08);
+  color: rgba(255, 255, 255, 0.62);
 }
 .bd-actions {
   display: flex;
@@ -2278,11 +2363,13 @@ select.p-auth-input {
 /* ── Touch Bar ── */
 .tb-wrap {
   position: sticky;
-  top: -60px;
+  /* Vorlauf und Sticky-Versatz gehören zusammen: geklebt sitzt die Leiste 16 px unter der
+     Oberkante (Vorlauf + top). Vorher 76/−60, jetzt 28/−12 — gleicher Sitz, 48 px weniger Leere. */
+  top: -12px;
   z-index: 200;
   display: flex;
   justify-content: center;
-  padding: 76px clamp(4px, 1vw, 24px) 16px;
+  padding: 28px clamp(4px, 1vw, 24px) 16px;
   background: #fff;
   pointer-events: none;
 }
@@ -2382,7 +2469,9 @@ select.p-auth-input {
 /* ── Section 3: Specs + Image ── */
 .bd-specs {
   background: #fff;
-  padding: var(--sec-pad) 0;
+  /* Gut zwei Drittel des Abschnittsmaßes: die Reiterleiste steht direkt darüber, der volle
+     Abstand ließ die Daten von der Seite abfallen. */
+  padding: calc(var(--sec-pad) * 0.62) 0;
   border-top: none;
 }
 .bd-specs-inner {
@@ -2577,10 +2666,14 @@ select.p-auth-input {
   min-height: 0;
   align-items: flex-start;
 }
+/* 4:3 wie das Studio-Bild (tools/catalog/generate.py). Nebeneinander setzt garage.js die Höhe der Specs-Karte,
+   solange der Rahmen dabei nicht schmaler als 4:3 wird. */
 .bd-3d-canvas-wrap.bd-3d-canvas-wrap--studio {
+  position: relative;          /* Anker für „Studiofoto folgt" */
   min-height: 0;
   width: 100%;
-  height: 100%;
+  height: auto;
+  aspect-ratio: 4 / 3;
   border-radius: 14px;
   overflow: hidden;
 }
@@ -2599,15 +2692,26 @@ select.p-auth-input {
   }
   .bd-hero-img-wrap {
     padding: 0 16px;
-    min-height: 38vh;
+    /* Feste Höhe statt Mindesthöhe: ein Prozentwert für max-height braucht eine Bezugshöhe. */
+    height: 34vh;
+    min-height: 210px;
     overflow: hidden;
   }
   .bd-hero-img {
-    width: 230%;
-    max-width: 230%;
+    /* Dieselbe Rechnung wie im Konfigurator-Betrachter auf dem Handy (.konf-viewer-img: 96 % Breite,
+       82 % Höhe) — vorher zoomte der Hero auf 230 % und schnitt das Motorrad an, der Konfigurator
+       zeigte es ganz: dasselbe Bike sah auf zwei Seiten verschieden groß aus (Nutzer 2026-09-19:
+       „bei der mobilen version sind die nicht gleich"). */
+    width: auto;
+    max-width: 96%;
+    max-height: 82%;
+    object-fit: contain;
+    top: 1vh;
   }
   .bd-hero-bg-text {
     font-size: 92px;
+    top: auto;
+    transform: translateX(-50%);
     /* Eigener Wert: die Schrift ist hier fix (92px), nicht vw-basiert, und das
        Bild ist auf 230% gezoomt — mit 30% verschwand die Wortmarke komplett
        hinter dem Bike. */
@@ -2671,7 +2775,7 @@ select.p-auth-input {
     order: -1;
     min-height: 300px;
   }
-  /* Studio-Bild statt 3D (freigegebene Bikes): kein Mindestmaß — das Bild bringt seine Höhe (5:3) selbst mit. */
+  /* Studio-Bild statt 3D (freigegebene Bikes): kein Mindestmaß — der Rahmen bringt seine Höhe (4:3) selbst mit. */
   .bd-specs-right:has(.bd-3d-canvas-wrap--studio) {
     min-height: 0;
   }

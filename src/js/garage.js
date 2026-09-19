@@ -26,6 +26,7 @@ import {
   scoreBikeAgainst,
 } from "./matching.js";
 import { addMatch } from "./match-history.js";
+import { bikeBild, hatFoto, kachelFuerHero } from "./bike-bild.js";
 import { getGear } from "./gear.js";
 import { buildSearchUrls, getLiveListings } from "./marketplace.js";
 import { esc } from "./util.js";
@@ -115,8 +116,10 @@ export function loadGarage(answers) {
   const container = document.getElementById("garage-container");
   container.style.display = "block";
 
-  const bikeData = findBestBike(answers);
+  /* Ein Durchlauf statt zwei: findBestBike() rechnete dasselbe noch einmal — und konnte seit der
+     Stilgarantie sogar ein anderes Bike liefern als Platz eins der Fünferliste. */
   const topMatches = findTopMatches(answers, 5);
+  const bikeData = topMatches[0]?.bike || findBestBike(answers);
 
   console.info(`[garage] Matched: ${bikeData.name}`);
 
@@ -221,9 +224,24 @@ export function openBikeGarage(shortName) {
 //  PAGE BUILDER
 // ══════════════════════════════════════════════════════════════
 
+/** Neu- und Gebrauchtpreis unter dem Hauptpreis — die Mitte aus beiden steht oben (matching_katalog.py). */
+function preisDetails(bike) {
+  const euro = (n) => `${Math.round(n).toLocaleString("de-DE")} €`;
+  const teile = [];
+  if (bike.priceNew) teile.push(`neu ca. ${euro(bike.priceNew)}`);
+  if (bike.priceUsed) teile.push(`gebraucht${bike.priceYear ? ` (${bike.priceYear})` : ""} ca. ${euro(bike.priceUsed)}`);
+  if (!teile.length) return "";
+  return `<p class="bd-price-detail">${teile.join(" · ")} — Marktpreise 1000PS</p>`;
+}
+
 function buildPage(bike, fromQuiz = true) {
   const priceDisplay =
-    bike.priceDisplay || `Ab EUR ${bike.price.split("-")[0]}`;
+    bike.priceDisplay ||
+    (typeof bike.price === "number"
+      ? `ca. ${Math.round(bike.price).toLocaleString("de-DE")} €`
+      : bike.price
+        ? `Ab EUR ${String(bike.price).split("-")[0]}`
+        : "Preis folgt");
 
   return `
     <!-- ═══ SECTION 1: Hero (Porsche-style) ═══ -->
@@ -236,14 +254,21 @@ function buildPage(bike, fromQuiz = true) {
            gekoppelt bleibt statt an die Hero-Hoehe. -->
       <div class="bd-hero-img-wrap">
         <div class="bd-hero-bg-text">${bike.bgText || bike.name}</div>
-        <img class="bd-hero-img" src="${bike.image2 || bike.image}" alt="${bike.name}">
+        <!-- Am Handy die eng beschnittene Kachel statt des Panoramas: im Titelbild (1600 × 437)
+             nimmt das Motorrad nur gut 40 % der Breite ein — auf 375 px blieb davon ein 90 px
+             hohes Bike mit viel Leere ringsum. Die Kachel zeigt nur das Motorrad. -->
+        <picture class="bd-hero-pic">
+          ${kachelFuerHero(bike) ? `<source media="(max-width: 768px)" srcset="${kachelFuerHero(bike)}">` : ""}
+          <img class="bd-hero-img" src="${bikeBild(bike, "titel")}" alt="${bike.name}">
+        </picture>
+        ${hatFoto(bike) ? "" : '<span class="bd-hero-foto-folgt">Foto folgt</span>'}
       </div>
 
       <div class="bd-hero-info">
         ${fromQuiz ? '<p class="gr-match-label">Dein perfektes Match</p>' : ""}
         <h1 class="bd-model-name">${bike.name}</h1>
-        <span class="bd-badge">${bike.style}</span>
-        <p class="bd-price">${priceDisplay}${/\d/.test(priceDisplay) ? " inkl. MwSt." : ""}</p>
+        <p class="bd-price">${priceDisplay}</p>
+        ${preisDetails(bike)}
       </div>
     </section>
 
@@ -363,22 +388,31 @@ function animateCounters(container) {
 
 function init3DViewer(bikeData) {
   if (!bikeData.has3D || !bikeData.glb) {
-    // Ohne 3D-Modell steht hier der 3D-Ersatz: dasselbe Motorrad mit Fahrer im dunklen Studio
+    // Ohne 3D-Modell steht hier der 3D-Ersatz: dasselbe Motorrad im dunklen Studio, 4:3
     // (freigegebene Bikes, tools/catalog/einbau.py).
     const wrap = document.getElementById("gr-3d-wrap");
-    if (wrap && bikeData.studio) {
+    if (wrap) {
+      // Ohne Studio-Bild steht hier die Silhouette der Bauart (bike-bild.js) — der Rahmen bleibt
+      // gefüllt, und die Bildunterschrift sagt, dass das Foto noch kommt.
       wrap.classList.add("bd-3d-canvas-wrap--studio");
-      wrap.innerHTML = `<img class="bd-studio-img" src="${bikeData.studio}" alt="${bikeData.name} im Studio" loading="lazy" decoding="async">`;
-      // Höhe der Specs-Karte einfrieren, damit das Studio-Bild beim Aufklappen nicht mitwächst.
-      // mountAnsicht() ist async → bd-ansicht-embed existiert erst nach dem Import. MutationObserver abwarten.
+      wrap.innerHTML = `<img class="bd-studio-img" src="${bikeBild(bikeData, "studio")}" alt="${bikeData.name} im Studio" loading="lazy" decoding="async">`
+        + (bikeData.studio ? "" : '<span class="bd-studio-folgt">Studiofoto folgt</span>');
+      // Nebeneinander so hoch wie die Specs-Karte (bündige Kanten), aber nie schmaler als 4:3 — das Format des
+      // Studio-Bilds. Mit der vollen Kartenhöhe schnitt object-fit: cover bei schmalen Spalten (800–1100 px
+      // Fensterbreite, Rahmen 0,74–1,2) Vorder- und Hinterrad ab. Untereinander (Handy, Tablet hochkant) gilt das
+      // 4:3 aus dem CSS; die Kartenhöhe machte den Rahmen dort hochkant (340 × 460 px).
+      // Eingefroren, damit das Bild beim Aufklappen der Karte nicht mitwächst. mountAnsicht() ist async →
+      // bd-ansicht-embed existiert erst nach dem Import. MutationObserver abwarten.
       const host = document.getElementById("gr-ansicht-host");
-      if (host) {
+      const inner = wrap.closest(".bd-specs-inner");
+      if (host && inner) {
         const obs = new MutationObserver(() => {
           const specsCard = host.querySelector(".bd-ansicht-embed");
           if (specsCard) {
             obs.disconnect();
             requestAnimationFrame(() => {
-              const h = specsCard.offsetHeight + "px";
+              if (getComputedStyle(inner).flexDirection === "column") return;
+              const h = Math.min(specsCard.offsetHeight, (wrap.offsetWidth * 3) / 4) + "px";
               wrap.style.height = h;
               wrap.style.maxHeight = h;
             });

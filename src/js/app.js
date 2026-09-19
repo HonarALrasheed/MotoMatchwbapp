@@ -1,5 +1,5 @@
 import { initLanding } from './landing.js'
-import { findBikeByShortName } from './matching.js'
+import { findBikeByShortName, ladeVollkatalog } from './matching.js'
 import { initSupabaseAuth, openPasswordResetScreen } from './auth.js'
 import { initFeedbackFab } from './feedback.js'
 import { initNav, setViewResolver, readRestoreView, clearRestoreView } from './nav.js'
@@ -47,6 +47,10 @@ export function startApp() {
   // beim Vorwärts nichts aufbauen.
   setViewResolver(openView)
   initSwipeNav()
+  /* Den Katalog des deutschen Marktes (public/data/katalog-de.json) im Hintergrund holen,
+     damit er dasteht, wenn das Quiz fertig ist. Schlägt es fehl, rechnet die Seite mit den
+     eingebauten Bikes weiter (matching.js). */
+  ladeVollkatalog()
   initSupabaseAuth()
   initFeedbackFab()
   // Registriert den Service Worker und bietet die Installation an — nur so

@@ -14,7 +14,8 @@ import { esc, fmtRelative, LS_QUIZ_ANSWERS } from './util.js'
 import { partnerLink, hatPartnerLinks } from './affiliate.js'
 import { ensureLandingRendered } from './landing.js'
 import { enterScreen, goBack } from './nav.js'
-import { findBikeByShortName, findTopMatches, findSimilarBikes, scoreBikeAgainst, MATCH_WEIGHTS } from './matching.js'
+import { findBikeByShortName, findTopMatches, findSimilarBikes, scoreBikeAgainst, begruendungFuer, MATCH_WEIGHTS } from './matching.js'
+import { bikeBild, hatFoto } from './bike-bild.js'
 import { getMatches, addMatch, removeMatch, clearMatches, restoreMatch, hasMatch, getLastAnswers, getPrimaryBike, setPrimaryBike } from './match-history.js'
 
 // Deterministic pseudo-random number from a seed string, returns float in [0,1)
@@ -222,6 +223,7 @@ export function normalizeGarageData(bikeData) {
   data.highlights = data.highlights.filter(h => !fehlt(h.title) && !fehlt(h.text))
   data.equipment = data.equipment.filter(e => !fehlt(e.name))
   data.studio = bikeData.studio || null
+  data.studioBild = bikeBild(bikeData, 'studio')      // echtes Studio-Bild oder Silhouette der Bauart
   return data
 }
 
@@ -233,8 +235,9 @@ function normalizeGarageDataRoh(bikeData) {
     fullName: existing?.fullName || shortName,
     brand: bikeData.brand,
     bgText: existing?.bgText || shortName,
-    img1: bikeData.image2 || bikeData.image || existing?.img1,
-    img2: bikeData.image || existing?.img2,
+    img1: bikeData.image2 || bikeData.image || existing?.img1 || bikeBild(bikeData, 'titel'),
+    img2: bikeData.image || existing?.img2 || bikeBild(bikeData, 'kachel'),
+    ohneFoto: !hatFoto(bikeData) && !existing?.img1,
     glb: bikeData.glb,
     style: bikeData.style,
     specs: {
@@ -450,12 +453,14 @@ function buildDeckblattHTML(data) {
            gekoppelt bleibt statt an die Hero-Hoehe. -->
       <div class="bd-hero-img-wrap">
         <div class="bd-hero-bg-text">${data.bgText}</div>
-        <img class="bd-hero-img" src="${data.img1}" alt="${data.fullName}">
+        <picture class="bd-hero-pic">
+          ${/_kachel\.webp$/.test(data.img2 || "") ? `<source media="(max-width: 768px)" srcset="${data.img2}">` : ""}
+          <img class="bd-hero-img" src="${data.img1}" alt="${data.fullName}">
+        </picture>
       </div>
       <div class="bd-hero-info">
         <h1 class="bd-model-name">${data.fullName}</h1>
-        <span class="bd-badge">${data.style}</span>
-        <p class="bd-price">${data.price} inkl. MwSt.</p>
+        <p class="bd-price">${data.price}${/\d/.test(data.price || '') ? ' inkl. MwSt.' : ''}</p>
         <div class="bd-actions">
           <button class="bd-btn bd-btn-primary" id="bd-quiz-btn">Match finden</button>
           <button class="bd-btn bd-btn-outline" id="bd-3d-btn">3D ansehen</button>
@@ -1779,7 +1784,7 @@ function enrichMatch(m) {
   return {
     ...m,
     style: m.style || bike?.style || '',
-    image: m.image || bike?.image2 || bike?.image || '',
+    image: m.image || (bike ? bikeBild(bike, 'titel') : ''),
     price: m.price || bike?.priceDisplay || '',
   }
 }
@@ -1921,7 +1926,9 @@ function buildMatchPriceRow(data, bike) {
   return `
     <div class="konf-price-row mm-match-price">
       <span class="konf-price-tag">${esc(price)}</span>
-      <span class="konf-price-note">inkl. MwSt.</span>
+      ${/\d/.test(price)
+        ? `<span class="konf-price-note">${bike?.priceUsed ? 'Marktpreis 1000PS' : 'inkl. MwSt.'}</span>`
+        : ''}
     </div>`
 }
 
@@ -1955,16 +1962,28 @@ function buildMatchScoreCard(data, bike) {
     // im Ring ein — fehlte sie hier, ergaeben die Balken darunter eine andere
     // Rechnung als die Zahl darueber.
     ['license', 'Führerschein-Klasse', W.LICENSE_FIT],
+    // Seit der Katalog den ganzen deutschen Markt umfasst (2026-09-17): wie verbreitet das Modell
+    // hier ist (Neuzulassungen, sonst Inserate) — sonst gewinnen Exoten mit zufällig passenden Daten.
+    ['popularity', 'Verbreitung in Deutschland', W.POPULARITY],
   ]
   if (answers.q7 === 'Ja') factors.push(['passenger', 'Sozius-Tauglichkeit', W.PASSENGER])
 
   const radar = buildMatchRadar(factors, res)
+
+  /* Was für das Bike spricht — in Sätzen. Die Balken darunter zeigen dieselbe Rechnung als Zahlen;
+     gelesen wird aber der Satz, nicht der Balken. */
+  const gruende = begruendungFuer(bike, answers)
 
   const notes = []
   if (!res.fits.license) notes.push(`Braucht Führerschein <b>${esc(bike.license)}</b> — dein Profil: <b>${esc(answers.q1 || '–')}</b>.`)
   if (!res.fits.budget) notes.push(`Liegt über deinem Budget von <b>${fmtBudget(answers.q5)}</b>.`)
   if ((res.breakdown.beginnerPenalty ?? 0) < 0) notes.push('Für den Einstieg anspruchsvoll — viel Leistung, wenig Fehlerverzeihung.')
   if ((res.breakdown.license ?? 0) < 0) notes.push('Liegt zwei Klassen unter deinem Führerschein — fahren darfst du sie, gereizt wirst du damit kaum.')
+  /* Die Einschränkungen aus der Begründung, ohne die, die oben schon ausführlicher stehen. */
+  for (const satz of gruende.aber) {
+    if (/Anfang|Anfänger/.test(satz)) continue
+    notes.push(esc(satz))
+  }
 
   return `
     <div class="konf-card mm-match-card konf-reveal" id="mm-match-score">
@@ -2108,7 +2127,7 @@ function buildMatchRecoCard(currentBike) {
         ${recs.map(r => {
           const b = r.bike
           const pct = useProfile ? (scoreBikeAgainst(b, answers)?.pct ?? 0) : null
-          const img = b.image2 || b.image || ''
+          const img = bikeBild(b, 'titel')
           const chips = matchWhyChips(b, currentBike)
           return `
             <article class="mm-reco-card" data-row-match="${esc(b.name)}">
@@ -4424,9 +4443,10 @@ function initDetail3D(data, darkMode) {
   if (!data.glb) {
     // Freigegebene Bikes ohne 3D-Modell: Studio-Bild statt 3D (wie garage.js, init3DViewer).
     const wrap = document.getElementById('bd-3d-wrap')
-    if (wrap && data.studio) {
+    if (wrap) {
       wrap.classList.add('bd-3d-canvas-wrap--studio')
-      wrap.innerHTML = `<img class="bd-studio-img" src="${data.studio}" alt="${data.fullName} im Studio" loading="lazy" decoding="async">`
+      wrap.innerHTML = `<img class="bd-studio-img" src="${data.studioBild || data.studio}" alt="${data.fullName} im Studio" loading="lazy" decoding="async">`
+        + (data.studio ? '' : '<span class="bd-studio-folgt">Studiofoto folgt</span>')
     }
     return
   }

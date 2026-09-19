@@ -1,4 +1,5 @@
 import { findBestBike, getCatalog } from "./matching.js";
+import { bikeBild, hatFoto } from "./bike-bild.js";
 
 /* Die Walze zog ihre Motorraeder frueher aus einer fest eingetragenen Liste
    von zehn. Neu aufgenommene Modelle tauchten darin nie auf, und schlimmer:
@@ -7,7 +8,10 @@ import { findBestBike, getCatalog } from "./matching.js";
    der Buchstabe "E" — die Walze hielt dann bei einem voellig anderen Modell,
    waehrend die Ergebnisseite daneben das richtige zeigte. Jetzt kommen die
    Karten aus demselben Katalog, aus dem auch das Ergebnis stammt. */
-const bikeKarte = (b) => ({ name: b.name, img: b.image2 || b.image });
+/* Seit der Katalog den ganzen deutschen Markt umfasst, haben die meisten Bikes noch kein
+   Foto — die Walze füllt sich deshalb aus denen mit Foto, das Ergebnis zeigt notfalls die
+   Silhouette seiner Bauart (bike-bild.js). */
+const bikeKarte = (b) => ({ name: b.name, img: bikeBild(b, "titel") });
 
 const CARD_W = 240;
 const CARD_GAP = 16;
@@ -20,7 +24,7 @@ export function startDropAnimation(answers) {
 
   const winner = findBestBike(answers);
   try { localStorage.setItem('mm_primary_bike', winner.name); } catch (e) { /* ignore */ }
-  const katalog = getCatalog().map(bikeKarte);
+  const katalog = getCatalog().filter(hatFoto).map(bikeKarte);
   const winBike = bikeKarte(winner);
 
   // ── Build strip: 70 items, winner near end ──

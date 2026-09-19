@@ -1,3 +1,4 @@
+import { bikeBild } from './bike-bild.js'
 /**
  * ══════════════════════════════════════════════════════════════════
  *  MotoMatch — match-history.js
@@ -75,7 +76,7 @@ export function addMatch(bike, { score = null, pct = null, source = 'manual' } =
   const entry = {
     name: bike.name,
     style: bike.style || '',
-    image: bike.image2 || bike.image || '',
+    image: bikeBild(bike, 'titel'),
     price: bike.priceDisplay || bike.price || '',
     score: score == null ? null : Math.round(score * 10) / 10,
     pct: pct == null ? null : Math.round(pct),

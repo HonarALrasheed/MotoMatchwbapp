@@ -3,6 +3,7 @@ import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 import { DRACOLoader } from "three/addons/loaders/DRACOLoader.js";
 import { MeshoptDecoder } from "three/addons/libs/meshopt_decoder.module.js";
 import { startDropAnimation } from "./drop-animation.js";
+import { ladeVollkatalog } from "./matching.js";
 import { LS_QUIZ_ANSWERS } from "./util.js";
 
 /* ═══ Questions ═══ */
@@ -29,11 +30,18 @@ const questions = [
   {
     id: 3,
     question: "Welcher Stil spricht dich an?",
+    /* Alle acht Gattungen, die es im Katalog gibt (2026-09-19). Vorher standen hier vier — Roller,
+       Klassiker, Touring und Supermoto waren damit unwählbar, und die 400 Bikes dieser Gattungen
+       konnten die volle Stil-Punktzahl nie erreichen, egal wie gut sie sonst passten. */
     options: [
       { value: "Sportbike", label: "Sportbike" },
       { value: "Naked", label: "Naked Bike" },
       { value: "Cruiser", label: "Cruiser" },
       { value: "Enduro", label: "Enduro / Offroad" },
+      { value: "Touring", label: "Tourer / Reise" },
+      { value: "Klassiker", label: "Klassiker / Retro" },
+      { value: "Supermoto", label: "Supermoto" },
+      { value: "Roller", label: "Roller" },
     ],
   },
   {
@@ -74,6 +82,19 @@ const questions = [
       { value: "Ja", label: "Ja, regelmäßig" },
       { value: "Nein", label: "Nein, nur allein" },
     ],
+  },
+  {
+    id: 8,
+    question: "Deine Schrittlänge?",
+    hinweis: "Innenbein vom Boden bis zum Schritt. Sie entscheidet, ob du sicher stehst — nicht die Körpergröße. Der Vorschlag stammt aus deiner Größe, du kannst ihn einfach übernehmen.",
+    type: "slider",
+    unit: "cm",
+    min: 65,
+    max: 100,
+    step: 1,
+    default: 79,
+    // Vorschlag aus der Körpergröße (q6): die Schrittlänge liegt im Mittel bei 45 % davon.
+    ableiten: (a) => Math.round((Number(a.q6) || 175) * 0.45),
   },
 ];
 
@@ -1164,7 +1185,10 @@ function finishExit() {
       flash.remove();
       exiting = false;
       exitPhase = 0;
-      startDropAnimation(answers);
+      /* Der Vollkatalog läuft seit dem Start im Hintergrund; falls er noch unterwegs ist,
+         warten wir höchstens zwei Sekunden — danach entscheidet der eingebaute Katalog,
+         statt den Nutzer vor einem leeren Bildschirm warten zu lassen. */
+      Promise.race([ladeVollkatalog(), sleep(2000)]).then(() => startDropAnimation(answers));
     }, 400);
   });
 }
@@ -1227,6 +1251,7 @@ function showQuestion(i) {
       </div>
       <p class="quiz-step">Schritt ${i + 1} von ${questions.length}</p>
       <h2 class="quiz-question">${q.question}</h2>
+      ${q.hinweis ? `<p class="quiz-hinweis">${q.hinweis}</p>` : ""}
       ${optionsHtml}
       <div class="quiz-nav">
         ${i > 0 ? '<button class="btn-back" id="prev-btn">Zurück</button>' : ""}
@@ -1255,7 +1280,7 @@ function showQuestion(i) {
     const nextBtn = document.getElementById("next-btn");
 
     const stored = answers[`q${i + 1}`];
-    const initial = Number(stored) || q.default;
+    const initial = Number(stored) || (q.ableiten ? q.ableiten(answers) : q.default);
     slider.value = Math.min(q.max, Math.max(q.min, initial));
     numberInput.value = initial;
 

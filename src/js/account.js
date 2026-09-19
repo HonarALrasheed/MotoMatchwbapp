@@ -14,6 +14,7 @@
 // Zentrale, plattformweite Auth — dieselbe Session/DB wie im Community-Bereich
 import * as auth from './auth.js'
 import { getCatalog } from './matching.js'
+import { bikeBild } from './bike-bild.js'
 import { esc, fmtDate, fmtRelative } from './util.js'
 
 const DEFAULT_ACCOUNT = {
@@ -578,7 +579,7 @@ function wireCompare() {
       searchResults.innerHTML = hits.map(b => `
         <li class="acc-cmp-search-item ${set.includes(b.name) ? 'acc-cmp-search-item--in' : ''}"
           data-name="${b.name}" data-style="${b.style}" data-image="${b.image}">
-          ${b.image ? `<img class="acc-cmp-search-img" src="${b.image}" alt="">` : '<span class="acc-cmp-search-img acc-cmp-search-img--placeholder">🏍</span>'}
+          <img class="acc-cmp-search-img" src="${bikeBild(b, 'kachel')}" alt="">
           <span class="acc-cmp-search-name">${b.name}</span>
           <span class="acc-cmp-search-style">${b.style}</span>
           ${set.includes(b.name) ? '<span class="acc-cmp-search-check">✓</span>' : ''}
@@ -802,7 +803,7 @@ function wireMaintenance() {
       if (!hits.length) { searchResults.innerHTML = ''; searchResults.style.display = 'none'; return }
       searchResults.innerHTML = hits.map(b => `
         <li class="mw-search-item" data-name="${b.name}" data-style="${b.style}" data-image="${b.image}">
-          ${b.image ? `<img class="mw-search-item-img" src="${b.image}" alt="">` : '<span class="mw-search-item-icon">🏍</span>'}
+          <img class="mw-search-item-img" src="${bikeBild(b, 'kachel')}" alt="">
           <span class="mw-search-item-name">${b.name}</span>
           <span class="mw-search-item-style">${b.style}</span>
         </li>

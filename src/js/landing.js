@@ -1,5 +1,6 @@
 import { maybeShowOnboarding } from "./onboarding.js";
 import { getCatalog, findBikeByShortName } from "./matching.js";
+import { bikeBild } from "./bike-bild.js";
 import { esc } from "./util.js";
 
 let landingObserver = null;
@@ -131,13 +132,18 @@ function buildSearchOverlay() {
   const renderResults = (query) => {
     const q = query.trim().toLowerCase();
     const catalog = getCatalog();
-    const matches = q
+    /* Der Katalog umfasst seit 2026-09-17 den ganzen deutschen Markt. Ohne Suchwort stehen
+       deshalb die verbreitetsten Bikes oben (pop), und die Liste ist gedeckelt — 2.000 Karten
+       auf einmal zu bauen hängt das Handy auf. */
+    const LIMIT = 40;
+    const alle = q
       ? catalog.filter(b =>
           b.name.toLowerCase().includes(q) ||
           (b.brand || "").toLowerCase().includes(q) ||
           (b.style || "").toLowerCase().includes(q) ||
           (b.bgText || "").toLowerCase().includes(q))
       : catalog;
+    const matches = alle.slice(0, LIMIT);
 
     if (matches.length === 0) {
       const empty = document.createElement("div");
@@ -148,7 +154,7 @@ function buildSearchOverlay() {
     }
     results.innerHTML = matches.map(b => `
       <div class="p-search-result" data-name="${b.name.replace(/"/g, "&quot;")}">
-        <img class="p-search-result-thumb" src="${b.image}" alt="${b.name.replace(/"/g, "&quot;")}" loading="lazy" decoding="async">
+        <img class="p-search-result-thumb" src="${bikeBild(b, "kachel")}" alt="${b.name.replace(/"/g, "&quot;")}" loading="lazy" decoding="async">
         <div>
           <div class="p-search-result-name">${b.name}</div>
           <div class="p-search-result-style">${b.style}</div>

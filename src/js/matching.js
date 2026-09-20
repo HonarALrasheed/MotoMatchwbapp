@@ -318,6 +318,17 @@ const WEIGHT = Object.freeze({
 const LEISTUNGS_DECKEL = Object.freeze({ A1: 11, B196: 11, A2: 35, A: 120 });
 const LEISTUNGS_ZIEL = Object.freeze({ ruhig: 0.3, mittel: 0.6, voll: 1 });
 
+/* Die Erfahrungsfrage (q2) hatte bisher nur zwei Wirkungen: Anfänger bekamen die Strafe für
+   nicht-anfängertaugliche Maschinen, Wiedereinsteiger und Profis gar nichts — die dritte Antwort
+   war also folgenlos. Jetzt verschiebt die Erfahrung, wie weit „so viel wie erlaubt" reicht:
+   Wer zum ersten Mal fährt und die stärkste Maschine seiner Klasse anklickt, bekommt trotzdem
+   nicht die schärfste. Die Klasse bleibt dieselbe — gedeckelt wird nur der Charakter. */
+const CHARAKTER_DECKEL = Object.freeze({ "Anfänger": 0.75, Anfanger: 0.75, Wiedereinsteiger: 0.9 });
+/* Nur dort, wo die Klasse echten Spielraum lässt. A1 und B196 enden bei 11 kW — die ganze Klasse ist
+   anfängertauglich, und ein Deckel drehte die Frage dort um: „so viel wie erlaubt" lieferte weniger
+   Leistung als „ruhig" (Golden Set, 20.09.). */
+const DECKEL_KLASSEN = new Set(["A2", "A"]);
+
 /* Körperliche Passung ist keine Geschmacksfrage: wer mit den Zehenspitzen nicht sicher steht, dem nützt
    die schönste Maschine nichts. Bisher kostete jeder Zentimeter Sitzhöhe 0,9 Punkte — eine 95er-Enduro
    konnte damit bei 1,65 m trotzdem gewinnen, wenn Stil und Preis stimmten. Jetzt deckelt zu viel Sitzhöhe
@@ -667,7 +678,9 @@ function scoreBike(bike, ctx) {
   /* Charakter (Frage 9). Wurde nicht gefragt — alte gespeicherte Antworten, Aufruf aus dem
      Match-Reiter —, bekommt jedes Bike die volle Punktzahl: eine Frage, die niemand beantwortet
      hat, darf keine Maschine schlechter dastehen lassen. */
-  const ziel = LEISTUNGS_ZIEL[ctx.power];
+  const zielRoh = LEISTUNGS_ZIEL[ctx.power];
+  const deckel = DECKEL_KLASSEN.has(ctx.licenseClass) ? CHARAKTER_DECKEL[ctx.erfahrung] : undefined;
+  const ziel = zielRoh === undefined ? undefined : (deckel ? Math.min(zielRoh, deckel) : zielRoh);
   let powerScore;
   if (ziel === undefined) {
     powerScore = WEIGHT.POWER;
@@ -754,6 +767,7 @@ function buildContext(answers = {}) {
       budgetMax: Number(answers.q5) || Infinity,
       licenseClass: answers.q1,
       power: answers.q9,
+      erfahrung: answers.q2,
     },
   };
 }

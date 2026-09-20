@@ -1014,6 +1014,34 @@ export function findTopMatches(answers, n = 5) {
   const schwaechste = scored[scored.length - 1].score;
   const spanne = Math.max(1, beste - schwaechste);
 
+  /* Preisspanne: mindestens ein Treffer soll zeigen, was das Budget wirklich kauft. Gemessen am
+     20.09.: ab etwa 10.000 EUR hörte die Budgetfrage auf zu wirken — 14.000 und 25.000 lieferten
+     dasselbe Ergebnis, im Schnitt zu 34 % ausgeschöpft. Grund ist nicht die Budgetkurve (eine
+     steilere brachte 34 auf 40 %), sondern die Verbreitung: teure Maschinen sind seltener
+     gehandelt und verlieren an dieser Stelle. Günstig bleibt deshalb die Regel — nur der letzte
+     Platz geht an eine Maschine aus der oberen Budgethälfte, wenn sonst keine dabei wäre. */
+  if (Number.isFinite(ctx.budgetMax) && auswahl.length >= n) {
+    const schwelle = ctx.budgetMax * 0.55;
+    if (!auswahl.some((r) => preisAb(r.bike, ctx.budgetMax) >= schwelle)) {
+      /* Der Tausch darf die Gattungsvielfalt nicht wieder einreißen: bei „Egal" bleibt die Grenze
+         von zwei je Gattung auch hier gültig — sonst kämen in 4,7 % der Fälle wieder nur zwei
+         Gattungen heraus (gemessen 20.09.). */
+      const ohneLetzten = auswahl.slice(0, -1);
+      const zaehler = new Map();
+      for (const r of ohneLetzten) {
+        const s = (r.bike.style || "").toLowerCase();
+        zaehler.set(s, (zaehler.get(s) || 0) + 1);
+      }
+      const teuer = scored.find((r) => {
+        if (auswahl.includes(r)) return false;
+        if (preisAb(r.bike, ctx.budgetMax) < schwelle) return false;
+        const s = (r.bike.style || "").toLowerCase();
+        return (zaehler.get(s) || 0) < stilGrenze;
+      });
+      if (teuer) auswahl[auswahl.length - 1] = teuer;
+    }
+  }
+
   /* Gibt es die Wunschgattung in dieser Klasse und diesem Budget überhaupt nicht, sagt das Ergebnis
      das — statt still mit anderem aufzufüllen. Für A1 existiert zum Beispiel kein einziger Tourer
      (Durchlauf über alle Kombinationen, 2026-09-20). */

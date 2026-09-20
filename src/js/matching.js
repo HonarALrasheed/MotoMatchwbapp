@@ -949,18 +949,26 @@ export function findTopMatches(answers, n = 5) {
   const familie = (b) => `${b.brand || ""}|${(b.bgText || b.name || "").toLowerCase().replace(/[^a-z0-9]/g, "")}`;
   const gesehen = new Set();
   const jeMarke = new Map();
+  const jeStil = new Map();
+  /* „Ist mir egal“ heißt: zeig mir die Bandbreite. Ohne Grenze kamen in 36 % der Fälle fünf Bikes
+     derselben Gattung heraus (gemessen über 720 Kombinationen, 20.09.) — wer keine Vorliebe angibt,
+     bekam trotzdem fünfmal dasselbe. Bei einer genannten Wunschgattung gilt die Grenze nicht: dort
+     sollen die Treffer ja gerade aus einer Gattung kommen. */
+  const stilGrenze = String(ctx.style || "").toLowerCase() === "egal" ? 2 : Infinity;
   const auswahl = [];
   const zurueck = [];
   for (const r of scored) {
     if (auswahl.length >= n) break;
     const f = familie(r.bike);
     const m = (r.bike.brand || "").toLowerCase();
-    if (gesehen.has(f) || (jeMarke.get(m) || 0) >= JE_MARKE) {
+    const s = (r.bike.style || "").toLowerCase();
+    if (gesehen.has(f) || (jeMarke.get(m) || 0) >= JE_MARKE || (jeStil.get(s) || 0) >= stilGrenze) {
       zurueck.push(r);
       continue;
     }
     gesehen.add(f);
     jeMarke.set(m, (jeMarke.get(m) || 0) + 1);
+    jeStil.set(s, (jeStil.get(s) || 0) + 1);
     auswahl.push(r);
   }
   for (const r of zurueck) {

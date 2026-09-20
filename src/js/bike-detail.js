@@ -1966,6 +1966,9 @@ function buildMatchScoreCard(data, bike) {
     // hier ist (Neuzulassungen, sonst Inserate) — sonst gewinnen Exoten mit zufällig passenden Daten.
     ['popularity', 'Verbreitung in Deutschland', W.POPULARITY],
   ]
+  // Charakter (Frage 9, 2026-09-20): wie weit die Maschine die Klasse ausreizt. Nur wenn gefragt
+  // wurde — dann geht sie auch in den Prozentwert ein, und die Balken müssen sie zeigen.
+  if (answers.q9) factors.push(['power', 'Temperament', W.POWER])
   if (answers.q7 === 'Ja') factors.push(['passenger', 'Sozius-Tauglichkeit', W.PASSENGER])
 
   const radar = buildMatchRadar(factors, res)

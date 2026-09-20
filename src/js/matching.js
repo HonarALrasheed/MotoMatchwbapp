@@ -681,16 +681,18 @@ function scoreBike(bike, ctx) {
   const zielRoh = LEISTUNGS_ZIEL[ctx.power];
   const deckel = DECKEL_KLASSEN.has(ctx.licenseClass) ? CHARAKTER_DECKEL[ctx.erfahrung] : undefined;
   const ziel = zielRoh === undefined ? undefined : (deckel ? Math.min(zielRoh, deckel) : zielRoh);
-  let powerScore;
-  if (ziel === undefined) {
-    powerScore = WEIGHT.POWER;
-  } else {
+  /* Wurde die Frage nicht gestellt (alte gespeicherte Antworten, Aufruf aus dem Match-Reiter),
+     zaehlt sie gar nicht mit — weder in der Punktzahl noch in der Obergrenze. Volle Punkte fuer
+     alle waeren dasselbe, wuerden aber in den Balken der Detailseite als erfuellte Bedingung
+     erscheinen, die niemand gestellt hat. */
+  if (ziel !== undefined) {
     const c = charakter(bike, ctx.licenseClass);
     // Ohne Leistungsangabe die Mitte. Sonst: 0,6 Abstand im Charakter kostet alle Punkte.
-    powerScore = c === null ? WEIGHT.POWER * 0.5 : WEIGHT.POWER * Math.max(0, 1 - Math.abs(c - ziel) / 0.6);
+    const powerScore = c === null ? WEIGHT.POWER * 0.5 : WEIGHT.POWER * Math.max(0, 1 - Math.abs(c - ziel) / 0.6);
+    score += powerScore;
+    breakdown.power = Math.round(powerScore * 10) / 10;
+    breakdown.powerZiel = ziel;
   }
-  score += powerScore;
-  breakdown.power = Math.round(powerScore * 10) / 10;
 
   /* Verbreitung: `pop` steht im Vollkatalog (Neuzulassungen, sonst Inserate und Bewertung).
      Bikes aus dem alten Katalog ohne Wert bekommen die Mitte, damit sie nicht zurückfallen. */
@@ -804,7 +806,7 @@ export function scoreBikeAgainst(bike, answers) {
     WEIGHT.SEAT_HEIGHT +
     WEIGHT.LICENSE_FIT +
     WEIGHT.POPULARITY +
-    WEIGHT.POWER +
+    (ctx.power ? WEIGHT.POWER : 0) +
     (ctx.wantsPassenger ? WEIGHT.PASSENGER : 0);
 
   return {
@@ -997,7 +999,7 @@ export function findTopMatches(answers, n = 5) {
      wie er gegen das restliche Feld dasteht. */
   const maxMoeglich =
     WEIGHT.STYLE + WEIGHT.USE_CASE + WEIGHT.BUDGET + WEIGHT.SEAT_HEIGHT +
-    WEIGHT.LICENSE_FIT + WEIGHT.POPULARITY + WEIGHT.POWER +
+    WEIGHT.LICENSE_FIT + WEIGHT.POPULARITY + (ctx.power ? WEIGHT.POWER : 0) +
     (ctx.wantsPassenger ? WEIGHT.PASSENGER : 0);
   const beste = scored[0].score;
   const schwaechste = scored[scored.length - 1].score;
@@ -1121,6 +1123,24 @@ export function begruendung({ bike, breakdown }, ctx) {
       kurz.push({ art: "plus", text: `${bike.seat_height} cm — sicherer Stand` });
     }
   }
+  /* Charakter (Frage 9). Wer nach dem Temperament gefragt wurde, soll auch lesen, ob die Maschine
+     trifft, was er wollte — sonst bleibt die Frage für ihn folgenlos. Genannt wird die Leistung,
+     weil sie die Zahl hinter dem Gefühl ist. */
+  if (breakdown.powerZiel !== undefined && typeof bike.kw === "number" && bike.kw > 0) {
+    const anteil = breakdown.power / WEIGHT.POWER;
+    const wort = { ruhig: "ruhig zu fahren", mittel: "ausgewogen motorisiert", voll: "reizt deine Klasse aus" };
+    if (anteil >= 0.7) {
+      plus.push(`${bike.kw} kW — ${wort[ctx.power] || "passt zu deinem Wunsch"}`);
+      kurz.push({ art: "plus", text: `${bike.kw} kW` });
+    } else if (anteil <= 0.3) {
+      const satz = ctx.power === "voll"
+        ? `${bike.kw} kW — zahmer, als du wolltest`
+        : `${bike.kw} kW — mehr Maschine, als du wolltest`;
+      aber.push(satz);
+      kurz.push({ art: "aber", text: `${bike.kw} kW` });
+    }
+  }
+
   if (ctx.isBeginner && (bike.weight || 0) >= 220) {
     aber.push(`${bike.weight} kg sind viel für den Anfang`);
     kurz.push({ art: "aber", text: `${bike.weight} kg` });

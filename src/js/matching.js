@@ -671,7 +671,13 @@ function scoreBike(bike, ctx) {
     else if (ueber > 0) kappe = KAPPE_HOCH;
     if (kappe < 1) breakdown.seatWarn = Math.round(ueber * 10) / 10;
   } else {
-    seatScore = WEIGHT.SEAT_HEIGHT * 0.5;
+    /* Ohne Angabe bisher pauschal die halbe Punktzahl. Für kleine Fahrer ist eine fehlende
+       Sitzhöhe aber kein neutraler Wert, sondern ein Risiko: die MV Agusta Brutale 750S stand
+       für eine 152 cm große Person auf Platz eins, ohne dass ihre Sitzhöhe irgendwo bekannt
+       wäre (17 von 1.179 Bikes haben keine). Je enger der sichere Bereich, desto weniger zählt
+       die Lücke — bei 70 cm noch ein Viertel, ab 82 cm wieder die Hälfte. */
+    const vertrauen = Math.min(0.5, Math.max(0.25, 0.25 + (ctx.sicherSeat - 70) / 48));
+    seatScore = WEIGHT.SEAT_HEIGHT * vertrauen;
   }
   score += seatScore;
   breakdown.seatHeight = Math.round(seatScore * 10) / 10;

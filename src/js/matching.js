@@ -927,9 +927,17 @@ export function findTopMatches(answers, n = 5) {
   // Edge case: no bike fits the budget at all (e.g. budget below the
   // cheapest available bike). Don't drop the budget constraint — fall
   // back to whichever license-eligible bike(s) are closest to it.
+  let budgetReichtNicht = false;
   if (survivors.length === 0) {
-    const licenseMatches = catalog.filter((b) => allowedLicenses.has(b.license));
-    const pool = licenseMatches.length > 0 ? licenseMatches : catalog;
+    budgetReichtNicht = Number.isFinite(budgetMax);
+    /* Nur Maschinen mit bekanntem Preis: preisAb() liefert für ein Bike ohne Preis 0, und 0 liegt
+       bei einem Budget von 500 EUR näher dran als jeder echte Preis — deshalb standen hier bisher
+       ausgerechnet die Bikes ohne Preisangabe (Wachhund über alle Kombinationen, 20.09.: 32.400
+       Befunde). Wer ein Budget nennt, soll auch im Notfall nur Maschinen sehen, deren Preis
+       belegt ist. Und die Sitzhöhe zählt hier genauso: für eine 150 cm große Person war die erste
+       Empfehlung sonst eine Maschine, auf der sie nicht steht. */
+    const mitPreis = catalog.filter((b) => allowedLicenses.has(b.license) && preisAb(b, budgetMax) > 0);
+    const pool = mitPreis.length > 0 ? mitPreis : catalog.filter((b) => preisAb(b, budgetMax) > 0);
     let closestPrice = Infinity;
     let closestDiff = Infinity;
     for (const b of pool) {
@@ -941,6 +949,15 @@ export function findTopMatches(answers, n = 5) {
     }
     for (const b of pool) {
       if (preisAb(b, budgetMax) === closestPrice) survivors.push(b);
+    }
+    /* Reicht das nicht für fünf, kommen die nächstteureren dazu — sonst entscheidet allein der
+       Zufall gleicher Preise, wie viele Vorschläge jemand sieht. */
+    if (survivors.length < n) {
+      for (const b of pool.slice().sort((x, y) =>
+        Math.abs(preisAb(x, budgetMax) - budgetMax) - Math.abs(preisAb(y, budgetMax) - budgetMax))) {
+        if (survivors.length >= n) break;
+        if (!survivors.includes(b)) survivors.push(b);
+      }
     }
   }
 
@@ -988,9 +1005,21 @@ export function findTopMatches(answers, n = 5) {
     jeStil.set(s, (jeStil.get(s) || 0) + 1);
     auswahl.push(r);
   }
-  for (const r of zurueck) {
-    if (auswahl.length >= n) break;
-    auswahl.push(r);
+  /* Nachfüllen in zwei Durchgängen: erst die, die die Markengrenze halten, dann der Rest. Vorher
+     füllte der eine Durchgang blind auf und riss die Grenze — drei Hondas unter fünf Treffern
+     (Wachhund über alle Kombinationen, 20.09.). Leer ausgehen soll aber weiter niemand, deshalb
+     der zweite Durchgang ohne Grenze. */
+  for (const streng of [true, false]) {
+    for (const r of zurueck) {
+      if (auswahl.length >= n) break;
+      if (auswahl.includes(r)) continue;
+      if (streng) {
+        const mk = (r.bike.brand || "").toLowerCase();
+        const schon = auswahl.filter((x) => (x.bike.brand || "").toLowerCase() === mk).length;
+        if (schon >= JE_MARKE) continue;
+      }
+      auswahl.push(r);
+    }
   }
 
   /* Stilgarantie: wer „Naked" wählt, soll mindestens eine Naked sehen, solange das Budget eine hergibt.
@@ -1001,7 +1030,17 @@ export function findTopMatches(answers, n = 5) {
     const wunsch = String(ctx.style).toLowerCase();
     const passt = (r) => String(r.bike.style || "").toLowerCase() === wunsch;
     if (!auswahl.some(passt)) {
-      const bester = scored.find(passt);
+      /* Der Tausch darf die Markengrenze nicht reißen: sonst standen bei A1/Sportbike/2.500 EUR
+         drei Hondas unter fünf Treffern (Wachhund, 20.09.). Erst die beste Wunschmaschine einer
+         Marke, die noch Platz hat; findet sich keine, zählt die Gattung mehr als die Vielfalt. */
+      const ohneLetzten = auswahl.slice(0, -1);
+      const jeMarkeRest = new Map();
+      for (const r of ohneLetzten) {
+        const mk = (r.bike.brand || "").toLowerCase();
+        jeMarkeRest.set(mk, (jeMarkeRest.get(mk) || 0) + 1);
+      }
+      const bester = scored.find((r) => passt(r) && (jeMarkeRest.get((r.bike.brand || "").toLowerCase()) || 0) < JE_MARKE)
+        || scored.find(passt);
       if (bester) {
         if (auswahl.length < n) auswahl.push(bester);
         else auswahl[auswahl.length - 1] = bester;
@@ -1034,15 +1073,21 @@ export function findTopMatches(answers, n = 5) {
          Gattungen heraus (gemessen 20.09.). */
       const ohneLetzten = auswahl.slice(0, -1);
       const zaehler = new Map();
+      const marken = new Map();
       for (const r of ohneLetzten) {
         const s = (r.bike.style || "").toLowerCase();
         zaehler.set(s, (zaehler.get(s) || 0) + 1);
+        const mk = (r.bike.brand || "").toLowerCase();
+        marken.set(mk, (marken.get(mk) || 0) + 1);
       }
+      // Auch die Markengrenze gilt hier: sonst tauschte die Garantie eine dritte Honda ein
+      // (Wachhund, 20.09.: A1/Sportbike/7.000 EUR/150 cm).
       const teuer = scored.find((r) => {
         if (auswahl.includes(r)) return false;
         if (preisAb(r.bike, ctx.budgetMax) < schwelle) return false;
         const s = (r.bike.style || "").toLowerCase();
-        return (zaehler.get(s) || 0) < stilGrenze;
+        if ((zaehler.get(s) || 0) >= stilGrenze) return false;
+        return (marken.get((r.bike.brand || "").toLowerCase()) || 0) < JE_MARKE;
       });
       if (teuer) auswahl[auswahl.length - 1] = teuer;
     }
@@ -1052,10 +1097,29 @@ export function findTopMatches(answers, n = 5) {
      das — statt still mit anderem aufzufüllen. Für A1 existiert zum Beispiel kein einziger Tourer
      (Durchlauf über alle Kombinationen, 2026-09-20). */
   let hinweis = null;
-  if (ctx.style && String(ctx.style).toLowerCase() !== "egal") {
+  /* Reicht das Budget für gar nichts, sagt das Ergebnis es. Vorher zeigte die Seite einfach die
+     günstigsten Maschinen, ohne zu erwähnen, dass sie über dem genannten Betrag liegen — wer 500 EUR
+     eingibt und eine 1.390-EUR-Maschine sieht, muss das erfahren (Wachhund, 20.09.). */
+  if (budgetReichtNicht && auswahl.length) {
+    const guenstigste = Math.min(...auswahl.map((r) => preisAb(r.bike, ctx.budgetMax) || Infinity));
+    if (Number.isFinite(guenstigste)) {
+      hinweis = `Für ${Math.round(ctx.budgetMax).toLocaleString("de-DE")} € gibt es auf dem deutschen Markt nichts — das Günstigste liegt bei ${Math.round(guenstigste).toLocaleString("de-DE")} €.`;
+    }
+  }
+  if (!hinweis && ctx.style && String(ctx.style).toLowerCase() !== "egal") {
     const wunsch = String(ctx.style).toLowerCase();
-    if (!scored.some((r) => String(r.bike.style || "").toLowerCase() === wunsch)) {
+    const wunschBikes = scored.filter((r) => String(r.bike.style || "").toLowerCase() === wunsch);
+    if (!wunschBikes.length) {
       hinweis = `${ctx.style} gibt es mit deinem Führerschein und Budget nicht — das hier kommt am nächsten.`;
+    } else if (auswahl.filter((r) => String(r.bike.style || "").toLowerCase() === wunsch).length <= 1) {
+      /* Die Wunschgattung ist da, kommt aber kaum durch. Meist liegt es an der Sitzhöhe: für eine
+         150 cm große Person sitzen alle A1-Sportbikes unter 2.500 EUR zu hoch, und die Kappe wiegt
+         schwerer als die Stilpunkte. Das ist richtig so — aber wer nach Sportbikes fragt und Roller
+         bekommt, hat ein Recht darauf zu erfahren, warum. */
+      const zuHoch = wunschBikes.filter((r) => (r.breakdown.seatWarn || 0) > 0).length;
+      if (zuHoch >= Math.ceil(wunschBikes.length * 0.6)) {
+        hinweis = `Fast alle ${ctx.style}-Modelle in deinem Budget sitzen zu hoch für sicheren Stand — deshalb stehen hier auch andere Gattungen.`;
+      }
     }
   }
 

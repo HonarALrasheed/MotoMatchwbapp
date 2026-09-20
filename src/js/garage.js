@@ -139,7 +139,7 @@ export function loadGarage(answers) {
   }
 
   // Build the full page
-  container.innerHTML = buildPage(bikeData);
+  container.innerHTML = buildPage(bikeData, true, topMatches.hinweis);
   container.scrollTop = 0;
   window.scrollTo(0, 0);
 
@@ -234,7 +234,7 @@ function preisDetails(bike) {
   return `<p class="bd-price-detail">${teile.join(" · ")} — Marktpreise 1000PS</p>`;
 }
 
-function buildPage(bike, fromQuiz = true) {
+function buildPage(bike, fromQuiz = true, hinweis = null) {
   const priceDisplay =
     bike.priceDisplay ||
     (typeof bike.price === "number"
@@ -269,6 +269,7 @@ function buildPage(bike, fromQuiz = true) {
         <h1 class="bd-model-name">${bike.name}</h1>
         <p class="bd-price">${priceDisplay}</p>
         ${preisDetails(bike)}
+        ${hinweis ? `<p class="bd-hinweis">${hinweis}</p>` : ""}
       </div>
     </section>
 

@@ -28,6 +28,19 @@ const questions = [
     ],
   },
   {
+    /* Charakter statt Zahlen (2026-09-20). Nach kW zu fragen hilft niemandem — die Antwort
+       bedeutet je nach Führerschein etwas anderes. Gefragt wird deshalb nach dem Gefühl,
+       gerechnet wird mit dem Anteil an dem, was die Klasse hergibt. */
+    id: 9,
+    question: "Wie viel Maschine soll es sein?",
+    hinweis: "Gemeint ist das Temperament innerhalb deiner Führerscheinklasse — nicht die reine Leistung.",
+    options: [
+      { value: "ruhig", label: "Ruhig und handlich" },
+      { value: "mittel", label: "Ausgewogen" },
+      { value: "voll", label: "So viel wie erlaubt" },
+    ],
+  },
+  {
     id: 3,
     question: "Welcher Stil spricht dich an?",
     /* Alle acht Gattungen, die es im Katalog gibt (2026-09-19). Vorher standen hier vier — Roller,
@@ -42,6 +55,7 @@ const questions = [
       { value: "Klassiker", label: "Klassiker / Retro" },
       { value: "Supermoto", label: "Supermoto" },
       { value: "Roller", label: "Roller" },
+      { value: "Egal", label: "Ist mir egal" },
     ],
   },
   {
@@ -52,17 +66,22 @@ const questions = [
       { value: "Urlaub", label: "Touren / Urlaub" },
       { value: "Gelände", label: "Gelände / Offroad" },
       { value: "Rennstrecke", label: "Rennstrecke / Performance" },
+      { value: "Cruisen", label: "Cruisen / Wochenende" },
     ],
   },
   {
     id: 5,
     question: "Dein Budget?",
+    hinweis: "Gemeint ist der Kaufpreis gebraucht. Unter 2.000 € gibt es fast nur Roller, ab 3.000 € wird die Auswahl breit.",
     type: "slider",
     unit: "€",
-    min: 1000,
+    min: 500,
     max: 30000,
     step: 500,
-    default: 10000,
+    /* Vorschlag war 10.000 € — der Median aller Katalogpreise liegt bei 6.591 €, und die meisten
+       suchen deutlich darunter (Nutzer 2026-09-20). Ein zu hoher Vorschlag zieht das Ergebnis nach
+       oben, weil das Budget-Kriterium teurere Maschinen bevorzugt. */
+    default: 4000,
     openEnded: true,
   },
   {
@@ -1279,7 +1298,7 @@ function showQuestion(i) {
     const numberInput = document.getElementById("q-slider-input");
     const nextBtn = document.getElementById("next-btn");
 
-    const stored = answers[`q${i + 1}`];
+    const stored = answers[`q${q.id}`];
     const initial = Number(stored) || (q.ableiten ? q.ableiten(answers) : q.default);
     slider.value = Math.min(q.max, Math.max(q.min, initial));
     numberInput.value = initial;
@@ -1290,13 +1309,13 @@ function showQuestion(i) {
        ohne erkennbaren Grund nicht weiter. Der gezeigte Wert gilt jetzt als
        gegebene Antwort und wird auch so gespeichert. */
     if (!stored) {
-      answers[`q${i + 1}`] = String(initial);
+      answers[`q${q.id}`] = String(initial);
       saveAnswers();
     }
     nextBtn.disabled = false;
 
     const commitValue = (value) => {
-      answers[`q${i + 1}`] = String(value);
+      answers[`q${q.id}`] = String(value);
       saveAnswers();
       nextBtn.disabled = false;
       pulseRpm();
@@ -1315,9 +1334,9 @@ function showQuestion(i) {
       commitValue(value);
     });
   } else {
-    if (answers[`q${i + 1}`]) {
+    if (answers[`q${q.id}`]) {
       const pre = container.querySelector(
-        `[data-value="${answers[`q${i + 1}`]}"]`,
+        `[data-value="${answers[`q${q.id}`]}"]`,
       );
       if (pre) pre.classList.add("selected");
       document.getElementById("next-btn").disabled = false;
@@ -1329,7 +1348,7 @@ function showQuestion(i) {
           .querySelectorAll(".opt-btn")
           .forEach((b) => b.classList.remove("selected"));
         btn.classList.add("selected");
-        answers[`q${i + 1}`] = btn.dataset.value;
+        answers[`q${q.id}`] = btn.dataset.value;
         saveAnswers();
         document.getElementById("next-btn").disabled = false;
         pulseRpm();

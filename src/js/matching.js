@@ -305,7 +305,18 @@ const WEIGHT = Object.freeze({
      Sitzhöhe. Dann soll das Bike gewinnen, das hier tatsächlich gefahren und gehandelt
      wird — Neuzulassungen (KBA) bzw. Zahl der Inserate, im Katalog als `pop` (0–1). */
   POPULARITY: 18,
+  /* Charakter: wie viel Maschine es sein soll (Frage 9, 2026-09-20). Gemeint ist nicht die
+     Leistung in kW — die sagt ohne die Klasse nichts —, sondern wie weit das Bike die
+     Führerscheinklasse ausreizt. Eine 11-kW-125er ist für A1 „so viel wie geht", für A
+     ein Spielzeug. Gewichtet zwischen Sozius (15) und Führerschein (20): eine ernste
+     Vorliebe, aber keine, die Stil oder Budget aussticht. */
+  POWER: 20,
 });
+
+/* Was die Klasse hergibt. A ist offen — 120 kW als Bezug: darüber beginnt das, was
+   auch in der offenen Klasse als viel gilt (S 1000 RR: 152 kW, R 1250 GS: 100 kW). */
+const LEISTUNGS_DECKEL = Object.freeze({ A1: 11, B196: 11, A2: 35, A: 120 });
+const LEISTUNGS_ZIEL = Object.freeze({ ruhig: 0.3, mittel: 0.6, voll: 1 });
 
 /* Körperliche Passung ist keine Geschmacksfrage: wer mit den Zehenspitzen nicht sicher steht, dem nützt
    die schönste Maschine nichts. Bisher kostete jeder Zentimeter Sitzhöhe 0,9 Punkte — eine 95er-Enduro
@@ -330,6 +341,24 @@ const JE_MARKE = 2;
    Maschine seiner Klasse. Offroad-Maschinen brauchen fuer die Strasse
    ohnehin den A-Schein und stehen deshalb auf derselben Stufe. */
 const LICENSE_RANK = Object.freeze({ A1: 1, B196: 1, A2: 2, A: 3, Offroad: 3 });
+
+/**
+ * Darf dieser Fahrer dieses Motorrad fahren?
+ *
+ * Die Klasse im Katalog sagt, was die Maschine ab Werk verlangt. Viele A-Maschinen lassen sich aber auf
+ * 35 kW drosseln und sind damit für A2 zugelassen — im Katalog steht das als `a2` (Feld a2_drosselbar aus
+ * dem 1000PS-Datensatz). Ohne diese Zeile blieben 231 von 431 A2-tauglichen Bikes unsichtbar, darunter 6
+ * der 8 A2-Supermotos (gemessen 2026-09-20, nachdem der Nutzer fragte, warum für A2 so wenig übrig bleibt).
+ */
+function darfFahren(bike, klasse, erlaubt) {
+  if (erlaubt.has(bike.license)) return true;
+  return klasse === "A2" && Boolean(bike.a2);
+}
+
+/** Muss die Maschine dafür gedrosselt werden? */
+function gedrosselt(bike, klasse) {
+  return klasse === "A2" && bike.license !== "A2" && Boolean(bike.a2) && LICENSE_RANK[bike.license] > 2;
+}
 
 // License class compatibility (what each class can legally ride)
 const LICENSE_ALLOWS = Object.freeze({
@@ -357,6 +386,7 @@ function sichereSitzhoehe(heightCm, schrittCm) {
 // Use case aliases for fuzzy matching
 const USE_ALIASES = Object.freeze({
   Urlaub: "Touring",
+  Wochenende: "Cruisen",
   Pendeln: "Pendeln",
   "Gelände": "Gelande",
   Gelande: "Gelande",
@@ -513,6 +543,16 @@ function soziusTauglich(bike) {
 //  INTERNAL: Score a single bike against answers
 // ══════════════════════════════════════════════════════════════
 
+/* Wie weit reizt die Maschine die Klasse aus? 0 = zahm, 1 = am Anschlag.
+   Ohne Leistungsangabe null — dann wird weder belohnt noch bestraft. */
+function charakter(bike, klasse) {
+  const kw = typeof bike.kw === "number" && bike.kw > 0 ? bike.kw : null;
+  if (!kw) return null;
+  // Gedrosselt fährt sie mit 35 kW, nicht mit ihrer vollen Leistung.
+  const wirksam = gedrosselt(bike, klasse) ? Math.min(kw, 35) : kw;
+  return Math.min(1, wirksam / (LEISTUNGS_DECKEL[klasse] || LEISTUNGS_DECKEL.A));
+}
+
 function scoreBike(bike, ctx) {
   const breakdown = {};
   let score = 0;
@@ -520,7 +560,12 @@ function scoreBike(bike, ctx) {
   // Style match
   const bikeStyle = (bike.style || "").toLowerCase();
   const wantStyle = (ctx.style || "").toLowerCase();
-  if (
+  /* „Ist mir egal": keine Gattung wird bevorzugt. Alle bekommen die volle Punktzahl, damit die
+     Prozente vergleichbar bleiben — entschieden wird dann über Einsatz, Budget, Sitzhöhe und Markt. */
+  if (wantStyle === "egal") {
+    score += WEIGHT.STYLE;
+    breakdown.style = WEIGHT.STYLE;
+  } else if (
     bikeStyle === wantStyle ||
     bikeStyle.includes(wantStyle) ||
     wantStyle.includes(bikeStyle)
@@ -563,7 +608,11 @@ function scoreBike(bike, ctx) {
     budgetScore = 0;
   } else {
     const ratio = ctx.budgetMax > 0 ? bikePrice / ctx.budgetMax : 1;
-    budgetScore = WEIGHT.BUDGET * Math.min(1, Math.max(0.2, ratio / 0.4));
+    /* Volle Punkte ab 30 % des Budgets (vorher 40 %): Die meisten suchen bewusst günstig
+       (Nutzer 2026-09-20) — ein Bike, das nur ein Drittel des Budgets kostet, ist für sie kein
+       Makel, sondern der Grund für die Suche. Ganz ohne Gefälle bliebe die Auswahl allerdings
+       immer am untersten Ende kleben, deshalb bleibt die Kurve. */
+    budgetScore = WEIGHT.BUDGET * Math.min(1, Math.max(0.25, ratio / 0.3));
     if (bike.priceConfidence === "einzelangebot") budgetScore *= EINZELANGEBOT;
   }
   score += budgetScore;
@@ -573,12 +622,22 @@ function scoreBike(bike, ctx) {
      bereits (harter Filter). Die Frage ist nur noch, ob sie zur Klasse passt:
      gleiche Stufe gibt Punkte, zwei Stufen darunter kostet welche. */
   const riderRank = LICENSE_RANK[ctx.licenseClass] || 3;
-  const bikeRank = LICENSE_RANK[bike.license] || 1;
+  const drossel = gedrosselt(bike, ctx.licenseClass);
+  // Gedrosselt ist die Maschine eine A2-Maschine — sie zählt deshalb als passend, nicht als zu groß.
+  const bikeRank = drossel ? riderRank : LICENSE_RANK[bike.license] || 1;
+  const stufen = riderRank - bikeRank;
   let licenseScore = 0;
-  if (bikeRank === riderRank) licenseScore = WEIGHT.LICENSE_FIT;
-  else if (riderRank - bikeRank >= 2) licenseScore = WEIGHT.LICENSE_UNDER;
+  /* Eine Treppe statt einer Schwelle: Bisher kostete erst der Abstand von zwei Klassen Punkte —
+     eine 125er stand damit für A2-Fahrer punktgleich neben einer A2-Maschine mit dreifacher
+     Leistung und gewann über Preis und Verbreitung (Test des Nutzers 2026-09-20: A2 + Supermoto
+     lieferte ab Platz zwei nur 125er). Jetzt kostet schon eine Klasse Abstand die halbe Strafe. */
+  // Die Drosselung kostet Geld und Papierkram — deshalb drei Viertel der Punkte, nicht alle.
+  if (stufen === 0) licenseScore = drossel ? WEIGHT.LICENSE_FIT * 0.75 : WEIGHT.LICENSE_FIT;
+  else if (stufen === 1) licenseScore = WEIGHT.LICENSE_UNDER / 2;
+  else if (stufen >= 2) licenseScore = WEIGHT.LICENSE_UNDER;
   score += licenseScore;
   breakdown.license = licenseScore;
+  if (drossel) breakdown.drossel = true;
 
   /* Sitzhöhe. Ohne Angabe (im Vollkatalog fehlt sie bei rund einem Drittel) gibt es die
      halbe Punktzahl — ein unbekannter Wert soll weder belohnen noch bestrafen. */
@@ -604,6 +663,21 @@ function scoreBike(bike, ctx) {
   } else {
     breakdown.passenger = 0;
   }
+
+  /* Charakter (Frage 9). Wurde nicht gefragt — alte gespeicherte Antworten, Aufruf aus dem
+     Match-Reiter —, bekommt jedes Bike die volle Punktzahl: eine Frage, die niemand beantwortet
+     hat, darf keine Maschine schlechter dastehen lassen. */
+  const ziel = LEISTUNGS_ZIEL[ctx.power];
+  let powerScore;
+  if (ziel === undefined) {
+    powerScore = WEIGHT.POWER;
+  } else {
+    const c = charakter(bike, ctx.licenseClass);
+    // Ohne Leistungsangabe die Mitte. Sonst: 0,6 Abstand im Charakter kostet alle Punkte.
+    powerScore = c === null ? WEIGHT.POWER * 0.5 : WEIGHT.POWER * Math.max(0, 1 - Math.abs(c - ziel) / 0.6);
+  }
+  score += powerScore;
+  breakdown.power = Math.round(powerScore * 10) / 10;
 
   /* Verbreitung: `pop` steht im Vollkatalog (Neuzulassungen, sonst Inserate und Bewertung).
      Bikes aus dem alten Katalog ohne Wert bekommen die Mitte, damit sie nicht zurückfallen. */
@@ -679,6 +753,7 @@ function buildContext(answers = {}) {
       // Beide wandern jetzt in die Bewertung statt nur in den harten Filter.
       budgetMax: Number(answers.q5) || Infinity,
       licenseClass: answers.q1,
+      power: answers.q9,
     },
   };
 }
@@ -715,6 +790,7 @@ export function scoreBikeAgainst(bike, answers) {
     WEIGHT.SEAT_HEIGHT +
     WEIGHT.LICENSE_FIT +
     WEIGHT.POPULARITY +
+    WEIGHT.POWER +
     (ctx.wantsPassenger ? WEIGHT.PASSENGER : 0);
 
   return {
@@ -723,7 +799,7 @@ export function scoreBikeAgainst(bike, answers) {
     pct: Math.max(0, Math.min(100, Math.round((score / maxScore) * 100))),
     breakdown,
     fits: {
-      license: allowedLicenses.has(bike.license),
+      license: darfFahren(bike, answers.q1, allowedLicenses),
       budget: fitsBudget,
     },
   };
@@ -802,8 +878,8 @@ export function findTopMatches(answers, n = 5) {
   for (let i = 0; i < catalog.length; i++) {
     const bike = catalog[i];
 
-    // License hard constraint
-    if (!allowedLicenses.has(bike.license)) continue;
+    // License hard constraint — Drosselung zählt als zulässig
+    if (!darfFahren(bike, ctx.licenseClass, allowedLicenses)) continue;
 
     /* Budget — gerechnet wird mit dem Gebrauchtpreis des passenden Baujahrs. Ein Bike ohne Preis fiel hier
        bisher durchs Raster: preisAb() liefert 0, und 0 ist nie größer als das Budget — also überlebte jede
@@ -882,7 +958,7 @@ export function findTopMatches(answers, n = 5) {
      Ohne diese Regel verdrängten bei knappem Budget andere Gattungen mit besserer Führerscheinpassung den
      einzigen Treffer der Wunschgattung — bei 1.500 € stand keine einzige Naked im Ergebnis, obwohl es eine
      gab (Golden Set, Profil „Sparfuchs"). */
-  if (ctx.style) {
+  if (ctx.style && String(ctx.style).toLowerCase() !== "egal") {
     const wunsch = String(ctx.style).toLowerCase();
     const passt = (r) => String(r.bike.style || "").toLowerCase() === wunsch;
     if (!auswahl.some(passt)) {
@@ -899,12 +975,24 @@ export function findTopMatches(answers, n = 5) {
      wie er gegen das restliche Feld dasteht. */
   const maxMoeglich =
     WEIGHT.STYLE + WEIGHT.USE_CASE + WEIGHT.BUDGET + WEIGHT.SEAT_HEIGHT +
-    WEIGHT.LICENSE_FIT + WEIGHT.POPULARITY + (ctx.wantsPassenger ? WEIGHT.PASSENGER : 0);
+    WEIGHT.LICENSE_FIT + WEIGHT.POPULARITY + WEIGHT.POWER +
+    (ctx.wantsPassenger ? WEIGHT.PASSENGER : 0);
   const beste = scored[0].score;
   const schwaechste = scored[scored.length - 1].score;
   const spanne = Math.max(1, beste - schwaechste);
 
-  return auswahl.map((r) => {
+  /* Gibt es die Wunschgattung in dieser Klasse und diesem Budget überhaupt nicht, sagt das Ergebnis
+     das — statt still mit anderem aufzufüllen. Für A1 existiert zum Beispiel kein einziger Tourer
+     (Durchlauf über alle Kombinationen, 2026-09-20). */
+  let hinweis = null;
+  if (ctx.style && String(ctx.style).toLowerCase() !== "egal") {
+    const wunsch = String(ctx.style).toLowerCase();
+    if (!scored.some((r) => String(r.bike.style || "").toLowerCase() === wunsch)) {
+      hinweis = `${ctx.style} gibt es mit deinem Führerschein und Budget nicht — das hier kommt am nächsten.`;
+    }
+  }
+
+  const ergebnis = auswahl.map((r) => {
     const absolut = Math.min(1, Math.max(0, r.score / maxMoeglich));
     const imFeld = Math.min(1, Math.max(0, (r.score - schwaechste) / spanne));
     const angereichert = {
@@ -933,6 +1021,9 @@ export function findTopMatches(answers, n = 5) {
       },
     };
   });
+  // Nicht aufzählbar, damit Code, der über die Treffer läuft, nichts davon merkt.
+  Object.defineProperty(ergebnis, "hinweis", { value: hinweis, enumerable: false });
+  return ergebnis;
 }
 
 /**
@@ -986,6 +1077,10 @@ export function begruendung({ bike, breakdown }, ctx) {
     if (luft > ctx.budgetMax * 0.25) plus.push(`${euro(preis)} — ${euro(luft)} unter deinem Budget`);
     else plus.push(`${euro(preis)} — passt ins Budget`);
     kurz.push({ art: "plus", text: luft > ctx.budgetMax * 0.25 ? `${euro(luft)} unter Budget` : "im Budget" });
+  }
+  if (breakdown.drossel) {
+    aber.push("muss für A2 auf 35 kW gedrosselt werden");
+    kurz.push({ art: "aber", text: "Drosselung nötig" });
   }
   if (bike.priceConfidence === "einzelangebot") {
     aber.push("Preis stammt aus einem einzelnen Inserat, nicht aus einem Marktschnitt");

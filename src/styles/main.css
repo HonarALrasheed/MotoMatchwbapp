@@ -1122,6 +1122,11 @@ select.p-auth-input {
 .quiz-options.cols-2 {
   grid-template-columns: 1fr 1fr;
 }
+/* Ungerade Anzahl: Der letzte Knopf nimmt die ganze Reihe, statt allein neben einer Lücke zu stehen
+   („Ist mir egal" bei neun Stilen). Gilt für jede Frage mit ungerader Antwortzahl. */
+.quiz-options.cols-2 > .opt-btn:last-child:nth-child(odd) {
+  grid-column: 1 / -1;
+}
 
 .quiz-nav {
   display: flex;
@@ -14056,3 +14061,16 @@ html {
 /* Die Stummschaltung war orange — dasselbe Thema. Ein stummer Kanal ist kein
    Warnzustand, sondern ein abgeschalteter: gedämpft statt bunt. */
 .mmc-bell-btn.is-muted { color: rgba(255, 255, 255, 0.3); }
+
+/* Ehrlicher Hinweis unter dem Preis, wenn es die Wunschgattung in dieser Klasse gar nicht gibt —
+   dieselbe bernsteinfarbene Sprache wie die Hinweiszeilen im Match-Reiter. */
+.bd-hinweis {
+  margin: 10px auto 0;
+  max-width: 520px;
+  font-size: 13px;
+  line-height: 1.5;
+  color: #7a5c1e;
+  background: #fbf6ee;
+  border-radius: 10px;
+  padding: 8px 14px;
+}

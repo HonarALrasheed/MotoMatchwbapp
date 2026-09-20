@@ -545,9 +545,18 @@ function preisWahl(bike, budget) {
    eine Vespa GTS 300 wiegt 158 kg und schon. Bauart zuerst, dann Gewicht/Hubraum. */
 function soziusTauglich(bike) {
   if (bike.style === "Supermoto") return false;
-  if ((bike.cc || 0) && bike.cc < 125) return false;
-  if (["Touring", "Cruiser", "Klassiker", "Roller"].includes(bike.style)) return (bike.cc || 0) >= 125;
-  return (bike.weight || 0) >= 170 || (bike.cc || 0) >= 500;
+  const cc = bike.cc || 0;
+  const kg = bike.weight || 0;
+  if (cc && cc < 125) return false;
+  /* Enduro ist die einzige Gattung, in der beides vorkommt: die Reiseenduro mit Sitzbank für zwei
+     (R 1250 GS, 249 kg) und die Wettbewerbsmaschine ohne (KTM 500 EXC-F, 106 kg). Das Gewicht
+     trennt sie zuverlässig — eine zugelassene Enduro mit Soziusplatz wiegt ab 135 kg (Honda
+     CRF300L 142 kg, KTM 690 Enduro R 146 kg). Ohne Gewichtsangabe entscheidet der Hubraum. */
+  if (bike.style === "Enduro") return kg ? kg >= 135 : cc >= 250;
+  /* Alle übrigen Straßenmaschinen ab 125 ccm haben serienmäßig einen Soziusplatz. Die alte Regel
+     verlangte 170 kg oder 500 ccm und sortierte damit die halbe Mittelklasse aus: KTM 390 Duke
+     (165 kg, 373 ccm), Kawasaki Ninja 400, BMW G 310 R — 48 Maschinen (gemessen 20.09.). */
+  return cc >= 125 || kg >= 150;
 }
 
 // ══════════════════════════════════════════════════════════════

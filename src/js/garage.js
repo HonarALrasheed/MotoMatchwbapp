@@ -229,7 +229,17 @@ function preisDetails(bike) {
   const euro = (n) => `${Math.round(n).toLocaleString("de-DE")} €`;
   const teile = [];
   if (bike.priceNew) teile.push(`neu ca. ${euro(bike.priceNew)}`);
-  if (bike.priceUsed) teile.push(`gebraucht${bike.priceYear ? ` (${bike.priceYear})` : ""} ca. ${euro(bike.priceUsed)}`);
+  if (bike.priceUsed) {
+    /* `priceYear` bedeutet zweierlei: bei einem Katalogpreis das Modelljahr, bei einem Median aus
+       Inseraten dagegen den Tag der Erhebung. Beides gleich zu beschriften las sich falsch — die
+       Honda XL1000V Varadero (gebaut bis 2013) stand mit „gebraucht (2026)" da, als gäbe es sie
+       als 2026er Modell. Betroffen waren 348 Bikes, deren Preis aus Inseraten stammt. */
+    const ausInseraten = /Inserate/i.test(bike.priceSource || "");
+    const jahr = bike.priceYear
+      ? (ausInseraten ? ` (Stand ${bike.priceYear})` : ` (${bike.priceYear})`)
+      : "";
+    teile.push(`gebraucht${jahr} ca. ${euro(bike.priceUsed)}`);
+  }
   if (!teile.length) return "";
   return `<p class="bd-price-detail">${teile.join(" · ")} — Marktpreise 1000PS</p>`;
 }

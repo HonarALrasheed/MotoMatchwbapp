@@ -156,14 +156,14 @@ export async function requireUser(req) {
 /**
  * Tageskontingent pro Nutzer und Endpoint.
  *
- * Größenordnung: der Markt-Reiter macht 1 search-places-Aufruf pro
- * geöffnetem Bike. Die Werte liegen
- * bewusst weit über normaler Nutzung — sie sollen einen durchgedrehten Client
- * oder ein gestohlenes Token deckeln, nicht echte Nutzer bremsen.
+ * Derzeit leer: der einzige Endpoint mit Kosten pro Aufruf, search-places
+ * (Tavily, 60 am Tag), ist seit 2026-09-21 abgeschaltet. Ein neuer solcher
+ * Endpoint trägt hier sein Limit ein und ruft checkDailyLimit() nach
+ * requireUser() auf. Die Werte gehören weit über normale Nutzung — sie sollen
+ * einen durchgedrehten Client oder ein gestohlenes Token deckeln, nicht echte
+ * Nutzer bremsen.
  */
-const DAILY_LIMITS = {
-  "search-places": 60,
-};
+const DAILY_LIMITS = {};
 
 /**
  * Zählt einen Aufruf und sagt, ob er noch im Kontingent liegt.

@@ -1,21 +1,15 @@
 /**
  * ══════════════════════════════════════════════════════════════
- *  MOTOMATCH — marketplace.js  v2.1
- *  Marketplace listings über den Server-Proxy.
+ *  MOTOMATCH — marketplace.js  v3.0
+ *  Suchlinks zu den großen Gebrauchtmärkten, schon auf ein Modell eingestellt.
  *
- *  /api/search-places ruft Tavily auf und kostet damit Geld. Der Endpoint
- *  verlangt deshalb eine gültige Supabase-Session (siehe api/_shared.js) —
- *  ohne Authorization-Header antwortet er mit 401. Gleiches Muster wie
- *  src/js/voice.js für /api/livekit-token.
- *
- *  Ohne Anmeldung bleibt items leer; die Aufrufseite (garage.js) zeigt dann
- *  ihren Leerzustand mit den drei Suchlinks aus buildSearchUrls().
+ *  Bis 2026-09-21 holte getLiveListings() über /api/search-places fünf
+ *  Websuche-Treffer von Tavily dazu. Abgeschaltet auf Wunsch des Nutzers:
+ *  Titel und Link ohne Preis, oft nur Kategorieseiten, und jede Suche
+ *  kostete Geld. Die drei Links zeigen dagegen alle aktuellen Inserate.
+ *  Alte Fassung und Endpoint: _archiv/2026-09-21/.
  * ══════════════════════════════════════════════════════════════
  */
-
-import { supabase, OFFLINE_MODE } from "./supabase.js";
-
-const PROXY_URL = "/api/search-places";
 
 export function buildSearchUrls(bikeName) {
   const query = encodeURIComponent(bikeName);
@@ -24,39 +18,4 @@ export function buildSearchUrls(bikeName) {
     mobile: `https://suchen.mobile.de/motorrad/search.html?q=${query}`,
     ebay: `https://www.ebay.de/sch/i.html?_nkw=${query}+motorrad`,
   };
-}
-
-export async function getLiveListings(bikeName) {
-  const urls = buildSearchUrls(bikeName);
-
-  // Ohne Backend (Demo-Modus) oder ohne Anmeldung gibt es kein Token — den
-  // Aufruf dann gar nicht erst absetzen, er könnte nur 401 werden.
-  if (OFFLINE_MODE || !supabase) return { items: [], urls };
-
-  let session = null;
-  try {
-    ({ data: { session } } = await supabase.auth.getSession());
-  } catch (_) {
-    return { items: [], urls };
-  }
-  if (!session) return { items: [], urls };
-
-  try {
-    const proxyRes = await fetch(PROXY_URL, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${session.access_token}`,
-      },
-      body: JSON.stringify({ bikeName }),
-    });
-    if (proxyRes.ok) {
-      const data = await proxyRes.json();
-      return { items: data.items || [], urls };
-    }
-  } catch (_) {
-    // Proxy nicht erreichbar
-  }
-
-  return { items: [], urls };
 }

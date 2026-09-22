@@ -28,7 +28,7 @@ import {
 import { addMatch } from "./match-history.js";
 import { bikeBild, hatFoto, kachelFuerHero } from "./bike-bild.js";
 import { getGear } from "./gear.js";
-import { buildSearchUrls, getLiveListings } from "./marketplace.js";
+import { buildSearchUrls } from "./marketplace.js";
 import { esc } from "./util.js";
 
 // Einmaliger, dezenter Puls auf der Tab-Leiste, damit Nutzer merken, dass
@@ -810,11 +810,20 @@ function renderTab(tab, bikeData, answers) {
         .join("")}
     `;
   } else if (tab === "market") {
+    /* Nur die drei Suchlinks, schon auf dieses Modell eingestellt. Bis 2026-09-21 holte
+       /api/search-places über Tavily fünf Websuche-Treffer dazu — Titel und Link ohne
+       Preis, oft nur Kategorieseiten, und jede Suche kostete Geld. Die Links zeigen alle
+       aktuellen Inserate; was ein gebrauchtes Exemplar kostet, steht schon in den
+       Katalogpreisen. Davor sprangen hier erfundene Inserate ein — nie etwas zeigen, das
+       wie ein echtes Angebot aussieht, ohne eins zu sein. */
     const urls = buildSearchUrls(bikeData.name);
     content.innerHTML = `
       <p class="gr-section-label">Gebrauchtmarkt</p>
-      <div id="gr-market-listings" class="gr-market-list">
-        <p class="gr-meta-text">Suche Angebote...</p>
+      <div class="gr-market-list">
+        <p class="gr-meta-text">
+          Aktuelle Inserate findest du direkt bei den großen Marktplätzen \u2014 die Suche
+          ist schon auf dieses Modell eingestellt.
+        </p>
       </div>
       <div class="gr-market-links">
         <a href="${urls.kleinanzeigen}" target="_blank" rel="noopener" class="gr-market-link">Kleinanzeigen</a>
@@ -822,39 +831,6 @@ function renderTab(tab, bikeData, answers) {
         <a href="${urls.ebay}" target="_blank" rel="noopener" class="gr-market-link">eBay</a>
       </div>
     `;
-    /* Liefert die Suche nichts, steht hier ein Hinweis statt einer Liste.
-       Frueher sprangen an dieser Stelle erfundene Inserate mit Preisen und
-       Kilometerstaenden ein — die sahen aus wie echte Angebote, waren aber
-       keine. Die drei Suchlinks direkt darunter sind der Weg nach vorn. */
-    const renderMarketEmpty = () => {
-      const el = document.getElementById("gr-market-listings");
-      if (!el) return;
-      el.innerHTML = `
-        <p class="gr-meta-text">
-          Aktuell keine Angebote abrufbar. Suche direkt bei Kleinanzeigen,
-          Mobile.de oder eBay \u2014 die Links stehen darunter.
-        </p>`;
-    };
-    getLiveListings(bikeData.name)
-      .then(({ items }) => {
-        const el = document.getElementById("gr-market-listings");
-        if (!el) return;
-        if (!items.length) {
-          renderMarketEmpty();
-          return;
-        }
-        el.innerHTML = items
-          .map(
-            (item) => `
-          <a href="${esc(item.url)}" target="_blank" rel="noopener" class="gr-listing-item">
-            <span class="gr-listing-title">${esc(item.title)}</span>
-            <span class="gr-listing-meta">${esc(item.source)}</span>
-          </a>
-        `,
-          )
-          .join("");
-      })
-      .catch(renderMarketEmpty);
   } else if (tab === "map") {
     // Redirect to hub section
     document

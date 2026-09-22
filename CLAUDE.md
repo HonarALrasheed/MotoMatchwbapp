@@ -78,6 +78,12 @@ Wichtigste Module in `src/js/`:
 - Im Build gilt Base-Pfad `/app/` — absolute Asset-Pfade im Code (z. B. `/models/…`) funktionieren nur, weil Vite sie beim Build umschreibt bzw. die Assets unter `/app/` landen; bei 404s in Produktion zuerst hier suchen.
 
 ## API-Schutz
+**Stand 2026-09-21:** `api/ai-match.js` (OpenAI) und `api/search-places.js` (Tavily) gibt es nicht
+mehr — die Gebrauchtsuche ist auf Wunsch des Nutzers abgeschaltet (alte Fassung in `_archiv/2026-09-21/`),
+der Markt-Reiter zeigt nur noch die drei Suchlinks. Kein Endpoint ruft derzeit einen pro Aufruf
+abgerechneten Dienst auf, `DAILY_LIMITS` ist leer. Das Muster unten gilt für jeden künftigen solchen
+Endpoint.
+
 Die kostenpflichtigen Upstream-Endpoints (`api/ai-match.js` → OpenAI,
 `api/search-places.js` → Tavily) hängen an einer **Supabase-Session**, nicht am
 Origin-Header. Reihenfolge in beiden Handlern, Helfer alle aus

@@ -13,7 +13,7 @@
 
 // Zentrale, plattformweite Auth — dieselbe Session/DB wie im Community-Bereich
 import * as auth from './auth.js'
-import { getCatalog } from './matching.js'
+import { getCatalog, preisAb } from './matching.js'
 import { bikeBild } from './bike-bild.js'
 import { esc, fmtDate, fmtRelative } from './util.js'
 
@@ -188,7 +188,7 @@ function buildAccountHTML() {
 
             <nav class="acc-navlist" role="tablist">
               ${navItems.map(([id, label, icon, count], i) => `
-                <button class="acc-navitem ${i === 0 ? 'acc-navitem--active' : ''}" data-tab="${id}">
+                <button class="acc-navitem ${i === 0 ? 'acc-navitem--active' : ''}" data-tab="${id}" aria-label="${label}">
                   <span class="acc-navitem-ic">${icon}</span>
                   <span class="acc-navitem-label">${label}</span>
                   ${count != null ? `<span class="acc-navcount">${count}</span>` : '<span class="acc-navchev">›</span>'}
@@ -446,12 +446,35 @@ function renderOverview() {
   `
 }
 
-/* ─── Bike comparison data + storage ─── */
+/* ─── Bike comparison data + storage ───
+   COMPARE_SPECS deckt nur die vier Schaustück-Bikes ab — jedes echte
+   Katalog-Bike (aus "Zuletzt angesehen" oder der Suche) fand hier nie einen
+   Eintrag und zeigte deshalb überall "–" (2026-09-27 Audit). Specs kommen
+   jetzt live aus dem Katalog, COMPARE_SPECS bleibt nur als Fallback für die
+   vier Demo-Namen ohne echten Katalogeintrag. */
 const COMPARE_SPECS = {
   'Iron 883':      { ps: 51, weight: 256, accel: 6.5, topSpeed: 161, cc: 883,  price: 7000 },
   'Seventy-Two':   { ps: 66, weight: 255, accel: 5.2, topSpeed: 170, cc: 1202, price: 15000 },
   'CB 750 F':      { ps: 67, weight: 235, accel: 5.8, topSpeed: 200, cc: 736,  price: 12000 },
   '500 Custom':    { ps: 48, weight: 200, accel: 6.0, topSpeed: 180, cc: 500,  price: 6500 },
+}
+const BRAND_PREFIX = /^(Honda|Yamaha|Harley-Davidson|Suzuki|Kawasaki|BMW|Ducati|KTM|Triumph)\s+/i
+function findCatalogBikeByFullName(name) {
+  return getCatalog().find(b => (b.name || '').replace(BRAND_PREFIX, '') === name) || null
+}
+function compareSpecsFor(name) {
+  const bike = findCatalogBikeByFullName(name)
+  if (!bike) return COMPARE_SPECS[name] || null
+  const preis = preisAb(bike, Infinity)
+  return {
+    ps: bike.ps ?? null,
+    weight: bike.weight ?? null,
+    accel: bike.accel ?? null,
+    topSpeed: bike.topSpeed ?? null,
+    cc: bike.cc ?? null,
+    // price=1 ist der Katalog-Platzhalter für "kein echter Preis ermittelbar".
+    price: Number.isFinite(preis) && preis > 1 ? preis : null,
+  }
 }
 function getCompareSet() {
   try { return JSON.parse(localStorage.getItem('mm_compare_v1') || '[]') } catch { return [] }
@@ -498,7 +521,7 @@ function renderCompare() {
     let bestVal = null
     let bestName = null
     set.forEach(name => {
-      const v = COMPARE_SPECS[name]?.[key]
+      const v = compareSpecsFor(name)?.[key]
       if (v == null) return
       if (bestVal === null) { bestVal = v; bestName = name; return }
       if (lowerBetter[key] ? v < bestVal : v > bestVal) { bestVal = v; bestName = name }
@@ -531,8 +554,8 @@ function renderCompare() {
             <div class="acc-cmp-row">
               <div class="acc-cmp-label">${specLabels[key]}</div>
               ${set.map(name => {
-                const v = COMPARE_SPECS[name]?.[key] ?? '—'
-                const display = key === 'price' ? `${v.toLocaleString('de-DE')} €` : v
+                const v = compareSpecsFor(name)?.[key] ?? '—'
+                const display = key === 'price' && v !== '—' ? `${v.toLocaleString('de-DE')} €` : v
                 return `<div class="acc-cmp-cell ${name === best ? 'acc-cmp-cell--best' : ''}">${display}${name === best ? ' <span class="acc-cmp-best-tag">BEST</span>' : ''}</div>`
               }).join('')}
             </div>
@@ -687,10 +710,20 @@ function renderMaintenance() {
   const intervals = getBikeIntervals(activeBike.style)
 
   // Compute next service urgency
+  const MONTH_MS = 1000 * 60 * 60 * 24 * 30.44
   const urgentCount = intervals.filter(iv => {
-    if (!iv.km) return false
-    const lastKm = bData[iv.key + '_km'] || 0
-    return (currentKm - lastKm) >= (iv.km - 500)
+    if (iv.km) {
+      const lastKm = bData[iv.key + '_km'] || 0
+      return (currentKm - lastKm) >= (iv.km - 500)
+    }
+    if (iv.months) {
+      // zeitbasiert (TÜV/AU): nutzt dasselbe "_date"-Feld, das der "Erledigt"-Button für alle Intervalle setzt
+      const lastDate = bData[iv.key + '_date']
+      if (!lastDate) return false
+      const elapsedMonths = (Date.now() - lastDate) / MONTH_MS
+      return elapsedMonths >= (iv.months - 2)
+    }
+    return false
   }).length
 
   const heroIcon = activeBike.image
@@ -738,15 +771,17 @@ function renderMaintenance() {
           const lastKm = bData[iv.key + '_km'] || 0
           const lastDate = bData[iv.key + '_date']
           const pct = iv.km ? Math.max(0, Math.min(100, ((currentKm - lastKm) / iv.km) * 100)) : 0
-          const remain = iv.km ? (lastKm + iv.km) - currentKm : null
-          const urgent = remain !== null && remain < 500
+          // TÜV/AU (kein .km, dafuer .months) laeuft zeitbasiert statt km-basiert
+          const remainMonths = (!iv.km && iv.months && lastDate) ? iv.months - (Date.now() - lastDate) / MONTH_MS : null
+          const remain = iv.km ? (lastKm + iv.km) - currentKm : remainMonths
+          const urgent = remain !== null && (iv.km ? remain < 500 : remain < 2)
           const overdue = remain !== null && remain < 0
           const statusCls = overdue ? 'bad' : urgent ? 'warn' : 'ok'
           const statusLabel = remain === null
             ? (lastDate ? `Zuletzt: ${new Date(lastDate).toLocaleDateString('de-DE',{day:'2-digit',month:'short',year:'numeric'})}` : 'Noch nie geprüft')
             : overdue
-              ? `Überfällig ${Math.abs(remain).toLocaleString('de-DE')} km`
-              : `Noch ${remain.toLocaleString('de-DE')} km`
+              ? (iv.km ? `Überfällig ${Math.abs(remain).toLocaleString('de-DE')} km` : `Überfällig ${Math.abs(Math.round(remain))} Mon.`)
+              : (iv.km ? `Noch ${remain.toLocaleString('de-DE')} km` : `Noch ${Math.round(remain)} Mon.`)
 
           return `
             <div class="mw-service-card ${urgent || overdue ? 'mw-service-card--alert' : ''}">
@@ -828,7 +863,7 @@ function wireMaintenance() {
       if (!searchInput.contains(e.target) && !searchResults.contains(e.target)) {
         searchResults.style.display = 'none'
       }
-    }, { capture: true, once: false })
+    }, { once: true }) // once:true wie in wireCompare() — sonst haeuft jeder Aufruf einen weiteren Listener an
   }
 
   // Bike selector tabs
@@ -933,7 +968,7 @@ function renderJournal() {
           <div class="rj-sheet-tape"></div>
           <div class="rj-sheet-header">
             <span class="rj-sheet-label">Neue Seite</span>
-            <button class="rj-sheet-close" id="rj-close-form">✕</button>
+            <button class="rj-sheet-close" id="rj-close-form" aria-label="Schließen">✕</button>
           </div>
 
           <!-- Photo upload -->
@@ -944,7 +979,7 @@ function renderJournal() {
               <span>Foto hinzufügen</span>
             </div>
             <img class="rj-photo-preview" id="rj-photo-preview" hidden>
-            <button class="rj-photo-remove" id="rj-photo-remove" hidden>✕</button>
+            <button class="rj-photo-remove" id="rj-photo-remove" hidden aria-label="Foto entfernen">✕</button>
           </div>
 
           <form id="rj-form">
@@ -1035,7 +1070,7 @@ function renderJournal() {
         <div class="rj-edit-modal">
           <div class="rj-edit-header">
             <span class="rj-sheet-label">Eintrag bearbeiten</span>
-            <button class="rj-sheet-close" id="rj-edit-close">✕</button>
+            <button class="rj-sheet-close" id="rj-edit-close" aria-label="Schließen">✕</button>
           </div>
           <div class="rj-photo-drop" id="rj-edit-photo-drop">
             <input type="file" id="rj-edit-photo-input" accept="image/*" hidden>
@@ -1044,7 +1079,7 @@ function renderJournal() {
               <span>Foto hinzufügen</span>
             </div>
             <img class="rj-photo-preview" id="rj-edit-photo-preview" hidden>
-            <button class="rj-photo-remove" id="rj-edit-photo-remove" hidden>✕</button>
+            <button class="rj-photo-remove" id="rj-edit-photo-remove" hidden aria-label="Foto entfernen">✕</button>
           </div>
           <form id="rj-edit-form">
             <input type="hidden" id="rj-edit-id">
@@ -1088,6 +1123,7 @@ function renderJournal() {
 
 function wireJournal() {
   let pendingPhoto = null
+  let photoGen = 0 // Generation-Zaehler gegen Race: spaete compressPhoto()-Antwort darf neueren Stand nicht ueberschreiben
 
   // Open / close form sheet
   document.getElementById('rj-open-form')?.addEventListener('click', () => {
@@ -1096,6 +1132,7 @@ function wireJournal() {
     sheet.scrollIntoView({ behavior: 'smooth', block: 'start' })
   })
   document.getElementById('rj-close-form')?.addEventListener('click', () => {
+    photoGen++
     document.getElementById('rj-sheet').hidden = true
   })
 
@@ -1113,7 +1150,10 @@ function wireJournal() {
   photoInput?.addEventListener('change', async () => {
     const file = photoInput.files?.[0]
     if (!file) return
-    pendingPhoto = await compressPhoto(file)
+    const gen = ++photoGen
+    const compressed = await compressPhoto(file)
+    if (gen !== photoGen) return // in der Zwischenzeit entfernt oder durch anderes Foto ersetzt
+    pendingPhoto = compressed
     photoPreview.src = pendingPhoto
     photoPreview.hidden = false
     photoPlaceholder.hidden = true
@@ -1121,6 +1161,7 @@ function wireJournal() {
   })
   photoRemove?.addEventListener('click', e => {
     e.stopPropagation()
+    photoGen++
     pendingPhoto = null
     photoPreview.hidden = true
     photoPlaceholder.hidden = false
@@ -1144,21 +1185,27 @@ function wireJournal() {
       accent,
       photo: pendingPhoto || null,
     }
-    if (!ride.title || !ride.km) return
+    if (!ride.title || !Number.isFinite(ride.km) || ride.km < 0) {
+      showFlash('Bitte einen gültigen Kilometerstand angeben (0 oder mehr).')
+      return
+    }
     const rides = getRides()
     rides.push(ride)
     saveRides(rides)
     pendingPhoto = null
+    photoGen++
     showFlash('Eintrag gespeichert ✓')
     renderTabContent('journal')
   })
 
   // ── Edit overlay ──
   let editPhoto = null // photo state for edit modal
+  let editPhotoGen = 0 // wie photoGen oben — schuetzt vor veralteter compressPhoto()-Antwort
 
   function openEditOverlay(ride) {
     const overlay = document.getElementById('rj-edit-overlay')
     if (!overlay) return
+    editPhotoGen++
     editPhoto = ride.photo || null
 
     // Pre-fill fields
@@ -1193,16 +1240,24 @@ function wireJournal() {
     overlay.scrollIntoView({ behavior: 'smooth', block: 'start' })
   }
 
-  // Open on card click
+  // Open on card click (oder Enter/Leertaste, da role="button" tabindex="0")
   document.querySelectorAll('[data-open-ride]').forEach(card => {
-    card.addEventListener('click', () => {
+    const open = () => {
       const ride = getRides().find(r => r.id === card.dataset.openRide)
       if (ride) openEditOverlay(ride)
+    }
+    card.addEventListener('click', open)
+    card.addEventListener('keydown', e => {
+      if (e.key === 'Enter' || e.key === ' ') {
+        e.preventDefault()
+        open()
+      }
     })
   })
 
   // Close overlay
   document.getElementById('rj-edit-close')?.addEventListener('click', () => {
+    editPhotoGen++
     document.getElementById('rj-edit-overlay').hidden = true
   })
 
@@ -1219,12 +1274,16 @@ function wireJournal() {
   editInput?.addEventListener('change', async () => {
     const file = editInput.files?.[0]
     if (!file) return
-    editPhoto = await compressPhoto(file)
+    const gen = ++editPhotoGen
+    const compressed = await compressPhoto(file)
+    if (gen !== editPhotoGen) return // in der Zwischenzeit entfernt oder durch anderes Foto ersetzt
+    editPhoto = compressed
     editPrev.src = editPhoto; editPrev.hidden = false
     editPh.hidden = true; editRm.hidden = false
   })
   editRm?.addEventListener('click', e => {
     e.stopPropagation()
+    editPhotoGen++
     editPhoto = null
     editPrev.hidden = true; editPh.hidden = false; editRm.hidden = true
     editInput.value = ''
@@ -1246,7 +1305,10 @@ function wireJournal() {
       mood, accent,
       photo: editPhoto || null,
     }
-    if (!updated.title || !updated.km) return
+    if (!updated.title || !Number.isFinite(updated.km) || updated.km < 0) {
+      showFlash('Bitte einen gültigen Kilometerstand angeben (0 oder mehr).')
+      return
+    }
     saveRides(getRides().map(r => r.id === id ? updated : r))
     showFlash('Eintrag aktualisiert ✓')
     renderTabContent('journal')
@@ -1456,11 +1518,11 @@ function renderCommunity() {
         <div class="acc-posts-list">
           ${com.posts.map(p => `
             <div class="acc-post-card">
-              <div class="acc-post-cat">${p.category}</div>
+              <div class="acc-post-cat">${esc(p.category)}</div>
               <div class="acc-post-body">
-                <div class="acc-post-title">${p.title}</div>
-                <div class="acc-post-desc">${p.desc}</div>
-                <div class="acc-post-meta">${fmtDate(p.createdAt)} · ${p.meta} · ${p.extra}</div>
+                <div class="acc-post-title">${esc(p.title)}</div>
+                <div class="acc-post-desc">${esc(p.desc)}</div>
+                <div class="acc-post-meta">${fmtDate(p.createdAt)} · ${esc(p.meta)} · ${esc(p.extra)}</div>
               </div>
               <button class="acc-remove-btn" data-delete-post="${p.id}" aria-label="Löschen">
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M19 6l-2 14a2 2 0 0 1-2 2H9a2 2 0 0 1-2-2L5 6M10 11v6M14 11v6"/></svg>
@@ -1921,10 +1983,19 @@ function wireSettings() {
         curInput.value = ''; newInput.value = ''
         showFlash('Passwort geändert ✓')
       } else if (field === 'email') {
-        saveAccount({ email: inputEl.value.trim() })
-        valueEl.textContent = inputEl.value.trim() || '—'
+        const email = inputEl.value.trim()
+        // gleiche Regel wie auth.js register() — nur Format, kein Duplikat-Check (kein Backend-Aufruf hier)
+        if (email && !/^\S+@\S+\.\S+$/.test(email)) {
+          if (errEl) { errEl.textContent = 'Bitte eine gültige E-Mail-Adresse angeben.'; errEl.hidden = false }
+          return
+        }
+        saveAccount({ email })
+        valueEl.textContent = email || '—'
       } else if (field === 'age') {
-        const v = inputEl.value ? parseInt(inputEl.value) : null
+        let v = inputEl.value ? parseInt(inputEl.value) : null
+        if (v != null && !Number.isNaN(v)) v = Math.min(99, Math.max(14, v))
+        else v = null
+        inputEl.value = v ?? ''
         saveAccount({ age: v })
         valueEl.textContent = v ?? '—'
       } else if (field === 'license') {

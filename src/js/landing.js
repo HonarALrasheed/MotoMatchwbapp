@@ -638,6 +638,16 @@ export function initLanding() {
         return;
       }
 
+      /* "Bikes" hatte keine Katalogübersicht — es öffnete stur ein einzelnes
+         Bike (FEATURED_BIKES[0]) ohne Rückweg (2026-09-27 Audit). Die
+         Such-Übersicht zeigt ohne Suchwort bereits den ganzen Katalog als
+         Liste — das ist die "alle Bikes"-Ansicht, die hier eigentlich
+         gebraucht wird. */
+      if (tab === "ansicht") {
+        openSearch();
+        return;
+      }
+
       // Startseite sauber ausblenden — sonst bleibt sie unsichtbar im
       // Hintergrund aktiv (Menü/Scroll-Handler etc.), während der
       // Konfigurator angezeigt wird.

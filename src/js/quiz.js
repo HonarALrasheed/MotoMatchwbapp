@@ -28,19 +28,6 @@ const questions = [
     ],
   },
   {
-    /* Charakter statt Zahlen (2026-09-20). Nach kW zu fragen hilft niemandem — die Antwort
-       bedeutet je nach Führerschein etwas anderes. Gefragt wird deshalb nach dem Gefühl,
-       gerechnet wird mit dem Anteil an dem, was die Klasse hergibt. */
-    id: 9,
-    question: "Wie viel Maschine soll es sein?",
-    hinweis: "Gemeint ist das Temperament innerhalb deiner Führerscheinklasse — nicht die reine Leistung.",
-    options: [
-      { value: "ruhig", label: "Ruhig und handlich" },
-      { value: "mittel", label: "Ausgewogen" },
-      { value: "voll", label: "So viel wie erlaubt" },
-    ],
-  },
-  {
     id: 3,
     question: "Welcher Stil spricht dich an?",
     /* Alle acht Gattungen, die es im Katalog gibt (2026-09-19). Vorher standen hier vier — Roller,
@@ -61,12 +48,31 @@ const questions = [
   {
     id: 4,
     question: "Wofür nutzt du das Motorrad?",
+    /* Die Antwort-Werte (Pendeln/Urlaub/Gelände/Rennstrecke/Cruisen) bleiben unverändert — sie
+       füttern USE_ALIASES in matching.js. Nur die Beschriftung wurde entschärft (2026-09-26): sie
+       klang wortgleich zur Stil-Frage direkt davor (Cruiser/Cruisen, Enduro-Offroad/Gelände-Offroad,
+       Tourer-Reise/Touren-Urlaub) und wirkte dadurch wie dieselbe Frage zweimal (Nutzer-Screenshot). */
     options: [
       { value: "Pendeln", label: "Pendeln / Kurzstrecke" },
-      { value: "Urlaub", label: "Touren / Urlaub" },
-      { value: "Gelände", label: "Gelände / Offroad" },
+      { value: "Urlaub", label: "Lange Strecken am Stück" },
+      { value: "Gelände", label: "Auch abseits der Straße" },
       { value: "Rennstrecke", label: "Rennstrecke / Performance" },
-      { value: "Cruisen", label: "Cruisen / Wochenende" },
+      { value: "Cruisen", label: "Wochenendausflüge" },
+    ],
+  },
+  {
+    /* Charakter statt Zahlen (2026-09-20). Nach kW zu fragen hilft niemandem — die Antwort
+       bedeutet je nach Führerschein etwas anderes. Gefragt wird deshalb nach dem Gefühl,
+       gerechnet wird mit dem Anteil an dem, was die Klasse hergibt. Hinter Stil und Nutzung
+       verschoben (2026-09-26): „wie viel Maschine" wirkte direkt nach der Fahrerfahrung kontextlos,
+       bevor überhaupt klar war, welche Art Bike es werden soll (Nutzer-Screenshot, „etwas verwirrend"). */
+    id: 9,
+    question: "Wie viel Maschine soll es sein?",
+    hinweis: "Gemeint ist das Temperament innerhalb deiner Führerscheinklasse — nicht die reine Leistung.",
+    options: [
+      { value: "ruhig", label: "Ruhig und handlich" },
+      { value: "mittel", label: "Ausgewogen" },
+      { value: "voll", label: "So viel wie erlaubt" },
     ],
   },
   {
@@ -129,6 +135,7 @@ let chaosNeedle = 0;
 let digitalDisplay = "0";
 let idleTimer = 0;
 let rpmSpikeTimer = null;
+let navLock = false;
 
 /* Three.js */
 let scene, camera, renderer, mixer, bike, clock;
@@ -139,7 +146,6 @@ const DASH_COUNT = 40;
 let speedStreaks = [];
 let groundMesh;
 let wheels = [];
-let sideView = false;
 let handAction = null;
 
 /* ═══ Bike Interaction State ═══ */
@@ -239,7 +245,6 @@ export function initQuiz() {
   exiting = false;
   exitPhase = 0;
   phase2Active = false;
-  sideView = false;
   worldTargetRotY = 0;
   worldCurRotY = 0;
   roadScrollDir = 1;
@@ -734,7 +739,6 @@ function updateTransition(dt) {
     worldTargetRotY = Math.PI / 2;
     worldCurRotY = Math.PI / 2;
     phase2Active = true;
-    sideView = true;
     // Restore to proper question speed (not relative)
     targetSpeed = preTransitionSpeed;
     bikeTargetX = 0;
@@ -1118,9 +1122,11 @@ function createExitBlurStreaks() {
 }
 
 let handTimeout = null;
+let innerHandTimeout = null;
 function playHandRaise() {
   if (!handAction || !mixer) return;
   if (handTimeout) clearTimeout(handTimeout);
+  if (innerHandTimeout) clearTimeout(innerHandTimeout);
 
   handAction.reset();
   handAction.setEffectiveWeight(1);
@@ -1132,13 +1138,14 @@ function playHandRaise() {
     if (!handAction || !mixer) return;
     handAction.paused = false;
     handAction.setEffectiveTimeScale(-1);
-    setTimeout(() => {
+    innerHandTimeout = setTimeout(() => {
       if (!handAction || !mixer) return;
       handAction.paused = true;
       handAction.time = 0;
       handAction.setEffectiveTimeScale(1);
       mixer.update(0);
       handTimeout = null;
+      innerHandTimeout = null;
     }, 1500);
   }, 2500);
 }
@@ -1199,6 +1206,7 @@ function finishExit() {
       bike = null;
       clock = null;
       if (handTimeout) { clearTimeout(handTimeout); handTimeout = null; }
+      if (innerHandTimeout) { clearTimeout(innerHandTimeout); innerHandTimeout = null; }
 
       document.getElementById("quiz-screen").style.display = "none";
       flash.remove();
@@ -1207,7 +1215,12 @@ function finishExit() {
       /* Der Vollkatalog läuft seit dem Start im Hintergrund; falls er noch unterwegs ist,
          warten wir höchstens zwei Sekunden — danach entscheidet der eingebaute Katalog,
          statt den Nutzer vor einem leeren Bildschirm warten zu lassen. */
-      Promise.race([ladeVollkatalog(), sleep(2000)]).then(() => startDropAnimation(answers));
+      Promise.race([ladeVollkatalog(), sleep(2000)])
+        .then(() => startDropAnimation(answers))
+        .catch((err) => {
+          console.error("[quiz] Katalog-Race fehlgeschlagen, starte trotzdem:", err);
+          startDropAnimation(answers);
+        });
     }, 400);
   });
 }
@@ -1239,9 +1252,9 @@ function showQuestion(i) {
     ? `
       <div class="quiz-slider">
         <div class="quiz-slider-row">
-          <input type="range" id="q-slider" class="q-slider" min="${q.min}" max="${q.max}" step="${q.step}">
+          <input type="range" id="q-slider" class="q-slider" min="${q.min}" max="${q.max}" step="${q.step}" aria-label="${q.question}">
           <div class="quiz-slider-input-wrap">
-            <input type="number" id="q-slider-input" class="q-slider-input" min="0" step="${q.step}" inputmode="numeric" aria-label="${q.question} — Wert eintippen">
+            <input type="number" id="q-slider-input" class="q-slider-input" min="${q.min}" max="${q.max}" step="${q.step}" inputmode="numeric" aria-label="${q.question} — Wert eintippen">
             <span class="quiz-slider-input-suffix">${q.unit}</span>
           </div>
         </div>
@@ -1299,7 +1312,11 @@ function showQuestion(i) {
     const nextBtn = document.getElementById("next-btn");
 
     const stored = answers[`q${q.id}`];
-    const initial = Number(stored) || (q.ableiten ? q.ableiten(answers) : q.default);
+    /* Fragen mit ableiten() (z.B. Schrittlaenge aus Groesse) sollen den Vorschlag live
+       aus der Quellantwort neu berechnen — sonst zeigt ein gespeicherter Wert nach einer
+       Korrektur der Quellfrage (z.B. Groesse geaendert) weiterhin den alten, unpassenden
+       Vorschlag an. */
+    const initial = q.ableiten ? q.ableiten(answers) : Number(stored) || q.default;
     slider.value = Math.min(q.max, Math.max(q.min, initial));
     numberInput.value = initial;
 
@@ -1308,7 +1325,7 @@ function showQuestion(i) {
        bewegte: wer 10.000 EUR oder 175 cm einfach uebernehmen wollte, kam
        ohne erkennbaren Grund nicht weiter. Der gezeigte Wert gilt jetzt als
        gegebene Antwort und wird auch so gespeichert. */
-    if (!stored) {
+    if (!stored || q.ableiten) {
       answers[`q${q.id}`] = String(initial);
       saveAnswers();
     }
@@ -1330,8 +1347,9 @@ function showQuestion(i) {
     numberInput.addEventListener("input", () => {
       const value = Number(numberInput.value);
       if (!numberInput.value || Number.isNaN(value) || value < 0) return;
-      slider.value = Math.min(q.max, Math.max(q.min, value));
-      commitValue(value);
+      const clamped = Math.min(q.max, Math.max(q.min, value));
+      slider.value = clamped;
+      commitValue(clamped);
     });
   } else {
     if (answers[`q${q.id}`]) {
@@ -1357,6 +1375,8 @@ function showQuestion(i) {
   }
 
   document.getElementById("next-btn").addEventListener("click", () => {
+    if (navLock) return;
+    navLock = true;
     idleTimer = 0;
     if (rpmSpikeTimer) {
       clearTimeout(rpmSpikeTimer);
@@ -1372,21 +1392,30 @@ function showQuestion(i) {
     playHandRaise();
     if (i < questions.length - 1) showQuestion(i + 1);
     else triggerExit();
+    requestAnimationFrame(() => { navLock = false; });
   });
 
   const prev = document.getElementById("prev-btn");
   if (prev)
     prev.addEventListener("click", () => {
+      if (navLock) return;
+      navLock = true;
       idleTimer = 0;
+      if (rpmSpikeTimer) {
+        clearTimeout(rpmSpikeTimer);
+        rpmSpikeTimer = null;
+      }
       targetSpeed = Math.max(20, 20 + (i - 1) * 18);
       if (i - 1 < 3) {
         phase2Active = false;
-        sideView = false;
         transitionActive = false;
         worldTargetRotY = 0;
         roadScrollDir = 1;
         wheelieTarget = 0;
+        wheelieAmount = 0;
+        if (bikePivotGroup) bikePivotGroup.rotation.x = 0;
       }
       showQuestion(i - 1);
+      requestAnimationFrame(() => { navLock = false; });
     });
 }

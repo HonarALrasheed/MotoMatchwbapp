@@ -27,6 +27,7 @@ const DELAY_MS = 20000
 
 let _deferredPrompt = null
 let _shown = false
+let _installed = false
 
 /** Laeuft die App bereits installiert, also im Vollbild? */
 export function isStandalone() {
@@ -60,6 +61,7 @@ function render({ canPrompt }) {
   el.className = 'mm-install'
   el.setAttribute('role', 'dialog')
   el.setAttribute('aria-label', 'MotoMatch installieren')
+  el.setAttribute('tabindex', '-1')
   el.innerHTML = `
     <div class="mm-install-icon"><img src="/icon-192.png" alt="" width="40" height="40"></div>
     <div class="mm-install-text">
@@ -84,10 +86,18 @@ function render({ canPrompt }) {
   })
 
   document.body.appendChild(el)
-  requestAnimationFrame(() => el.classList.add('mm-install--in'))
+  requestAnimationFrame(() => {
+    el.classList.add('mm-install--in')
+    // Fokus in den Hinweis holen, damit Screenreader-Nutzer merken, dass er
+    // erschienen ist — er poppt ohne Nutzeraktion nach DELAY_MS auf.
+    el.focus()
+  })
 }
 
 export function initInstall() {
+  if (_installed) return
+  _installed = true
+
   // Der Service Worker ist Teil von Chromiums Pruefliste fuer die
   // Installierbarkeit — ohne ihn kaeme `beforeinstallprompt` nie. Er lief
   // bisher nur, wenn jemand Push aktiviert hat.

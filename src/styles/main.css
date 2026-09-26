@@ -58,6 +58,7 @@
   --border: rgba(255, 255, 255, 0.06);
   --gold: #c9a84c;
   --gold-dim: rgba(201, 168, 76, 0.12);
+  --community-gradient: linear-gradient(135deg,#e05555,#c074dc);
   --text: #ffffff;
   --text-secondary: rgba(255, 255, 255, 0.5);
   --text-dim: rgba(255, 255, 255, 0.2);
@@ -481,7 +482,7 @@ html.has-landing body {
   white-space: nowrap; flex-shrink: 0;
 }
 .p-badge--cruiser  { background: #8b6914; color: #fff; }
-.p-badge--sport    { background: #c9a84c; color: #000; }
+.p-badge--sport    { background: var(--gold); color: #000; }
 .p-badge--klassiker{ background: #444; color: #fff; }
 .p-badge--custom   { background: #333; color: #fff; }
 .p-badge--sportbike{ background: #1a3a6b; color: #fff; }
@@ -520,15 +521,6 @@ html.has-landing body {
 .p-finder-form {
   display: flex; max-width: 380px;
 }
-.p-finder-input {
-  flex: 1; padding: 14px 16px;
-  border: 1px solid rgba(255,255,255,0.25); border-right: none;
-  font-family: var(--p-font); font-size: 14px; color: #fff;
-  background: transparent; outline: none;
-  transition: border-color var(--p-dur-s) var(--p-ease);
-}
-.p-finder-input:focus { border-color: rgba(255,255,255,0.7); }
-.p-finder-input::placeholder { color: rgba(255,255,255,0.35); }
 .p-finder-submit {
   display: inline-flex; align-items: center;
   padding: 13px 28px; background: transparent; color: #000;
@@ -746,7 +738,6 @@ select.p-auth-input {
   grid-template-columns: repeat(3, 1fr);
   gap: 2px;
 }
-@media (max-width: 768px) { .p-discover-cats { grid-template-columns: 1fr; } }
 .p-discover-cat {
   position: relative; overflow: hidden;
   aspect-ratio: 4/3; cursor: pointer;
@@ -2114,7 +2105,6 @@ select.p-auth-input {
     font-size: 9px;
   }
   .garage-cam-bar {
-    top: auto;
     bottom: auto;
     right: 12px;
     left: 12px;
@@ -2831,16 +2821,6 @@ select.p-auth-input {
 }
 
 /* ── Konfigurator Touchbar Override ── */
-.konf-tb-wrap {
-  position: fixed;
-  top: 0;
-  left: 0;
-  right: 0;
-  z-index: 300;
-  padding: 10px 24px;
-  background: transparent;
-  animation: konfBarSlide 0.7s cubic-bezier(0.16, 1, 0.3, 1) forwards;
-}
 @keyframes konfBarSlide {
   from { transform: translateY(-100%); opacity: 0; }
   to { transform: translateY(0); opacity: 1; }
@@ -3126,7 +3106,6 @@ select.p-auth-input {
     height: 32px;
     box-sizing: border-box;
   }
-  .konf-split--fullscreen:not(.konf-split--community) .gear-pill { padding: 0 12px; }
   .konf-split--fullscreen:not(.konf-split--community) .gear-filter-btn { padding: 0 16px; }
   .konf-split--fullscreen:not(.konf-split--community) .gear-view-toggle {
     border-color: transparent;
@@ -3137,7 +3116,6 @@ select.p-auth-input {
      bestimmt die Knopfhoehe den Umschalter und nicht umgekehrt. */
   .konf-split--fullscreen:not(.konf-split--community) .gear-view-btn {
     height: 100%;
-    padding: 0 9px;
   }
   /* Auf schmalen Schirmen traegt der Filter-Knopf nur sein Symbol; die
      Kategorien brauchen den Platz dringender als das Wort "Filter". */
@@ -3193,6 +3171,7 @@ select.p-auth-input {
   padding: 6px 8px !important;
   background: transparent !important;
   z-index: 300;
+  animation: konfBarSlide 0.7s cubic-bezier(0.16, 1, 0.3, 1) forwards;
 }
 /* .acc-tabbar--konf ist der Klon dieser Leiste im Konto-Overlay — er haengt
    ueberall mit drin, wo das Aussehen definiert wird, damit beide Leisten
@@ -4967,7 +4946,7 @@ select.p-auth-input {
   position: absolute;
   top: 5px;
   left: 5px;
-  background: linear-gradient(135deg,#e05555,#c074dc);
+  background: var(--community-gradient);
   color: #fff;
   font-size: 8px;
   font-weight: 800;
@@ -4985,7 +4964,7 @@ select.p-auth-input {
   width: 56px;
   height: 56px;
   border-radius: 50%;
-  background: linear-gradient(135deg,#e05555,#c074dc);
+  background: var(--community-gradient);
   color: #fff;
   border: none;
   display: flex;
@@ -5114,7 +5093,7 @@ select.p-auth-input {
   .cc-btn-secondary:hover { background: rgba(255,255,255,0.05); color: #fff; }
 }
 .cc-btn-primary {
-  background: linear-gradient(135deg,#e05555,#c074dc);
+  background: var(--community-gradient);
   border: none;
   color: #fff;
   border-radius: 8px;
@@ -5636,7 +5615,7 @@ select.p-auth-input {
 .ccd-comment--mine .ccd-comment-user::after {
   content: '· DU';
   margin-left: 5px;
-  background: linear-gradient(135deg,#e05555,#c074dc);
+  background: var(--community-gradient);
   -webkit-background-clip: text;
   background-clip: text;
   color: transparent;
@@ -5722,7 +5701,7 @@ select.p-auth-input {
 .ccp-actions { display: flex; gap: 10px; margin-bottom: 24px; }
 .ccp-follow-btn {
   flex: 1;
-  background: linear-gradient(135deg,#e05555,#c074dc);
+  background: var(--community-gradient);
   color: #fff;
   border: none;
   border-radius: 10px;
@@ -6076,7 +6055,6 @@ select.p-auth-input {
   opacity: 0;
   transition: opacity 0.18s;
 }
-.gear-filter-btn--active:not([data-filter="all"]) ~ * .cc-menu-btn::after,
 .cc-menu-btn.cc-menu-btn--filtered::after { opacity: 1; }
 .cc-filter-pill {
   background: rgba(255,255,255,0.08);
@@ -6239,7 +6217,7 @@ select.p-auth-input {
   width: 30px;
   height: 30px;
   border-radius: 50%;
-  background: linear-gradient(135deg,#e05555,#c074dc);
+  background: var(--community-gradient);
   color: #fff;
   border: none;
   font-size: 11px;
@@ -7343,11 +7321,6 @@ select.p-auth-input {
   max-width: 70px;
   overflow: hidden;
   white-space: nowrap;
-  transition: max-width 0.28s cubic-bezier(0.4, 0, 0.2, 1),
-              padding 0.28s cubic-bezier(0.4, 0, 0.2, 1),
-              margin 0.28s cubic-bezier(0.4, 0, 0.2, 1),
-              opacity 0.18s ease,
-              background 0.15s, color 0.15s;
 }
 .kv-search-row.kv-searching .kv-radius-pill:not(.kv-radius-pill--active) {
   max-width: 0;
@@ -7473,7 +7446,11 @@ select.p-auth-input {
   border-radius: var(--kv-ctl-r, 9px);
   cursor: pointer;
   font-variant-numeric: tabular-nums;
-  transition: color 0.28s ease, background 0.2s ease;
+  transition: max-width 0.28s cubic-bezier(0.4, 0, 0.2, 1),
+              padding 0.28s cubic-bezier(0.4, 0, 0.2, 1),
+              margin 0.28s cubic-bezier(0.4, 0, 0.2, 1),
+              opacity 0.18s ease,
+              background 0.2s ease, color 0.28s ease;
 }
 @media (hover: hover) and (pointer: fine) {
   .kv-radius-pill:hover { background: var(--kv-ctl-hover, rgba(255,255,255,0.07)); color: var(--kv-ctl-fg-strong, rgba(255,255,255,0.9)); }
@@ -10161,6 +10138,7 @@ select.acc-input option { background: #1a1a1a; color: #fff; }
   transform: rotate(var(--rot, 0deg));
   transition: transform .25s cubic-bezier(.34,1.56,.64,1), box-shadow .25s;
   box-shadow: 0 4px 18px rgba(0,0,0,.45);
+  cursor: pointer;
 }
 @media (hover: hover) and (pointer: fine) {
   .rj-card:hover {
@@ -10281,8 +10259,8 @@ select.acc-input option { background: #1a1a1a; color: #fff; }
 }
 @media (hover: hover) and (pointer: fine) {
   .rj-card:hover .rj-card-edit-hint { opacity: 1; }
+  .rj-card:hover .rj-card-delete { opacity: 1; }
 }
-.rj-card { cursor: pointer; }
 
 /* Edit overlay */
 .rj-edit-overlay {
@@ -11264,6 +11242,8 @@ select.mmc-input option { background: #111; color: #fff; }
 .mmc-user-id {
   display: flex; align-items: center; gap: 7px; padding: 3px 4px; border-radius: 4px;
   flex: 1; min-width: 0; overflow: hidden;
+  background: none; border: none; cursor: pointer; font: inherit; color: inherit;
+  width: 100%; text-align: left;
 }
 @media (hover: hover) and (pointer: fine) {
   .mmc-user-id:hover { background: rgba(255,255,255,0.05); }
@@ -11391,7 +11371,7 @@ select.mmc-input option { background: #111; color: #fff; }
 .mmc-empty h3 { font-family: var(--p-font); font-size: 20px; color: #fff; margin: 0 0 6px; }
 .mmc-empty p { font-family: var(--p-font); font-size: 13.5px; color: rgba(255,255,255,0.45); margin: 0; line-height: 1.5; }
 
-.mmc-compose { padding: 0 20px 20px; flex-shrink: 0; }
+.mmc-compose { padding: 0 20px 20px; flex-shrink: 0; position: relative; }
 /* Eingabezeile in derselben Sprache wie der Rest: randlose, gefuellte Flaeche
    statt Haarlinie, runde Icon-Buttons, gefuellter Senden-Knopf. */
 .mmc-compose-form {
@@ -11437,7 +11417,6 @@ select.mmc-input option { background: #111; color: #fff; }
 .mmc-send:active { transform: scale(0.94); }
 
 /* Compose extras: attachment + emoji */
-.mmc-compose { position: relative; }
 .mmc-compose-ic {
   background: none; border: none; cursor: pointer; color: rgba(255,255,255,0.5);
   width: 36px; height: 36px; border-radius: 999px; flex-shrink: 0;
@@ -11703,9 +11682,6 @@ select.mmc-input option { background: #111; color: #fff; }
 .mmc-addfriend-msg { margin-top: 12px; font-family: var(--p-font); font-size: 13px; }
 .mmc-addfriend-msg.is-ok { color: #6fbf73; }
 .mmc-addfriend-msg.is-err { color: #e57373; }
-.mmc-addfriend-more {
-  margin-top: 32px !important;
-}
 .mmc-explore-card {
   display: flex; align-items: center; gap: 14px; width: 100%; text-align: left;
   margin-top: 12px; padding: 16px 18px; cursor: pointer;
@@ -12202,8 +12178,8 @@ select.mmc-input option { background: #111; color: #fff; }
   font-size: 10px; font-weight: 600; padding: 2px 7px; border-radius: 10px;
   text-transform: uppercase; letter-spacing: .06em;
 }
-.mmc-role-owner { background: rgba(229,184,11,0.15); color: #e5b80b; }
-.mmc-role-mod   { background: rgba(111,191,115,0.15); color: #6fbf73; }
+.mmc-role-owner { background: rgba(245,158,11,0.15); color: #f59e0b; }
+.mmc-role-mod   { background: rgba(34,197,94,0.15); color: #22c55e; }
 .mmc-role-member{ background: rgba(255,255,255,0.06); color: rgba(255,255,255,0.45); }
 
 /* ── Textarea in modal ── */
@@ -12262,6 +12238,9 @@ select.mmc-input option { background: #111; color: #fff; }
 @media (hover: hover) and (pointer: fine) {
   .mmc-msg:hover .mmc-msg-actions { display: flex; }
 }
+/* Tastatur-Erreichbarkeit: ohne Hover/Long-Press waren die Aktionen
+   ansonsten nie fokussierbar. */
+.mmc-msg:focus-within .mmc-msg-actions { display: flex; }
 /* Touch-Ersatz fuer :hover: Long-Press auf die Nachricht (siehe community.js,
    bindMsgLongPress) setzt diese Klasse statt display per Hover zu steuern.
    Bewusst ohne @media (hover: hover) und ohne max-width-Deckel: die Klasse
@@ -12319,8 +12298,8 @@ select.mmc-input option { background: #111; color: #fff; }
   font-size: 11px; font-weight: 600; padding: 2px 8px; border-radius: 99px;
   margin-top: 2px; width: fit-content;
 }
-.mmc-role-pill--owner { background: rgba(245,158,11,0.12); color: #f59e0b; }
-.mmc-role-pill--mod   { background: rgba(34,197,94,0.12);  color: #22c55e; }
+.mmc-role-pill--owner { background: rgba(245,158,11,0.15); color: #f59e0b; }
+.mmc-role-pill--mod   { background: rgba(34,197,94,0.15);  color: #22c55e; }
 .mmc-role-pill--member{ background: rgba(255,255,255,0.06); color: rgba(255,255,255,0.4); }
 
 /* ── Role actions panel in sidebar ── */
@@ -12346,7 +12325,7 @@ select.mmc-input option { background: #111; color: #fff; }
 
 /* ── Notification badge (Freunde / group cards) ── */
 .mmc-notif-badge {
-  background: #ef4444; color: #fff; font-size: 10px; font-weight: 700;
+  background: #e05555; color: #fff; font-size: 10px; font-weight: 700;
   border-radius: 99px; padding: 1px 5px; min-width: 16px; text-align: center;
   display: inline-block; line-height: 1.4; margin-left: auto;
 }
@@ -12567,10 +12546,6 @@ select.mmc-input option { background: #111; color: #fff; }
 
 /* ── Community: Benutzer-Popover (Klick auf Avatar) ── */
 .mmc-col2 { position: relative; }
-.mmc-user-id {
-  background: none; border: none; cursor: pointer; font: inherit; color: inherit;
-  width: 100%; text-align: left;
-}
 .mmc-usermenu {
   position: absolute; left: 8px; right: 8px; bottom: 74px; z-index: 300;
   background: #101012; border: 1px solid rgba(255,255,255,0.1); border-radius: 12px;
@@ -13085,7 +13060,6 @@ select.mmc-input option { background: #111; color: #fff; }
 .mmc-mute-icon { font-size: 13px; opacity: 0.55; flex-shrink: 0; }
 
 /* Category rail dot */
-.mmc-crb { position: relative; }
 .mmc-rail-dot {
   position: absolute; top: 4px; right: 4px;
   width: 8px; height: 8px; border-radius: 50%;
@@ -13576,6 +13550,7 @@ html { -webkit-tap-highlight-color: transparent; }
      Lösch-Weg läuft bereits über .mmc-tc-more. */
   .gear-card-reason { transform: translateY(0); }
   .rj-card-edit-hint { opacity: 1; }
+  .rj-card-delete { opacity: 1; }
   .mmc-vc-joinlabel { opacity: 1; }
   .mmc-tc-more { opacity: 1; }
   .mmc-msg-cont-time { opacity: 1; }

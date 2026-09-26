@@ -18,7 +18,7 @@
  */
 
 import commBg from '../assets/community-bg.jpeg'
-import { esc, safeUrl, LS_QUIZ_ANSWERS } from './util.js'
+import { esc, safeUrl } from './util.js'
 import { HAS_STICKER_API, searchStickerApi, trendingStickerApi } from './stickers.js'
 import {
   joinVoiceRoom, leaveVoiceRoom, toggleVoiceMute, toggleVoiceDeafen,
@@ -30,6 +30,7 @@ import { enablePushNotifications, disablePushNotifications } from './push.js'
 import { getSession, login, register, loginGuest, logout, ensureDemoUsers, renderGoogleButton, initSupabaseAuth, requestPasswordReset, resendConfirmation, MIN_PASSWORD_LENGTH } from './auth.js'
 import { openAccount } from './account.js'
 import { supabase, OFFLINE_MODE } from './supabase.js'
+import { report } from './monitoring.js'
 import {
   // Profil
   getProfile, getMyProfile, setMyProfile,
@@ -281,12 +282,12 @@ function _syncMuteToServer(key, untilTs) {
     user_id: session.uid,
     mute_key: key,
     until: untilTs === 'forever' ? null : new Date(untilTs).toISOString(),
-  }, { onConflict: 'user_id,mute_key' }).then(() => {})
+  }, { onConflict: 'user_id,mute_key' }).then(() => {}).catch(err => report(err, { where: 'community._syncMuteToServer' }))
 }
 function _unsyncMuteFromServer(key) {
   if (OFFLINE_MODE || !supabase) return
   const session = getSession(); if (!session?.uid) return
-  supabase.from('notification_mutes').delete().eq('user_id', session.uid).eq('mute_key', key).then(() => {})
+  supabase.from('notification_mutes').delete().eq('user_id', session.uid).eq('mute_key', key).then(() => {}).catch(err => report(err, { where: 'community._unsyncMuteFromServer' }))
 }
 
 /* ── Reaktionen — jetzt in community-api.js; UI-Helfer bleiben ──── */
@@ -297,7 +298,7 @@ function reactionPillsHtml(reactions, myName) {
   if (!entries.length) return ''
   return `<div class="mmc-reactions">${entries.map(([emoji, users]) => {
     const mine = users.includes(myName)
-    return `<button class="mmc-reaction-pill${mine ? ' is-mine' : ''}" data-react-emoji="${esc(emoji)}" title="${esc(users.join(', '))}">${emoji} <span>${users.length}</span></button>`
+    return `<button class="mmc-reaction-pill${mine ? ' is-mine' : ''}" data-react-emoji="${esc(emoji)}" title="${esc(users.join(', '))}">${esc(emoji)} <span>${users.length}</span></button>`
   }).join('')}</div>`
 }
 
@@ -1004,7 +1005,7 @@ function _appendMessageToGroupChat(root, msg) {
   if (newMsgEl) {
     const emptyCtx = { title: g.channels?.find(c => c.id === activeChannel)?.name || '', text: '', avatar: g.name, hash: true }
     newMsgEl.querySelector('[data-user]')?.addEventListener('click', e => {
-      e.stopPropagation(); openUserProfile(root || _rootRef, newMsgEl.querySelector('[data-user]').dataset.user)
+      e.stopPropagation(); openUserProfile(root || _rootRef, e.currentTarget.dataset.user, e.currentTarget)
     })
     newMsgEl.querySelector('[data-img-src]')?.addEventListener('click', function() {
       const ov = document.createElement('div')
@@ -1134,7 +1135,7 @@ function _appendMessageToDMChat(root, msg) {
   const newMsgEl = box.querySelector(`[data-msg-id="${msg.id}"]`)
   if (newMsgEl) {
     newMsgEl.querySelector('[data-user]')?.addEventListener('click', e => {
-      e.stopPropagation(); openUserProfile(root || _rootRef, newMsgEl.querySelector('[data-user]').dataset.user)
+      e.stopPropagation(); openUserProfile(root || _rootRef, e.currentTarget.dataset.user, e.currentTarget)
     })
     newMsgEl.querySelector('[data-img-src]')?.addEventListener('click', function() {
       const ov = document.createElement('div')
@@ -1475,6 +1476,10 @@ function composeHtml(placeholder) {
       </form>
     </div>`
 }
+// Der aktuell registrierte document-Click-Listener zum Schließen des
+// @Mention-Popovers — bindComposeExtras() läuft bei jedem Öffnen eines Kanals/
+// einer DM neu, sonst würde sich hier pro Wechsel ein weiterer Listener anhäufen.
+let _mentionPopDocClickHandler = null
 function bindComposeExtras(scope, root, sendTypingFn, mentionableUsers = []) {
   const fileInput  = scope.querySelector('#mmc-file-input')
   const preview    = scope.querySelector('#mmc-attach-preview')
@@ -1610,9 +1615,11 @@ function bindComposeExtras(scope, root, sendTypingFn, mentionableUsers = []) {
       textarea.addEventListener('input', updateMentionMatches)
       // Caret per Maus/Pfeiltasten bewegt, ohne dass 'input' feuert — Popover ggf. neu bewerten/schließen
       textarea.addEventListener('click', () => { if (tokenStart !== -1) updateMentionMatches() })
-      document.addEventListener('click', ev => {
+      if (_mentionPopDocClickHandler) document.removeEventListener('click', _mentionPopDocClickHandler)
+      _mentionPopDocClickHandler = ev => {
         if (tokenStart !== -1 && !ev.target.closest('.mmc-mention-pop') && ev.target !== textarea) closeMentionPop()
-      })
+      }
+      document.addEventListener('click', _mentionPopDocClickHandler)
     }
 
     // Enter = senden, Shift+Enter = Zeilenumbruch — @Mention-Popover hat Vorrang, wenn offen
@@ -2279,7 +2286,7 @@ function openUserMenu(root) {
 /* ── Fremdes Nutzerprofil-Popover (Klick auf einen Namen im Chat/Talk) ──
    Discord-Stil: Banner, Avatar, gemeinsame Gruppen, Freundschaftsanfrage/
    Annehmen/Ablehnen je nach Beziehungsstatus, „…"-Menü mit Blockieren/Melden. */
-function openUserProfile(root, username) {
+function openUserProfile(root, username, anchorEl) {
   if (username.toLowerCase() === me().toLowerCase()) return // eigenes Profil hat eigenen Weg (Avatar unten links)
   document.querySelectorAll('.mmc-userprofile, .mmc-up-menu').forEach(x => x.remove())
 
@@ -2329,7 +2336,7 @@ function openUserProfile(root, username) {
       </div>`
     document.body.appendChild(pop)
 
-    const anchor = document.activeElement?.closest('[data-user]') || document.querySelector(`[data-user="${CSS.escape(username)}"]`)
+    const anchor = anchorEl || document.activeElement?.closest('[data-user]') || document.querySelector(`[data-user="${CSS.escape(username)}"]`)
     const r = anchor?.getBoundingClientRect()
     if (r) {
       const top = Math.min(r.top, window.innerHeight - 380)
@@ -2730,6 +2737,8 @@ function renderFriendsView(main, root) {
     ...friends.filter(f => !isIgnored(f)),
     ...friends.filter(f => isIgnored(f)),
   ]
+  const presence = getOnlinePresence()
+  const friendStatusLabel = f => (presence[f] && presence[f] !== 'invisible') ? statusMeta(presence[f]).label : 'Offline'
   body.innerHTML = `
     <div class="mmc-friends-count">Alle Freunde — ${friends.length}</div>
     <div class="mmc-friends-list">
@@ -2738,12 +2747,12 @@ function renderFriendsView(main, root) {
         return `
         <div class="mmc-friend-row${ign ? ' mmc-friend-row--ignored' : ''}" data-dm="${esc(f)}">
           <div class="mmc-avatar mmc-avatar--dm" style="background:${avatarColor(f)};${ign ? 'opacity:.4' : ''}">${avatarInner(f)}<span class="mmc-presence"></span></div>
-          <div class="mmc-friend-meta"><div class="mmc-friend-name"${ign ? ' style="opacity:.5"' : ''}>${esc(displayName(f))}</div><div class="mmc-friend-status">${ign ? 'ignoriert' : 'online'}</div></div>
+          <div class="mmc-friend-meta"><div class="mmc-friend-name"${ign ? ' style="opacity:.5"' : ''}>${esc(displayName(f))}</div><div class="mmc-friend-status">${ign ? 'ignoriert' : esc(friendStatusLabel(f))}</div></div>
           <button class="mmc-friend-msg-btn" data-dm="${esc(f)}" title="Nachricht">${ICON.send}</button>
         </div>`}).join('')}
     </div>`
   body.querySelectorAll('[data-dm]').forEach(el => {
-    el.addEventListener('click', () => { activeDM = el.dataset.dm; clearUnread(activeDM); subscribeToChannel(null, activeDM); fillHomeColumn(root); fillMain(root); fillActive(root) })
+    el.addEventListener('click', e => { e.stopPropagation(); activeDM = el.dataset.dm; clearUnread(activeDM); subscribeToChannel(null, activeDM); fillHomeColumn(root); fillMain(root); fillActive(root) })
   })
   bindFriendsTabs(main, root)
 }
@@ -3549,7 +3558,7 @@ function fillGroupChannels(root) {
     toggleVoiceRoom(root, row.dataset.vc)
   }))
   box.querySelectorAll('.mmc-vc-member[data-user]').forEach(el => el.addEventListener('click', e => {
-    e.stopPropagation(); openUserProfile(root, el.dataset.user)
+    e.stopPropagation(); openUserProfile(root, el.dataset.user, el)
   }))
   box.querySelectorAll('[data-vc-more]').forEach(btn => btn.addEventListener('click', e => {
     e.stopPropagation()
@@ -3731,7 +3740,9 @@ function openScreenShareLightbox(participantId, label) {
   document.body.appendChild(ov)
   ov.querySelector('.mmc-share-lightbox-body').prepend(videoEl)
   requestAnimationFrame(() => ov.classList.add('is-open'))
+  function onKey(e) { if (e.key === 'Escape') close() }
   const close = () => {
+    document.removeEventListener('keydown', onKey)
     ov.classList.remove('is-open')
     setTimeout(() => {
       // Video zurück in seine Kachel hängen, falls die noch existiert (Person teilt evtl. nicht mehr)
@@ -3742,7 +3753,7 @@ function openScreenShareLightbox(participantId, label) {
   }
   ov.querySelector('.mmc-share-lightbox-backdrop').addEventListener('click', close)
   ov.querySelector('.mmc-share-lightbox-body').addEventListener('click', e => e.stopPropagation())
-  document.addEventListener('keydown', function onKey(e) { if (e.key === 'Escape') { close(); document.removeEventListener('keydown', onKey) } })
+  document.addEventListener('keydown', onKey)
 }
 
 /* ── In-Gruppe: Chat (rechter Hauptbereich) ────────────────────── */
@@ -3820,7 +3831,6 @@ function openSettingsPanel(root) {
     try {
       const primary = localStorage.getItem('mm_primary_bike')
       if (primary) bikes.push(primary)
-      const answers = JSON.parse(localStorage.getItem(LS_QUIZ_ANSWERS) || 'null')
     } catch {}
     return [...new Set(bikes)].filter(Boolean)
   }
@@ -4105,7 +4115,8 @@ function openSettingsPanel(root) {
           const res = await enablePushNotifications()
           if (!res.ok) { toast(root, res.error || 'Desktop-Benachrichtigungen konnten nicht aktiviert werden.'); return }
         } else {
-          await disablePushNotifications()
+          const res = await disablePushNotifications()
+          if (!res.ok) { toast(root, res.error || 'Desktop-Benachrichtigungen konnten nicht deaktiviert werden.'); return }
         }
         toast(root, 'Benachrichtigungseinstellungen gespeichert.')
       })
@@ -4309,7 +4320,7 @@ function openManagePanel(root, initialTab = null) {
       <div class="mmc-modal-card mmc-manage-card">
         <div class="mmc-manage-header">
           <h3 class="mmc-modal-title">${ICON.manage} ${esc(gCurrent.name)} verwalten</h3>
-          <button class="mmc-manage-close" id="mmc-manage-close">✕</button>
+          <button class="mmc-manage-close" id="mmc-manage-close" aria-label="Schließen">✕</button>
         </div>
         <div class="mmc-tabs mmc-manage-tabs">
           ${tabs.map(t => `<button class="mmc-tab ${activeTab === t.id ? 'is-active' : ''}" data-mtab="${t.id}">${t.label}</button>`).join('')}
@@ -4762,7 +4773,7 @@ function renderMessagesInto(root, box, msgs, empty, groupCtx = null, prevReadTs 
   }
 
   box.querySelectorAll('[data-user]').forEach(el => el.addEventListener('click', e => {
-    e.stopPropagation(); openUserProfile(root, el.dataset.user)
+    e.stopPropagation(); openUserProfile(root, el.dataset.user, el)
   }))
 
   // Bild-Vollansicht beim Klick
@@ -4772,10 +4783,11 @@ function renderMessagesInto(root, box, msgs, empty, groupCtx = null, prevReadTs 
     ov.innerHTML = `<div class="mmc-img-lightbox-backdrop"></div><img class="mmc-img-lightbox-img" src="${esc(img.dataset.imgSrc)}" alt="">`
     document.body.appendChild(ov)
     requestAnimationFrame(() => ov.classList.add('is-open'))
-    const close = () => { ov.classList.remove('is-open'); setTimeout(() => ov.remove(), 200) }
+    function onKey(e) { if (e.key === 'Escape') close() }
+    const close = () => { document.removeEventListener('keydown', onKey); ov.classList.remove('is-open'); setTimeout(() => ov.remove(), 200) }
     ov.querySelector('.mmc-img-lightbox-backdrop').addEventListener('click', close)
     ov.querySelector('.mmc-img-lightbox-img').addEventListener('click', e => e.stopPropagation())
-    document.addEventListener('keydown', function onKey(e) { if (e.key === 'Escape') { close(); document.removeEventListener('keydown', onKey) } })
+    document.addEventListener('keydown', onKey)
   }))
 
   // Reaktions-Picker öffnen
@@ -4933,7 +4945,7 @@ function renderMessagesInto(root, box, msgs, empty, groupCtx = null, prevReadTs 
         ${pills}
       </div>`
     expanded.querySelectorAll('[data-user]').forEach(el => el.addEventListener('click', ev => {
-      ev.stopPropagation(); openUserProfile(root, el.dataset.user)
+      ev.stopPropagation(); openUserProfile(root, el.dataset.user, el)
     }))
     wrapper.replaceWith(expanded)
   }))
@@ -5169,6 +5181,7 @@ async function _startCall(root, peer) {
       res.code === 'auth' ? { label: 'Anmelden', onClick: () => goToAuth(root) } : null)
     return
   }
+  if (!_call) { if (inVoiceRoom()) await leaveVoiceRoom(); return } // Anruf wurde waehrend des Verbindens abgebrochen
   setOutputVolume(getPrefs().outVol ?? 100)
   await sendUserEvent(peer, 'call_invite', { roomId })
 }
@@ -5200,6 +5213,7 @@ async function _acceptCall(root) {
     await sendUserEvent(peer, 'call_decline', {})
     return
   }
+  if (!_call) { if (inVoiceRoom()) await leaveVoiceRoom(); return } // Anruf wurde waehrend des Verbindens abgebrochen
   setOutputVolume(getPrefs().outVol ?? 100)
   _call.state = 'active'; _call.since = Date.now()
   _renderCallBar(root)

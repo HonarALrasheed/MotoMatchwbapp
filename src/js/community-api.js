@@ -105,8 +105,12 @@ export async function initCommunityData(uid, username) {
   }
 
   try {
+    // _loadDMs() löst dm_thread-uuids über _uidToUsername() auf, das komplett
+    // auf dem von _loadProfiles() befüllten _profileCache beruht — deshalb erst
+    // die Profile laden, dann den Rest parallel (statt alles zusammen per
+    // Promise.all, wo die Reihenfolge nicht garantiert ist).
+    await _loadProfiles()
     await Promise.all([
-      _loadProfiles(),
       _loadGroups(),
       _loadFriendships(),
       _loadFriendRequests(),
@@ -399,9 +403,14 @@ async function _loadDMs() {
 }
 
 async function _loadBlocks() {
-  const { data } = await supabase
+  const { data, error } = await supabase
     .from('blocks')
     .select('blocker, blocked, pb:profiles!blocks_blocker_fkey(username), pc:profiles!blocks_blocked_fkey(username)')
+  if (error) {
+    console.error('[API] Blockierungen nicht ladbar:', error.message)
+    report(error, { where: 'community-api._loadBlocks', code: error.code })
+    return
+  }
   _blocked = {}
   for (const row of (data || [])) {
     const er = row.pb?.username; const ed = row.pc?.username
@@ -411,9 +420,14 @@ async function _loadBlocks() {
 }
 
 async function _loadIgnores() {
-  const { data } = await supabase
+  const { data, error } = await supabase
     .from('ignores')
     .select('ignorer, ignored, pi:profiles!ignores_ignorer_fkey(username), pg:profiles!ignores_ignored_fkey(username)')
+  if (error) {
+    console.error('[API] Ignorierte Nutzer nicht ladbar:', error.message)
+    report(error, { where: 'community-api._loadIgnores', code: error.code })
+    return
+  }
   _ignored = {}
   for (const row of (data || [])) {
     const er = row.pi?.username; const ed = row.pg?.username
@@ -467,6 +481,16 @@ function _uidToUsername(uid) {
 }
 function _usernameToUid(username) {
   return _profileCache[username]?._uid || null
+}
+
+/**
+ * Escaped `%` und `_` (und den Escape-Charakter `\` selbst) für ein
+ * `.ilike()`-Pattern. Usernamen haben keine Zeichensatz-Beschränkung (s.
+ * Kommentar bei _resolveMentions, auth.js) — ohne Escaping könnte ein Username,
+ * der zufällig `%` oder `_` enthält, als Wildcard-Suche wirken.
+ */
+function _escapeIlike(s) {
+  return s.replace(/\\/g, '\\\\').replace(/%/g, '\\%').replace(/_/g, '\\_')
 }
 
 /**
@@ -715,6 +739,12 @@ async function _broadcastGroupLiveEvent(groupId, event, payload) {
    Klingel-Signale durch.
    ══════════════════════════════════════════════════════════════════ */
 let _userChan = null
+// Der eigentliche Callback liegt in einer eigenen Variable, damit ein erneutes
+// subscribeToUserEvents() (z. B. bei jedem Öffnen des Community-Tabs) ihn
+// austauschen kann, ohne den Realtime-Kanal selbst neu aufzubauen — sonst
+// würde der Callback des allerersten mount() für immer weiterlaufen und mit
+// einem inzwischen entfernten `root` arbeiten.
+let _userEventCallback = null
 
 /** Raum-ID eines Direktanrufs: beide uuids aufsteigend sortiert, wie in `friendships`. */
 export function dmCallRoomId(peerUsername) {
@@ -725,10 +755,11 @@ export function dmCallRoomId(peerUsername) {
 
 /** onEvent(type, payload) mit type ∈ 'call_invite'|'call_cancel'|'call_decline'|'call_end'. */
 export function subscribeToUserEvents(onEvent) {
+  _userEventCallback = onEvent
   if (OFFLINE_MODE || !supabase || !_myUid || _userChan) return
   _userChan = supabase.channel(`user:${_myUid}`, { config: { broadcast: { self: false } } })
   for (const type of ['call_invite', 'call_cancel', 'call_decline', 'call_end']) {
-    _userChan.on('broadcast', { event: type }, ({ payload }) => onEvent(type, payload))
+    _userChan.on('broadcast', { event: type }, ({ payload }) => _userEventCallback?.(type, payload))
   }
   _userChan.subscribe()
 }
@@ -736,6 +767,7 @@ export function subscribeToUserEvents(onEvent) {
 export function unsubscribeUserEvents() {
   if (_userChan) { try { supabase.removeChannel(_userChan) } catch {} }
   _userChan = null
+  _userEventCallback = null
 }
 
 /** Ein Anruf-Signal an eine bestimmte Person schicken. */
@@ -1082,10 +1114,10 @@ export function getProfile(username) {
   const p = _profileCache[username] || {}
   if (username === _myUsername) {
     const me = currentUser()
-    if (me) return { ...p, displayName: p.displayName || me.name, avatarImg: p.avatarImg ?? me.avatar ?? null, bio: p.bio || me.bio }
+    if (me) return { ...p, displayName: p.displayName ?? me.name, avatarImg: p.avatarImg ?? me.avatar ?? null, bio: p.bio ?? me.bio }
   } else if (OFFLINE_MODE) {
     const rec = getUserRecord(username)
-    if (rec) return { ...p, displayName: p.displayName || rec.name, avatarImg: p.avatarImg ?? rec.avatar ?? null, bio: p.bio || rec.bio }
+    if (rec) return { ...p, displayName: p.displayName ?? rec.name, avatarImg: p.avatarImg ?? rec.avatar ?? null, bio: p.bio ?? rec.bio }
   }
   return p
 }
@@ -2027,6 +2059,9 @@ export function canSendDM(sender, recipient) {
 /** @param {{url:string,name:string,type:string,size:number}|null} attachment */
 export async function sendDM(to, text, replyTo = null, attachment = null) {
   const myName = _myUsername
+  // dmPolicy ('nur Freunde dürfen mir schreiben') wurde bisher nirgends
+  // ausgewertet — canSendDM() existierte, wurde aber von niemandem aufgerufen.
+  if (!canSendDM(myName, to)) return { ok: false, error: `${to} erlaubt nur Nachrichten von Freunden.` }
   const blockedByRecipient = isBlockedBy(to)
   const ignoredByRecipient = (_ignored[to] || []).some(x => x.toLowerCase() === myName.toLowerCase())
 
@@ -2187,7 +2222,7 @@ async function _addFriendPair(a, b) {
   }
   if (OFFLINE_MODE || !_myUid) { lsWrite(LS_FRIENDS, _friends); return { ok: true } }
   const aUid = _usernameToUid(a); const bUid = _usernameToUid(b)
-  if (!aUid || !bUid) { rollback(); return { ok: false, error: 'Nutzer nicht gefunden.' } }
+  if (!aUid || !bUid) { rollback(); return { ok: false, error: `${!aUid ? a : b} ist unbekannt.` } }
   const [u1, u2] = [aUid, bUid].sort()
   return write('addFriendPair',
     () => supabase.from('friendships').upsert({ user_a: u1, user_b: u2 }),
@@ -2205,7 +2240,7 @@ export async function removeFriendPair(a, b) {
   const aUid = _usernameToUid(a); const bUid = _usernameToUid(b)
   // Vorher wurde hier stumm zurückgekehrt — die Freundschaft war lokal weg und
   // in der Datenbank noch da.
-  if (!aUid || !bUid) { rollback(); return { ok: false, error: 'Nutzer nicht gefunden.' } }
+  if (!aUid || !bUid) { rollback(); return { ok: false, error: `${!aUid ? a : b} ist unbekannt.` } }
   const [u1, u2] = [aUid, bUid].sort()
   return write('removeFriendPair',
     () => supabase.from('friendships').delete().eq('user_a', u1).eq('user_b', u2),
@@ -2231,7 +2266,12 @@ export async function sendFriendRequest(toUsername) {
     const target = findUserByUsername(toUsername)
     if (!target) return { ok: false, error: 'Es gibt keinen Nutzer mit diesem Benutzernamen.' }
   } else {
-    const { data } = await supabase.from('profiles').select('id,username').ilike('username', toUsername).maybeSingle()
+    const { data, error } = await supabase.from('profiles').select('id,username').ilike('username', _escapeIlike(toUsername)).maybeSingle()
+    if (error) {
+      console.error('[API] Nutzersuche fehlgeschlagen:', error.message)
+      report(error, { where: 'community-api.sendFriendRequest', code: error.code })
+      return { ok: false, error: 'Es gibt keinen Nutzer mit diesem Benutzernamen.' }
+    }
     if (!data) return { ok: false, error: 'Es gibt keinen Nutzer mit diesem Benutzernamen.' }
     if (!_profileCache[data.username]) _profileCache[data.username] = { _uid: data.id }
   }
@@ -2481,7 +2521,12 @@ export async function findUserApi(username) {
   if (OFFLINE_MODE || !_myUid) {
     return findUserByUsername(username)
   }
-  const { data } = await supabase.from('profiles').select('username').ilike('username', username).maybeSingle()
+  const { data, error } = await supabase.from('profiles').select('username').ilike('username', _escapeIlike(username)).maybeSingle()
+  if (error) {
+    console.error('[API] Nutzersuche fehlgeschlagen:', error.message)
+    report(error, { where: 'community-api.findUserApi', code: error.code })
+    return null
+  }
   return data ? { username: data.username } : null
 }
 

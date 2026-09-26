@@ -209,6 +209,10 @@ const KONF_DEFAULT_TAB = 'match'
 let currentView = 'deckblatt' // 'deckblatt' | 'konfigurator'
 let currentBikeData = null
 let konfObserver = null
+// document-mousedown-Listener aus bindKarteViewEvents() (Suchfeld schliessen
+// bei Klick ausserhalb) — Referenz noetig, um ihn beim erneuten Oeffnen des
+// Karte-Tabs bzw. beim Verlassen des Konfigurators wieder zu entfernen.
+let karteSearchOutsideClickHandler = null
 let isDragging = false, angle = 0.8, prevX = 0
 
 /**
@@ -446,7 +450,7 @@ export function openBikeDetail(bikeName) {
 function buildDeckblattHTML(data) {
   return `
     <section class="bd-hero">
-      <button class="bd-back" id="bd-back">
+      <button class="bd-back" id="bd-back" aria-label="Zurück">
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 12H5M12 19l-7-7 7-7"/></svg>
       </button>
       <!-- Wortmarke sitzt in der Bildbox, damit sie an das Motorrad
@@ -942,8 +946,13 @@ const MOCK_COMMENTS = [
 // Build suggestion list: pick 8 random other community items
 function getSuggestions(currentCardId) {
   const all = []
-  Object.entries(COMMUNITY_DATA).forEach(([cat, items]) => {
-    items.forEach((item, i) => all.push({ ...item, category: cat, fallbackId: `c${i}_${cat}` }))
+  // Muss dieselbe Reihenfolge + denselben global fortlaufenden Zähler wie
+  // buildCommunityCards()/buildCard() verwenden, sonst passt fallbackId nicht
+  // zum echten COMMUNITY_LOOKUP-Key desselben Items.
+  const categoryOrder = ['video', 'short', 'tour', 'event', 'group', 'stammtisch', 'forum']
+  let cardId = 0
+  categoryOrder.forEach(cat => {
+    (COMMUNITY_DATA[cat] || []).forEach(item => all.push({ ...item, category: cat, fallbackId: `c${cardId++}_${cat}` }))
   })
   // Shuffle deterministically based on currentCardId
   let seed = 0
@@ -976,7 +985,6 @@ function buildVideoDetailView(item, cardId, category) {
   const liked = state.liked
   const baseLikes = parseInt(item.baseLikes ?? 4800)
   const totalLikes = baseLikes + (liked ? 1 : 0)
-  const views = parseInt(item.extra) || hashInt(item.title, 'views', 10000, 60000)
   const suggestions = getSuggestions(cardId)
   return `
     <button class="cc-detail-back" id="cc-detail-back" aria-label="Zurück">
@@ -1025,7 +1033,7 @@ function buildVideoDetailView(item, cardId, category) {
           </button>
         </div>
 
-        <div class="ccd-channel-row" data-profile="${encodeURIComponent(channelName)}">
+        <div class="ccd-channel-row" data-profile="${encodeURIComponent(channelName)}" tabindex="0" role="button">
           <div class="ccd-avatar" style="background:${channelColor}">${getInitials(channelName)}</div>
           <div class="ccd-channel-info">
             <div class="ccd-channel-name">${channelName}</div>
@@ -1098,7 +1106,7 @@ Folgt mir für mehr Content rund ums Motorrad. Bleibt sicher unterwegs! 🏍</p>
               </div>
             `).join('')}
             ${MOCK_COMMENTS.map(c => `
-              <div class="ccd-comment" data-profile="${encodeURIComponent(c.user)}" data-likes="${c.likes}" data-ts="${Date.now() - c.min * 60000}">
+              <div class="ccd-comment" data-profile="${encodeURIComponent(c.user)}" data-likes="${c.likes}" data-ts="${Date.now() - c.min * 60000}" tabindex="0" role="button">
                 <div class="ccd-avatar ccd-avatar-sm" style="background:${stringColor(c.user)}">${getInitials(c.user)}</div>
                 <div class="ccd-comment-body">
                   <div class="ccd-comment-head">
@@ -1221,7 +1229,7 @@ function buildGroupChatView(item, cardId, category) {
 
     <div class="ccg-messages" id="ccg-messages">
       ${MOCK_GROUP_MESSAGES.map(m => `
-        <div class="ccg-msg ${m.me ? 'ccg-msg--me' : 'ccg-msg--other'}" ${!m.me ? `data-profile="${encodeURIComponent(m.user)}"` : ''}>
+        <div class="ccg-msg ${m.me ? 'ccg-msg--me' : 'ccg-msg--other'}" ${!m.me ? `data-profile="${encodeURIComponent(m.user)}" tabindex="0" role="button"` : ''}>
           ${!m.me ? `<div class="ccg-msg-avatar" style="background:${stringColor(m.user)}">${getInitials(m.user)}</div>` : ''}
           <div class="ccg-bubble">
             ${!m.me ? `<div class="ccg-msg-user" style="color:${stringColor(m.user)}">${m.user}</div>` : ''}
@@ -1288,10 +1296,10 @@ function buildCommunityCards() {
       </div>
       <div class="gear-card-body">
         <span class="gear-card-cat">${COMMUNITY_LABEL[key]}</span>
-        <div class="gear-card-brand">${item.title}</div>
-        <div class="gear-card-name">${item.desc}</div>
-        <div class="gear-card-type">${item.meta}</div>
-        <div class="gear-card-price">${item.extra}</div>
+        <div class="gear-card-brand">${esc(item.title)}</div>
+        <div class="gear-card-name">${esc(item.desc)}</div>
+        <div class="gear-card-type">${esc(item.meta)}</div>
+        <div class="gear-card-price">${esc(item.extra)}</div>
         <div class="cc-actions">
           <button class="cc-act cc-like ${cardState.liked ? 'cc-like--active' : ''}" data-card-id="${id}" data-base-likes="${baseLikes}" onclick="event.preventDefault();event.stopPropagation()">
             <svg width="12" height="12" viewBox="0 0 24 24" fill="${cardState.liked ? 'currentColor' : 'none'}" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 22V11l5-8 1 1v6h7l-2 12H7z"/></svg>
@@ -1415,15 +1423,17 @@ function mehrStartsOpen() {
 
 export function buildAnsichtView(data, headerCard) {
   const mehrOpen = mehrStartsOpen()
-  const kw = data.specs.power.split('/')[0].replace(/[^0-9]/g, '').trim()
-  const ps = data.specs.power.split('/')[1].replace(/[^0-9]/g, '').trim()
+  // fehlender Wert (normalizeGarageData): power ist dann "—" statt "X kW / Y PS" — nicht splitten
+  const hasPower = typeof data.specs.power === 'string' && data.specs.power.includes('/')
+  const kw = hasPower ? data.specs.power.split('/')[0].replace(/[^0-9]/g, '').trim() : ''
+  const ps = hasPower ? data.specs.power.split('/')[1].replace(/[^0-9]/g, '').trim() : ''
   const accel = parseFloat(data.specs.accel)
   const topSpeed = parseFloat(data.specs.topSpeed)
   const psNum = parseFloat(ps)
 
   const accelPct = Math.max(5, Math.min(100, ((15 - accel) / 15) * 100))
   const speedPct = Math.max(5, Math.min(100, (topSpeed / 300) * 100))
-  const psPct   = Math.max(5, Math.min(100, (psNum / 200) * 100))
+  const psPct   = hasPower && Number.isFinite(psNum) ? Math.max(5, Math.min(100, (psNum / 200) * 100)) : 0
 
   return `
     <!-- \u2500\u2500 Wichtig: immer sichtbar \u2500\u2500 -->
@@ -1450,7 +1460,7 @@ export function buildAnsichtView(data, headerCard) {
       <div class="konf-bar-group">
         <div class="konf-bar-header">
           <span class="konf-bar-label">Leistung</span>
-          <span class="konf-bar-value"><span class="konf-bar-counter" data-target="${kw}" data-decimals="0">0</span> kW / <span class="konf-bar-counter" data-target="${ps}" data-decimals="0">0</span> PS</span>
+          <span class="konf-bar-value">${hasPower ? `<span class="konf-bar-counter" data-target="${kw}" data-decimals="0">0</span> kW / <span class="konf-bar-counter" data-target="${ps}" data-decimals="0">0</span> PS` : '—'}</span>
         </div>
         <div class="konf-bar-track"><div class="konf-bar-fill" data-pct="${psPct}" style="width:0%"></div></div>
       </div>
@@ -1540,7 +1550,7 @@ function buildAusstattungView(data) {
 
       <div class="gear-bar-tools">
         <span class="gear-count-badge" id="gear-count-badge">0 Artikel</span>
-        <button class="gear-pill gear-fav-toggle" id="gear-fav-toggle" data-active="false" aria-label="Nur Favoriten zeigen">
+        <button class="gear-pill gear-fav-toggle" id="gear-fav-toggle" data-active="false" aria-pressed="false" aria-label="Nur Favoriten zeigen">
           <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg>
           <span class="gear-pill-count" id="gear-fav-toggle-count">0</span>
         </button>
@@ -1579,14 +1589,14 @@ function buildAusstattungView(data) {
 
         <div class="gear-tools-group">
           <span class="gear-tools-legend">Sortierung</span>
-          <button class="gear-pill gear-sort-btn" id="gear-sort-btn" data-dir="none" type="button">
+          <button class="gear-pill gear-sort-btn" id="gear-sort-btn" data-dir="none" aria-pressed="false" type="button">
             <span class="gear-sort-label">Preis \u2191</span>
           </button>
         </div>
 
         <div class="gear-tools-group">
           <span class="gear-tools-legend">Auswahl</span>
-          <button class="gear-pill gear-deal-toggle" id="gear-deal-toggle" data-active="false" type="button">
+          <button class="gear-pill gear-deal-toggle" id="gear-deal-toggle" data-active="false" aria-pressed="false" type="button">
             <span class="gear-pill-icon">\u20ac</span><span>G\u00fcnstigstes Viertel</span>
           </button>
         </div>
@@ -1664,7 +1674,7 @@ function buildKarteView(data) {
           <aside class="kv-sidebar">
             <!-- Drag-Handle: nur unterhalb des kv-layout-Breakpoints sichtbar,
                  dort wird das Panel per CSS zum Apple-Maps-artigen Bottom-Sheet -->
-            <div class="kv-sheet-handle" id="kv-sheet-handle" aria-hidden="true"></div>
+            <div class="kv-sheet-handle" id="kv-sheet-handle" tabindex="0" role="button" aria-label="Kartenansicht ein-/ausklappen"></div>
             <!-- Radius + Ortssuche -->
             <div class="kv-search-row">
               <div class="kv-radius-group" role="group" aria-label="Suchradius">
@@ -1732,8 +1742,8 @@ function buildKarteView(data) {
                   <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 3v18M3 7l4-4 4 4M17 21V3M13 17l4 4 4-4"/></svg>
                   <span class="kv-sort-label">Entfernung</span>
                 </button>
-                <button type="button" class="kv-chip" id="kv-open-toggle" data-active="false">Ge\u00f6ffnet</button>
-                <button type="button" class="kv-chip kv-chip--fav" id="kv-fav-filter" data-active="false" aria-label="Gemerkte Orte">
+                <button type="button" class="kv-chip" id="kv-open-toggle" data-active="false" aria-pressed="false">Ge\u00f6ffnet</button>
+                <button type="button" class="kv-chip kv-chip--fav" id="kv-fav-filter" data-active="false" aria-pressed="false" aria-label="Gemerkte Orte">
                   <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"/></svg>
                   <span class="kv-chip-count" id="kv-fav-count">0</span>
                 </button>
@@ -1810,6 +1820,7 @@ const MM_RADAR_SHORT_LABEL = {
   seatHeight: 'Sitzhöhe',
   license: 'Führerschein',
   passenger: 'Sozius',
+  popularity: 'Verbreitung',
 }
 
 /**
@@ -2069,6 +2080,9 @@ function buildMatchRows(list, currentBike) {
 
 /** Mindestpreis aus dem Katalogfeld ("18000-25000" → 18000). */
 function bikeMinPrice(bike) {
+  // price=1 ist der Katalog-Platzhalter für "kein echter Preis ermittelbar"
+  // (2026-09-27 Audit) — sonst wirkte das Bike fälschlich als Spar-Option.
+  if (bike?.price === 1) return 0
   const match = String(bike?.price ?? '').match(/(\d[\d.]*)/)
   return match ? parseInt(match[1].replace(/\./g, ''), 10) : 0
 }
@@ -2104,12 +2118,16 @@ function buildMatchRecoCard(currentBike) {
   // offenen und der bereits gemerkten Bikes fast nichts übrig, ist eine
   // Ein-Eintrag-Karte wertlos — dann lieber ähnliche Modelle zum offenen
   // Bike zeigen. Ohne Quiz gibt es ohnehin nur diesen Weg.
-  const fromProfile = answers
-    ? findTopMatches(answers, 10)
+  // matchResult (nicht die gefilterte Liste) trägt den nicht-aufzählbaren `hinweis` — .filter()/.slice()
+  // erzeugen ein neues Array und verlieren ihn, deshalb hier separat sichern.
+  const matchResult = answers ? findTopMatches(answers, 10) : null
+  const fromProfile = matchResult
+    ? matchResult
         .filter(r => r.bike.name !== currentBike?.name && !saved.has(r.bike.name))
         .slice(0, 3)
     : []
   const useProfile = fromProfile.length >= 2
+  const hinweis = useProfile ? matchResult.hinweis : null
 
   const recs = useProfile
     ? fromProfile
@@ -2126,6 +2144,7 @@ function buildMatchRecoCard(currentBike) {
     <div class="konf-card mm-match-card konf-reveal" id="mm-match-reco">
       <span class="konf-overline">${overline}</span>
       <h3 class="konf-card-title konf-card-title--lg">${title}</h3>
+      ${hinweis ? `<p class="bd-hinweis">${hinweis}</p>` : ''}
       <div class="mm-reco-grid">
         ${recs.map(r => {
           const b = r.bike
@@ -2385,6 +2404,12 @@ function bindKarteSheet() {
   handle.addEventListener('touchstart', onPointerDown, { passive: true })
   handle.addEventListener('mousedown', onPointerDown)
   handle.addEventListener('click', onTap)
+  handle.addEventListener('keydown', e => {
+    if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault()
+      toggle()
+    }
+  })
 }
 
 /** ResizeObserver der zuletzt montierten Indikator-Leisten. Beim erneuten
@@ -2518,7 +2543,7 @@ function bindKarteViewEvents() {
         address: m.address || '',
         rating: m.rating || null,
         userRatings: 0,
-        isOpen: null,
+        isOpen: m.isOpen ?? null,
         lat: m.lat,
         lng: m.lng,
         distanceKm: (lat != null && m.lat != null) ? haversineKm(lat, lng, m.lat, m.lng) : null,
@@ -2682,7 +2707,7 @@ function bindKarteViewEvents() {
             const result = getHubSearchResults().find(r => r.placeId === id)
             if (result) {
               const meta = JSON.parse(localStorage.getItem('mm_kv_favs_meta') || '{}')
-              meta[id] = { name: result.name, address: result.address, lat: result.lat, lng: result.lng, rating: result.rating, ts: Date.now() }
+              meta[id] = { name: result.name, address: result.address, lat: result.lat, lng: result.lng, rating: result.rating, isOpen: result.isOpen ?? null, ts: Date.now() }
               localStorage.setItem('mm_kv_favs_meta', JSON.stringify(meta))
             }
           } catch {}
@@ -2724,6 +2749,7 @@ function bindKarteViewEvents() {
     } else if (btn.id === 'kv-empty-openoff') {
       openOnly = false
       document.getElementById('kv-open-toggle')?.setAttribute('data-active', 'false')
+      document.getElementById('kv-open-toggle')?.setAttribute('aria-pressed', 'false')
       renderResults()
     } else if (btn.id === 'kv-empty-expand') {
       const next = RADIUS_STEPS.find(r => r > currentRadius)
@@ -2766,6 +2792,7 @@ function bindKarteViewEvents() {
   document.getElementById('kv-open-toggle')?.addEventListener('click', (e) => {
     openOnly = !openOnly
     e.currentTarget.dataset.active = String(openOnly)
+    e.currentTarget.setAttribute('aria-pressed', String(openOnly))
     renderResults()
   })
 
@@ -2775,6 +2802,7 @@ function bindKarteViewEvents() {
   document.getElementById('kv-fav-filter')?.addEventListener('click', (e) => {
     favOnly = !favOnly
     e.currentTarget.dataset.active = String(favOnly)
+    e.currentTarget.setAttribute('aria-pressed', String(favOnly))
     document.querySelector('.kv-sidebar')?.classList.toggle('kv-sidebar--favs', favOnly)
     renderResults()
   })
@@ -2898,9 +2926,14 @@ function bindKarteViewEvents() {
     if (document.getElementById('kv-search-input')?.value.trim()) { ortSuchen(); return }
     closeSearch()
   })
-  document.addEventListener('mousedown', e => {
+  // Vorherige Instanz entfernen: die alte schliesst ueber eine `searchWrap`,
+  // die beim Neuaufbau des Karte-Tabs (container.innerHTML) laengst aus dem
+  // DOM entfernt wurde, bliebe aber sonst fuer immer an document haengen.
+  if (karteSearchOutsideClickHandler) document.removeEventListener('mousedown', karteSearchOutsideClickHandler)
+  karteSearchOutsideClickHandler = e => {
     if (searchWrap && !searchWrap.contains(e.target)) closeSearch()
-  })
+  }
+  document.addEventListener('mousedown', karteSearchOutsideClickHandler)
   searchField?.addEventListener('keydown', e => {
     if (e.key === 'Escape') closeSearch()
   })
@@ -3179,6 +3212,10 @@ function openMatchBike(name) {
     detail.style.opacity = ''
     detail.style.transition = ''
     import('./garage.js').then(m => m.openBikeGarage(bike.name))
+      .catch(err => {
+        console.error('[bike-detail] Garage konnte nicht geladen werden:', err)
+        closeDetailToLanding()
+      })
   }, 220)
 }
 
@@ -3198,6 +3235,11 @@ function startQuizFromKonfigurator() {
     document.documentElement.classList.remove('has-landing')
     document.getElementById('quiz-screen').style.display = 'flex'
     import('./quiz.js').then(m => m.initQuiz())
+      .catch(err => {
+        console.error('[bike-detail] Quiz konnte nicht geladen werden:', err)
+        document.getElementById('quiz-screen').style.display = 'none'
+        closeDetailToLanding()
+      })
   }, 220)
 }
 function buildKonfiguratorHTML(data, initialTab = KONF_DEFAULT_TAB) {
@@ -3412,8 +3454,16 @@ function returnToGarage(bikeData) {
     // beim nächsten Öffnen des Konfigurators die CSS-Klasse (schwarzer Bildschirm)
     detail.style.opacity = ''
     detail.style.transition = ''
-    // Re-open garage
-    import('./garage.js').then(m => m.openBikeGarage(bikeData.name.replace(/^(Honda|Yamaha|Harley-Davidson|Suzuki|Kawasaki|BMW|Ducati|KTM|Triumph)\s+/i, '')))
+    // Re-open garage — Name unveraendert durchreichen, wie jeder andere
+    // Aufrufer (openMatchBike hier, app.js, landing.js): findBikeByShortName
+    // (matching.js) hat bereits einen eigenen Fallback fuer Kurznamen; ein
+    // hier abgeschnittenes Markenpraefix zwingt es unnoetig in dessen
+    // Teilstring-Fallback, der beim erstbesten passenden Namen haengenbleiben kann.
+    import('./garage.js').then(m => m.openBikeGarage(bikeData.name))
+      .catch(err => {
+        console.error('[bike-detail] Garage konnte nicht geladen werden:', err)
+        closeDetailToLanding()
+      })
   }, 220)
 }
 
@@ -3552,19 +3602,29 @@ function initKonfiguratorAnimations() {
   const onPriceInput = () => { applyGearFilters(); syncToolsDot() }
   document.getElementById('gear-price-min')?.addEventListener('input', onPriceInput)
   document.getElementById('gear-price-max')?.addEventListener('input', onPriceInput)
+  // Bestehenden Wert beim Fokussieren markieren, sonst tippt man in "0"
+  // hinein statt es zu ersetzen ("0" + "300" → "3000").
+  const onPriceFocus = e => e.target.select()
+  document.getElementById('gear-price-min')?.addEventListener('focus', onPriceFocus)
+  document.getElementById('gear-price-max')?.addEventListener('focus', onPriceFocus)
 
   // Sort button
-  document.getElementById('gear-sort-btn')?.addEventListener('click', () => {
-    const btn = document.getElementById('gear-sort-btn')
-    const label = btn.querySelector('.gear-sort-label')
-    const cur = btn.dataset.dir
-    const next = cur === 'asc' ? 'desc' : 'asc'
-    btn.dataset.dir = next
-    label.textContent = next === 'asc' ? 'Preis ↑' : 'Preis ↓'
-    sortGearCards(next)
-    applyGearFilters()
-    syncToolsDot()
-  })
+  const gearSortBtn = document.getElementById('gear-sort-btn')
+  if (gearSortBtn && !gearSortBtn.dataset.bound) {
+    gearSortBtn.dataset.bound = '1'
+    gearSortBtn.addEventListener('click', () => {
+      const btn = document.getElementById('gear-sort-btn')
+      const label = btn.querySelector('.gear-sort-label')
+      const cur = btn.dataset.dir
+      const next = cur === 'asc' ? 'desc' : 'asc'
+      btn.dataset.dir = next
+      btn.setAttribute('aria-pressed', 'true')
+      label.textContent = next === 'asc' ? 'Preis ↑' : 'Preis ↓'
+      sortGearCards(next)
+      applyGearFilters()
+      syncToolsDot()
+    })
+  }
 
   // Ansichtsumschalter und Leistenmessung aufsetzen (delegiert, s. initGearView)
   initGearView()
@@ -3583,6 +3643,7 @@ function initKonfiguratorAnimations() {
     const toggle = document.getElementById('gear-fav-toggle')
     if (toggle && toggle.dataset.active === 'true' && count === 0) {
       toggle.dataset.active = 'false'
+      toggle.setAttribute('aria-pressed', 'false')
     }
   }
 
@@ -3643,11 +3704,16 @@ function initKonfiguratorAnimations() {
   })
 
   // Favorites toggle (middle of price-top row) — show only favorites
-  document.getElementById('gear-fav-toggle')?.addEventListener('click', () => {
-    const toggle = document.getElementById('gear-fav-toggle')
-    toggle.dataset.active = toggle.dataset.active === 'true' ? 'false' : 'true'
-    applyGearFilters()
-  })
+  const gearFavToggleBtn = document.getElementById('gear-fav-toggle')
+  if (gearFavToggleBtn && !gearFavToggleBtn.dataset.bound) {
+    gearFavToggleBtn.dataset.bound = '1'
+    gearFavToggleBtn.addEventListener('click', () => {
+      const toggle = document.getElementById('gear-fav-toggle')
+      toggle.dataset.active = toggle.dataset.active === 'true' ? 'false' : 'true'
+      toggle.setAttribute('aria-pressed', toggle.dataset.active)
+      applyGearFilters()
+    })
+  }
 
   /* Markiert das guenstigste Viertel des Sortiments.
    *
@@ -3717,10 +3783,11 @@ function initKonfiguratorAnimations() {
     if (min) min.value = '0'
     if (max) max.value = '1000'
     const deal = document.getElementById('gear-deal-toggle')
-    if (deal) deal.dataset.active = 'false'
+    if (deal) { deal.dataset.active = 'false'; deal.setAttribute('aria-pressed', 'false') }
     const sort = document.getElementById('gear-sort-btn')
     if (sort) {
       sort.dataset.dir = 'none'
+      sort.setAttribute('aria-pressed', 'false')
       const lbl = sort.querySelector('.gear-sort-label')
       if (lbl) lbl.textContent = 'Preis \u2191'
     }
@@ -3730,9 +3797,11 @@ function initKonfiguratorAnimations() {
 
   function bindGearToggle(id) {
     const btn = document.getElementById(id)
-    if (!btn) return
+    if (!btn || btn.dataset.bound) return
+    btn.dataset.bound = '1'
     btn.addEventListener('click', () => {
       btn.dataset.active = btn.dataset.active === 'true' ? 'false' : 'true'
+      btn.setAttribute('aria-pressed', btn.dataset.active)
       applyGearFilters()
       syncToolsDot()
     })
@@ -3788,8 +3857,10 @@ function initKonfiguratorAnimations() {
   const modalCancel = document.getElementById('cc-modal-cancel')
   const modalForm = document.getElementById('cc-modal-form')
 
+  let ccModalCloseTimer = null
   function openCcModal() {
     if (!modal) return
+    if (ccModalCloseTimer) { clearTimeout(ccModalCloseTimer); ccModalCloseTimer = null }
     modal.style.display = 'flex'
     requestAnimationFrame(() => modal.classList.add('cc-modal--open'))
     // Preselect category from active filter
@@ -3802,7 +3873,8 @@ function initKonfiguratorAnimations() {
   function closeCcModal() {
     if (!modal) return
     modal.classList.remove('cc-modal--open')
-    setTimeout(() => { modal.style.display = 'none' }, 200)
+    if (ccModalCloseTimer) clearTimeout(ccModalCloseTimer)
+    ccModalCloseTimer = setTimeout(() => { modal.style.display = 'none'; ccModalCloseTimer = null }, 200)
   }
 
   fab?.addEventListener('click', openCcModal)
@@ -4021,9 +4093,12 @@ function initKonfiguratorAnimations() {
   modalCancel?.addEventListener('click', closeCcModal)
 
   // ── Community: open detail view on card click ──
+  let ccDetailCloseTimer = null
+  let sortMenuDocClickHandler = null
   function openCommunityDetail(viewHtml) {
     const overlay = document.getElementById('cc-detail-overlay')
     if (!overlay) return
+    if (ccDetailCloseTimer) { clearTimeout(ccDetailCloseTimer); ccDetailCloseTimer = null }
     overlay.innerHTML = viewHtml
     overlay.style.display = 'block'
     requestAnimationFrame(() => overlay.classList.add('cc-detail-overlay--open'))
@@ -4038,11 +4113,20 @@ function initKonfiguratorAnimations() {
     const overlay = document.getElementById('cc-detail-overlay')
     if (!overlay) return
     overlay.classList.remove('cc-detail-overlay--open')
-    setTimeout(() => {
+    if (ccDetailCloseTimer) clearTimeout(ccDetailCloseTimer)
+    ccDetailCloseTimer = setTimeout(() => {
       overlay.style.display = 'none'
       overlay.innerHTML = ''
+      ccDetailCloseTimer = null
     }, 250)
     document.querySelector('.konf-right')?.classList.remove('konf-right--locked')
+    // Teardown fuer den document-Click-Listener der Kommentar-Sortiermenue
+    // (siehe wireDetailViewActions) - sonst bleibt er nach dem Schliessen
+    // dieser Ansicht dauerhaft an document haengen.
+    if (sortMenuDocClickHandler) {
+      document.removeEventListener('click', sortMenuDocClickHandler)
+      sortMenuDocClickHandler = null
+    }
   }
   function wireDetailViewActions() {
     // Like in detail view
@@ -4071,10 +4155,21 @@ function initKonfiguratorAnimations() {
     })
     // Click on channel/comment user → open profile
     document.querySelectorAll('[data-profile]').forEach(el => {
-      el.addEventListener('click', e => {
-        e.stopPropagation()
+      const openProfile = () => {
         const name = decodeURIComponent(el.dataset.profile)
         openCommunityDetail(buildProfileView(name))
+      }
+      el.addEventListener('click', e => {
+        e.stopPropagation()
+        openProfile()
+      })
+      // Per Tastatur bedienbar (tabindex/role="button" am Element selbst)
+      el.addEventListener('keydown', e => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault()
+          e.stopPropagation()
+          openProfile()
+        }
       })
     })
     // Share button → Web Share API with clipboard fallback
@@ -4213,7 +4308,11 @@ function initKonfiguratorAnimations() {
       e.stopPropagation()
       sortMenu?.classList.toggle('ccd-sort-menu--open')
     })
-    document.addEventListener('click', () => sortMenu?.classList.remove('ccd-sort-menu--open'))
+    // Vorherigen Listener entfernen statt einen weiteren anzuhaeufen: diese
+    // Funktion laeuft bei jedem Oeffnen einer Detail-Ansicht erneut.
+    if (sortMenuDocClickHandler) document.removeEventListener('click', sortMenuDocClickHandler)
+    sortMenuDocClickHandler = () => sortMenu?.classList.remove('ccd-sort-menu--open')
+    document.addEventListener('click', sortMenuDocClickHandler)
     function applyCommentSort(mode) {
       const list = document.getElementById('ccd-comments-list')
       if (!list) return
@@ -4413,6 +4512,10 @@ function cleanupKonfigurator() {
   if (konfObserver) {
     konfObserver.disconnect()
     konfObserver = null
+  }
+  if (karteSearchOutsideClickHandler) {
+    document.removeEventListener('mousedown', karteSearchOutsideClickHandler)
+    karteSearchOutsideClickHandler = null
   }
 }
 

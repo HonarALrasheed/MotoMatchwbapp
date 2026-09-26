@@ -2,7 +2,7 @@ import { initLanding } from './landing.js'
 import { findBikeByShortName, ladeVollkatalog } from './matching.js'
 import { initSupabaseAuth, openPasswordResetScreen } from './auth.js'
 import { initFeedbackFab } from './feedback.js'
-import { initNav, setViewResolver, readRestoreView, clearRestoreView } from './nav.js'
+import { initNav, setViewResolver, readRestoreView, clearRestoreView, rebuild } from './nav.js'
 import { initSwipeNav } from './swipe.js'
 import { initViewport } from './viewport.js'
 import { initInstall } from './install.js'
@@ -70,7 +70,10 @@ export function startApp() {
   if (bikeName) {
     import('./garage.js')
       .then(m => m.openBikeGarage(bikeName))
-      .catch(() => initLanding())
+      .catch(err => {
+        console.error('[app] Direktlink konnte nicht geladen werden:', err)
+        initLanding()
+      })
     return
   }
 
@@ -79,9 +82,13 @@ export function startApp() {
   // Der Eintrag steckt in sessionStorage: er ueberlebt das Neuladen, aber
   // nicht das Schliessen des Tabs — ein Bike von vorgestern beim Neustart
   // waere keine Wiederherstellung mehr, sondern eine Ueberraschung.
+  // Über nav.js' rebuild() statt direkt über openView(): nur so setzt nav.js
+  // sein `restoring`-Flag, bevor der wiederhergestellte Bildschirm sich per
+  // enterScreen() anmeldet — sonst legt das einen zweiten, doppelten
+  // History-Eintrag an, statt den bestehenden Eintrag zu übernehmen.
   const saved = readRestoreView()
   if (saved) {
-    openView(saved)
+    rebuild(saved)
       .then(ok => { if (!ok) { clearRestoreView(); initLanding() } })
       .catch(err => {
         console.error('[app] Ansicht konnte nicht wiederhergestellt werden:', err)

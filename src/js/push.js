@@ -91,9 +91,12 @@ export async function enablePushNotifications() {
   return { ok: true }
 }
 
-/** Push deaktivieren: Browser-Abo kündigen + Subscription-Zeile löschen. */
+/**
+ * Push deaktivieren: Browser-Abo kündigen + Subscription-Zeile löschen.
+ * @returns {Promise<{ok:boolean, error?:string}>}
+ */
 export async function disablePushNotifications() {
-  if (!isPushSupported()) return
+  if (!isPushSupported()) return { ok: true }
   try {
     const registration = await navigator.serviceWorker.getRegistration('/sw.js')
     const subscription = await registration?.pushManager.getSubscription()
@@ -101,10 +104,18 @@ export async function disablePushNotifications() {
       const endpoint = subscription.endpoint
       await subscription.unsubscribe()
       if (!OFFLINE_MODE && supabase) {
-        await supabase.from('push_subscriptions').delete().eq('endpoint', endpoint)
+        const { error } = await supabase.from('push_subscriptions').delete().eq('endpoint', endpoint)
+        if (error) {
+          console.error('[push] Push-Subscription konnte nicht gelöscht werden:', error)
+          return { ok: false, error: 'Push-Abo konnte nicht vollständig entfernt werden.' }
+        }
       }
     }
-  } catch {}
+    return { ok: true }
+  } catch (err) {
+    console.error('[push] disablePushNotifications fehlgeschlagen:', err)
+    return { ok: false, error: 'Push-Benachrichtigungen konnten nicht deaktiviert werden.' }
+  }
 }
 
 /** Ist Push für dieses Gerät aktuell abonniert? */

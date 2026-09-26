@@ -37,6 +37,14 @@ let _sbSession = null  // { username, uid } | { username:'Gast', guest:true } | 
    ein zweites Mal initialisieren. */
 let _registering = false
 
+/* login() ruft _onSignedIn() nach signInWithPassword() ebenfalls selbst auf
+   (fuer eine sofortige Rueckgabe an den Aufrufer) — ohne dieses Flag würde der
+   parallel feuernde onAuthStateChange-Listener dieselbe Session ein zweites Mal
+   verarbeiten (doppeltes _onSignedIn()+notify()). Schützt aus demselben Grund
+   auch changePassword(), dessen Passwort-Verifizierung denselben SIGNED_IN-
+   Event auslöst. */
+let _loggingIn = false
+
 /**
  * Muss einmal beim App-Start aufgerufen werden (OFFLINE_MODE-agnostisch).
  * Gibt die initiale Session zurück (oder null) und registriert den
@@ -58,6 +66,16 @@ export async function initSupabaseAuth() {
   if (session) {
     await _onSignedIn(session)
     notify()
+  } else {
+    // Gast-Sessions liegen nie bei Supabase (loginGuest() bleibt rein lokal) —
+    // ohne diesen Check würde ein Gast einen Reload im Online-Modus nicht
+    // überstehen, weil getSession() oben dann sofort wieder null liefert.
+    const s = read(LS_SESSION, null)
+    if (s?.guest) {
+      _sbSession = s
+      await initCommunityData(null, 'Gast')
+      notify()
+    }
   }
 
   supabase.auth.onAuthStateChange(async (event, session) => {
@@ -66,7 +84,7 @@ export async function initSupabaseAuth() {
       return
     }
     if (event === 'SIGNED_IN' && session) {
-      if (_registering) return // register() ruft _onSignedIn() selbst auf, nachdem das Profil steht
+      if (_registering || _loggingIn) return // register()/login()/changePassword() rufen _onSignedIn() selbst auf
       await _onSignedIn(session)
       notify()
     } else if (event === 'SIGNED_OUT') {
@@ -318,18 +336,23 @@ export async function login(identifier, password) {
       if (!resolvedEmail) return { ok: false, error: 'Kein Konto mit diesem Benutzernamen gefunden.' }
       email = resolvedEmail
     }
-    const { data, error } = await supabase.auth.signInWithPassword({ email, password })
-    if (error || !data.session) {
-      // Mit aktivem "Confirm email" ist das der häufigste Fall direkt nach der
-      // Registrierung — "Passwort falsch" wäre hier schlicht gelogen.
-      if (/not confirmed/i.test(error?.message || ''))
-        return { ok: false, error: 'Bitte bestätige zuerst deine E-Mail-Adresse — den Link findest du in deinem Postfach.' }
-      return { ok: false, error: 'Zugangsdaten oder Passwort sind falsch.' }
+    _loggingIn = true
+    try {
+      const { data, error } = await supabase.auth.signInWithPassword({ email, password })
+      if (error || !data.session) {
+        // Mit aktivem "Confirm email" ist das der häufigste Fall direkt nach der
+        // Registrierung — "Passwort falsch" wäre hier schlicht gelogen.
+        if (/not confirmed/i.test(error?.message || ''))
+          return { ok: false, error: 'Bitte bestätige zuerst deine E-Mail-Adresse — den Link findest du in deinem Postfach.' }
+        return { ok: false, error: 'Zugangsdaten oder Passwort sind falsch.' }
+      }
+      // _sbSession wird durch onAuthStateChange gesetzt, aber wir setzen es sofort
+      await _onSignedIn(data.session)
+      notify()
+      return { ok: true, user: { username: _sbSession?.username } }
+    } finally {
+      _loggingIn = false
     }
-    // _sbSession wird durch onAuthStateChange gesetzt, aber wir setzen es sofort
-    await _onSignedIn(data.session)
-    notify()
-    return { ok: true, user: { username: _sbSession?.username } }
   }
 
   // Offline-Modus
@@ -366,8 +389,12 @@ export async function register({ username, password, password2, email = '', age 
     // Trigger stillschweigend einen Namen mit Suffix zugeteilt zu bekommen.
     // .eq() statt .ilike(): ILIKE deutet "_" als Platzhalter, "max_1" kollidierte
     // dadurch fälschlich mit "maxx1".
+    // Geprüft wird der sanitierte Name: handle_new_user() (supabase/schema.sql)
+    // ersetzt vor dem Speichern jedes Zeichen außerhalb [A-Za-z0-9_] durch "_" —
+    // sonst könnte diese Prüfung einen String durchwinken, der nie so gespeichert wird.
+    const sanitizedUsername = username.replace(/[^a-zA-Z0-9_]/g, '_').slice(0, 24)
     const { data: existing } = await supabase
-      .from('profiles').select('id').eq('username', username).maybeSingle()
+      .from('profiles').select('id').eq('username', sanitizedUsername).maybeSingle()
     if (existing) return { ok: false, error: 'Dieser Benutzername ist bereits vergeben.' }
 
     _registering = true
@@ -480,7 +507,7 @@ export async function changeUsername(newUsername) {
   const s = getSession(); if (!s || s.guest) return { ok: false, error: 'Als Gast nicht möglich.' }
   newUsername = (newUsername || '').trim()
   if (newUsername.length < 2) return { ok: false, error: 'Benutzername ist zu kurz.' }
-  if (newUsername.toLowerCase() === s.username.toLowerCase()) return { ok: true }
+  if (newUsername === s.username) return { ok: true }
 
   if (!OFFLINE_MODE) {
     // .eq() wie in register(): ILIKE deutete "_" als Platzhalter und meldete
@@ -496,10 +523,12 @@ export async function changeUsername(newUsername) {
   }
 
   const users = getUsers()
-  if (users.some(x => x.username.toLowerCase() === newUsername.toLowerCase()))
-    return { ok: false, error: 'Dieser Benutzername ist bereits vergeben.' }
   const u = users.find(x => x.username.toLowerCase() === s.username.toLowerCase())
   if (!u) return { ok: false, error: 'Nutzer nicht gefunden.' }
+  // x !== u: sonst würde eine reine Großschreibungsänderung an der eigenen
+  // Zeile fälschlich als "bereits vergeben" abgelehnt.
+  if (users.some(x => x !== u && x.username.toLowerCase() === newUsername.toLowerCase()))
+    return { ok: false, error: 'Dieser Benutzername ist bereits vergeben.' }
   u.username = newUsername
   saveUsers(users)
   setSessionRaw({ username: newUsername })
@@ -517,7 +546,13 @@ export async function changePassword(currentPassword, newPassword) {
     const { data: { user } } = await supabase.auth.getUser()
     const email = user?.email
     if (!email) return { ok: false, error: 'Dieses Konto ist über Google verknüpft — kein lokales Passwort.' }
-    const { error: verifyErr } = await supabase.auth.signInWithPassword({ email, password: currentPassword })
+    _loggingIn = true
+    let verifyErr
+    try {
+      ;({ error: verifyErr } = await supabase.auth.signInWithPassword({ email, password: currentPassword }))
+    } finally {
+      _loggingIn = false
+    }
     if (verifyErr) return { ok: false, error: 'Aktuelles Passwort ist falsch.' }
     const { error } = await supabase.auth.updateUser({ password: newPassword })
     if (error) return { ok: false, error: error.message }
@@ -692,6 +727,8 @@ export function openAuthModal(onDone) {
   const overlay = document.createElement('div')
   overlay.id = 'mm-authmodal'
   overlay.className = 'p-auth-overlay'
+  overlay.setAttribute('role', 'dialog')
+  overlay.setAttribute('aria-modal', 'true')
   document.body.appendChild(overlay)
 
   const close = (done) => {
@@ -715,7 +752,7 @@ export function openAuthModal(onDone) {
             <span class="p-auth-label">E-Mail</span>
             <input class="p-auth-input" id="mm-am-email" type="email" placeholder="du@mail.de" required>
           </label>
-          <div class="p-auth-error" id="mm-am-error" ${error ? '' : 'hidden'}>${esc(error)}</div>
+          <div class="p-auth-error" id="mm-am-error" role="alert" ${error ? '' : 'hidden'}>${esc(error)}</div>
           ${info ? `<div class="p-auth-sub" style="color:#0a0;margin:8px 0 4px">${esc(info)}</div>` : ''}
           <div class="p-auth-actions">
             <button type="button" class="p-auth-cancel" id="mm-am-back">Zurück</button>
@@ -793,7 +830,7 @@ export function openAuthModal(onDone) {
               </select>
             </label>
           </div>`}
-          <div class="p-auth-error" id="mm-am-error" ${error ? '' : 'hidden'}>${esc(error)}</div>
+          <div class="p-auth-error" id="mm-am-error" role="alert" ${error ? '' : 'hidden'}>${esc(error)}</div>
           ${info ? `<div class="p-auth-sub" style="color:#0a0;margin:8px 0 4px">${esc(info)}</div>` : ''}
           ${pendingEmail ? `
           <div style="margin:4px 0 12px;text-align:center">
@@ -868,6 +905,8 @@ export function openPasswordResetScreen() {
   const overlay = document.createElement('div')
   overlay.id = 'mm-resetmodal'
   overlay.className = 'p-auth-overlay'
+  overlay.setAttribute('role', 'dialog')
+  overlay.setAttribute('aria-modal', 'true')
   document.body.appendChild(overlay)
 
   const close = () => {
@@ -885,7 +924,7 @@ export function openPasswordResetScreen() {
 
   const render = (error = '', info = '') => {
     overlay.innerHTML = `
-      <div class="p-auth-backdrop"></div>
+      <div class="p-auth-backdrop" id="mm-rm-backdrop"></div>
       <div class="p-auth-card">
         <div class="p-auth-brand">MOTOMATCH</div>
         <h3 class="p-auth-title">Neues Passwort setzen</h3>
@@ -899,13 +938,16 @@ export function openPasswordResetScreen() {
             <span class="p-auth-label">Neues Passwort bestätigen</span>
             <input class="p-auth-input" id="mm-rm-p2" type="password" minlength="${MIN_PASSWORD_LENGTH}" autocomplete="new-password" placeholder="••••••••" required>
           </label>
-          <div class="p-auth-error" id="mm-rm-error" ${error ? '' : 'hidden'}>${esc(error)}</div>
+          <div class="p-auth-error" id="mm-rm-error" role="alert" ${error ? '' : 'hidden'}>${esc(error)}</div>
           ${info ? `<div class="p-auth-sub" style="color:#0a0;margin:8px 0 4px">${esc(info)}</div>` : ''}
           <div class="p-auth-actions">
+            <button type="button" class="p-auth-cancel" id="mm-rm-cancel">Abbrechen</button>
             <button type="submit" class="p-auth-submit" id="mm-rm-submit">Neues Passwort speichern</button>
           </div>
         </form>
       </div>`
+    overlay.querySelector('#mm-rm-backdrop').addEventListener('click', () => close())
+    overlay.querySelector('#mm-rm-cancel').addEventListener('click', () => close())
     overlay.querySelector('#mm-rm-form').addEventListener('submit', async e => {
       e.preventDefault()
       const btn = overlay.querySelector('#mm-rm-submit')

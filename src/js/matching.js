@@ -371,6 +371,31 @@ function gedrosselt(bike, klasse) {
   return klasse === "A2" && bike.license !== "A2" && Boolean(bike.a2) && LICENSE_RANK[bike.license] > 2;
 }
 
+/**
+ * Ist das genau die Klasse, die gewählt wurde — nicht nur legal erlaubt? darfFahren() lässt für A2
+ * auch A1-Maschinen durch (legal richtig: A2 schließt A1 ein), aber wer im Quiz A2 wählt, soll ein
+ * A2-Bike bekommen, kein A1 (Nutzer 2026-09-26: „genau so bei den anderen" — gilt also für jede
+ * Klasse). Eine gedrosselte A-Maschine zählt als A2, weil sie genau dafür verkauft und zugelassen
+ * wird, nicht als Kompromiss.
+ */
+export function klassePasstExakt(bike, klasse) {
+  const riderRank = LICENSE_RANK[klasse] || 3;
+  const bikeRank = gedrosselt(bike, klasse) ? riderRank : LICENSE_RANK[bike.license] || 1;
+  return bikeRank === riderRank;
+}
+
+/**
+ * Passt der Stil des Bikes zur Wunschgattung? Exakt oder Teilstring in beide Richtungen (z. B.
+ * "Sport touring" enthält "Touring"). Zentrale Stelle statt der bisherigen dreifachen Kopie —
+ * dieselbe Logik entscheidet jetzt den harten Filter in findTopMatches() UND den Score in scoreBike().
+ */
+function stilPasstZu(bikeStyle, wantStyle) {
+  const b = (bikeStyle || "").toLowerCase();
+  const w = (wantStyle || "").toLowerCase();
+  if (!b || !w) return false;
+  return b === w || b.includes(w) || w.includes(b);
+}
+
 // License class compatibility (what each class can legally ride)
 const LICENSE_ALLOWS = Object.freeze({
   A1: new Set(["A1"]),
@@ -411,19 +436,6 @@ const USE_ALIASES = Object.freeze({
 
 let catalog = [...DEFAULT_CATALOG, ...FREIGEGEBENE_BIKES];
 
-// Pre-built index for fast license filtering at 40K+ scale
-let licenseIndex = buildLicenseIndex(catalog);
-
-function buildLicenseIndex(bikes) {
-  const index = {};
-  for (let i = 0; i < bikes.length; i++) {
-    const lic = bikes[i].license || "A";
-    if (!index[lic]) index[lic] = [];
-    index[lic].push(i);
-  }
-  return index;
-}
-
 // ══════════════════════════════════════════════════════════════
 //  VOLLKATALOG — der ganze deutsche Markt (seit 2026-09-17)
 //
@@ -441,8 +453,15 @@ const schluessel = (b) => `${b.brand || ""} ${b.name || ""}`.toLowerCase().repla
 
 /** Anzeigepreis: „ca. 7.900 €" aus der Mitte von neu und gebraucht; ohne Preis „Preis folgt". */
 function preisText(b) {
-  if (!b.price) return "Preis folgt";
-  return `ca. ${Math.round(b.price).toLocaleString("de-DE")} €`;
+  // price=1 ist der Platzhalter aus der Katalogpipeline für "kein echter Preis
+  // ermittelbar" (2026-09-27 Audit) — als Preis ausgegeben zeigte das "ca. 1 €"
+  // an, obwohl bei vielen dieser Bikes priceNew/priceUsed längst vorliegen.
+  // Erst daraus die Mitte bilden, bevor "Preis folgt" das letzte Wort hat.
+  if (b.price && b.price > 1) return `ca. ${Math.round(b.price).toLocaleString("de-DE")} €`;
+  if (b.priceNew && b.priceUsed) return `ca. ${Math.round((b.priceNew + b.priceUsed) / 2).toLocaleString("de-DE")} €`;
+  if (b.priceUsed) return `ca. ${Math.round(b.priceUsed).toLocaleString("de-DE")} €`;
+  if (b.priceNew) return `ca. ${Math.round(b.priceNew).toLocaleString("de-DE")} €`;
+  return "Preis folgt";
 }
 
 function katalogEintrag(b, i) {
@@ -487,7 +506,13 @@ function mische(neue) {
 export function ladeVollkatalog() {
   if (katalogLaden) return katalogLaden;
   katalogLaden = fetch(KATALOG_URL)
-    .then((r) => (r.ok ? r.json() : null))
+    .then((r) => {
+      if (!r.ok) {
+        console.warn("[matching] Vollkatalog nicht geladen: HTTP", r.status);
+        return null;
+      }
+      return r.json();
+    })
     .then((d) => {
       if (d && Array.isArray(d.bikes) && d.bikes.length) {
         setCatalog(mische(d.bikes));
@@ -518,7 +543,7 @@ function parseMinPrice(priceStr) {
    darunter gibt (Nutzer 2026-09-17: „neuen und gebraucht preisen und daraus die mite ungefähr").
    `priceYears` hat den Marktpreis je Baujahr (1000PS) — mit Budget zählt das jüngste Baujahr,
    das hineinpasst: eine MT-125 von 2016 kostet 2.900 €, die von 2022 4.100 €. */
-function preisAb(bike, budget) {
+export function preisAb(bike, budget) {
   const wahl = preisWahl(bike, budget);
   return wahl.preis;
 }
@@ -578,18 +603,15 @@ function scoreBike(bike, ctx) {
   let score = 0;
 
   // Style match
-  const bikeStyle = (bike.style || "").toLowerCase();
-  const wantStyle = (ctx.style || "").toLowerCase();
   /* „Ist mir egal": keine Gattung wird bevorzugt. Alle bekommen die volle Punktzahl, damit die
-     Prozente vergleichbar bleiben — entschieden wird dann über Einsatz, Budget, Sitzhöhe und Markt. */
-  if (wantStyle === "egal") {
+     Prozente vergleichbar bleiben — entschieden wird dann über Einsatz, Budget, Sitzhöhe und Markt.
+     Bei einer konkreten Wunschgattung ist dieser Zweig inzwischen ein No-op: findTopMatches() filtert
+     dann schon vorher hart auf stilPasstZu(), hier bleibt nur noch der Egal-Fall und die Einzelbewertung
+     eines schon geöffneten Bikes (Match-Reiter, scoreBikeAgainst) übrig. */
+  if (!ctx.style || (ctx.style || "").toLowerCase() === "egal") {
     score += WEIGHT.STYLE;
     breakdown.style = WEIGHT.STYLE;
-  } else if (
-    bikeStyle === wantStyle ||
-    bikeStyle.includes(wantStyle) ||
-    wantStyle.includes(bikeStyle)
-  ) {
+  } else if (stilPasstZu(bike.style, ctx.style)) {
     score += WEIGHT.STYLE;
     breakdown.style = WEIGHT.STYLE;
   } else {
@@ -655,6 +677,10 @@ function scoreBike(bike, ctx) {
   if (stufen === 0) licenseScore = drossel ? WEIGHT.LICENSE_FIT * 0.75 : WEIGHT.LICENSE_FIT;
   else if (stufen === 1) licenseScore = WEIGHT.LICENSE_UNDER / 2;
   else if (stufen >= 2) licenseScore = WEIGHT.LICENSE_UNDER;
+  // stufen < 0: die Maschine verlangt eine HÖHERE Klasse, als der Schein hergibt — das ist kein
+  // "zu wenig ausgereizt" wie bei stufen>=2, sondern schlicht außer Reichweite. Härter bestraft als
+  // die Unterforderung, nicht nur genauso stark.
+  else if (stufen < 0) licenseScore = WEIGHT.LICENSE_UNDER * 1.5;
   score += licenseScore;
   breakdown.license = licenseScore;
   if (drossel) breakdown.drossel = true;
@@ -724,7 +750,11 @@ function scoreBike(bike, ctx) {
     breakdown.beginnerPenalty = 0;
   }
 
-  return { bike, score: Math.round(score * kappe * 10) / 10, breakdown };
+  // Die Kappe darf nur einen positiven Score kappen. Bei bereits negativem Score (z. B. wegen
+  // BEGINNER_PENALTY oder falscher Führerscheinklasse) würde eine Multiplikation mit 0.6/0.85 den
+  // Score näher an 0 heben — also BESSER machen, obwohl die zu hohe Sitzhöhe ein Malus sein soll.
+  const gekappt = Math.max(0, score) * kappe + Math.min(0, score);
+  return { bike, score: Math.round(gekappt * 10) / 10, breakdown };
 }
 
 // ══════════════════════════════════════════════════════════════
@@ -734,7 +764,6 @@ function scoreBike(bike, ctx) {
 /**
  * Replace the default catalog with externally loaded bikes.
  * Call after fetching from Supabase/API.
- * Rebuilds internal indexes for fast filtering.
  */
 export function setCatalog(bikes) {
   if (!Array.isArray(bikes) || bikes.length === 0) {
@@ -742,7 +771,6 @@ export function setCatalog(bikes) {
     return;
   }
   catalog = bikes;
-  licenseIndex = buildLicenseIndex(catalog);
   console.info(`[matching] Catalog loaded: ${catalog.length} bikes`);
 }
 
@@ -759,20 +787,27 @@ export function findBikeByShortName(shortName) {
   /* Genaue Treffer zuerst: seit der Katalog den ganzen Markt umfasst, würde die alte
      Teilstring-Suche sonst beim erstbesten Namen hängenbleiben, der den gesuchten enthält. */
   return (
-    catalog.find((b) => b.name.toLowerCase() === q) ||
+    catalog.find((b) => b.name?.toLowerCase() === q) ||
     catalog.find((b) => b.bgText?.toLowerCase() === q) ||
-    catalog.find((b) => b.name.toLowerCase().includes(q))
+    catalog.find((b) => b.name?.toLowerCase().includes(q))
   );
 }
+
+/* Slider-Obergrenze aus quiz.js Frage q5 (openEnded: true). Am Anschlag zeigt das Quiz "30.000 €+" —
+   das Budget ist dort bewusst offen, keine harte Grenze bei genau 30.000 €. Ohne diese Umrechnung
+   verschwand jedes Bike über 30.000 € aus dem Ergebnis, obwohl die UI "+" versprach. */
+export const BUDGET_SLIDER_MAX = 30000;
 
 /**
  * Baut den Bewertungs-Kontext aus den Quiz-Antworten. Einmal pro Suchlauf,
  * nicht pro Bike — und wiederverwendbar für die Einzelbewertung.
  */
 function buildContext(answers = {}) {
+  const budgetRoh = Number(answers.q5) || Infinity;
+  const budgetMax = budgetRoh >= BUDGET_SLIDER_MAX ? Infinity : budgetRoh;
   return {
     allowedLicenses: LICENSE_ALLOWS[answers.q1] || new Set(["A1", "A2", "A"]),
-    budgetMax: Number(answers.q5) || Infinity,
+    budgetMax,
     ctx: {
       style: answers.q3,
       normalizedUse: USE_ALIASES[answers.q4] || answers.q4,
@@ -781,7 +816,7 @@ function buildContext(answers = {}) {
       wantsPassenger: answers.q7 === "Ja",
       isBeginner: answers.q2 === "Anfanger" || answers.q2 === "Anfänger",
       // Beide wandern jetzt in die Bewertung statt nur in den harten Filter.
-      budgetMax: Number(answers.q5) || Infinity,
+      budgetMax,
       licenseClass: answers.q1,
       power: answers.q9,
       erfahrung: answers.q2,
@@ -809,7 +844,13 @@ export function scoreBikeAgainst(bike, answers) {
      genauso, nur ist die Information jetzt zusaetzlich als Merkmal gefragt:
      das Bike liegt ja schon auf dem Tisch und der Reiter sagt ausdruecklich,
      ob es passt. */
-  const fitsBudget = preisAb(bike, budgetMax) <= budgetMax;
+  // Kein Preis bekannt (preisAb liefert dann 0, nie eine positive endliche Zahl) heißt in
+  // scoreBike() weder "passt" noch "passt nicht" (neutrale halbe Punktzahl) — hier, wo nur ein
+  // Bool bleibt, wird das wie dort nicht als Malus behandelt statt als zufälliger Treffer über
+  // den nackten Zahlenvergleich (0 <= budgetMax wäre sonst für JEDEN Preis "true").
+  const bikePreisRoh = preisAb(bike, budgetMax);
+  const preisBekannt = Number.isFinite(bikePreisRoh) && bikePreisRoh > 0;
+  const fitsBudget = !preisBekannt || !Number.isFinite(budgetMax) || bikePreisRoh <= budgetMax;
 
   // Obergrenze abhängig vom Profil: der Sozius-Bonus ist nur erreichbar,
   // wenn überhaupt zu zweit gefahren werden soll — sonst wäre kein Bike je
@@ -848,12 +889,21 @@ export function scoreBikeAgainst(bike, answers) {
  */
 export function findSimilarBikes(bike, n = 3) {
   if (!bike) return [];
-  const refPrice = parseMinPrice(bike.price) || 1;
+  // price=1 ist der Katalog-Platzhalter für "kein echter Preis ermittelbar"
+  // (2026-09-27 Audit) — als echter Preis behandelt verzerrte er die
+  // Ähnlichkeits-Wertung (Bikes ohne Preis wirkten fälschlich baugleich teuer).
+  const refPriceRaw = parseMinPrice(bike.price);
+  const refPrice = refPriceRaw > 1 ? refPriceRaw : null;
   const refPs = bike.ps || 1;
   const refCc = bike.cc || 1;
+  // Ausgangsbike ausschließen: über die id, wenn beide eine haben (eindeutig, siehe
+  // katalogEintrag()/FREIGEGEBENE_BIKES) — sonst könnten zwei gleichnamige Modelle
+  // verschiedener Marken sich gegenseitig fälschlich ausschließen (name allein reicht nicht).
+  const istAusgangsbike = (b) =>
+    bike.id != null && b.id != null ? b.id === bike.id : b.brand === bike.brand && b.name === bike.name;
 
   const scored = catalog
-    .filter((b) => b.name !== bike.name)
+    .filter((b) => !istAusgangsbike(b))
     .map((b) => {
       let score = 0;
       // Die Gattung wiegt schwerer als alle Nähe-Kriterien zusammen (50):
@@ -864,7 +914,10 @@ export function findSimilarBikes(bike, n = 3) {
       if ((b.license || "") === (bike.license || "")) score += 10;
       // Relative Abstände, damit ein 1.000-€-Unterschied bei einer 4.000-€-
       // Maschine schwerer wiegt als bei einer 20.000-€-Maschine.
-      score += 25 * Math.max(0, 1 - Math.abs(parseMinPrice(b.price) - refPrice) / refPrice);
+      const bPrice = parseMinPrice(b.price);
+      if (refPrice && bPrice > 1) {
+        score += 25 * Math.max(0, 1 - Math.abs(bPrice - refPrice) / refPrice);
+      }
       score += 15 * Math.max(0, 1 - Math.abs((b.ps || 0) - refPs) / refPs);
       score += 10 * Math.max(0, 1 - Math.abs((b.cc || 0) - refCc) / refCc);
       return { bike: b, score: Math.round(score * 10) / 10 };
@@ -889,11 +942,48 @@ export function findBestBike(answers) {
   return results.length > 0 ? results[0].bike : catalog[0];
 }
 
+/* Budget-Lockerungsfaktoren: Liefert das genannte Budget zu wenige Treffer der Wunschgattung, wächst
+   nur das zugestandene Budget in diesen Schritten — der Stil bleibt in jeder Stufe hart. Faktor 1 ist
+   das Ausgangsbudget selbst, Infinity die letzte Stufe vor dem völligen Fallenlassen des Stils. */
+const BUDGET_LOCKERUNGS_STUFEN = [1, 1.3, 1.6, 2, 3, Infinity];
+
+/**
+ * Ein Durchlauf durch den Katalog: Führerschein hart, Klasse exakt hart, Budget hart, Stil hart (wenn
+ * `wantStyle` gesetzt ist). Ein Bike ohne Preis fiel hier bisher durchs Raster (preisAb() liefert 0,
+ * und 0 ist nie größer als das Budget) — wer ein Budget nennt, bekommt nur noch Bikes mit bekanntem
+ * Preis; ohne Budget zählt weiter jedes.
+ *
+ * darfFahren() bleibt als rechtliche Untergrenze stehen, klassePasstExakt() ist der eigentliche,
+ * schärfere Filter fürs Ergebnis: legal erlaubt ist hier nicht mehr genug, es muss die gewählte
+ * Klasse selbst sein (Nutzer 2026-09-26).
+ *
+ * `preisPflicht` ist bewusst getrennt von `Number.isFinite(budgetLimit)`: die Stil-Lockerung (Stufe B)
+ * ruft diese Funktion auch mit `budgetLimit = Infinity` auf, wenn selbst das höchste Vielfache nicht
+ * reicht — das heißt aber nicht, dass der Nutzer gar kein Budget genannt hat. Ohne diese Trennung
+ * rutschten Bikes ganz ohne Preisangabe in genau dieser Lockerungsstufe durch (Harley-Davidson Forty-
+ * Eight bei A/Cruiser/500 €, Wachhund 25.09.) — ein Preis war ja verlangt, nur die Obergrenze offen.
+ */
+function ueberlebende(allowedLicenses, licenseClass, budgetLimit, wantStyle, preisPflicht) {
+  const treffer = [];
+  for (let i = 0; i < catalog.length; i++) {
+    const bike = catalog[i];
+    if (!darfFahren(bike, licenseClass, allowedLicenses)) continue;
+    if (!klassePasstExakt(bike, licenseClass)) continue;
+    if (preisPflicht || Number.isFinite(budgetLimit)) {
+      const preis = preisAb(bike, budgetLimit);
+      if (!preis || (Number.isFinite(budgetLimit) && preis > budgetLimit)) continue;
+    }
+    if (wantStyle && !stilPasstZu(bike.style, wantStyle)) continue;
+    treffer.push(bike);
+  }
+  return treffer;
+}
+
 /**
  * Returns top N matches with score breakdowns.
  *
- * Three-phase pipeline:
- *   1. Hard filter: license class + budget ceiling
+ * Staged pipeline:
+ *   1. Hard filter: license class (exakt) + style (wenn genannt) + budget, stufenweise gelockert
  *   2. Score: weighted multi-factor evaluation
  *   3. Top-K: sort only what we need
  *
@@ -903,30 +993,47 @@ export function findBestBike(answers) {
 export function findTopMatches(answers, n = 5) {
   // Pre-compute context once (not per-bike)
   const { allowedLicenses, budgetMax, ctx } = buildContext(answers);
+  const wantStyle = ctx.style && String(ctx.style).toLowerCase() !== "egal" ? ctx.style : null;
 
-  // Phase 1: Hard filter — O(n)
-  const survivors = [];
-  for (let i = 0; i < catalog.length; i++) {
-    const bike = catalog[i];
-
-    // License hard constraint — Drosselung zählt als zulässig
-    if (!darfFahren(bike, ctx.licenseClass, allowedLicenses)) continue;
-
-    /* Budget — gerechnet wird mit dem Gebrauchtpreis des passenden Baujahrs. Ein Bike ohne Preis fiel hier
-       bisher durchs Raster: preisAb() liefert 0, und 0 ist nie größer als das Budget — also überlebte jede
-       Maschine ohne Preisangabe jeden Budget-Filter und bekam danach noch die halben Budget-Punkte. Wer ein
-       Budget nennt, bekommt jetzt nur noch Bikes mit bekanntem Preis; ohne Budget zählt weiter jedes. */
-    const preis = preisAb(bike, budgetMax);
-    if (Number.isFinite(budgetMax)) {
-      if (!preis || preis > budgetMax) continue;
+  /* Stufe A/B: Wer eine Gattung nennt, soll sie auch bekommen — Budget wächst erst, wenn die
+     genannte Grenze zu wenige Treffer der Wunschgattung hergibt (siehe BUDGET_LOCKERUNGS_STUFEN).
+     Ohne Wunschgattung ("Egal") reicht ein einziger Durchlauf mit dem genannten Budget. */
+  let survivors = [];
+  let budgetStufe = 1;
+  /* Der Limit-Wert, mit dem tatsächlich gefiltert wurde — nicht immer budgetMax, siehe unten. Der
+     Anzeigepreis am Ende (ergebnis.map) muss mit diesem Wert rechnen, sonst zeigt ein nur wegen der
+     Lockerung aufgenommenes Bike einen Preis, der sogar über der gelockerten Grenze liegt: KTM 125 Duke
+     passt bei 1.950 € über das Baujahr 2011 (1.920 €), preisWahl(bike, 1.500 €) findet dafür aber kein
+     Baujahr und griff auf den allgemeinen Gebrauchtpreis zurück (3.537 €) — höher als die im Hinweis
+     genannte Grenze. */
+  let effektivBudget = budgetMax;
+  // Wurde überhaupt ein Budget genannt? Entscheidet, ob ein Preis Pflicht ist — unabhängig davon, ob
+  // die aktuell geprüfte Lockerungsstufe selbst schon unbegrenzt ist (siehe ueberlebende()).
+  const preisPflicht = Number.isFinite(budgetMax);
+  if (wantStyle) {
+    for (const faktor of BUDGET_LOCKERUNGS_STUFEN) {
+      const limit = Number.isFinite(budgetMax) && Number.isFinite(faktor) ? budgetMax * faktor : Infinity;
+      survivors = ueberlebende(allowedLicenses, ctx.licenseClass, limit, wantStyle, preisPflicht);
+      budgetStufe = faktor;
+      effektivBudget = limit;
+      if (survivors.length >= n || !Number.isFinite(budgetMax)) break;
     }
+  } else {
+    survivors = ueberlebende(allowedLicenses, ctx.licenseClass, budgetMax, null, preisPflicht);
+  }
 
-    survivors.push(bike);
+  /* Stufe C: Selbst ohne jede Budgetgrenze gibt es die Wunschgattung mit diesem Führerschein nicht
+     (z. B. A1 + Tourer). Erst dann fällt der Stil — mit Pflichthinweis weiter unten, nie still. */
+  let stilGelockert = false;
+  if (wantStyle && survivors.length === 0) {
+    stilGelockert = true;
+    effektivBudget = budgetMax;
+    survivors = ueberlebende(allowedLicenses, ctx.licenseClass, budgetMax, null, preisPflicht);
   }
 
   // Edge case: no bike fits the budget at all (e.g. budget below the
   // cheapest available bike). Don't drop the budget constraint — fall
-  // back to whichever license-eligible bike(s) are closest to it.
+  // back to whichever bike(s) of the exact license class are closest to it.
   let budgetReichtNicht = false;
   if (survivors.length === 0) {
     budgetReichtNicht = Number.isFinite(budgetMax);
@@ -935,8 +1042,10 @@ export function findTopMatches(answers, n = 5) {
        ausgerechnet die Bikes ohne Preisangabe (Wachhund über alle Kombinationen, 20.09.: 32.400
        Befunde). Wer ein Budget nennt, soll auch im Notfall nur Maschinen sehen, deren Preis
        belegt ist. Und die Sitzhöhe zählt hier genauso: für eine 150 cm große Person war die erste
-       Empfehlung sonst eine Maschine, auf der sie nicht steht. */
-    const mitPreis = catalog.filter((b) => allowedLicenses.has(b.license) && preisAb(b, budgetMax) > 0);
+       Empfehlung sonst eine Maschine, auf der sie nicht steht. Die Klasse bleibt auch im Notfall
+       exakt (klassePasstExakt) — sonst zeigte ausgerechnet der Preisboden wieder ein A1-Bike für
+       einen A2-Fahrer. */
+    const mitPreis = catalog.filter((b) => klassePasstExakt(b, ctx.licenseClass) && preisAb(b, budgetMax) > 0);
     const pool = mitPreis.length > 0 ? mitPreis : catalog.filter((b) => preisAb(b, budgetMax) > 0);
     let closestPrice = Infinity;
     let closestDiff = Infinity;
@@ -1022,31 +1131,9 @@ export function findTopMatches(answers, n = 5) {
     }
   }
 
-  /* Stilgarantie: wer „Naked" wählt, soll mindestens eine Naked sehen, solange das Budget eine hergibt.
-     Ohne diese Regel verdrängten bei knappem Budget andere Gattungen mit besserer Führerscheinpassung den
-     einzigen Treffer der Wunschgattung — bei 1.500 € stand keine einzige Naked im Ergebnis, obwohl es eine
-     gab (Golden Set, Profil „Sparfuchs"). */
-  if (ctx.style && String(ctx.style).toLowerCase() !== "egal") {
-    const wunsch = String(ctx.style).toLowerCase();
-    const passt = (r) => String(r.bike.style || "").toLowerCase() === wunsch;
-    if (!auswahl.some(passt)) {
-      /* Der Tausch darf die Markengrenze nicht reißen: sonst standen bei A1/Sportbike/2.500 EUR
-         drei Hondas unter fünf Treffern (Wachhund, 20.09.). Erst die beste Wunschmaschine einer
-         Marke, die noch Platz hat; findet sich keine, zählt die Gattung mehr als die Vielfalt. */
-      const ohneLetzten = auswahl.slice(0, -1);
-      const jeMarkeRest = new Map();
-      for (const r of ohneLetzten) {
-        const mk = (r.bike.brand || "").toLowerCase();
-        jeMarkeRest.set(mk, (jeMarkeRest.get(mk) || 0) + 1);
-      }
-      const bester = scored.find((r) => passt(r) && (jeMarkeRest.get((r.bike.brand || "").toLowerCase()) || 0) < JE_MARKE)
-        || scored.find(passt);
-      if (bester) {
-        if (auswahl.length < n) auswahl.push(bester);
-        else auswahl[auswahl.length - 1] = bester;
-      }
-    }
-  }
+  /* Eine nachträgliche Stilgarantie ist hier nicht mehr nötig: Ist eine Wunschgattung genannt, sind
+     `survivors` (und damit `scored`/`auswahl`) durch den gestuften Filter oben bereits stilrein — außer
+     Stufe C hat den Stil bewusst fallengelassen (`stilGelockert`), was unten seinen eigenen Hinweis bekommt. */
 
   /* Geeichte Prozente. „82 % von der Höchstpunktzahl" sagt niemandem etwas, weil fast jedes Bike dort
      landet. Die Hälfte der Anzeige misst deshalb, wie gut der Treffer an sich ist, die andere Hälfte,
@@ -1105,22 +1192,15 @@ export function findTopMatches(answers, n = 5) {
     if (Number.isFinite(guenstigste)) {
       hinweis = `Für ${Math.round(ctx.budgetMax).toLocaleString("de-DE")} € gibt es auf dem deutschen Markt nichts — das Günstigste liegt bei ${Math.round(guenstigste).toLocaleString("de-DE")} €.`;
     }
-  }
-  if (!hinweis && ctx.style && String(ctx.style).toLowerCase() !== "egal") {
-    const wunsch = String(ctx.style).toLowerCase();
-    const wunschBikes = scored.filter((r) => String(r.bike.style || "").toLowerCase() === wunsch);
-    if (!wunschBikes.length) {
-      hinweis = `${ctx.style} gibt es mit deinem Führerschein und Budget nicht — das hier kommt am nächsten.`;
-    } else if (auswahl.filter((r) => String(r.bike.style || "").toLowerCase() === wunsch).length <= 1) {
-      /* Die Wunschgattung ist da, kommt aber kaum durch. Meist liegt es an der Sitzhöhe: für eine
-         150 cm große Person sitzen alle A1-Sportbikes unter 2.500 EUR zu hoch, und die Kappe wiegt
-         schwerer als die Stilpunkte. Das ist richtig so — aber wer nach Sportbikes fragt und Roller
-         bekommt, hat ein Recht darauf zu erfahren, warum. */
-      const zuHoch = wunschBikes.filter((r) => (r.breakdown.seatWarn || 0) > 0).length;
-      if (zuHoch >= Math.ceil(wunschBikes.length * 0.6)) {
-        hinweis = `Fast alle ${ctx.style}-Modelle in deinem Budget sitzen zu hoch für sicheren Stand — deshalb stehen hier auch andere Gattungen.`;
-      }
-    }
+  } else if (stilGelockert) {
+    // Stufe C: selbst ohne jede Budgetgrenze gibt es die Wunschgattung mit diesem Führerschein nicht.
+    hinweis = `${ctx.style} gibt es mit deinem Führerschein nicht — das hier kommt am nächsten.`;
+  } else if (wantStyle && budgetStufe > 1) {
+    // Stufe B: die Wunschgattung gibt es, aber erst mit mehr Budget als genannt.
+    const grenze = Number.isFinite(budgetMax * budgetStufe)
+      ? `bis ${Math.round(budgetMax * budgetStufe).toLocaleString("de-DE")} €`
+      : "ganz ohne Budgetgrenze";
+    hinweis = `Für ${Math.round(budgetMax).toLocaleString("de-DE")} € gibt es nicht genug ${ctx.style}-Modelle mit deinem Führerschein — hier auch ${grenze}.`;
   }
 
   const ergebnis = auswahl.map((r) => {
@@ -1139,8 +1219,8 @@ export function findTopMatches(answers, n = 5) {
        Golden Set fand eine KTM RC 125 für 4.420 € im Ergebnis eines 2.500-€-Budgets, obwohl gefiltert
        korrekt mit 2.425 € (Baujahr 2015) worden war. Wer ein Budget nennt, sieht jetzt den Preis, mit
        dem gerechnet wurde. */
-    const { preis, jahr } = preisWahl(r.bike, budgetMax);
-    if (!Number.isFinite(budgetMax) || !preis || preis === r.bike.price) return angereichert;
+    const { preis, jahr } = preisWahl(r.bike, effektivBudget);
+    if (!Number.isFinite(effektivBudget) || !preis || preis === r.bike.price) return angereichert;
     return {
       ...angereichert,
       bike: {
@@ -1165,7 +1245,7 @@ export function findTopMatches(answers, n = 5) {
  * @returns {{ plus: string[], aber: string[] }}
  */
 export function begruendungFuer(bike, answers) {
-  if (!bike || !answers) return { plus: [], aber: [] };
+  if (!bike || !answers) return { plus: [], aber: [], kurz: [] };
   const { ctx } = buildContext(answers);
   const { breakdown } = scoreBike(bike, ctx);
   return begruendung({ bike, breakdown }, ctx);

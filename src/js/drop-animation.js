@@ -33,7 +33,9 @@ export function startDropAnimation(answers) {
   const strip = [];
   const others = katalog.filter((b) => b.name !== winBike.name);
   for (let i = 0; i < TOTAL; i++) {
-    if (i === WIN_POS) {
+    if (i === WIN_POS || others.length === 0) {
+      // Kein zweites Foto-Bike im Katalog (others leer) — Fuellkarten zeigen
+      // dann den Sieger noch einmal statt others[NaN] === undefined.
       strip.push(winBike);
     } else {
       strip.push(others[Math.floor(Math.random() * others.length)]);
@@ -189,7 +191,12 @@ export function startDropAnimation(answers) {
         // Erst hier nachladen statt oben statisch: der statische Import zog
         // garage.js (mit three.js und Leaflet) in jeden Chunk, der quiz.js
         // anfasst — und damit ueber die Quiz-Vorbereitung auf die Startseite.
-        import("./garage.js").then(m => m.loadGarage(answers));
+        import("./garage.js")
+          .then(m => m.loadGarage(answers))
+          .catch(err => {
+            console.error("[drop-animation] Garage konnte nicht geladen werden:", err);
+            import("./landing.js").then(m => m.initLanding());
+          });
       }, 800);
     }, 3800);
   }

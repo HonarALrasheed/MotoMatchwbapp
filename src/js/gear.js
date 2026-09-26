@@ -15,7 +15,7 @@ const universalGear = {
   ],
   balaclava: [
     { name: "Held Thermo Sturmhaube",    type: "Sturmhaube",        priceMin: 10,  priceMax: 20,  reason: "Warm, atmungsaktiv, Einstieg" , url: "https://www.fc-moto.com/de-de/p/held-9250-sturmhaube-HE-009250-00-1-Stck", image: "/gear/held-thermo-sturmhaube.webp", },
-    { name: "Buse Coolmax Sturmhaube",   type: "Sturmhaube Sommer", priceMin: 15,  priceMax: 30,  reason: "Feuchtigkeitsregulierend, dünn" , url: "https://www.fc-moto.com/en-en/p/buese-balaclava-coolmax-BUE-177800", image: "/gear/buse-coolmax-sturmhaube.webp", },
+    { name: "Büse Coolmax Sturmhaube",   type: "Sturmhaube Sommer", priceMin: 15,  priceMax: 30,  reason: "Feuchtigkeitsregulierend, dünn" , url: "https://www.fc-moto.com/en-en/p/buese-balaclava-coolmax-BUE-177800", image: "/gear/buse-coolmax-sturmhaube.webp", },
     { name: "Schuberth Pro Balaclava",   type: "Sturmhaube Premium", priceMin: 40,  priceMax: 70,  reason: "Antibakteriell, optimale Passform" },
   ],
   backprotector: [
@@ -67,7 +67,7 @@ const gearByStyle = {
     ],
     gloves: [
       { name: "Held Hamada",               type: "Kurzhandschuhe",     priceMin: 30,  priceMax: 60,  reason: "Guter Grip, handlich im Alltag" , url: "https://www.louis.de/artikel/held-hamada-22060-handschuhe/201704", image: "/gear/held-hamada.webp", },
-      { name: "Alpinestars Andes v3",      type: "Allwetter",          priceMin: 60,  priceMax: 100, reason: "Wasserdicht, vielseitig" , url: "https://www.fc-moto.com/en-en/p/alpinestars-andes-v3-camo-drystar-motorcycle-textile-jacket-s-APS-3207521-858-S", image: "/gear/alpinestars-andes-v3.webp", },
+      { name: "Alpinestars Andes v3",      type: "Allwetter",          priceMin: 60,  priceMax: 100, reason: "Wasserdicht, vielseitig" , url: "https://eu.alpinestars.com/products/andes-v3-drystar-glove-black" },
       { name: "Held Air Stream 3",         type: "Sommer-Handschuhe",  priceMin: 100, priceMax: 160, reason: "Maximale Belüftung, CE-Level 2" , url: "https://www.louis.de/artikel/held-air-stream-3-0-handschuhe/201851", image: "/gear/held-air-stream-3.webp", },
     ],
     boots: [
@@ -133,7 +133,7 @@ const gearByStyle = {
     ],
     pants: [
       { name: "Fox Defend Pant",           type: "MTB/Enduro Hose",    priceMin: 80,  priceMax: 150, reason: "Bewegungsfreiheit, robust" , url: "https://www.fc-moto.com/en-en/p/fox-defend-bicycle-pants-olive-28-FOX-32372-099-28", image: "/gear/fox-defend-pant.webp", },
-      { name: "Alpinestars Andes v3 Pant", type: "Adventure Hose",     priceMin: 180, priceMax: 300, reason: "Wasserdicht, CE-Level 2" , url: "https://www.fc-moto.com/en-en/p/alpinestars-andes-v3-drystar-motorcycle-textile-pants-black-m-APS-3227521-10-M", image: "/gear/alpinestars-andes-v3-pant.webp", },
+      { name: "Alpinestars Andes v3 Pant", type: "Adventure Hose",     priceMin: 200, priceMax: 320, reason: "Wasserdicht, CE-Level 2" , url: "https://www.fc-moto.com/en-en/p/alpinestars-andes-v3-drystar-motorcycle-textile-pants-black-m-APS-3227521-10-M", image: "/gear/alpinestars-andes-v3-pant.webp", },
       { name: "Klim Badlands Pro Pant",    type: "Adventure Hose",     priceMin: 350, priceMax: 550, reason: "Gore-Tex, maximaler Schutz" , url: "https://www.fc-moto.com/de-de/p/klim-badlands-pro-2023-motorrad-textilhose-braun-sand-32-KLM-4053-003-032-904", image: "/gear/klim-badlands-pro-pant.webp", },
     ],
     ...universalGear,
@@ -174,12 +174,12 @@ const gearByStyle = {
     ],
     jacket: [
       { name: "Helstons Buscador",         type: "Lederjacke Retro",   priceMin: 180, priceMax: 320, reason: "Vintage-Stil, CE-Protektoren" },
-      { name: "Belstaff Tourmaster",       type: "Gewachste Baumwolle", priceMin: 300, priceMax: 600, reason: "Ikonischer Retro-Stil, wasserfest" },
+      { name: "Belstaff Tourmaster",       type: "Gewachste Baumwolle", priceMin: 300, priceMax: 500, reason: "Ikonischer Retro-Stil, wasserfest" },
       { name: "Lewis Leathers Corsair",    type: "Café Racer Leder",   priceMin: 500, priceMax: 900, reason: "Britisches Heritage, CE zertifiziert" },
     ],
     gloves: [
       { name: "Biltwell Moto",             type: "Leder Kurzhandschuh", priceMin: 30, priceMax: 60,  reason: "Klassisch, günstig" },
-      { name: "Weise Texas Touring",       type: "Leder Touring",      priceMin: 40,  priceMax: 80,  reason: "Klassischer Look, gute Haptik" },
+      { name: "Weise Texas Touring",       type: "Leder Touring",      priceMin: 80,  priceMax: 150, reason: "Klassischer Look, gute Haptik" },
       { name: "Held Classic",              type: "Premium Leder",      priceMin: 80,  priceMax: 150, reason: "Handgefertigt, Vintage-Passform" , url: "https://www.fc-moto.com/de-de/p/held-classic-rider-motorradhandschuhe-gelb-7-HE-022003-00-57-7", image: "/gear/held-classic.webp", },
     ],
     boots: [
@@ -202,12 +202,12 @@ const gearByStyle = {
     ],
     jacket: [
       { name: "Helstons Buscador",         type: "Lederjacke Retro",   priceMin: 180, priceMax: 320, reason: "Vintage-Stil, CE-Protektoren" },
-      { name: "Roland Sands Ronin",        type: "Lederjacke Custom",  priceMin: 250, priceMax: 450, reason: "CE-Level 1, Cafe-Racer Stil" },
+      { name: "Roland Sands Ronin",        type: "Lederjacke Custom",  priceMin: 380, priceMax: 580, reason: "CE-Level 2, Cafe-Racer Stil" },
       { name: "Deus Ex Machina Jacket",    type: "Custom Leder",       priceMin: 350, priceMax: 600, reason: "Cult-Brand, unique Aesthetik" },
     ],
     gloves: [
       { name: "Biltwell Moto",             type: "Leder Kurzhandschuh", priceMin: 30, priceMax: 60,  reason: "Ikonisch, günstig, guter Grip" },
-      { name: "Held Classic",              type: "Leder Premium",      priceMin: 60,  priceMax: 120, reason: "Handgefertigt, elegantes Design" , url: "https://www.fc-moto.com/de-de/p/held-classic-rider-motorradhandschuhe-gelb-7-HE-022003-00-57-7", image: "/gear/held-classic.webp", },
+      { name: "Held Classic",              type: "Premium Leder",      priceMin: 80,  priceMax: 150, reason: "Handgefertigt, elegantes Design" , url: "https://www.fc-moto.com/de-de/p/held-classic-rider-motorradhandschuhe-gelb-7-HE-022003-00-57-7", image: "/gear/held-classic.webp", },
       { name: "Roland Sands Gloves",       type: "Custom Leder",       priceMin: 80,  priceMax: 150, reason: "Café-Racer Style, CE-Level 1" },
     ],
     boots: [
@@ -218,7 +218,7 @@ const gearByStyle = {
     pants: [
       { name: "Büse Ferno Jeans",          type: "Motorradjeans",      priceMin: 80,  priceMax: 150, reason: "Alltagsoptik, CE-Level 1" , url: "https://www.amazon.de/dp/B081FD86H9", image: "/gear/buese-ferno-jeans.webp", },
       { name: "Roland Sands Cargo Pant",   type: "Custom Hose",        priceMin: 180, priceMax: 300, reason: "Café-Racer Stil, CE-Knieprotektoren" },
-      { name: "Helstons Corden Cargo",     type: "Lederhose Custom",   priceMin: 220, priceMax: 380, reason: "Vintage-Stil, CE-Level 2" , url: "https://www.fc-moto.com/de-de/p/helstons-corden-armalith-motorrad-textilhose-khaki-30-HT-2021027-K-30-US", image: "/gear/helstons-corden-cargo.webp", },
+      { name: "Helstons Corden Cargo",     type: "Lederhose Custom",   priceMin: 200, priceMax: 380, reason: "Vintage-Stil, CE-Protektoren" , url: "https://www.fc-moto.com/de-de/p/helstons-corden-armalith-motorrad-textilhose-khaki-30-HT-2021027-K-30-US", image: "/gear/helstons-corden-cargo.webp", },
     ],
     ...universalGear,
   },

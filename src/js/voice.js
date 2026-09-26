@@ -169,9 +169,19 @@ export async function joinVoiceRoom(roomId, userId, username, prefs, onUpdate) {
 
   try {
     await room.connect(LIVEKIT_URL, token)
-    await room.localParticipant.setMicrophoneEnabled(!prefs.muted, {
-      deviceId: _preferredMicId ? { ideal: _preferredMicId } : undefined,
-    })
+    try {
+      await room.localParticipant.setMicrophoneEnabled(!prefs.muted, {
+        deviceId: _preferredMicId ? { ideal: _preferredMicId } : undefined,
+      })
+    } catch (micErr) {
+      // Zwischen dem erfolgreichen connect() und diesem Fehler kann bereits ein
+      // TrackSubscribed-Event (s. o.) <audio>-Elemente in den DOM gehängt haben —
+      // ohne Aufräumen blieben die verwaist, weil wir gleich mit einem Fehler
+      // aus der Funktion aussteigen, bevor sie sonst irgendwo entfernt würden.
+      for (const el of _remoteAudioEls.values()) el.remove()
+      _remoteAudioEls.clear()
+      throw micErr
+    }
   } catch (err) {
     try { room.disconnect() } catch {}
     _roomId = null; _onParticipantUpdate = null
@@ -213,11 +223,19 @@ export async function leaveVoiceRoom() {
 }
 
 /** Mikrofon stumm-/entstumm-schalten. */
-export function toggleVoiceMute(muted) {
+export async function toggleVoiceMute(muted) {
   if (!_room) return
-  _room.localParticipant.setMicrophoneEnabled(!muted, {
-    deviceId: _preferredMicId ? { ideal: _preferredMicId } : undefined,
-  })
+  try {
+    await _room.localParticipant.setMicrophoneEnabled(!muted, {
+      deviceId: _preferredMicId ? { ideal: _preferredMicId } : undefined,
+    })
+  } catch (err) {
+    // Umschaltung fehlgeschlagen — Presence NICHT auf den nie erreichten Zustand
+    // setzen, sonst zeigen andere Teilnehmer einen Mute-Status an, der am
+    // eigenen Mikrofon gar nicht wirksam wurde.
+    report(err, { where: 'voice.toggleVoiceMute', muted })
+    return
+  }
   _presenceChan?.track?.({ username: _myUsername, muted })
 }
 
@@ -231,10 +249,10 @@ export function setOutputVolume(percent) {
 }
 
 /** Kopfhörer deafen/undeafen (muted aller Remote-Streams + eigenes Mikro). */
-export function toggleVoiceDeafen(deafened, muted) {
+export async function toggleVoiceDeafen(deafened, muted) {
   _deafened = deafened
   for (const el of _remoteAudioEls.values()) el.muted = deafened
-  toggleVoiceMute(muted)
+  await toggleVoiceMute(muted)
 }
 
 /** Bildschirm teilen an-/ausschalten. */

@@ -87,26 +87,47 @@ function persist() {
 /**
  * Einen Bildschirm aus seiner Beschreibung neu aufbauen.
  *
+ * Auch der Einstiegspunkt fuer app.js: Vorwaerts-Navigation UND die
+ * Wiederherstellung nach dem Neuladen laufen beide hierueber, damit
+ * `restoring` in jedem Fall gesetzt ist, bevor der wiederhergestellte
+ * Bildschirm sich per `enterScreen()` anmeldet.
+ *
  * Der Aufbau ist asynchron (die Bildschirm-Module werden nachgeladen), deshalb
  * bleibt `restoring` bis zum Ende gesetzt — sonst legte das `enterScreen()` des
  * wiederhergestellten Bildschirms einen zweiten History-Eintrag an und der
- * Rückweg waere doppelt. Der Wecker ist die Notbremse, falls die Zusage nie
- * erfuellt wird: ohne ihn bliebe die Sperre haengen und keine weitere
- * Navigation kaeme mehr in die History.
+ * Rückweg waere doppelt. Der Wecker ist nur ein Warnsignal, kein Ruecksetzer:
+ * er darf `restoring` NICHT zuruecksetzen, solange `resolveView()` noch laeuft
+ * — sonst waere genau das doppelte Anlegen, das er verhindern soll, durch ihn
+ * selbst wieder moeglich (das verspaetete `enterScreen()` faende die Sperre
+ * schon offen vor). Zurueckgesetzt wird `restoring` deshalb ausschliesslich,
+ * wenn `resolveView()` tatsaechlich fertig ist — egal wie lange das dauert.
+ *
+ * @returns {Promise<boolean>} ob die Wiederherstellung geglueckt ist — false,
+ *          wenn sich die Beschreibung nicht aufloesen liess oder ein Fehler
+ *          auftrat.
  */
-function rebuild(view) {
+export function rebuild(view) {
   restoring = true
-  let done = false
-  const finish = () => { if (!done) { done = true; restoring = false } }
-  const guard = setTimeout(finish, 3000)
+  let settled = false
+  const guard = setTimeout(() => {
+    if (!settled) console.warn('[nav] Vorwärts-Schritt braucht ungewöhnlich lange — restoring bleibt gesperrt, bis er fertig ist.')
+  }, 3000)
+  const finish = (ok) => {
+    settled = true
+    clearTimeout(guard)
+    restoring = false
+    return ok
+  }
   try {
-    Promise.resolve(resolveView(view))
-      .catch(err => console.error('[nav] Vorwärts-Schritt fehlgeschlagen:', err))
-      .finally(() => { clearTimeout(guard); finish() })
+    return Promise.resolve(resolveView(view))
+      .then(ok => finish(ok))
+      .catch(err => {
+        console.error('[nav] Vorwärts-Schritt fehlgeschlagen:', err)
+        return finish(false)
+      })
   } catch (err) {
     console.error('[nav] Vorwärts-Schritt fehlgeschlagen:', err)
-    clearTimeout(guard)
-    finish()
+    return Promise.resolve(finish(false))
   }
 }
 

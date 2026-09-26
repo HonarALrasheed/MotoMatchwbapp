@@ -78,6 +78,15 @@ function stopTabHint() {
 // ══════════════════════════════════════════════════════════════
 
 let garageScene, garageCamera, garageRenderer, garageBike, garageRaf;
+// Zaehlt jeden Start eines 3D-Ladevorgangs — der GLTF-Callback vergleicht
+// damit, ob er noch zum aktuellen Ladevorgang gehoert (siehe init3DViewer).
+let garageLoadGen = 0;
+let garageAnsichtObserver = null;
+// #garage-container ist statisch (index.html) und wird nie neu erzeugt —
+// bindEvents() legt sonst bei jedem Besuch einen weiteren scroll-/click-
+// Listener drauf. Referenzen hier merken, damit cleanup() sie abmeldet.
+let garageContainerScrollHandler = null;
+let garageContainerClickHandler = null;
 let camDist = 5,
   camHeight = 1.5,
   lookAtY = 0.45;
@@ -134,7 +143,13 @@ export function loadGarage(answers) {
 
   // Preload Google Maps + geolocation in background — only after consent
   if (hasMapsConsent()) {
-    loadGoogleMapsScript();
+    // Vorab-Laden ist nur ein Vorgriff — initHubMap() versucht es beim
+    // tatsaechlichen Oeffnen der Karte erneut und zeigt dann den
+    // Fehlerzustand (renderMapUnavailable). Hier reicht Protokollieren,
+    // damit die Ablehnung nicht unbehandelt bleibt.
+    loadGoogleMapsScript().catch((err) =>
+      console.warn("[garage] Google Maps Vorab-Laden fehlgeschlagen:", err),
+    );
     getUserLocation();
   }
 
@@ -200,7 +215,11 @@ export function openBikeGarage(shortName) {
                 { screen: "garage", bike: bikeData.name });
 
     if (hasMapsConsent()) {
-      loadGoogleMapsScript();
+      // Siehe loadGarage(): Vorab-Laden ist nur ein Vorgriff, initHubMap()
+      // wiederholt den Versuch beim tatsaechlichen Oeffnen der Karte.
+      loadGoogleMapsScript().catch((err) =>
+        console.warn("[garage] Google Maps Vorab-Laden fehlgeschlagen:", err),
+      );
       getUserLocation();
     }
 
@@ -247,9 +266,11 @@ function preisDetails(bike) {
 function buildPage(bike, fromQuiz = true, hinweis = null) {
   const priceDisplay =
     bike.priceDisplay ||
-    (typeof bike.price === "number"
+    // price=1 ist der Katalog-Platzhalter für "kein echter Preis ermittelbar"
+    // (2026-09-27 Audit) — als Zahl gelesen zeigte das fälschlich "ca. 1 €" an.
+    (typeof bike.price === "number" && bike.price > 1
       ? `ca. ${Math.round(bike.price).toLocaleString("de-DE")} €`
-      : bike.price
+      : bike.price && bike.price !== 1
         ? `Ab EUR ${String(bike.price).split("-")[0]}`
         : "Preis folgt");
 
@@ -397,6 +418,16 @@ function animateCounters(container) {
 //  3D VIEWER (in specs section)
 // ══════════════════════════════════════════════════════════════
 
+/* Gemeinsame Formel fuer Initial-Setup und Resize — vorher rechnete der
+   Resize-Handler mit einem eigenen Seitenverhaeltnis (w*0.6, Deckel 600),
+   das vom Aufbau (w*0.75, Deckel 550) abwich und nach jedem Resize ein
+   anderes Bild-Seitenverhaeltnis ergab als beim ersten Rendern. */
+function garage3dCanvasSize(wrap) {
+  const w = wrap.offsetWidth;
+  const h = wrap.offsetHeight || Math.min(w * 0.75, 550);
+  return { w, h };
+}
+
 function init3DViewer(bikeData) {
   if (!bikeData.has3D || !bikeData.glb) {
     // Ohne 3D-Modell steht hier der 3D-Ersatz: dasselbe Motorrad im dunklen Studio, 4:3
@@ -417,10 +448,13 @@ function init3DViewer(bikeData) {
       const host = document.getElementById("gr-ansicht-host");
       const inner = wrap.closest(".bd-specs-inner");
       if (host && inner) {
+        let ansichtObsTimeout = null;
         const obs = new MutationObserver(() => {
           const specsCard = host.querySelector(".bd-ansicht-embed");
           if (specsCard) {
             obs.disconnect();
+            if (garageAnsichtObserver === obs) garageAnsichtObserver = null;
+            clearTimeout(ansichtObsTimeout);
             requestAnimationFrame(() => {
               if (getComputedStyle(inner).flexDirection === "column") return;
               const h = Math.min(specsCard.offsetHeight, (wrap.offsetWidth * 3) / 4) + "px";
@@ -429,7 +463,16 @@ function init3DViewer(bikeData) {
             });
           }
         });
+        garageAnsichtObserver = obs;
         obs.observe(host, { childList: true, subtree: true });
+        // mountAnsicht() ist async — scheitert sie (z. B. Ladefehler), erscheint
+        // .bd-ansicht-embed nie und der Observer liefe sonst endlos weiter.
+        // cleanup() faengt den Regelfall (Seite verlassen) ab, dieses Zeitlimit
+        // den Rest.
+        ansichtObsTimeout = setTimeout(() => {
+          obs.disconnect();
+          if (garageAnsichtObserver === obs) garageAnsichtObserver = null;
+        }, 10000);
       }
     }
     return;
@@ -442,8 +485,7 @@ function init3DViewer(bikeData) {
   garageScene = new THREE.Scene();
   garageScene.background = null; // transparent — blends with page
 
-  const w = wrap.offsetWidth;
-  const h = wrap.offsetHeight || Math.min(w * 0.75, 550);
+  const { w, h } = garage3dCanvasSize(wrap);
   canvas.style.height = h + "px";
 
   garageCamera = new THREE.PerspectiveCamera(30, w / h, 0.1, 100);
@@ -485,9 +527,12 @@ function init3DViewer(bikeData) {
   dracoLoader.setDecoderPath("/draco/");
   loader.setDRACOLoader(dracoLoader);
 
+  const myLoadGen = ++garageLoadGen;
   loader.load(bikeData.glb, (gltf) => {
-    // Guard: scene was cleaned up while model was loading
-    if (!garageScene || !garageRenderer) {
+    // Guard: scene was cleaned up, or a newer load started (Nutzer navigierte
+    // weg und wieder zurueck, bevor dieser Fetch fertig war), waehrend das
+    // Modell lud — sonst landet dieses Ergebnis in einer fremden Szene.
+    if (!garageScene || !garageRenderer || myLoadGen !== garageLoadGen) {
       dracoLoader.dispose();
       return;
     }
@@ -606,8 +651,7 @@ function init3DViewer(bikeData) {
 
   // Resize
   const onResize = () => {
-    const nw = wrap.offsetWidth;
-    const nh = Math.min(nw * 0.6, 600);
+    const { w: nw, h: nh } = garage3dCanvasSize(wrap);
     canvas.style.height = nh + "px";
     garageRenderer.setSize(nw, nh);
     garageCamera.aspect = nw / nh;
@@ -649,7 +693,12 @@ function bindEvents(bikeData, answers) {
         heroBack.style.pointerEvents = stuck ? "none" : "auto";
       }
     };
-    scrollRoot.addEventListener("scroll", checkScrolled, { passive: true });
+    // #garage-container ist statisch (index.html) und wird nie neu erzeugt —
+    // Referenz merken, damit cleanup() den Listener beim naechsten Besuch
+    // wieder abmeldet, statt ihn bei jedem loadGarage()/openBikeGarage() ein
+    // weiteres Mal draufzulegen.
+    garageContainerScrollHandler = checkScrolled;
+    scrollRoot.addEventListener("scroll", garageContainerScrollHandler, { passive: true });
     checkScrolled();
   }
 
@@ -724,9 +773,12 @@ function bindEvents(bikeData, answers) {
 
   // Retry-Button im Fehlerzustand ("Standort nicht verfügbar") — der Button
   // wird per innerHTML injiziert, daher hier per Delegation binden.
-  document.getElementById("garage-container")?.addEventListener("click", (e) => {
+  // Referenz merken (siehe Scroll-Listener oben): #garage-container bleibt
+  // ueber Besuche hinweg dasselbe Element, cleanup() meldet diesen Handler ab.
+  garageContainerClickHandler = (e) => {
     if (e.target.closest("#hub-retry-btn")) retryHubLocation();
-  });
+  };
+  document.getElementById("garage-container")?.addEventListener("click", garageContainerClickHandler);
 }
 
 export function retryHubLocation() {
@@ -2033,6 +2085,19 @@ function shareResult(bikeData) {
 
 function cleanup() {
   clearTabHintTimers();
+  if (garageAnsichtObserver) {
+    garageAnsichtObserver.disconnect();
+    garageAnsichtObserver = null;
+  }
+  const gcEl = document.getElementById("garage-container");
+  if (garageContainerScrollHandler) {
+    gcEl?.removeEventListener("scroll", garageContainerScrollHandler);
+    garageContainerScrollHandler = null;
+  }
+  if (garageContainerClickHandler) {
+    gcEl?.removeEventListener("click", garageContainerClickHandler);
+    garageContainerClickHandler = null;
+  }
   if (hubScrollHandler) {
     const target = hubScrollHandler._scrollTarget || window;
     target.removeEventListener("scroll", hubScrollHandler);

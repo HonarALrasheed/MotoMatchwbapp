@@ -165,12 +165,17 @@ function openFeedbackModal() {
   const overlay = document.createElement('div')
   overlay.id = 'mm-fb-modal'
   overlay.className = 'p-auth-overlay'
+  overlay.setAttribute('role', 'dialog')
+  overlay.setAttribute('aria-modal', 'true')
   document.body.appendChild(overlay)
 
   const close = () => {
     overlay.classList.remove('p-auth-overlay--open')
+    document.removeEventListener('keydown', onKeydown)
     setTimeout(() => overlay.remove(), 200)
   }
+  const onKeydown = e => { if (e.key === 'Escape') close() }
+  document.addEventListener('keydown', onKeydown)
 
   overlay.innerHTML = `
     <div class="p-auth-backdrop" id="mm-fb-backdrop"></div>

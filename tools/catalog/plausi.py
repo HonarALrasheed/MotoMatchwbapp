@@ -213,3 +213,56 @@ def text_reparieren(s):
     except (UnicodeEncodeError, UnicodeDecodeError):
         return s
     return repariert if "�" not in repariert else s
+
+
+# ---------------------------------------------------------------------------- Preise gegen die Modellfamilie
+
+def preise_pruefen(zeilen, heute=None):
+    """
+    Verwirft Marktpreise, die ein junges Modell weit unter seinen eigenen Geschwistern ausweisen.
+
+    Ein niedriger Preis ist fuer sich genommen kein Fehler — eine BMW K 75 S von 1995 kostet echte 2.450 €,
+    und solche Angebote sollen im Katalog stehen. Verdaechtig wird er erst im Zusammenspiel mit dem Baujahr:
+    die Indian FTR von 2022 stand mit 614 € da, waehrend die FTR 1200 derselben Baureihe 14.608 € kostet.
+    Das ist kein Schnaeppchen, sondern ein Bruchstueck aus der Quelle (Anzahlung, Zubehoer, Rate).
+
+    Verglichen wird deshalb nur innerhalb der Baureihe (gleiche Marke, gleiches erstes Modellwort) und nur
+    bei Modellen der letzten sechs Baujahre. Geschaetzt wird nichts: der Preis wird geleert, nicht ersetzt —
+    ein Preis vom Geschwistermodell waere geraten.
+
+    Gibt die Zahl der verworfenen Preise zurueck; `zeilen` wird an Ort und Stelle geaendert.
+    """
+    import datetime
+    import statistics
+    from collections import defaultdict
+
+    heute = heute or datetime.date.today().year
+    familie = defaultdict(list)
+    for z in zeilen:
+        p = als_zahl(z.get("preis_mitte_eur"))
+        if p:
+            familie[_baureihe(z)].append(p)
+
+    verworfen = 0
+    for z in zeilen:
+        p, bj = als_zahl(z.get("preis_mitte_eur")), als_zahl(z.get("baujahr"))
+        if not p or not bj or bj < heute - 6:
+            continue
+        geschwister = familie[_baureihe(z)]
+        if len(geschwister) < 3:
+            continue                                  # zu wenige Vergleichswerte fuer ein Urteil
+        mitte = statistics.median(geschwister)
+        if p < 0.25 * mitte:
+            for feld in ("preis_mitte_eur", "preis_von_eur", "preis_bis_eur", "preis_gebraucht_eur",
+                         "preis_neu_eur", "preis_sicherheit", "preis_jahr"):
+                z[feld] = ""
+            z["preisquelle"] = (f"verworfen: {p:.0f} € fuer Baujahr {bj:.0f}, "
+                                f"Baureihe liegt bei {mitte:.0f} €")
+            verworfen += 1
+    return verworfen
+
+
+def _baureihe(zeile):
+    """Marke plus erstes Modellwort: „ftr rally" und „ftr 1200" gehoeren zusammen."""
+    modell = str(zeile.get("modell") or "").strip()
+    return (zeile.get("marke") or ""), re.split(r"[\s-]", modell)[0] if modell else ""

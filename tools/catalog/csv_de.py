@@ -227,7 +227,8 @@ def main():
 
     aus = Path(args.aus)
     aus.parent.mkdir(parents=True, exist_ok=True)
-    mit_preis = mit_technik = ohne_zulassung = 0
+    mit_preis = mit_technik = ohne_zulassung = verworfene_preise = 0
+    gesammelt = []
     ohne_nachweis = nur_gehandelt = geschrieben = fremdzuordnung = 0
     with aus.open("w", encoding="utf-8", newline="") as f:
         w = csv.DictWriter(f, fieldnames=SPALTEN)
@@ -406,8 +407,15 @@ def main():
                 continue
             elif g.get("gehandelt"):
                 nur_gehandelt += 1
-            w.writerow(zeile)
+            gesammelt.append(zeile)
             geschrieben += 1
+
+        # Erst jetzt, wo alle Zeilen stehen, laesst sich ein Preis gegen seine Baureihe halten (plausi.py):
+        # die Indian FTR von 2022 stand mit 614 € da, die FTR 1200 derselben Reihe mit 14.608 €.
+        verworfene_preise = P.preise_pruefen(gesammelt)
+        mit_preis -= verworfene_preise
+        for zeile in gesammelt:
+            w.writerow(zeile)
 
     wohin = aus.relative_to(HERE) if aus.resolve().is_relative_to(HERE) else aus
     print(f"{geschrieben} Modelle → {wohin}  (von {len(bikes)} geprüften)")
@@ -419,6 +427,8 @@ def main():
     print(f"  mit Bikez-Technik   {mit_technik}")
     if fremdzuordnung:
         print(f"  falsche 1000PS-Zuordnung verworfen: {fremdzuordnung}")
+    if verworfene_preise:
+        print(f"  Preise verworfen (junges Modell weit unter der eigenen Baureihe): {verworfene_preise}")
 
 
 if __name__ == "__main__":

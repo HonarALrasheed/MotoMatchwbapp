@@ -458,9 +458,26 @@ const COMPARE_SPECS = {
   'CB 750 F':      { ps: 67, weight: 235, accel: 5.8, topSpeed: 200, cc: 736,  price: 12000 },
   '500 Custom':    { ps: 48, weight: 200, accel: 6.0, topSpeed: 180, cc: 500,  price: 6500 },
 }
-const BRAND_PREFIX = /^(Honda|Yamaha|Harley-Davidson|Suzuki|Kawasaki|BMW|Ducati|KTM|Triumph)\s+/i
+/* Der Name kommt mal mit, mal ohne Marke an: `trackBikeVisit` (bike-detail.js) schreibt
+   `data.fullName || bikeData.name`, also "Honda CMX500 Rebel" oder "CMX500 Rebel". Früher stand hier
+   eine Regex mit neun fest verdrahteten Marken — sie kannte 33 der 42 Marken im Katalog nicht (378 von
+   1192 Bikes: MV Agusta, Moto Guzzi, Aprilia, Vespa, Piaggio …) und traf "Honda CMX500 Rebel" auch bei
+   den neun nicht, weil sie die Marke am Katalognamen abschnitt statt am gesuchten. Beides zeigte in der
+   Vergleichstabelle überall "–" (2026-09-27 Audit).
+   Jetzt entscheidet `brand` aus dem Katalog — bei allen 1192 Einträgen gesetzt, und `name` beginnt
+   immer damit. Verglichen wird ohne Sonderzeichen, damit "R 1250 GS" und "R1250GS" dasselbe sind. */
+function normName(s) {
+  return String(s || '').toLowerCase().replace(/[^a-z0-9]/g, '')
+}
 function findCatalogBikeByFullName(name) {
-  return getCatalog().find(b => (b.name || '').replace(BRAND_PREFIX, '') === name) || null
+  const gesucht = normName(name)
+  if (!gesucht) return null
+  return getCatalog().find((b) => {
+    const voll = normName(b.name)
+    if (voll === gesucht) return true
+    const ohneMarke = normName(String(b.name || '').slice(String(b.brand || '').length))
+    return Boolean(ohneMarke) && ohneMarke === gesucht
+  }) || null
 }
 function compareSpecsFor(name) {
   const bike = findCatalogBikeByFullName(name)
@@ -472,8 +489,10 @@ function compareSpecsFor(name) {
     accel: bike.accel ?? null,
     topSpeed: bike.topSpeed ?? null,
     cc: bike.cc ?? null,
-    // price=1 ist der Katalog-Platzhalter für "kein echter Preis ermittelbar".
-    price: Number.isFinite(preis) && preis > 1 ? preis : null,
+    // Die 1 war nie ein Platzhalter, sondern ein Fehler in csv_de.py: `x and not y` ergibt True statt x,
+    // woraus zahl(True) eine 1 machte (2026-09-27 behoben). Der Katalog lässt den Preis jetzt weg, wenn
+    // keiner belegt ist — deshalb zählt nur noch, ob überhaupt eine Zahl da ist.
+    price: Number.isFinite(preis) ? preis : null,
   }
 }
 function getCompareSet() {

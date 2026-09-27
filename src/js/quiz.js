@@ -78,7 +78,11 @@ const questions = [
   {
     id: 5,
     question: "Dein Budget?",
-    hinweis: "Gemeint ist der Kaufpreis gebraucht. Unter 2.000 € gibt es fast nur Roller, ab 3.000 € wird die Auswahl breit.",
+    /* Der Satz behauptete, unter 2.000 € gebe es „fast nur Roller". Am Katalog nachgezaehlt (2026-09-27)
+       stimmt das nicht: von 40 Bikes unter 2.000 € sind 14 Roller (35 %), der Rest sind Naked, Sportbikes,
+       Tourer und Enduros — meist aelteren Baujahrs. Der Hinweis redete damit genau den Leuten die Auswahl
+       aus, die sie am noetigsten haben. */
+    hinweis: "Gemeint ist der Kaufpreis gebraucht. Unter 2.000 € findest du vor allem ältere Maschinen und Roller, ab 3.000 € wird die Auswahl deutlich breiter.",
     type: "slider",
     unit: "€",
     min: 500,
@@ -1269,7 +1273,7 @@ function showQuestion(i) {
         ${q.options
           .map(
             (o) => `
-          <button class="opt-btn" data-value="${o.value}">${o.label}</button>
+          <button class="opt-btn" type="button" role="button" aria-pressed="false" data-value="${o.value}">${o.label}</button>
         `,
           )
           .join("")}
@@ -1351,21 +1355,45 @@ function showQuestion(i) {
       slider.value = clamped;
       commitValue(clamped);
     });
+
+    /* Waehrend des Tippens darf nicht geklemmt werden — aus einer getippten "5" wuerde sofort "500",
+       und die 8.000 waeren nicht mehr erreichbar. Beim Verlassen des Feldes muss die Anzeige aber den
+       Wert zeigen, mit dem wirklich gerechnet wird: vorher blieb "50000" stehen, waehrend das Matching
+       mit 30.000 lief, und "300" stand ueber einer Suche mit 500 (2026-09-27). */
+    const anzeigeAngleichen = () => {
+      const value = Number(numberInput.value);
+      const gueltig = numberInput.value !== "" && !Number.isNaN(value);
+      const clamped = gueltig
+        ? Math.min(q.max, Math.max(q.min, value))
+        : Number(slider.value);
+      numberInput.value = clamped;
+      slider.value = clamped;
+      commitValue(clamped);
+    };
+    numberInput.addEventListener("change", anzeigeAngleichen);
+    numberInput.addEventListener("blur", anzeigeAngleichen);
   } else {
     if (answers[`q${q.id}`]) {
       const pre = container.querySelector(
         `[data-value="${answers[`q${q.id}`]}"]`,
       );
-      if (pre) pre.classList.add("selected");
+      if (pre) {
+        pre.classList.add("selected");
+        pre.setAttribute("aria-pressed", "true");
+      }
       document.getElementById("next-btn").disabled = false;
     }
 
     container.querySelectorAll(".opt-btn").forEach((btn) => {
       btn.addEventListener("click", () => {
-        container
-          .querySelectorAll(".opt-btn")
-          .forEach((b) => b.classList.remove("selected"));
+        container.querySelectorAll(".opt-btn").forEach((b) => {
+          b.classList.remove("selected");
+          b.setAttribute("aria-pressed", "false");
+        });
         btn.classList.add("selected");
+        /* Ohne aria-pressed sagt die Schaltflaeche einem Screenreader nur ihren Text — welche
+           Fuehrerscheinklasse gewaehlt ist, stand bisher allein in der CSS-Klasse (2026-09-27). */
+        btn.setAttribute("aria-pressed", "true");
         answers[`q${q.id}`] = btn.dataset.value;
         saveAnswers();
         document.getElementById("next-btn").disabled = false;

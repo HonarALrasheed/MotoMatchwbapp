@@ -1142,13 +1142,13 @@ function createMarkerIcon(filter) {
   let url;
   switch (filter) {
     case "Motorradhändler":
-      url = "/map-icons/haendler.png";
+      url = "/img/map-icons/haendler.png.webp";
       break;
     case "Fahrschule":
-      url = "/map-icons/fahrschule.png";
+      url = "/img/map-icons/fahrschule.png.webp";
       break;
     default:
-      url = "/map-icons/werkstatt.png";
+      url = "/img/map-icons/werkstatt.png.webp";
   }
   const sz = MARKER_SIZES[filter] || MARKER_SIZES["Motorradwerkstatt"];
   return {

@@ -1545,6 +1545,59 @@ export const ATTACH_BUCKET   = 'chat-attachments'
 export const ATTACH_MAX      = 25 * 1024 * 1024  // Storage-Pfad
 export const ATTACH_MAX_LOCAL = 2 * 1024 * 1024  // localStorage-Pfad (Quota ~5 MB)
 
+/**
+ * Adresse zum Anzeigen eines Anhangs. Der Bucket `chat-attachments` ist privat —
+ * lesen darf ihn nur, wer die zugehoerige Nachricht lesen darf (Policy
+ * `chat_attach_read`). Der Client erzeugt daraus eine zeitlich begrenzte
+ * Adresse; laeuft sie ab, wird beim naechsten Rendern eine neue geholt.
+ *
+ * Gebuendelt und zwischengespeichert, weil ein Chatverlauf viele Anhaenge auf
+ * einmal anzeigt und jede Signatur sonst eine eigene Anfrage waere.
+ */
+const SIGN_TTL_S = 60 * 60          // eine Stunde
+const _signCache = new Map()        // pfad -> { url, bis }
+
+export async function signedAttachmentUrls(paths) {
+  const out = new Map()
+  const jetzt = Date.now()
+  const offen = []
+  for (const pfad of new Set(paths)) {
+    const c = _signCache.get(pfad)
+    if (c && c.bis > jetzt) out.set(pfad, c.url)
+    else offen.push(pfad)
+  }
+  if (!offen.length || OFFLINE_MODE) return out
+
+  const { data, error } = await supabase.storage
+    .from(ATTACH_BUCKET).createSignedUrls(offen, SIGN_TTL_S)
+  if (error) {
+    console.warn('[API] Signatur fehlgeschlagen:', error.message)
+    return out
+  }
+  // Ein Eintrag ohne signedUrl heisst: diese Datei darf der Nutzer nicht sehen.
+  // Das ist kein Fehler, sondern die Policy bei der Arbeit.
+  const gueltigBis = jetzt + (SIGN_TTL_S - 60) * 1000
+  for (const eintrag of data || []) {
+    if (!eintrag?.signedUrl || !eintrag.path) continue
+    _signCache.set(eintrag.path, { url: eintrag.signedUrl, bis: gueltigBis })
+    out.set(eintrag.path, eintrag.signedUrl)
+  }
+  return out
+}
+
+/**
+ * Bestandsnachrichten tragen statt `path` noch die alte oeffentliche Adresse.
+ * Daraus laesst sich der Pfad zurueckgewinnen, solange die Datei im Bucket liegt.
+ */
+export function attachmentPath(att) {
+  if (!att) return null
+  if (att.path) return att.path
+  const url = typeof att.url === 'string' ? att.url : ''
+  const marke = `/object/public/${ATTACH_BUCKET}/`
+  const i = url.indexOf(marke)
+  return i === -1 ? null : decodeURIComponent(url.slice(i + marke.length).split('?')[0])
+}
+
 function _fileToDataUrl(file) {
   return new Promise((resolve, reject) => {
     const r = new FileReader()
@@ -1584,8 +1637,9 @@ async function _prepareAttachment(att) {
     console.warn('[API] Upload fehlgeschlagen:', error.message)
     return { error: 'Upload fehlgeschlagen: ' + error.message }
   }
-  const { data } = supabase.storage.from(ATTACH_BUCKET).getPublicUrl(path)
-  return { url: data.publicUrl, name, type, size, path }
+  // Kein getPublicUrl() mehr: der Bucket ist privat. Gespeichert wird nur der
+  // Pfad, die Adresse zum Anzeigen entsteht beim Rendern per signedAttachmentUrl().
+  return { name, type, size, path }
 }
 
 export async function sendGroupMessage(groupId, channelId, text, replyTo = null, attachment = null) {

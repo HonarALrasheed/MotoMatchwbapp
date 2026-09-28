@@ -571,12 +571,34 @@ ALTER TABLE messages ADD COLUMN IF NOT EXISTS attachment jsonb;
 -- Auth-User entfernt. Wer hier einen weiteren Bucket ergaenzt, muss ihn dort
 -- mit aufraeumen.
 INSERT INTO storage.buckets (id, name, public, file_size_limit)
-VALUES ('chat-attachments', 'chat-attachments', true, 26214400)
+VALUES ('chat-attachments', 'chat-attachments', false, 26214400)
 ON CONFLICT (id) DO NOTHING;
 
+-- Lesen darf, wer die zugehoerige Nachricht lesen darf — spiegelt bewusst
+-- msg_select_dm und msg_select_channel. Vorher stand hier USING (bucket_id =
+-- 'chat-attachments') bei public = true: jeder Beliebige konnte saemtliche
+-- Anhaenge abrufen und auflisten, auch die aus privaten Direktnachrichten.
 DROP POLICY IF EXISTS "chat_attach_read" ON storage.objects;
-CREATE POLICY "chat_attach_read" ON storage.objects FOR SELECT
-  USING (bucket_id = 'chat-attachments');
+CREATE POLICY "chat_attach_read" ON storage.objects FOR SELECT TO authenticated
+  USING (
+    bucket_id = 'chat-attachments'
+    AND (
+      (storage.foldername(name))[1] = auth.uid()::text
+      OR EXISTS (
+        SELECT 1 FROM messages m
+        WHERE m.attachment->>'path' = storage.objects.name
+          AND (
+            (m.dm_thread IS NOT NULL AND (
+                m.dm_thread LIKE auth.uid()::text || ':%' OR
+                m.dm_thread LIKE '%:' || auth.uid()::text))
+            OR (m.channel_id IS NOT NULL AND EXISTS (
+                SELECT 1 FROM channels c
+                JOIN group_members gm ON gm.group_id = c.group_id AND gm.user_id = auth.uid()
+                WHERE c.id = m.channel_id))
+          )
+      )
+    )
+  );
 -- Schreiben nur in den eigenen Ordner
 DROP POLICY IF EXISTS "chat_attach_insert" ON storage.objects;
 CREATE POLICY "chat_attach_insert" ON storage.objects FOR INSERT TO authenticated

@@ -78,6 +78,8 @@ import {
   dmCallRoomId, subscribeToUserEvents, sendUserEvent,
   // Profilbilder (werden nicht mehr pauschal geladen)
   ensureAvatars,
+  signedAttachmentUrls,
+  attachmentPath,
 } from './community-api.js'
 
 /* ── Avatar-Farbpalette (wählbare Profilfarben) ──────────────────── */
@@ -558,6 +560,8 @@ function appLoginArt() {
    ══════════════════════════════════════════════════════════════════ */
 export async function mountCommunity(root) {
   if (!root) return
+
+  startAttachmentHydration()
 
   // Supabase-Auth initialisieren (setzt Session-Cache + lädt Community-Daten)
   const session = await initSupabaseAuth()
@@ -1264,29 +1268,37 @@ const FILE_TONE = {
  */
 function attachmentHtml(msg) {
   const att = msg.attachment || (msg.image ? { url: msg.image, type: 'image/*', name: 'Anhang' } : null)
-  if (!att?.url) return ''
+  if (!att) return ''
+
+  // Zwei Herkuenfte: Dateien im privaten Bucket (haben einen Pfad, die Adresse
+  // entsteht erst beim Hydrieren) und alles andere — Sticker vom KLIPY-CDN und
+  // Offline-Anhaenge als data:-URL. Letztere behalten ihre direkte Adresse.
+  const path   = attachmentPath(att)
+  const direkt = path ? '' : safeUrl(att.url)
+  if (!path && !direkt) return ''
 
   // messages.attachment ist eine jsonb-Spalte, deren Inhalt keine Policy prueft —
   // der Absender bestimmt sie frei. esc() maskiert nur Zeichen: bei
   // {"url":"javascript:…","name":"Rechnung.pdf"} bleibt das Schema heil und die
   // Datei-Karte sieht harmlos aus. Haelt die URL der Pruefung nicht stand, wird
   // der Anhang gar nicht gerendert — lieber keine Karte als eine gefaehrliche.
-  const url = safeUrl(att.url)
-  if (!url) return ''
+  const ziel = path ? `data-att-path="${esc(path)}"` : `src="${esc(direkt)}"`
+  const href = path ? `data-att-path="${esc(path)}"` : `href="${esc(direkt)}"`
 
   if (att.sticker) {
     // Freigestellte Grafik — ohne Rahmen und ohne Lightbox, wie im Messenger
-    return `<img class="mmc-msg-sticker" src="${esc(url)}" alt="${esc(att.name || 'Sticker')}" loading="lazy">`
+    return `<img class="mmc-msg-sticker" ${ziel} alt="${esc(att.name || 'Sticker')}" loading="lazy">`
   }
   if ((att.type || '').startsWith('image/')) {
-    return `<img class="mmc-msg-image" src="${esc(url)}" alt="${esc(att.name || 'Anhang')}" loading="lazy" data-img-src="${esc(url)}">`
+    const lightbox = path ? '' : ` data-img-src="${esc(direkt)}"`
+    return `<img class="mmc-msg-image" ${ziel} alt="${esc(att.name || 'Anhang')}" loading="lazy"${lightbox}>`
   }
   const name = att.name || 'Datei'
   const ext  = fileExtLabel(name, att.type || '')
   const size = fileSizeLabel(att.size)
   const tone = FILE_TONE[ext] || 'plain'
   return `
-    <a class="mmc-msg-file" href="${esc(url)}" download="${esc(name)}" title="${esc(name)} herunterladen">
+    <a class="mmc-msg-file" ${href} download="${esc(name)}" title="${esc(name)} herunterladen">
       <span class="mmc-msg-file-ic mmc-msg-file-ic--${tone}">${ICON.doc}</span>
       <span class="mmc-msg-file-meta">
         <span class="mmc-msg-file-name">${esc(name)}</span>
@@ -1294,6 +1306,48 @@ function attachmentHtml(msg) {
       </span>
       <span class="mmc-msg-file-dl">${ICON.download}</span>
     </a>`
+}
+
+/**
+ * Anhaenge aus dem privaten Bucket bekommen ihre Adresse erst hier: das Markup
+ * traegt nur `data-att-path`, die signierte Adresse holt signedAttachmentUrls().
+ *
+ * Warum ein MutationObserver und kein Aufruf an den Renderstellen: Nachrichten
+ * landen aus vier Richtungen im DOM (Verlauf laden, eigene Nachricht anhaengen,
+ * Realtime-Zustellung, Suchtreffer). Ein Beobachter faengt alle vier, ohne dass
+ * jede kuenftige Renderstelle daran denken muss.
+ *
+ * Bleibt eine Datei ohne Adresse, war es die Policy — dann wird bewusst nichts
+ * angezeigt statt eines kaputten Bildes.
+ */
+async function hydrateAttachments(root = document) {
+  const els = Array.from(root.querySelectorAll('[data-att-path]:not([data-att-ready])'))
+  if (!els.length) return
+  const map = await signedAttachmentUrls(els.map(el => el.dataset.attPath))
+  for (const el of els) {
+    const url = map.get(el.dataset.attPath)
+    if (!url) continue
+    el.setAttribute('data-att-ready', '1')
+    if (el.tagName === 'IMG') {
+      el.src = url
+      if (!el.classList.contains('mmc-msg-sticker')) el.dataset.imgSrc = url
+    } else {
+      el.setAttribute('href', url)
+    }
+  }
+}
+
+let _attObserver = null
+function startAttachmentHydration() {
+  if (_attObserver) return
+  hydrateAttachments()
+  let geplant = false
+  _attObserver = new MutationObserver(() => {
+    if (geplant) return
+    geplant = true
+    requestAnimationFrame(() => { geplant = false; hydrateAttachments() })
+  })
+  _attObserver.observe(document.body, { childList: true, subtree: true })
 }
 
 /**

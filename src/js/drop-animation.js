@@ -2,16 +2,16 @@ import { loadGarage } from "./garage.js";
 import { findBestBike } from "./matching.js";
 
 const BIKES = [
-  { name: "Honda NR750", img: "/bikes/2/honda_nr750_1994.png" },
-  { name: "Honda CB 750 F", img: "/bikes/2/honda_cb750f_1970.png" },
-  { name: "Yamaha YZF-R3", img: "/bikes/2/yamaha_yzfr3_2017.png" },
-  { name: "Harley Seventy-Two", img: "/bikes/2/harley_seventytwo_2015.png" },
-  { name: "Harley Iron 883", img: "/bikes/2/harley_iron883_2018.png" },
-  { name: "Yamaha 500 Custom", img: "/bikes/2/yamaha_500custom.png" },
-  { name: "Honda CRF 450R", img: "/bikes/2/honda_crf450r_2023.png" },
-  { name: "Yamaha RX-King 135", img: "/bikes/2/yamaha_rxking_135.png" },
-  { name: "Suzuki GSX-R 750", img: "/bikes/2/suzuki_gsxr750_2023.png" },
-  { name: "Yamaha DT 125 E", img: "/bikes/2/yamaha_dt125e_1974.png" },
+  { name: "Honda NR750", img: "/img/bikes/2/honda_nr750_1994.png.webp" },
+  { name: "Honda CB 750 F", img: "/img/bikes/2/honda_cb750f_1970.png.webp" },
+  { name: "Yamaha YZF-R3", img: "/img/bikes/2/yamaha_yzfr3_2017.png.webp" },
+  { name: "Harley Seventy-Two", img: "/img/bikes/2/harley_seventytwo_2015.png.webp" },
+  { name: "Harley Iron 883", img: "/img/bikes/2/harley_iron883_2018.png.webp" },
+  { name: "Yamaha 500 Custom", img: "/img/bikes/2/yamaha_500custom.png.webp" },
+  { name: "Honda CRF 450R", img: "/img/bikes/2/honda_crf450r_2023.png.webp" },
+  { name: "Yamaha RX-King 135", img: "/img/bikes/2/yamaha_rxking_135.png.webp" },
+  { name: "Suzuki GSX-R 750", img: "/img/bikes/2/suzuki_gsxr750_2023.png.webp" },
+  { name: "Yamaha DT 125 E", img: "/img/bikes/2/yamaha_dt125e_1974.png.webp" },
 ];
 
 const CARD_W = 240;

@@ -13,11 +13,29 @@
  * ══════════════════════════════════════════════════════════════
  */
 
-import * as THREE from "three";
-import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
-import { DRACOLoader } from "three/addons/loaders/DRACOLoader.js";
-import { MeshoptDecoder } from "three/addons/libs/meshopt_decoder.module.js";
-import { RoomEnvironment } from "three/addons/environments/RoomEnvironment.js";
+// three.js liegt in einem gemeinsamen Chunk von 667 KB. Die meisten Screens
+// (Karte, Ausrüstung, Community) zeigen kein Modell — deshalb erst laden,
+// wenn wirklich ein Viewer aufgebaut wird.
+let THREE, GLTFLoader, DRACOLoader, MeshoptDecoder, RoomEnvironment
+let _threePromise = null
+function loadThree() {
+  if (!_threePromise) {
+    _threePromise = Promise.all([
+      import('three'),
+      import('three/addons/loaders/GLTFLoader.js'),
+      import('three/addons/loaders/DRACOLoader.js'),
+      import('three/addons/libs/meshopt_decoder.module.js'),
+      import('three/addons/environments/RoomEnvironment.js'),
+    ]).then(([three, gltf, draco, meshopt, room]) => {
+      THREE = three
+      GLTFLoader = gltf.GLTFLoader
+      DRACOLoader = draco.DRACOLoader
+      MeshoptDecoder = meshopt.MeshoptDecoder
+      RoomEnvironment = room.RoomEnvironment
+    })
+  }
+  return _threePromise
+}
 import {
   findBestBike,
   findTopMatches,
@@ -366,12 +384,21 @@ function animateCounters(container) {
 //  3D VIEWER (in specs section)
 // ══════════════════════════════════════════════════════════════
 
-function init3DViewer(bikeData) {
+async function init3DViewer(bikeData) {
   if (!bikeData.has3D || !bikeData.glb) return;
 
   const wrap = document.getElementById("gr-3d-wrap");
   const canvas = document.getElementById("gr-3d-canvas");
   if (!wrap || !canvas) return;
+
+  try {
+    await loadThree();
+  } catch (err) {
+    console.error("[MotoMatch] three.js konnte nicht geladen werden", err);
+    return;
+  }
+  // Während des Ladens kann der Nutzer den Screen längst verlassen haben
+  if (!canvas.isConnected) return;
 
   garageScene = new THREE.Scene();
   garageScene.background = null; // transparent — blends with page

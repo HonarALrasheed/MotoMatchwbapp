@@ -80,38 +80,30 @@
       padding: clamp(48px, 8vw, 104px) clamp(24px, 5vw, 48px);
     }
 
-    .page-label {
-      font-size: 11px;
-      font-weight: 600;
-      letter-spacing: 0.22em;
-      text-transform: uppercase;
-      color: rgba(255,255,255,0.35);
-      margin-bottom: 18px;
-    }
 
     /* Duenn und weit — wie .p-discover-title / .p-finder-title */
     h1 {
-      font-size: clamp(34px, 5vw, 60px);
+      font-size: clamp(44px, 9vw, 92px);
       font-weight: 300;
-      letter-spacing: -0.01em;
-      line-height: 1.1;
-      margin-bottom: clamp(40px, 5vw, 64px);
+      letter-spacing: -0.02em;
+      line-height: 1.02;
+      text-align: center;
+      margin: clamp(24px, 5vw, 56px) 0 clamp(56px, 8vw, 104px);
     }
 
     section {
-      margin-bottom: 36px;
-      padding-bottom: 36px;
-      border-bottom: 1px solid var(--border);
+      margin-bottom: 44px;
+      padding-bottom: 44px;
+      border-bottom: 1px solid rgba(255,255,255,0.06);
     }
     section:last-child { border-bottom: none; padding-bottom: 0; }
 
     h2 {
-      font-size: 12px;
+      font-size: 17px;
       font-weight: 600;
-      letter-spacing: 0.18em;
-      text-transform: uppercase;
-      color: rgba(255,255,255,0.45);
-      margin-bottom: 18px;
+      letter-spacing: 0.01em;
+      color: #fff;
+      margin-bottom: 14px;
     }
     h3 {
       font-size: 14px;
@@ -185,7 +177,6 @@
   </nav>
 
   <main>
-    <p class="page-label">Rechtliches</p>
     <h1>Datenschutz &amp; Cookies</h1>
 
     <section>
@@ -280,6 +271,19 @@
       </div>
 
       <div class="service-card">
+        <h3>Vercel Web Analytics</h3>
+        <p>Betreiber: Vercel Inc., USA. Zweck: anonyme Reichweitenmessung, um zu erkennen, welche
+        Bereiche der Website genutzt werden. Erhoben werden Zeitpunkt, aufgerufene Adresse,
+        verweisende Seite, ungefähre Herkunft auf Stadtebene, Betriebssystem, Browser und Gerätetyp.
+        Es werden <strong>keine Cookies gesetzt</strong>, nichts auf Ihrem Gerät gespeichert und
+        keine IP-Adresse hinterlegt. Besuche werden aus der Anfrage gehasht; der Hash wird nach
+        24 Stunden verworfen. Eine Wiedererkennung über mehrere Websites hinweg findet nicht statt.
+        Rechtsgrundlage: Art. 6 Abs. 1 lit. f DSGVO (berechtigtes Interesse an der Messung der
+        Reichweite). Sie können dieser Verarbeitung nach Art. 21 DSGVO jederzeit formlos
+        widersprechen.</p>
+      </div>
+
+      <div class="service-card">
         <h3>Sentry</h3>
         <p>Betreiber: Functional Software, Inc. (Sentry), USA. Zweck: automatische Erfassung von
         Programmfehlern zur Fehlerbehebung. Dabei können IP-Adresse, Browserdaten und der
@@ -349,15 +353,21 @@
     <section>
       <h2>7. Cookies und lokale Speicherung</h2>
       <p>
-        Wir verwenden technisch notwendige Cookies und vergleichbare Speichertechniken
-        (localStorage) für die Anmeldung und für Einstellungen wie Stummschaltungen, zuletzt
-        geöffnete Ansichten und Anzeigeoptionen. Diese sind für den Betrieb erforderlich und
-        lassen sich nicht abschalten.
+        <strong>Diese Website setzt keine Cookies.</strong> Verwendet wird ausschließlich der
+        lokale Speicher Ihres Browsers (localStorage) — für die Anmeldesitzung und für
+        Einstellungen, die Sie selbst vornehmen: Favoriten, Fahrzeuge in der Garage,
+        Vergleichsliste, zuletzt geöffnete Ansichten und Stummschaltungen.
       </p>
       <p>
-        Analyse- oder Marketing-Cookies setzen wir nicht ein. Cookies, die bei Klick auf einen
-        Partnerlink gesetzt werden, stammen vom jeweiligen Netzwerk und werden unter Abschnitt 6
-        beschrieben.
+        Diese Daten verbleiben auf Ihrem Gerät und sind für die von Ihnen angeforderten Funktionen
+        erforderlich; eine Einwilligung ist dafür nach § 25 Abs. 2 Nr. 2 TDDDG nicht notwendig. Sie
+        können sie jederzeit über die Einstellungen Ihres Browsers löschen.
+      </p>
+      <p>
+        Analyse- oder Marketingdienste, die Sie über mehrere Websites hinweg wiedererkennen,
+        setzen wir nicht ein. Die Einwilligung für die Kartendarstellung (Abschnitt 5) und der
+        Merker dafür sind davon ausgenommen — ohne ihn müssten wir Sie bei jedem Besuch erneut
+        fragen.
       </p>
     </section>
 
@@ -402,7 +412,7 @@
     <section>
       <h2>11. Stand</h2>
       <p>
-        Diese Datenschutzerklärung hat den Stand vom 28. September 2026. Wir passen sie an, wenn
+        Diese Datenschutzerklärung hat den Stand vom 29. September 2026. Wir passen sie an, wenn
         sich unsere Dienste oder die Rechtslage ändern.
       </p>
     </section>

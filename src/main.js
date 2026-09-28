@@ -1,5 +1,22 @@
 import './styles/main.css'
 import { initMonitoring, reportFatal } from './js/monitoring.js'
+import { inject } from '@vercel/analytics'
+
+/* ── Reichweitenmessung ────────────────────────────────────────────────
+   Vercel Web Analytics: keine Cookies, kein localStorage, keine dauerhafte
+   Kennung, keine IP-Speicherung. Besucher werden aus der eingehenden Anfrage
+   gehasht, der Hash faellt nach 24 Stunden weg.
+
+   Deshalb kein Einwilligungsbanner: § 25 TDDDG greift nur, wenn etwas auf dem
+   Endgeraet gespeichert oder von dort gelesen wird — hier passiert beides
+   nicht. Rechtsgrundlage der Verarbeitung ist Art. 6 Abs. 1 lit. f DSGVO,
+   beschrieben in der Datenschutzerklaerung samt Widerspruchsrecht.
+
+   Wichtig fuer spaeter: Wer hier einen Dienst ergaenzt, der Cookies setzt
+   oder Kennungen speichert (Analytics anderer Anbieter, Werbenetzwerke),
+   braucht eine Einwilligung — dann ist es mit dem Banner nicht mehr getan,
+   dann muss der Dienst bis zur Zustimmung ungeladen bleiben. */
+inject({ mode: import.meta.env.PROD ? 'production' : 'development' })
 
 // Zuerst, vor allem anderen: was hier drunter schiefgeht, soll gemeldet werden —
 // auch ein Fehler beim Auswerten von app.js selbst. Stand vorher in startApp(),

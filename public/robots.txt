@@ -1,0 +1,14 @@
+# MotoMatch
+# Die Rechtsseiten enthalten die nach § 5 DDG vorgeschriebene Anschrift des
+# Betreibers. Sie muessen von jeder Seite aus erreichbar sein — sie muessen
+# aber nicht in Suchmaschinen stehen. Beides zusammen ist zulaessig: die
+# Pflicht ist "leicht erkennbar, unmittelbar erreichbar, staendig verfuegbar",
+# nicht "auffindbar ueber Google".
+
+User-agent: *
+Disallow: /impressum.html
+Disallow: /datenschutz.html
+Disallow: /agb.html
+Allow: /
+
+Sitemap: https://motomatch.studio/sitemap.xml

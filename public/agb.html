@@ -13,7 +13,7 @@
     :root {
       --bg: #0a0a0a;
       --border: rgba(255,255,255,0.08);
-      --gold: #c9a84c;
+      --akzent: rgba(255,255,255,0.75);
       --text: #ffffff;
       --text-dim: rgba(255,255,255,0.45);
       --font: "Barlow", "Arial Narrow", Arial, sans-serif;
@@ -85,7 +85,7 @@
       font-weight: 600;
       letter-spacing: 0.22em;
       text-transform: uppercase;
-      color: var(--gold);
+      color: rgba(255,255,255,0.35);
       margin-bottom: 18px;
     }
 
@@ -128,8 +128,14 @@
     ul { color: rgba(255,255,255,0.7); padding-left: 20px; margin-bottom: 12px; }
     li { margin-bottom: 7px; }
 
-    a { color: var(--gold); text-decoration: none; transition: opacity .2s; }
-    a:hover { opacity: .7; }
+    a {
+      color: #fff;
+      text-decoration: underline;
+      text-underline-offset: 3px;
+      text-decoration-color: rgba(255,255,255,0.3);
+      transition: text-decoration-color .2s;
+    }
+    a:hover { text-decoration-color: #fff; }
 
     /* ── Footer: bricht um statt ueberzulaufen ── */
     footer {

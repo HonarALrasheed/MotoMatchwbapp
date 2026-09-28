@@ -209,6 +209,12 @@ export function initQuiz() {
   transitionActive = false;
   bobPhase = 0;
   shakeIntensity = 0;
+  // Asynchron geladene Refs des letzten Laufs verwerfen, sonst zeigen sie
+  // auf die alte, bereits disposte Szene, während das GLB noch lädt
+  bike = null;
+  bikePivotGroup = null;
+  headlight = null;
+  wheels = [];
 
   setupThreeJS();
   setupGauge();
@@ -607,7 +613,7 @@ function loop() {
   }
 
   // Phase 2 (Q4+): wheelie via pivot group
-  if (phase2Active && bikePivotGroup) {
+  if (phase2Active && bike && bikePivotGroup) {
     wheelieAmount += (wheelieTarget - wheelieAmount) * dt * 6;
     bikePivotGroup.rotation.x = wheelieAmount * -0.4;
     bikePivotGroup.rotation.z = 0;
@@ -1158,6 +1164,9 @@ function finishExit() {
       mixer = null;
       handAction = null;
       bike = null;
+      bikePivotGroup = null;
+      headlight = null;
+      wheels = [];
       clock = null;
       if (handTimeout) { clearTimeout(handTimeout); handTimeout = null; }
 

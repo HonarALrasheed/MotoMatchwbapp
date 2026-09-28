@@ -11,7 +11,7 @@
  * ══════════════════════════════════════════════════════════════════
  */
 
-import commBg from '../assets/community-bg.jpeg'
+import commBg from '../assets/community-bg.webp'
 import { esc } from './util.js'
 import {
   joinVoiceRoom, leaveVoiceRoom, toggleVoiceMute, toggleVoiceDeafen,

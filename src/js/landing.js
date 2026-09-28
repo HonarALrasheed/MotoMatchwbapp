@@ -494,6 +494,7 @@ export function initLanding() {
         <a href="/impressum.html" class="p-footer-link">Impressum</a>
         <a href="/datenschutz.html" class="p-footer-link">Datenschutz</a>
         <a href="/agb.html" class="p-footer-link">AGB</a>
+        <a href="/bildnachweis.html" class="p-footer-link">Bildnachweis</a>
         <a href="mailto:kontakt@motomatch.studio" class="p-footer-link">Kontakt</a>
         <a href="mailto:kontakt@motomatch.studio?subject=MotoMatch%20Beta-Feedback" class="p-footer-link">Feedback</a>
       </div>

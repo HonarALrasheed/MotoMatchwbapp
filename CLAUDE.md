@@ -19,11 +19,10 @@ Web-App für Motorradfahrer:innen: passendes Bike finden (Quiz + Matching), Mode
 | Build | Vite 5 |
 | Sprache | Vanilla JavaScript (ES-Module), **kein Framework** |
 | Package Manager | npm (package-lock.json), Node 20 (`.nvmrc`) |
-| 3D | three.js + three-stdlib (GLTF) |
-| Karten | Leaflet + Google Maps / Open-Meteo |
-| Animation | lottie-web |
+| 3D | three.js (GLTF/DRACO/Meshopt), per dynamischem Import nachgeladen |
+| Karten | Google Maps JS API + CartoCDN-Tiles / Open-Meteo |
 | Styling | ein zentrales Stylesheet: `src/styles/main.css` |
-| Deployment | Vercel, Base-Pfad `/app/` nur im Build |
+| Deployment | Vercel, Base-Pfad `/` |
 
 ## Befehle
 ```bash
@@ -40,7 +39,8 @@ Keine Tests und kein Linter konfiguriert.
 | `src/main.js` | Einstiegspunkt: lädt CSS + `startApp()` |
 | `src/js/` | gesamte Logik, ein Modul pro Feature (s. u.) |
 | `src/styles/main.css` | gesamtes Styling (dunkles, Porsche-inspiriertes Design) |
-| `public/` | statische Assets, ~220 MB (Bike-Bilder, 3D-Modelle, HDRI, Video) |
+| `public/` | statische Assets (Bike-Bilder, 3D-Modelle, HDRI, Video) |
+| `public/img/` | **die tatsächlich ausgelieferten Bilder** — WebP, größenbegrenzt (s. u.) |
 | `vite.config.js` | Base-Pfad, Asset-Kopie von `D:/MotoMatch/...` (nur alte Windows-Dev-Maschine, auf macOS inert) |
 | `.env` | `VITE_SUPABASE_URL/ANON_KEY`, `VITE_GMAPS_KEY`, `VITE_SENTRY_DSN` (client) sowie serverseitig `OPENAI_KEY`, `TAVILY_KEY`, `SENTRY_DSN` — alle optional, Features degradieren ohne Keys. Server-Keys **nie** mit `VITE_`-Prefix. |
 
@@ -72,10 +72,16 @@ Wichtigste Module in `src/js/`:
 - `import_motorcycles.py` (Elternordner) importiert die CSV nach Supabase — Vorbereitung fürs künftige Backend, vom Frontend noch ungenutzt.
 - Neues Bike hinzufügen: Eintrag in `matching.js` + `bike-detail.js`, dazu Assets: `public/bikes/<slug>.png` (Seitenansicht), `public/bikes/2/<slug>.png` (Detail), `public/models/<slug>.glb` (3D).
 
+## Bild-Pipeline
+- **Im Code wird ausschließlich `/img/…` referenziert.** Dort liegen die ausgelieferten WebP-Dateien; die Originale in `public/bikes/` u. a. bleiben unangetastet (siehe "Niemals ändern") und werden **nicht** ausgeliefert.
+- Namensschema: Originalpfad plus `.webp`, also `/bikes/x.png` → `/img/bikes/x.png.webp`. Die Original-Endung bleibt drin, weil vier Bikes als `.jpg` **und** `.png` mit unterschiedlichem Bildinhalt vorliegen.
+- Größendeckel nach Zweck: 1200 px für Karten-Bilder, 1920 px für Detail- und Lifestyle-Ansichten, 160 px für Kartenmarker (die werden mit 45×29 px gezeichnet). Qualität 82.
+- **Neues Bild hinzufügen:** Original ablegen, WebP nach `public/img/<gleicher Pfad>.webp` erzeugen, im Code nur den `/img/`-Pfad verwenden.
+
 ## Deployment (Vercel)
 - Projekt `moto-matchwbapp`, verlinkt über `.vercel/`; Build laut `vercel.json`: `npm run build` → `dist/`.
 - **Achtung:** `public/models/` und `public/__video/` sind gitignored ("too big for GitHub"). Ein Deploy über die Git-Integration hätte daher **keine 3D-Modelle/kein Hero-Video** — deployen über die `vercel` CLI vom lokalen Rechner, die lädt `public/` vollständig hoch.
-- Im Build gilt Base-Pfad `/app/` — absolute Asset-Pfade im Code (z. B. `/models/…`) funktionieren nur, weil Vite sie beim Build umschreibt bzw. die Assets unter `/app/` landen; bei 404s in Produktion zuerst hier suchen.
+- Base-Pfad ist `/` (`vite.config.js`), absolute Asset-Pfade im Code (z. B. `/img/…`) gelten also unverändert auch im Build.
 
 ## API-Schutz
 - Beide Serverless-Endpoints (`api/ai-match.js`, `api/search-places.js`) rufen als Erstes `checkOriginAndRate(req, res)` aus [`api/_shared.js`](api/_shared.js) auf. Gibt der Helper `true` zurück, hat er bereits geantwortet und der Handler muss sofort `return`en.
@@ -133,8 +139,7 @@ niemand außer über das Dashboard (Service-Role) kann die Einträge lesen.
 - Vor jedem Beginn: `git status` — wenn dirty, erst committen. Nie mehr als eine Aufgabe pro Commit sammeln.
 
 ## Bekannte Karteileichen (nicht auf denen aufbauen)
-- [`src/js/map-view.js`](src/js/map-view.js) — nirgendwo importiert, wird gelöscht (T1.1 in Roadmap)
-- `CLAUDE.md.backup` — alt, wird gelöscht
-- Windows-Asset-Kopie in [`vite.config.js`](vite.config.js) L6–70 — inert auf macOS, wird entfernt
+- **`openBikeDetail()` in [`src/js/bike-detail.js`](src/js/bike-detail.js) hat keine Aufrufer.** Damit ist die gesamte Deckblatt-Ansicht (`buildDeckblattHTML`) unerreichbar — inklusive `bd-3d-wrap`/`bd-3d-canvas`. Das Menü öffnet stattdessen `openKonfigurator`, dessen Markup kein Canvas enthält. `initDetail3D()` läuft deshalb immer in den Early-Return: **der 3D-Viewer existiert aktuell nur in der Garage** (`init3DViewer` in `garage.js`).
+- Windows-Asset-Kopie in [`vite.config.js`](vite.config.js) L6–70 — inert außerhalb der alten Dev-Maschine, wird entfernt
 - localStorage-Duplikate: `mm_gear_favs`/`mm_kv_favs`, `mm_comm_friends_v1`/`v2`, `mm_comm_prefs`/`_v1` (T1.4)
-- 13 Footer-TODO-Links in [`src/js/landing.js`](src/js/landing.js) L365–393 (T1.2)
+- Unreferenzierte Assets: `public/hdri/` (14 MB), `public/rider/` (5,5 MB) sowie die Duplikat-Paare `Händler & beratung .png`/`haendler_beratung.png` und `Community & Gear .png`/`community_gear.png` in `public/bikes/` — kosten nur Deploy-Größe, stehen aber unter "Niemals ändern"

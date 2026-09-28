@@ -1,0 +1,411 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Nutzungsbedingungen &amp; AGB – MotoMatch</title>
+  <style>
+    @font-face { font-family: 'Barlow'; font-style: normal; font-weight: 400; font-display: swap; src: url('/fonts/barlow-400.woff2') format('woff2'); }
+    @font-face { font-family: 'Barlow'; font-style: normal; font-weight: 600; font-display: swap; src: url('/fonts/barlow-600.woff2') format('woff2'); }
+    @font-face { font-family: 'Barlow'; font-style: normal; font-weight: 700; font-display: swap; src: url('/fonts/barlow-700.woff2') format('woff2'); }
+
+    :root {
+      --bg: #0a0a0a;
+      --surface: #111111;
+      --border: rgba(255,255,255,0.06);
+      --gold: #c9a84c;
+      --text: #ffffff;
+      --text-dim: rgba(255,255,255,0.45);
+      --font: "Barlow", "Arial Narrow", Arial, sans-serif;
+    }
+
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: var(--font);
+      font-size: 15px;
+      line-height: 1.7;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+    }
+
+    /* ── Nav ── */
+    .nav {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 20px clamp(24px, 5vw, 80px);
+      border-bottom: 1px solid var(--border);
+      background: rgba(10,10,10,0.95);
+      position: sticky;
+      top: 0;
+      z-index: 10;
+      backdrop-filter: blur(20px);
+    }
+    .nav-logo {
+      font-size: 13px;
+      font-weight: 700;
+      letter-spacing: 0.28em;
+      text-transform: uppercase;
+      color: rgba(255,255,255,0.9);
+      text-decoration: none;
+    }
+    .nav-back {
+      font-size: 12px;
+      font-weight: 400;
+      letter-spacing: 0.08em;
+      color: var(--text-dim);
+      text-decoration: none;
+      text-transform: uppercase;
+      transition: color 0.2s;
+    }
+    .nav-back:hover { color: #fff; }
+
+    /* ── Main ── */
+    main {
+      flex: 1;
+      max-width: 760px;
+      width: 100%;
+      margin: 0 auto;
+      padding: clamp(40px, 7vw, 96px) clamp(24px, 5vw, 48px);
+    }
+
+    .page-label {
+      font-size: 11px;
+      font-weight: 600;
+      letter-spacing: 0.15em;
+      text-transform: uppercase;
+      color: var(--gold);
+      margin-bottom: 16px;
+    }
+
+    h1 {
+      font-size: clamp(28px, 4vw, 44px);
+      font-weight: 700;
+      letter-spacing: 0.02em;
+      line-height: 1.15;
+      margin-bottom: 48px;
+    }
+
+    section {
+      margin-bottom: 40px;
+      padding-bottom: 40px;
+      border-bottom: 1px solid var(--border);
+    }
+    section:last-child {
+      border-bottom: none;
+    }
+
+    h2 {
+      font-size: 13px;
+      font-weight: 600;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      color: rgba(255,255,255,0.5);
+      margin-bottom: 16px;
+    }
+
+    p {
+      color: rgba(255,255,255,0.75);
+      margin-bottom: 10px;
+    }
+    p:last-child { margin-bottom: 0; }
+
+    .placeholder {
+      display: inline;
+      background: rgba(201,168,76,0.15);
+      border: 1px solid rgba(201,168,76,0.4);
+      border-radius: 3px;
+      color: var(--gold);
+      font-weight: 600;
+      padding: 1px 6px;
+      font-size: 0.9em;
+    }
+
+    a {
+      color: var(--gold);
+      text-decoration: none;
+      transition: opacity 0.2s;
+    }
+    a:hover { opacity: 0.75; }
+
+    /* ── Footer ── */
+    footer {
+      background: #1a1a1a;
+      padding: 24px clamp(24px, 5vw, 80px);
+      border-top: 1px solid rgba(255,255,255,0.08);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 16px;
+      flex-wrap: wrap;
+    }
+    .footer-copy {
+      font-size: 12px;
+      color: rgba(255,255,255,0.22);
+    }
+    .footer-links {
+      display: flex;
+      gap: 24px;
+    }
+    .footer-links a {
+      font-size: 12px;
+      color: rgba(255,255,255,0.4);
+      text-decoration: none;
+      transition: color 0.2s;
+    }
+    .footer-links a:hover { color: #fff; }
+    .footer-links a[aria-current="page"] {
+      color: rgba(255,255,255,0.7);
+    }
+    ul { color: rgba(255,255,255,0.75); margin: 10px 0 10px 20px; }
+    li { margin-bottom: 6px; }
+    .stand { font-size: 12px; color: var(--text-dim); margin-top: -32px; margin-bottom: 40px; }
+  </style>
+</head>
+<body>
+
+  <nav class="nav">
+    <a href="/" class="nav-logo">MotoMatch</a>
+    <a href="/" class="nav-back">← Zurück</a>
+  </nav>
+
+  <main>
+    <p class="page-label">Rechtliches</p>
+    <h1>Nutzungsbedingungen</h1>
+    <p class="stand">Stand: 28. September 2026</p>
+
+    <section>
+      <h2>§ 1 Geltungsbereich und Anbieter</h2>
+      <p>
+        Diese Nutzungsbedingungen gelten für die Nutzung der Website MotoMatch und aller darüber
+        angebotenen Funktionen (nachfolgend „Dienst“).
+      </p>
+      <p>
+        Anbieter und Vertragspartner ist:<br>
+        Honar Salam Rasheed Alrasheed<br>
+        Steinfurter Straße 73<br>
+        48149 Münster<br>
+        E-Mail: <a href="mailto:kontakt@motomatch.studio">kontakt@motomatch.studio</a>
+      </p>
+      <p>
+        Vollständige Anbieterangaben im <a href="/impressum.html">Impressum</a>.
+        Abweichende oder entgegenstehende Bedingungen der Nutzer werden nicht Vertragsbestandteil,
+        es sei denn, der Anbieter stimmt ihrer Geltung ausdrücklich in Textform zu.
+      </p>
+    </section>
+
+    <section>
+      <h2>§ 2 Gegenstand des Dienstes</h2>
+      <p>
+        MotoMatch ist ein kostenloses, redaktionell-informatives Angebot rund um Motorräder. Der
+        Dienst umfasst insbesondere einen Fragebogen zur Ermittlung passender Motorradmodelle,
+        einen Modellkatalog mit technischen Daten und Preisspannen, Ausrüstungsempfehlungen,
+        eine Händlerkarte sowie einen Community-Bereich mit Nutzerkonto.
+      </p>
+      <p>
+        Alle Empfehlungen und Ergebnisse sind unverbindliche Orientierungshilfen. Sie stellen
+        keine Kauf-, Rechts-, Versicherungs- oder Finanzberatung dar und ersetzen weder eine
+        Probefahrt noch eine fachkundige Begutachtung des konkreten Fahrzeugs.
+      </p>
+      <p>
+        Es besteht kein Anspruch auf Nutzung des Dienstes. Der Anbieter kann den Funktionsumfang
+        jederzeit ändern, erweitern oder einstellen.
+      </p>
+    </section>
+
+    <section>
+      <h2>§ 3 Nutzerkonto und Registrierung</h2>
+      <p>
+        Der Dienst kann in weiten Teilen ohne Registrierung genutzt werden. Für die Garage-,
+        Favoriten- und Community-Funktionen ist ein Nutzerkonto erforderlich.
+      </p>
+      <ul>
+        <li>Die Registrierung ist Personen ab 16 Jahren gestattet.</li>
+        <li>Die bei der Registrierung angegebenen Daten müssen zutreffend sein und sind aktuell zu halten.</li>
+        <li>Zugangsdaten sind geheim zu halten und dürfen nicht an Dritte weitergegeben werden.</li>
+        <li>Pro Person ist ein Konto zulässig. Ein Anspruch auf einen bestimmten Benutzernamen besteht nicht.</li>
+        <li>Bei Verdacht auf Missbrauch des Kontos ist der Anbieter unverzüglich zu informieren.</li>
+      </ul>
+      <p>
+        Ein Anspruch auf Registrierung besteht nicht. Der Anbieter darf eine Registrierung ohne
+        Angabe von Gründen ablehnen.
+      </p>
+    </section>
+
+    <section>
+      <h2>§ 4 Pflichten der Nutzer und verbotene Inhalte</h2>
+      <p>
+        Nutzer sind für alle Inhalte, die sie über den Dienst veröffentlichen oder versenden,
+        selbst verantwortlich. Untersagt ist insbesondere:
+      </p>
+      <ul>
+        <li>das Einstellen rechtswidriger, beleidigender, bedrohender, diskriminierender, jugendgefährdender oder gewaltverherrlichender Inhalte;</li>
+        <li>die Verletzung von Urheber-, Marken-, Persönlichkeits- oder sonstigen Rechten Dritter;</li>
+        <li>das Veröffentlichen personenbezogener Daten Dritter ohne deren Einwilligung;</li>
+        <li>unaufgeforderte Werbung, Kettenbriefe, Spam sowie gewerbliche Angebote ohne vorherige Zustimmung des Anbieters;</li>
+        <li>das Aufrufen zu Verstößen gegen die Straßenverkehrsordnung, insbesondere zu verbotenen Kraftfahrzeugrennen (§ 315d StGB) oder zu nicht zulassungsfähigen technischen Veränderungen;</li>
+        <li>der Einsatz von Bots, Scrapern oder automatisierten Abrufen sowie jede Maßnahme, die die Verfügbarkeit oder Sicherheit des Dienstes beeinträchtigt;</li>
+        <li>das Umgehen von Zugangs-, Sicherheits- oder Moderationsmechanismen.</li>
+      </ul>
+      <p>
+        Bei Verstößen kann der Anbieter Inhalte entfernen, Funktionen einschränken und das
+        Nutzerkonto vorübergehend oder dauerhaft sperren. Weitergehende Ansprüche bleiben unberührt.
+      </p>
+    </section>
+
+    <section>
+      <h2>§ 5 Rechte an Nutzerinhalten</h2>
+      <p>
+        Die Rechte an eingestellten Inhalten verbleiben beim Nutzer. Der Nutzer räumt dem Anbieter
+        ein einfaches, räumlich und zeitlich auf die Dauer der Veröffentlichung beschränktes,
+        unentgeltliches Recht ein, diese Inhalte im Rahmen des Dienstes zu speichern, anzuzeigen
+        und technisch aufzubereiten, soweit dies für den Betrieb erforderlich ist.
+      </p>
+      <p>
+        Der Nutzer sichert zu, über die erforderlichen Rechte an den eingestellten Inhalten zu
+        verfügen. Nach Löschung eines Inhalts oder des Kontos endet dieses Nutzungsrecht; bereits
+        angefertigte technische Sicherungskopien bleiben davon bis zu ihrer turnusmäßigen Löschung
+        unberührt.
+      </p>
+    </section>
+
+    <section>
+      <h2>§ 6 Fahrzeug-, Preis- und Produktangaben</h2>
+      <p>
+        Technische Daten, Maße, Verbrauchs- und Leistungsangaben sowie Preisspannen im Katalog
+        stammen ganz oder teilweise aus öffentlich zugänglichen Quellen und Marktbeobachtungen
+        Dritter. Sie werden mit Sorgfalt aufbereitet, können jedoch unvollständig, veraltet oder
+        fehlerhaft sein.
+      </p>
+      <p>
+        Preisangaben sind unverbindliche Anhaltspunkte zur Markteinordnung und stellen kein
+        Angebot dar. Maßgeblich sind allein die Angaben des jeweiligen Herstellers, Händlers oder
+        Verkäufers. Angaben zu Führerscheinklassen und Fahrzeugeinstufungen ersetzen keine
+        rechtsverbindliche Auskunft; verbindlich sind die Fahrzeugpapiere und die geltenden
+        gesetzlichen Vorschriften.
+      </p>
+    </section>
+
+    <section>
+      <h2>§ 7 Werbung, Affiliate-Links und Provisionen</h2>
+      <p>
+        Der Dienst finanziert sich unter anderem über Werbung und Partnerprogramme
+        (Affiliate-Marketing). Der Dienst kann Links zu Angeboten Dritter enthalten, für die der
+        Anbieter im Fall eines Vertragsschlusses eine Provision erhält.
+      </p>
+      <p>
+        Solche Links sind als Werbung gekennzeichnet. Für Nutzer entstehen dadurch keine
+        Mehrkosten. Die Auswahl und Reihenfolge der dargestellten Modelle und Produkte richtet
+        sich nach den im Fragebogen erhobenen Angaben und nach redaktionellen Kriterien; eine
+        Provision begründet keinen Anspruch auf eine bevorzugte Platzierung.
+      </p>
+    </section>
+
+    <section>
+      <h2>§ 8 Verlinkte Angebote Dritter</h2>
+      <p>
+        Der Dienst enthält Links auf externe Websites Dritter, auf deren Inhalte der Anbieter
+        keinen Einfluss hat. Für die Inhalte der verlinkten Seiten ist stets der jeweilige
+        Anbieter oder Betreiber verantwortlich. Zum Zeitpunkt der Verlinkung waren keine
+        rechtswidrigen Inhalte erkennbar. Bei Bekanntwerden von Rechtsverletzungen werden
+        entsprechende Links unverzüglich entfernt.
+      </p>
+      <p>
+        Verträge über verlinkte Angebote kommen ausschließlich zwischen dem Nutzer und dem
+        jeweiligen Drittanbieter zustande. Der Anbieter wird nicht Vertragspartei.
+      </p>
+    </section>
+
+    <section>
+      <h2>§ 9 Verfügbarkeit</h2>
+      <p>
+        Der Anbieter bemüht sich um einen möglichst störungsfreien Betrieb, schuldet jedoch keine
+        bestimmte Verfügbarkeit. Wartungsarbeiten, Sicherheitsmaßnahmen, Kapazitätsgründe sowie
+        Störungen bei eingesetzten Dienstleistern können zu vorübergehenden Einschränkungen führen.
+      </p>
+    </section>
+
+    <section>
+      <h2>§ 10 Haftung</h2>
+      <p>
+        Der Anbieter haftet unbeschränkt bei Vorsatz und grober Fahrlässigkeit, bei Verletzung von
+        Leben, Körper oder Gesundheit, nach den Vorschriften des Produkthaftungsgesetzes sowie im
+        Umfang einer übernommenen Garantie.
+      </p>
+      <p>
+        Bei einfacher Fahrlässigkeit haftet der Anbieter nur bei Verletzung einer wesentlichen
+        Vertragspflicht, deren Erfüllung die ordnungsgemäße Durchführung des Vertrags überhaupt
+        erst ermöglicht und auf deren Einhaltung der Nutzer regelmäßig vertrauen darf. In diesem
+        Fall ist die Haftung auf den vertragstypischen, vorhersehbaren Schaden begrenzt. Im
+        Übrigen ist die Haftung ausgeschlossen.
+      </p>
+      <p>
+        Für Entscheidungen, die ein Nutzer auf Grundlage der im Dienst dargestellten Empfehlungen,
+        Daten oder Preisangaben trifft — insbesondere Kauf-, Finanzierungs- oder
+        Versicherungsentscheidungen — wird im Rahmen der vorstehenden Absätze keine Haftung
+        übernommen.
+      </p>
+    </section>
+
+    <section>
+      <h2>§ 11 Laufzeit, Löschung und Sperrung</h2>
+      <p>
+        Die Nutzung ist unbefristet. Nutzer können ihr Konto jederzeit und ohne Angabe von Gründen
+        über die Kontoeinstellungen oder per Nachricht an die oben genannte E-Mail-Adresse löschen.
+        Mit der Löschung endet das Nutzungsverhältnis.
+      </p>
+      <p>
+        Der Anbieter kann das Nutzungsverhältnis mit einer Frist von 14 Tagen kündigen. Das Recht
+        zur außerordentlichen Kündigung und zur sofortigen Sperrung bei erheblichen Verstößen
+        gegen § 4 bleibt unberührt.
+      </p>
+    </section>
+
+    <section>
+      <h2>§ 12 Änderung dieser Bedingungen</h2>
+      <p>
+        Der Anbieter kann diese Nutzungsbedingungen mit Wirkung für die Zukunft ändern, soweit dies
+        aus rechtlichen oder technischen Gründen erforderlich ist und Nutzer dadurch nicht
+        unangemessen benachteiligt werden. Registrierte Nutzer werden mindestens 30 Tage vor
+        Inkrafttreten per E-Mail oder bei der nächsten Anmeldung informiert. Widerspricht ein
+        Nutzer nicht innerhalb dieser Frist oder nutzt er den Dienst danach weiter, gelten die
+        geänderten Bedingungen als angenommen. Auf diese Wirkung wird in der Mitteilung gesondert
+        hingewiesen.
+      </p>
+    </section>
+
+    <section>
+      <h2>§ 13 Schlussbestimmungen</h2>
+      <p>
+        Es gilt das Recht der Bundesrepublik Deutschland unter Ausschluss des UN-Kaufrechts.
+        Gegenüber Verbrauchern gilt diese Rechtswahl nur, soweit dadurch der Schutz zwingender
+        Vorschriften des Staates, in dem der Verbraucher seinen gewöhnlichen Aufenthalt hat, nicht
+        entzogen wird.
+      </p>
+      <p>
+        Der Anbieter ist weder bereit noch verpflichtet, an Streitbeilegungsverfahren vor einer
+        Verbraucherschlichtungsstelle teilzunehmen. Die Online-Streitbeilegungsplattform der
+        Europäischen Kommission wurde zum 20. Juli 2025 eingestellt.
+      </p>
+      <p>
+        Sollte eine Bestimmung dieser Nutzungsbedingungen unwirksam sein oder werden, bleibt die
+        Wirksamkeit der übrigen Bestimmungen unberührt.
+      </p>
+    </section>
+  </main>
+
+  <footer>
+    <span class="footer-copy">© 2026 MotoMatch. Alle Rechte vorbehalten.</span>
+    <div class="footer-links">
+      <a href="/impressum.html">Impressum</a>
+      <a href="/datenschutz.html">Datenschutz</a>
+      <a href="/agb.html" aria-current="page">AGB</a>
+    </div>
+  </footer>
+
+</body>
+</html>

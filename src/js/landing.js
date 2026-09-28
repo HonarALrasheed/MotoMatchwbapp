@@ -493,8 +493,9 @@ export function initLanding() {
       <div class="p-footer-cols">
         <a href="/impressum.html" class="p-footer-link">Impressum</a>
         <a href="/datenschutz.html" class="p-footer-link">Datenschutz</a>
-        <a href="mailto:salamhonar2020@gmail.com" class="p-footer-link">Kontakt</a>
-        <a href="mailto:salamhonar2020@gmail.com?subject=MotoMatch%20Beta-Feedback" class="p-footer-link">Feedback</a>
+        <a href="/agb.html" class="p-footer-link">AGB</a>
+        <a href="mailto:kontakt@motomatch.studio" class="p-footer-link">Kontakt</a>
+        <a href="mailto:kontakt@motomatch.studio?subject=MotoMatch%20Beta-Feedback" class="p-footer-link">Feedback</a>
       </div>
       <div class="p-footer-bottom">
         <span class="p-footer-copy">© 2026 MotoMatch. Alle Rechte vorbehalten.</span>

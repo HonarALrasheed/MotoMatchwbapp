@@ -6,14 +6,13 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Impressum – MotoMatch</title>
   <style>
+    @font-face { font-family: 'Barlow'; font-style: normal; font-weight: 300; font-display: swap; src: url('/fonts/barlow-400.woff2') format('woff2'); }
     @font-face { font-family: 'Barlow'; font-style: normal; font-weight: 400; font-display: swap; src: url('/fonts/barlow-400.woff2') format('woff2'); }
     @font-face { font-family: 'Barlow'; font-style: normal; font-weight: 600; font-display: swap; src: url('/fonts/barlow-600.woff2') format('woff2'); }
-    @font-face { font-family: 'Barlow'; font-style: normal; font-weight: 700; font-display: swap; src: url('/fonts/barlow-700.woff2') format('woff2'); }
 
     :root {
       --bg: #0a0a0a;
-      --surface: #111111;
-      --border: rgba(255,255,255,0.06);
+      --border: rgba(255,255,255,0.08);
       --gold: #c9a84c;
       --text: #ffffff;
       --text-dim: rgba(255,255,255,0.45);
@@ -31,16 +30,18 @@
       min-height: 100vh;
       display: flex;
       flex-direction: column;
+      -webkit-font-smoothing: antialiased;
     }
 
-    /* ── Nav ── */
+    /* ── Nav: gleiche Sprache wie die Landingpage ── */
     .nav {
       display: flex;
       align-items: center;
       justify-content: space-between;
+      gap: 16px;
       padding: 20px clamp(24px, 5vw, 80px);
       border-bottom: 1px solid var(--border);
-      background: rgba(10,10,10,0.95);
+      background: rgba(10,10,10,0.92);
       position: sticky;
       top: 0;
       z-index: 10;
@@ -48,119 +49,117 @@
     }
     .nav-logo {
       font-size: 13px;
-      font-weight: 700;
+      font-weight: 600;
       letter-spacing: 0.28em;
       text-transform: uppercase;
-      color: rgba(255,255,255,0.9);
+      color: #fff;
       text-decoration: none;
     }
+    /* Outline-Knopf wie .p-hero-btn auf der Startseite */
     .nav-back {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 9px 20px;
+      border: 1px solid rgba(255,255,255,0.35);
       font-size: 12px;
-      font-weight: 400;
-      letter-spacing: 0.08em;
-      color: var(--text-dim);
-      text-decoration: none;
+      font-weight: 500;
+      letter-spacing: 0.1em;
       text-transform: uppercase;
-      transition: color 0.2s;
+      color: rgba(255,255,255,0.8);
+      text-decoration: none;
+      transition: border-color .25s, color .25s, background-color .25s;
     }
-    .nav-back:hover { color: #fff; }
+    .nav-back:hover { border-color: #fff; color: #fff; background: rgba(255,255,255,0.05); }
 
-    /* ── Main ── */
     main {
       flex: 1;
       max-width: 760px;
       width: 100%;
       margin: 0 auto;
-      padding: clamp(40px, 7vw, 96px) clamp(24px, 5vw, 48px);
+      padding: clamp(48px, 8vw, 104px) clamp(24px, 5vw, 48px);
     }
 
     .page-label {
       font-size: 11px;
       font-weight: 600;
-      letter-spacing: 0.15em;
+      letter-spacing: 0.22em;
       text-transform: uppercase;
       color: var(--gold);
-      margin-bottom: 16px;
+      margin-bottom: 18px;
     }
 
+    /* Duenn und weit — wie .p-discover-title / .p-finder-title */
     h1 {
-      font-size: clamp(28px, 4vw, 44px);
-      font-weight: 700;
-      letter-spacing: 0.02em;
-      line-height: 1.15;
-      margin-bottom: 48px;
+      font-size: clamp(34px, 5vw, 60px);
+      font-weight: 300;
+      letter-spacing: -0.01em;
+      line-height: 1.1;
+      margin-bottom: clamp(40px, 5vw, 64px);
     }
 
     section {
-      margin-bottom: 40px;
-      padding-bottom: 40px;
+      margin-bottom: 36px;
+      padding-bottom: 36px;
       border-bottom: 1px solid var(--border);
     }
-    section:last-child {
-      border-bottom: none;
-    }
+    section:last-child { border-bottom: none; padding-bottom: 0; }
 
     h2 {
-      font-size: 13px;
+      font-size: 12px;
       font-weight: 600;
-      letter-spacing: 0.12em;
+      letter-spacing: 0.18em;
       text-transform: uppercase;
-      color: rgba(255,255,255,0.5);
-      margin-bottom: 16px;
+      color: rgba(255,255,255,0.45);
+      margin-bottom: 18px;
     }
-
-    p {
-      color: rgba(255,255,255,0.75);
-      margin-bottom: 10px;
-    }
-    p:last-child { margin-bottom: 0; }
-
-    .placeholder {
-      display: inline;
-      background: rgba(201,168,76,0.15);
-      border: 1px solid rgba(201,168,76,0.4);
-      border-radius: 3px;
-      color: var(--gold);
+    h3 {
+      font-size: 14px;
       font-weight: 600;
-      padding: 1px 6px;
-      font-size: 0.9em;
+      letter-spacing: 0.02em;
+      color: rgba(255,255,255,0.85);
+      margin: 22px 0 8px;
     }
 
-    a {
-      color: var(--gold);
-      text-decoration: none;
-      transition: opacity 0.2s;
-    }
-    a:hover { opacity: 0.75; }
+    p { color: rgba(255,255,255,0.7); margin-bottom: 12px; }
+    p:last-child { margin-bottom: 0; }
+    strong { font-weight: 600; color: rgba(255,255,255,0.9); }
 
-    /* ── Footer ── */
+    ul { color: rgba(255,255,255,0.7); padding-left: 20px; margin-bottom: 12px; }
+    li { margin-bottom: 7px; }
+
+    a { color: var(--gold); text-decoration: none; transition: opacity .2s; }
+    a:hover { opacity: .7; }
+
+    /* ── Footer: bricht um statt ueberzulaufen ── */
     footer {
-      background: #1a1a1a;
-      padding: 24px clamp(24px, 5vw, 80px);
-      border-top: 1px solid rgba(255,255,255,0.08);
+      background: #0f0f0f;
+      padding: 28px clamp(24px, 5vw, 80px);
+      border-top: 1px solid var(--border);
       display: flex;
       justify-content: space-between;
       align-items: center;
-      gap: 16px;
+      gap: 14px 28px;
       flex-wrap: wrap;
     }
-    .footer-copy {
-      font-size: 12px;
-      color: rgba(255,255,255,0.22);
-    }
+    .footer-copy { font-size: 12px; color: rgba(255,255,255,0.22); }
     .footer-links {
       display: flex;
-      gap: 24px;
+      flex-wrap: wrap;
+      gap: 12px 24px;
     }
     .footer-links a {
       font-size: 12px;
+      letter-spacing: 0.04em;
       color: rgba(255,255,255,0.4);
-      text-decoration: none;
-      transition: color 0.2s;
+      transition: color .2s;
     }
     .footer-links a:hover { color: #fff; }
-    .footer-links a[aria-current="page"] {
-      color: rgba(255,255,255,0.7);
+    .footer-links a[aria-current="page"] { color: rgba(255,255,255,0.75); }
+
+    @media (max-width: 560px) {
+      footer { flex-direction: column-reverse; align-items: flex-start; }
+      .footer-links { gap: 10px 20px; }
     }
   </style>
 </head>
@@ -168,7 +167,7 @@
 
   <nav class="nav">
     <a href="/" class="nav-logo">MotoMatch</a>
-    <a href="/" class="nav-back">← Zurück</a>
+    <a href="/" class="nav-back">Zurück</a>
   </nav>
 
   <main>
@@ -184,28 +183,21 @@
         Deutschland
       </p>
       <p>
-        MotoMatch ist ein privat betriebenes Projekt. Es besteht kein Handelsregistereintrag
-        und keine Umsatzsteuer-Identifikationsnummer.
+        MotoMatch ist ein privat betriebenes Projekt. Ein Handelsregistereintrag und eine
+        Umsatzsteuer-Identifikationsnummer bestehen nicht.
       </p>
     </section>
 
     <section>
       <h2>Kontakt</h2>
       <p>
-        E-Mail: <a href="mailto:kontakt@motomatch.studio">kontakt@motomatch.studio</a>
-      </p>
-      <p>
-        Anfragen werden in der Regel innerhalb weniger Tage beantwortet.
+        <a href="mailto:kontakt@motomatch.studio">kontakt@motomatch.studio</a>
       </p>
     </section>
 
     <section>
       <h2>Verantwortlich für den Inhalt nach § 18 Abs. 2 MStV</h2>
-      <p>
-        Honar Salam Rasheed Alrasheed<br>
-        Steinfurter Straße 73<br>
-        48149 Münster
-      </p>
+      <p>Honar Salam Rasheed Alrasheed, Anschrift wie oben.</p>
     </section>
 
     <section>
@@ -214,69 +206,16 @@
         Wir sind nicht bereit und nicht verpflichtet, an Streitbeilegungsverfahren vor einer
         Verbraucherschlichtungsstelle teilzunehmen.
       </p>
-      <p>
-        Die Online-Streitbeilegungsplattform der Europäischen Kommission wurde zum 20. Juli 2025
-        eingestellt und steht nicht mehr zur Verfügung.
-      </p>
-    </section>
-
-    <section>
-      <h2>Haftung für Inhalte</h2>
-      <p>
-        Als Diensteanbieter sind wir gemäß § 7 Abs. 1 DDG für eigene Inhalte auf diesen Seiten
-        nach den allgemeinen Gesetzen verantwortlich. Nach §§ 8 bis 10 DDG sind wir als
-        Diensteanbieter jedoch nicht verpflichtet, übermittelte oder gespeicherte fremde
-        Informationen zu überwachen oder nach Umständen zu forschen, die auf eine rechtswidrige
-        Tätigkeit hinweisen.
-      </p>
-      <p>
-        Verpflichtungen zur Entfernung oder Sperrung der Nutzung von Informationen nach den
-        allgemeinen Gesetzen bleiben hiervon unberührt. Eine diesbezügliche Haftung ist jedoch
-        erst ab dem Zeitpunkt der Kenntnis einer konkreten Rechtsverletzung möglich. Bei
-        Bekanntwerden entsprechender Rechtsverletzungen werden wir diese Inhalte umgehend
-        entfernen.
-      </p>
-    </section>
-
-    <section>
-      <h2>Haftung für Links</h2>
-      <p>
-        Unser Angebot enthält Links zu externen Websites Dritter, auf deren Inhalte wir keinen
-        Einfluss haben. Deshalb können wir für diese fremden Inhalte auch keine Gewähr übernehmen.
-        Für die Inhalte der verlinkten Seiten ist stets der jeweilige Anbieter oder Betreiber
-        verantwortlich. Die verlinkten Seiten wurden zum Zeitpunkt der Verlinkung auf mögliche
-        Rechtsverstöße überprüft; rechtswidrige Inhalte waren nicht erkennbar.
-      </p>
-      <p>
-        Eine permanente inhaltliche Kontrolle der verlinkten Seiten ist ohne konkrete Anhaltspunkte
-        einer Rechtsverletzung nicht zumutbar. Bei Bekanntwerden von Rechtsverletzungen werden wir
-        derartige Links umgehend entfernen.
-      </p>
-    </section>
-
-    <section>
-      <h2>Urheberrecht</h2>
-      <p>
-        Die durch die Seitenbetreiber erstellten Inhalte und Werke auf diesen Seiten unterliegen
-        dem deutschen Urheberrecht. Die Vervielfältigung, Bearbeitung, Verbreitung und jede Art
-        der Verwertung außerhalb der Grenzen des Urheberrechtes bedürfen der schriftlichen
-        Zustimmung des jeweiligen Autors bzw. Erstellers.
-      </p>
-      <p>
-        Soweit die Inhalte auf dieser Seite nicht vom Betreiber erstellt wurden, werden die
-        Urheberrechte Dritter beachtet und als solche gekennzeichnet. Sollten Sie dennoch auf eine
-        Urheberrechtsverletzung aufmerksam werden, bitten wir um einen entsprechenden Hinweis.
-      </p>
     </section>
   </main>
 
   <footer>
-    <span class="footer-copy">© 2026 MotoMatch. Alle Rechte vorbehalten.</span>
+    <span class="footer-copy">© 2026 MotoMatch</span>
     <div class="footer-links">
       <a href="/impressum.html" aria-current="page">Impressum</a>
       <a href="/datenschutz.html">Datenschutz</a>
       <a href="/agb.html">AGB</a>
-    <a href="/bildnachweis.html">Bildnachweis</a>
+      <a href="/bildnachweis.html">Bildnachweis</a>
     </div>
   </footer>
 

@@ -573,7 +573,21 @@ export function initLanding() {
   window.addEventListener("scroll", _scrollHandler, { passive: true });
 
   // ── Preload quiz assets ──────────────────────────────────
-  setTimeout(() => import("./quiz.js").then(m => m.preloadQuizAssets()), 2000);
+  // Erst bei erkennbarer Absicht: das Quiz zieht den three.js-Chunk (667 KB)
+  // und das GLB nach. Wer nie ins Quiz geht, soll dafür nicht bezahlen.
+  let quizPreloadStarted = false;
+  const preloadQuiz = () => {
+    if (quizPreloadStarted) return;
+    quizPreloadStarted = true;
+    import("./quiz.js").then((m) => m.preloadQuizAssets());
+  };
+  for (const id of ["hero-cta", "hero-cta-existing"]) {
+    const el = document.getElementById(id);
+    if (!el) continue;
+    el.addEventListener("pointerenter", preloadQuiz, { once: true, passive: true });
+    el.addEventListener("touchstart", preloadQuiz, { once: true, passive: true });
+    el.addEventListener("focus", preloadQuiz, { once: true });
+  }
 
   // ── First-visit onboarding ─────────────────────────────────
   maybeShowOnboarding();

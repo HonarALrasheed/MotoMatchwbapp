@@ -16,9 +16,6 @@
     "@sentry/browser": "^8.47.0",
     "@sentry/node": "^8.47.0",
     "@supabase/supabase-js": "^2.112.2",
-    "leaflet": "^1.9.4",
-    "lottie-web": "^5.13.0",
-    "three": "^0.183.2",
-    "three-stdlib": "^2.36.1"
+    "three": "^0.183.2"
   }
 }

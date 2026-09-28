@@ -160,6 +160,10 @@ const PREFERS_REDUCED = window.matchMedia(
   "(prefers-reduced-motion: reduce)",
 ).matches;
 
+/* Jeder initQuiz()-Aufruf bekommt eine eigene Generation. Ein Lade-Callback
+   aus einem früheren Durchlauf hängt sonst sein Modell in die neue Szene. */
+let loadGeneration = 0;
+
 /* ═══ Preload ═══ */
 let preloadedBikeGLTF = null;
 
@@ -215,6 +219,7 @@ export function initQuiz() {
   bikePivotGroup = null;
   headlight = null;
   wheels = [];
+  loadGeneration++;
 
   setupThreeJS();
   setupGauge();
@@ -278,9 +283,13 @@ function setupThreeJS() {
   createParticles();
 
   // Load GLB with DRACO decompression (use preloaded if available)
+  const myGeneration = loadGeneration;
   const setupBike = (gltf) => {
     // Guard: scene was cleaned up while model was loading
     if (!scene || !worldGroup) return;
+    // Guard: das Quiz wurde inzwischen neu gestartet — dieses Modell gehört
+    // zum vorigen Durchlauf und darf die neue Szene nicht anfassen
+    if (myGeneration !== loadGeneration) return;
     bike = gltf.scene;
 
     const box = new THREE.Box3().setFromObject(bike);

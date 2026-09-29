@@ -13,6 +13,7 @@
 
 // Zentrale, plattformweite Auth — dieselbe Session/DB wie im Community-Bereich
 import * as auth from './auth.js'
+import { aktiveAnbieter } from './auth.js'
 import { getCatalog, preisAb, findBikeByShortName } from './matching.js'
 import { bikeBild } from './bike-bild.js'
 import { esc, fmtDate, fmtRelative } from './util.js'
@@ -21,6 +22,7 @@ import {
   verwerfeUnterbrochene, spurPfad, formatiereDauer,
 } from './ride-tracker.js'
 import { teileFahrt } from './ride-share.js'
+import { avatarZuschneiden } from './avatar-zuschnitt.js'
 import {
   kilometerAbschnitte, tempoVerlauf, hoehenVerlauf,
   verlaufPfad, verlaufFlaeche, bestwerte,
@@ -297,7 +299,7 @@ function wireTabContent() {
      bikes, gear und places sind keine eigenen Reiter mehr, sondern Filter
      innerhalb von "Favoriten" — die alten Ziele bleiben trotzdem gueltig und
      stellen den passenden Filter ein. */
-  const FAV_ZIELE = { bikes: 'bikes', gear: 'gear', places: 'places' }
+  const FAV_ZIELE = { gear: 'gear', favoriten: 'alle' }
   document.querySelectorAll('[data-tab-jump]').forEach(el => {
     el.addEventListener('click', () => {
       const ziel = el.dataset.tabJump
@@ -442,24 +444,20 @@ function collectActivityFeed(limit = 12) {
 function renderOverview() {
   const recent5 = collectActivityFeed(12)
   return `
-    <div class="acc-section">
+    <div class="acc-section acc-section--quick">
       <h3 class="acc-section-title">Schnellzugriff</h3>
       <div class="acc-quick-grid">
         <button class="acc-quick-card" data-open-community>
           <div class="acc-quick-icon">${ACC_NAV_ICONS.chat}</div>
           <span class="acc-quick-label">Community</span>
         </button>
-        <button class="acc-quick-card" data-tab-jump="gear">
-          <div class="acc-quick-icon">${ACC_NAV_ICONS.gear2}</div>
-          <span class="acc-quick-label">Ausrüstung</span>
+        <button class="acc-quick-card" data-tab-jump="journal">
+          <div class="acc-quick-icon">${ACC_NAV_ICONS.route}</div>
+          <span class="acc-quick-label">Fahrten</span>
         </button>
-        <button class="acc-quick-card" data-tab-jump="places">
-          <div class="acc-quick-icon">${ACC_NAV_ICONS.pin}</div>
-          <span class="acc-quick-label">Meine Orte</span>
-        </button>
-        <button class="acc-quick-card" data-tab-jump="bikes">
-          <div class="acc-quick-icon">${ACC_NAV_ICONS.bike}</div>
-          <span class="acc-quick-label">Meine Bikes</span>
+        <button class="acc-quick-card" data-tab-jump="favoriten">
+          <div class="acc-quick-icon">${ACC_NAV_ICONS.stern}</div>
+          <span class="acc-quick-label">Favoriten</span>
         </button>
       </div>
     </div>
@@ -551,9 +549,14 @@ function renderCompare() {
   const options = recents.length
     ? recents.map(b => b.name)
     : ['Iron 883', 'Seventy-Two', 'CB 750 F', '500 Custom']
-  const searchBar = `
+  /* Bei drei Bikes ist der Vergleich voll. Suchfeld und Vorschlagszeile waren
+     dann nur noch ausgegraut da — zwei tote Zeilen ueber der Tabelle. Sie
+     verschwinden stattdessen und kommen zurueck, sobald ein Bike ueber das ×
+     in der Tabelle weicht. */
+  const voll = set.length >= 3
+  const searchBar = voll ? '' : `
     <div class="acc-cmp-search-wrap">
-      <input class="acc-cmp-search-input" id="cmp-search-input" type="text" placeholder="Bike suchen …" autocomplete="off" ${set.length >= 3 ? 'disabled' : ''}>
+      <input class="acc-cmp-search-input" id="cmp-search-input" type="text" placeholder="Bike suchen …" autocomplete="off">
       <ul class="acc-cmp-search-results" id="cmp-search-results" style="display:none"></ul>
     </div>
   `
@@ -593,11 +596,12 @@ function renderCompare() {
     <div class="acc-section">
       <h3 class="acc-section-title">Bike-Vergleich <span class="acc-count">${set.length}/3</span></h3>
       ${searchBar}
+      ${voll ? '' : `
       <div class="acc-cmp-picker">
         ${options.filter(n => !set.includes(n)).slice(0, 6).map(name => `
-          <button class="acc-cmp-add" data-cmp-add="${name}" ${set.length >= 3 ? 'disabled' : ''}>+ ${name}</button>
+          <button class="acc-cmp-add" data-cmp-add="${name}">+ ${name}</button>
         `).join('')}
-      </div>
+      </div>`}
       <div class="acc-cmp-table">
         <div class="acc-cmp-header">
           <div></div>
@@ -707,7 +711,37 @@ function saveRides(arr) {
   try { localStorage.setItem('mm_rides_v1', JSON.stringify(arr)) } catch {}
 }
 
-const RIDE_MOODS = ['☀️','⛅','🌧️','🌩️','❄️','🌫️']
+/* Wetter als Strichzeichnungen statt Emojis: die stellt jedes Betriebssystem
+   anders dar (bunt, verschieden gross, teils mit eigenem Hintergrund), was im
+   dunklen Formular wie Fremdkoerper wirkte. Gespeichert wird ab jetzt ein
+   Kuerzel; aeltere Eintraege haben noch das Emoji stehen und werden beim Lesen
+   umgesetzt. */
+const RIDE_WETTER = [
+  { id: 'sonne',    label: 'Sonne',    d: '<circle cx="12" cy="12" r="4.6"/><path d="M12 1.6v2.2M12 20.2v2.2M4.5 4.5l1.6 1.6M17.9 17.9l1.6 1.6M1.6 12h2.2M20.2 12h2.2M4.5 19.5l1.6-1.6M17.9 6.1l1.6-1.6"/>' },
+  { id: 'wolkig',   label: 'Wolkig',   d: '<path d="M18 10h-1.26A8 8 0 1 0 9 20h9a5 5 0 0 0 0-10z"/>' },
+  { id: 'regen',    label: 'Regen',    d: '<path d="M20 16.6A5 5 0 0 0 18 7h-1.26A8 8 0 1 0 4 15.25"/><path d="M8 14v5M12 16v5M16 14v5"/>' },
+  { id: 'gewitter', label: 'Gewitter', d: '<path d="M19 16.9A5 5 0 0 0 18 7h-1.26a8 8 0 1 0-11.62 9"/><path d="M13 11l-4 6h6l-4 6"/>' },
+  { id: 'schnee',   label: 'Schnee',   d: '<path d="M20 17.6A5 5 0 0 0 18 8h-1.26A8 8 0 1 0 4 16.25"/><path d="M8 16h.01M8 20h.01M12 18h.01M12 22h.01M16 16h.01M16 20h.01"/>' },
+  { id: 'nebel',    label: 'Nebel',    d: '<path d="M3 7.5c2-1.6 4-1.6 6 0s4 1.6 6 0 4-1.6 6 0M3 12.8c2-1.6 4-1.6 6 0s4 1.6 6 0 4-1.6 6 0M3 18c2-1.6 4-1.6 6 0s4 1.6 6 0 4-1.6 6 0"/>' },
+]
+
+/* Alte Eintraege: Emoji -> Kuerzel */
+const RIDE_WETTER_ALT = {
+  '☀️': 'sonne', '⛅': 'wolkig', '🌧️': 'regen',
+  '🌩️': 'gewitter', '❄️': 'schnee', '🌫️': 'nebel',
+}
+
+function wetterEintrag(wert) {
+  if (!wert) return null
+  const id = RIDE_WETTER_ALT[wert] || wert
+  return RIDE_WETTER.find(w => w.id === id) || null
+}
+
+function wetterIcon(wert, groesse = 17) {
+  const w = wetterEintrag(wert)
+  if (!w) return ''
+  return `<svg viewBox="0 0 24 24" width="${groesse}" height="${groesse}" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">${w.d}</svg>`
+}
 const CARD_ACCENTS = ['#e8c56d','#7ab3e0','#e07a5f','#81b29a','#c77dff','#f4a261']
 const CARD_ROTATIONS = ['-1.2deg','0.8deg','-0.5deg','1.5deg','-0.9deg','0.4deg']
 
@@ -967,12 +1001,14 @@ function renderJournal() {
 
             <div class="rj-mood-row">
               <span class="rj-mood-label">Wetter</span>
-              ${RIDE_MOODS.map((m,i) => `
-                <label class="rj-mood-opt">
-                  <input type="radio" name="rj-mood" value="${m}" ${i===0?'checked':''}>
-                  <span>${m}</span>
-                </label>
-              `).join('')}
+              <div class="rj-mood-opts">
+                ${RIDE_WETTER.map((w,i) => `
+                  <label class="rj-mood-opt" title="${w.label}">
+                    <input type="radio" name="rj-mood" value="${w.id}" ${i===0?'checked':''}>
+                    <span aria-label="${w.label}">${wetterIcon(w.id)}</span>
+                  </label>
+                `).join('')}
+              </div>
             </div>
 
             <textarea class="rj-notes-input" id="rj-notes" rows="4" placeholder="Was war besonders? Strecke, Highlights, Gedanken …" maxlength="400"></textarea>
@@ -1051,7 +1087,7 @@ function renderJournal() {
                     ${r.track?.fahrMs ? `<span class="rj-chip">${formatiereDauer(r.track.fahrMs)}</span>`
                                       : (r.hours ? `<span class="rj-chip">${r.hours} h</span>` : '')}
                     ${r.track?.schnittKmh ? `<span class="rj-chip">ø ${Math.round(r.track.schnittKmh)} km/h</span>` : ''}
-                    ${r.mood ? `<span class="rj-chip rj-chip-mood">${esc(r.mood)}</span>` : ''}
+                    ${wetterEintrag(r.mood) ? `<span class="rj-chip rj-chip-mood" title="${wetterEintrag(r.mood).label}">${wetterIcon(r.mood, 14)}</span>` : ''}
                   </div>
                   ${r.notes ? `<div class="rj-card-notes">${esc(r.notes)}</div>` : ''}
                 </div>
@@ -1092,12 +1128,14 @@ function renderJournal() {
             </div>
             <div class="rj-mood-row">
               <span class="rj-mood-label">Wetter</span>
-              ${RIDE_MOODS.map(m => `
-                <label class="rj-mood-opt">
-                  <input type="radio" name="rj-edit-mood" value="${m}">
-                  <span>${m}</span>
-                </label>
-              `).join('')}
+              <div class="rj-mood-opts">
+                ${RIDE_WETTER.map(w => `
+                  <label class="rj-mood-opt" title="${w.label}">
+                    <input type="radio" name="rj-edit-mood" value="${w.id}">
+                    <span aria-label="${w.label}">${wetterIcon(w.id)}</span>
+                  </label>
+                `).join('')}
+              </div>
             </div>
             <textarea class="rj-notes-input" id="rj-edit-notes" rows="4" placeholder="Was war besonders? Strecke, Highlights, Gedanken …" maxlength="400"></textarea>
             <div class="rj-accent-row">
@@ -1363,7 +1401,8 @@ function wireJournal() {
     document.getElementById('rj-edit-notes').value = ride.notes || ''
 
     // Mood
-    const moodRadio = document.querySelector(`input[name="rj-edit-mood"][value="${ride.mood || RIDE_MOODS[0]}"]`)
+    const moodId = wetterEintrag(ride.mood)?.id || RIDE_WETTER[0].id
+    const moodRadio = document.querySelector(`input[name="rj-edit-mood"][value="${moodId}"]`)
     if (moodRadio) moodRadio.checked = true
 
     // Accent
@@ -1565,6 +1604,36 @@ function renderFavoriten() {
   `
 }
 
+/**
+ * Zeigt an einer seitlich scrollenden Zeile, dass es weitergeht.
+ *
+ * Die Bildlaufleiste ist ausgeblendet, und ein angeschnittener Eintrag allein
+ * kann auch nach einem Gestaltungsfehler aussehen. Deshalb wird der Inhalt an
+ * der Kante, hinter der noch etwas liegt, weich ausgeblendet — Text, der
+ * verschwindet, statt Text, der abgeschnitten ist. Die Seite ohne weiteren
+ * Inhalt bleibt scharf, damit die Blende nicht luegt.
+ */
+function scrollZeileMarkieren(el) {
+  if (!el) return
+  const pruefe = () => {
+    const rest = el.scrollWidth - el.clientWidth
+    const links = el.scrollLeft > 4
+    const rechts = rest > 4 && el.scrollLeft < rest - 4
+    el.classList.toggle('mm-schiebe--links', links)
+    el.classList.toggle('mm-schiebe--rechts', rechts)
+  }
+  el.classList.add('mm-schiebe')
+  el.addEventListener('scroll', pruefe, { passive: true })
+  /* Die Breite steht erst, wenn Schrift und Bilder da sind — einmal sofort
+     und einmal im naechsten Rahmen messen. */
+  pruefe()
+  requestAnimationFrame(pruefe)
+  if (typeof ResizeObserver === 'function') {
+    const ro = new ResizeObserver(pruefe)
+    ro.observe(el)
+  }
+}
+
 function wireFavoriten() {
   document.querySelectorAll('[data-fav-filter]').forEach(btn => {
     btn.addEventListener('click', () => {
@@ -1572,6 +1641,7 @@ function wireFavoriten() {
       renderTabContent('favoriten')
     })
   })
+  scrollZeileMarkieren(document.querySelector('.fav-bar'))
   if (favFilter === 'alle' || favFilter === 'bikes') wireBikeSearch()
 }
 
@@ -1919,19 +1989,20 @@ function renderSettings() {
 
         <div class="acc-set-panel" data-set-panel="verbindungen">
           <div class="acc-section">
-            <h3 class="acc-section-title">Verknüpfte Konten</h3>
-            <div class="acc-connection-row">
-              <div class="acc-connection-info">
-                <svg width="20" height="20" viewBox="0 0 48 48"><path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/><path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/><path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"/><path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/></svg>
-                <div>
-                  <div class="acc-connection-name">Google</div>
-                  <div class="acc-connection-status">${provider === 'google' ? 'Verknüpft' : 'Nicht verknüpft'}</div>
+            <h3 class="acc-section-title">Anmeldung über andere Dienste</h3>
+            <p class="acc-section-sub">Zeigt, womit dieses Konto angemeldet ist. Die Auswahl selbst steht im Anmeldefenster.</p>
+            ${aktiveAnbieter().map(a => `
+              <div class="acc-connection-row">
+                <div class="acc-connection-info">
+                  ${a.icon}
+                  <div>
+                    <div class="acc-connection-name">${esc(a.name)}</div>
+                    <div class="acc-connection-status">${provider === a.id ? 'Verknüpft' : 'Nicht verknüpft'}</div>
+                  </div>
                 </div>
+                ${provider === a.id ? '<span class="acc-connection-badge">Aktiv</span>' : ''}
               </div>
-              ${provider === 'google'
-                ? '<span class="acc-connection-badge">Aktiv</span>'
-                : '<button type="button" class="acc-btn-ghost-sm" id="acc-connect-google">Verknüpfen</button>'}
-            </div>
+            `).join('')}
           </div>
         </div>
 
@@ -1968,6 +2039,8 @@ function renderSettings() {
 
 function wireSettings() {
 
+  scrollZeileMarkieren(document.querySelector('.acc-set-nav'))
+
   // Kategorien-Sidebar umschalten
   document.querySelectorAll('.acc-set-navitem').forEach(btn => {
     btn.addEventListener('click', () => {
@@ -1979,23 +2052,27 @@ function wireSettings() {
   document.getElementById('acc-set-login-link')?.addEventListener('click', () => {
     auth.openAuthModal(() => reopenAccount())
   })
-  document.getElementById('acc-connect-google')?.addEventListener('click', () => {
-    showFlash('Google-Verknüpfung für bestehende Konten kommt bald')
-  })
 
   // Profilbild hochladen (als Data-URL in profiles.avatar)
   document.getElementById('acc-avatar-file')?.addEventListener('change', async e => {
-    const file = e.target.files?.[0]
+    const eingabe = e.target
+    const file = eingabe.files?.[0]
+    /* Zuruecksetzen, sonst meldet das Feld dieselbe Datei kein zweites Mal —
+       wer abbricht und es noch einmal versucht, klickt sonst ins Leere. */
+    const zuruecksetzen = () => { eingabe.value = '' }
     if (!file) return
-    if (file.size > 2 * 1024 * 1024) { showFlash('Bild ist zu groß (max. 2 MB)'); return }
-    // Frueher ging hier die rohe FileReader-Data-URL raus — eine 2-MB-Datei
-    // landete als ~2,7 MB base64 in der Zeile. compressPhoto() steht in dieser
-    // Datei und wird an zwei anderen Stellen laengst benutzt (600 px, JPEG
-    // 0.72, typisch unter 150 KB); nur dieser Pfad hat es nicht getan. Das ist
-    // zugleich die Voraussetzung fuer das Constraint profiles_avatar_len.
-    const dataUrl = await compressPhoto(file)
-    if (!dataUrl) { showFlash('Bild konnte nicht gelesen werden'); return }
-    saveAccount({ avatar: dataUrl })
+    /* Die Grenze lag bei 2 MB und hat damit fast jedes Handyfoto abgewiesen.
+       Was gespeichert wird, bestimmt ohnehin der Zuschnitt (512 px, JPEG);
+       die Grenze schuetzt nur noch davor, dass ein riesiges Bild den Browser
+       beim Dekodieren wuergt. */
+    if (file.size > 12 * 1024 * 1024) { showFlash('Bild ist zu groß (max. 12 MB)'); return }
+
+    // Ausschnitt waehlen lassen — davor landete immer die Bildmitte im Kreis.
+    const { bild, lesbar } = await avatarZuschneiden(file)
+    zuruecksetzen()
+    if (!lesbar) { showFlash('Bild konnte nicht gelesen werden'); return }
+    if (!bild) return   // abgebrochen
+    saveAccount({ avatar: bild })
     renderTabContent('settings')
     refreshAccountHeader()
     showFlash('Profilbild aktualisiert ✓')

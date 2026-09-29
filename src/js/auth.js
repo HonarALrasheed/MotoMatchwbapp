@@ -172,43 +172,115 @@ async function _onSignedIn(session) {
   await initCommunityData(uid, username)
 }
 
-/* ── Social Login (Google) ────────────────────────────────────────
-   Keine Client-ID im Frontend: den Ablauf führt Supabase, die ID liegt in
-   den Provider-Einstellungen des Projekts. */
+/* ── Social Login ─────────────────────────────────────────────────
+   Keine Client-IDs im Frontend: den Ablauf fuehrt Supabase, die Schluessel
+   liegen in den Provider-Einstellungen des Projekts. Einen Anbieter
+   hinzuzufuegen heisst deshalb zweierlei:
 
-/**
- * Rendert einen "Mit Google anmelden"-Button, der Supabase OAuth nutzt.
- * Supabase übernimmt den kompletten Redirect-Flow; kein Google-Script nötig.
- * Nach dem Callback feuert onAuthStateChange → _onSignedIn → notify().
- */
-export function renderGoogleButton(container, onDone, _theme) {
-  const btn = document.createElement('button')
-  btn.type = 'button'
-  btn.className = 'p-auth-google-btn'
-  btn.innerHTML = `
-    <svg width="18" height="18" viewBox="0 0 18 18" xmlns="http://www.w3.org/2000/svg">
+     1. im Supabase-Dashboard unter Authentication → Providers einschalten
+        und dort Client-ID und Secret des Anbieters eintragen,
+     2. hier unten `aktiv: true` setzen.
+
+   Beides gehoert zusammen. Steht hier `aktiv: true`, ohne dass der Anbieter
+   im Dashboard eingeschaltet ist, laeuft der Klick in die Fehlermeldung
+   „Unsupported provider" — ein Knopf, der nur enttaeuschen kann.
+
+   Bewusst NICHT in der Liste: Apple (setzt das Apple Developer Program fuer
+   99 USD im Jahr voraus) und X/Twitter (Anmeldung haengt am API-Zugang, der
+   in den nutzbaren Stufen Geld kostet). Beides waeren laufende Kosten fuer
+   einen Anmeldeknopf. */
+
+export const OAUTH_ANBIETER = [
+  {
+    id: 'google', name: 'Google', aktiv: true,
+    icon: `<svg width="18" height="18" viewBox="0 0 18 18" aria-hidden="true">
       <path d="M17.64 9.2c0-.637-.057-1.251-.164-1.84H9v3.481h4.844c-.209 1.125-.843 2.078-1.796 2.716v2.259h2.908c1.702-1.567 2.684-3.875 2.684-6.615z" fill="#4285F4"/>
       <path d="M9 18c2.43 0 4.467-.806 5.956-2.184l-2.908-2.259c-.806.54-1.837.86-3.048.86-2.344 0-4.328-1.584-5.036-3.711H.957v2.332A8.997 8.997 0 0 0 9 18z" fill="#34A853"/>
       <path d="M3.964 10.706A5.41 5.41 0 0 1 3.682 9c0-.593.102-1.17.282-1.706V4.962H.957A8.996 8.996 0 0 0 0 9c0 1.452.348 2.827.957 4.038l3.007-2.332z" fill="#FBBC05"/>
       <path d="M9 3.58c1.321 0 2.508.454 3.44 1.345l2.582-2.58C13.463.891 11.426 0 9 0A8.997 8.997 0 0 0 .957 4.962L3.964 6.294C4.672 4.169 6.656 3.58 9 3.58z" fill="#EA4335"/>
-    </svg>
-    Weiter mit Google`
-  btn.addEventListener('click', async () => {
-    btn.disabled = true
+    </svg>`,
+  },
+  {
+    id: 'github', name: 'GitHub', aktiv: true,
+    icon: `<svg width="18" height="18" viewBox="0 0 16 16" fill="#24292f" aria-hidden="true">
+      <path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27s1.36.09 2 .27c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8z"/>
+    </svg>`,
+  },
+  {
+    id: 'discord', name: 'Discord', aktiv: true,
+    icon: `<svg width="18" height="18" viewBox="0 0 24 24" fill="#5865F2" aria-hidden="true">
+      <path d="M20.317 4.369a19.79 19.79 0 0 0-4.885-1.515.074.074 0 0 0-.079.037c-.21.375-.444.864-.608 1.25a18.27 18.27 0 0 0-5.487 0 12.64 12.64 0 0 0-.617-1.25.077.077 0 0 0-.079-.037A19.736 19.736 0 0 0 3.677 4.37a.07.07 0 0 0-.032.027C.533 9.046-.32 13.58.099 18.057a.082.082 0 0 0 .031.057 19.9 19.9 0 0 0 5.993 3.03.078.078 0 0 0 .084-.028 14.09 14.09 0 0 0 1.226-1.994.076.076 0 0 0-.041-.106 13.1 13.1 0 0 1-1.872-.892.077.077 0 0 1-.008-.128c.126-.094.252-.192.372-.291a.074.074 0 0 1 .077-.01c3.928 1.793 8.18 1.793 12.062 0a.074.074 0 0 1 .078.009c.12.099.246.198.373.292a.077.077 0 0 1-.006.127c-.598.35-1.22.644-1.873.891a.077.077 0 0 0-.041.107c.36.698.772 1.363 1.225 1.993a.076.076 0 0 0 .084.028 19.84 19.84 0 0 0 6.002-3.03.077.077 0 0 0 .032-.054c.5-5.177-.838-9.674-3.549-13.66a.061.061 0 0 0-.031-.028zM8.02 15.331c-1.183 0-2.157-1.086-2.157-2.419 0-1.333.955-2.419 2.157-2.419 1.21 0 2.176 1.096 2.157 2.42 0 1.332-.956 2.418-2.157 2.418zm7.975 0c-1.183 0-2.157-1.086-2.157-2.419 0-1.333.955-2.419 2.157-2.419 1.21 0 2.176 1.096 2.157 2.42 0 1.332-.946 2.418-2.157 2.418z"/>
+    </svg>`,
+  },
+  {
+    id: 'azure', name: 'Microsoft', aktiv: false,
+    icon: `<svg width="18" height="18" viewBox="0 0 23 23" aria-hidden="true">
+      <path fill="#f35325" d="M1 1h10v10H1z"/><path fill="#81bc06" d="M12 1h10v10H12z"/>
+      <path fill="#05a6f0" d="M1 12h10v10H1z"/><path fill="#ffba08" d="M12 12h10v10H12z"/>
+    </svg>`,
+  },
+  {
+    /* Facebook ist eingebaut, aber aus: Meta verlangt fuer Apps, die anderen
+       als den Entwicklern offenstehen, ein App Review, und fuer viele Faelle
+       zusaetzlich eine Unternehmensverifizierung. Ohne Gewerbe ist das nicht
+       zu haben. Einschalten, sobald das geklaert ist. */
+    id: 'facebook', name: 'Facebook', aktiv: false,
+    icon: `<svg width="18" height="18" viewBox="0 0 24 24" fill="#1877F2" aria-hidden="true">
+      <path d="M24 12.07C24 5.4 18.63 0 12 0S0 5.4 0 12.07C0 18.1 4.39 23.1 10.13 24v-8.44H7.08v-3.49h3.05V9.41c0-3.02 1.79-4.69 4.53-4.69 1.31 0 2.68.24 2.68.24v2.97h-1.51c-1.49 0-1.96.93-1.96 1.89v2.25h3.33l-.53 3.49h-2.8V24C19.61 23.1 24 18.1 24 12.07z"/>
+    </svg>`,
+  },
+]
+
+/** Nur die Anbieter, die wirklich benutzbar sind. */
+export function aktiveAnbieter() {
+  return OAUTH_ANBIETER.filter(a => a.aktiv)
+}
+
+function starteOAuth(anbieter, btn, alleKnoepfe) {
+  return async () => {
+    alleKnoepfe.forEach(b => { b.disabled = true })
     const { error } = await supabase.auth.signInWithOAuth({
-      provider: 'google',
+      provider: anbieter.id,
       options: { redirectTo: window.location.origin + window.location.pathname },
     })
     if (error) {
-      btn.disabled = false
+      alleKnoepfe.forEach(b => { b.disabled = false })
       const errEl = document.getElementById('mm-am-error')
       if (errEl) { errEl.textContent = error.message; errEl.removeAttribute('hidden') }
+      else report(error, { where: 'signInWithOAuth', provider: anbieter.id })
     }
-    // Bei Erfolg: Supabase leitet weiter → onAuthStateChange feuert nach Rückkehr
-  })
-  container.innerHTML = ''
-  container.appendChild(btn)
+    // Bei Erfolg leitet Supabase weiter → onAuthStateChange feuert nach Rueckkehr
+  }
 }
+
+/**
+ * Rendert fuer jeden eingeschalteten Anbieter einen Knopf.
+ * Supabase uebernimmt den kompletten Redirect-Ablauf; kein fremdes Skript.
+ */
+export function renderSocialButtons(container, onDone, _theme) {
+  if (!container) return
+  container.innerHTML = ''
+  const knoepfe = []
+  aktiveAnbieter().forEach(anbieter => {
+    const btn = document.createElement('button')
+    btn.type = 'button'
+    btn.className = 'p-auth-social-btn'
+    /* Der Name steht als title und fuer Vorlesegeraete im span, sichtbar ist
+       nur das Zeichen. Drei beschriftete Knoepfe untereinander waren der
+       groesste Block im Fenster, obwohl die Logos fuer sich sprechen. */
+    btn.title = `Weiter mit ${anbieter.name}`
+    btn.setAttribute('aria-label', `Weiter mit ${anbieter.name}`)
+    btn.innerHTML = `${anbieter.icon}<span class="p-auth-social-name">Weiter mit ${anbieter.name}</span>`
+    knoepfe.push(btn)
+    container.appendChild(btn)
+  })
+  knoepfe.forEach((btn, i) => {
+    btn.addEventListener('click', starteOAuth(aktiveAnbieter()[i], btn, knoepfe))
+  })
+}
+
+/** Alter Name — bleibt, damit kein Aufrufer ins Leere laeuft. */
+export const renderGoogleButton = renderSocialButtons
 
 function read(key, fallback) {
   try { return JSON.parse(localStorage.getItem(key)) ?? fallback } catch { return fallback }
@@ -610,6 +682,57 @@ export async function requestPasswordReset(email) {
   return { ok: true }
 }
 
+/* ── Anmelden ohne Passwort ───────────────────────────────────────
+   Derselbe Zweck wie eine SMS, nur ueber die Mailadresse: kurzer Code
+   eintippen, fertig. Kostet nichts — eine SMS haette bei jedem Anbieter Geld
+   gekostet, mit nach oben offener Rechnung, wenn jemand den Versand
+   missbraucht.
+
+   Supabase verschickt fuer beide Wege dieselbe Mail. Ob darin ein Code, ein
+   Link oder beides steht, haengt an der Vorlage „Magic Link" im Dashboard:
+   {{ .Token }} ist der Code, {{ .ConfirmationURL }} der Link. */
+
+/** Schickt den Anmelde-Code an die Adresse. Legt ein Konto an, wenn es keins gibt. */
+export async function sendeAnmeldeCode(email) {
+  email = (email || '').trim()
+  if (!/^\S+@\S+\.\S+$/.test(email)) return { ok: false, error: 'Bitte eine gültige E-Mail-Adresse angeben.' }
+  if (OFFLINE_MODE) return { ok: false, error: 'Anmeldung ohne Passwort ist im Offline-Modus nicht verfügbar.' }
+  const { error } = await supabase.auth.signInWithOtp({
+    email,
+    options: {
+      shouldCreateUser: true,
+      emailRedirectTo: `${window.location.origin}${window.location.pathname}`,
+    },
+  })
+  if (error) return { ok: false, error: error.message }
+  return { ok: true, email }
+}
+
+/**
+ * Prueft den eingetippten Code. Bei Erfolg legt Supabase die Sitzung an,
+ * onAuthStateChange feuert und _onSignedIn() holt das Profil — derselbe Weg
+ * wie bei Google, GitHub und Discord.
+ */
+export async function pruefeAnmeldeCode(email, code) {
+  const token = (code || '').replace(/\D/g, '')
+  /* Keine feste Laenge pruefen: wie viele Ziffern Supabase verschickt, steht
+     im Dashboard (Email OTP Length) und laesst sich dort aendern. Stand hier
+     eine 6 und die Mail brachte 8, lehnte das Formular jeden richtigen Code
+     ab. Geprueft wird nur, dass ueberhaupt eine plausible Ziffernfolge da ist
+     — ob sie stimmt, entscheidet ohnehin der Server. */
+  if (token.length < 4 || token.length > 10) {
+    return { ok: false, error: 'Bitte den kompletten Code aus der Mail eintippen.' }
+  }
+  if (OFFLINE_MODE) return { ok: false, error: 'Anmeldung ohne Passwort ist im Offline-Modus nicht verfügbar.' }
+  const { error } = await supabase.auth.verifyOtp({ email: (email || '').trim(), token, type: 'email' })
+  if (error) {
+    return { ok: false, error: /expired|invalid/i.test(error.message)
+      ? 'Der Code stimmt nicht oder ist abgelaufen. Lass dir einen neuen schicken.'
+      : error.message }
+  }
+  return { ok: true }
+}
+
 /** Setzt das Passwort des aktuell (per Recovery-Link) angemeldeten Nutzers. */
 export async function updatePasswordDirect(newPassword) {
   if ((newPassword || '').length < MIN_PASSWORD_LENGTH) return { ok: false, error: `Neues Passwort muss mindestens ${MIN_PASSWORD_LENGTH} Zeichen haben.` }
@@ -724,6 +847,8 @@ export function openAuthModal(onDone) {
   // Adresse, für die gerade eine Bestätigung aussteht — schaltet den
   // "Erneut senden"-Weg frei.
   let pendingEmail = ''
+  // Anmeldung ohne Passwort: erst Adresse, dann Code
+  let codeMail = ''
   const overlay = document.createElement('div')
   overlay.id = 'mm-authmodal'
   overlay.className = 'p-auth-overlay'
@@ -732,14 +857,80 @@ export function openAuthModal(onDone) {
   document.body.appendChild(overlay)
 
   const close = (done) => {
+    document.removeEventListener('keydown', beiTaste)
     overlay.classList.remove('p-auth-overlay--open')
     setTimeout(() => overlay.remove(), 200)
     if (done && typeof onDone === 'function') onDone()
   }
+  /* Ohne den Abbrechen-Knopf muss es einen zweiten Weg hinaus geben, der
+     nicht das Kreuz ist. */
+  function beiTaste(e) { if (e.key === 'Escape') close(false) }
+  document.addEventListener('keydown', beiTaste)
 
   const render = (error = '', info = '') => {
     const isLogin = mode === 'login'
     const isForgot = mode === 'forgot'
+
+    /* Ohne Passwort: zwei Schritte in einer Ansicht. Solange codeMail leer
+       ist, wird nach der Adresse gefragt, danach nach dem Code. */
+    if (mode === 'ohnepass') {
+      const warte = !!codeMail
+      overlay.innerHTML = `
+      <div class="p-auth-backdrop" id="mm-am-backdrop"></div>
+      <div class="p-auth-card">
+        <div class="p-auth-brand">MOTOMATCH</div>
+        <h3 class="p-auth-title">Ohne Passwort anmelden</h3>
+        <p class="p-auth-sub">${warte
+          ? `Wir haben dir einen Code an <strong>${esc(codeMail)}</strong> geschickt. Tipp ihn hier ein — oder öffne einfach den Link in der Mail.`
+          : 'Gib deine E-Mail an — wir schicken dir einen Anmelde-Code. Kein Passwort nötig.'}</p>
+        <form id="mm-am-form" autocomplete="off">
+          ${warte ? `
+          <label class="p-auth-field">
+            <span class="p-auth-label">Code aus der Mail</span>
+            <input class="p-auth-input p-auth-code" id="mm-am-code" type="text"
+                   inputmode="numeric" autocomplete="one-time-code" maxlength="10"
+                   placeholder="Code aus der Mail" required>
+          </label>` : `
+          <label class="p-auth-field">
+            <span class="p-auth-label">E-Mail</span>
+            <input class="p-auth-input" id="mm-am-email" type="email" placeholder="du@mail.de" required>
+          </label>`}
+          <div class="p-auth-error" id="mm-am-error" role="alert" ${error ? '' : 'hidden'}>${esc(error)}</div>
+          ${info ? `<div class="p-auth-sub" style="color:#0a0;margin:8px 0 4px">${esc(info)}</div>` : ''}
+          ${warte ? `
+          <div style="margin:4px 0 12px;text-align:center">
+            <button type="button" class="p-auth-toggle" id="mm-am-andere">Andere Adresse verwenden</button>
+          </div>` : ''}
+          <div class="p-auth-actions">
+            <button type="button" class="p-auth-cancel" id="mm-am-back">Zurück</button>
+            <button type="submit" class="p-auth-submit" id="mm-am-submit">${warte ? 'Anmelden' : 'Code senden'}</button>
+          </div>
+        </form>
+      </div>`
+      overlay.querySelector('#mm-am-backdrop').addEventListener('click', () => close(false))
+      overlay.querySelector('#mm-am-back').addEventListener('click', () => { mode = 'login'; codeMail = ''; render() })
+      overlay.querySelector('#mm-am-andere')?.addEventListener('click', () => { codeMail = ''; render() })
+      overlay.querySelector('#mm-am-form').addEventListener('submit', async ev => {
+        ev.preventDefault()
+        const btn = overlay.querySelector('#mm-am-submit')
+        btn.disabled = true
+        btn.textContent = warte ? 'Prüfen…' : 'Senden…'
+        if (!warte) {
+          const res = await sendeAnmeldeCode(overlay.querySelector('#mm-am-email').value)
+          if (!res.ok) { render(res.error); return }
+          codeMail = res.email
+          render()
+          requestAnimationFrame(() => overlay.querySelector('#mm-am-code')?.focus())
+          return
+        }
+        const res = await pruefeAnmeldeCode(codeMail, overlay.querySelector('#mm-am-code').value)
+        if (!res.ok) { render(res.error); return }
+        close(true)
+      })
+      requestAnimationFrame(() => overlay.querySelector(warte ? '#mm-am-code' : '#mm-am-email')?.focus())
+      return
+    }
+
     if (isForgot) {
       overlay.innerHTML = `
       <div class="p-auth-backdrop" id="mm-am-backdrop"></div>
@@ -756,7 +947,7 @@ export function openAuthModal(onDone) {
           ${info ? `<div class="p-auth-sub" style="color:#0a0;margin:8px 0 4px">${esc(info)}</div>` : ''}
           <div class="p-auth-actions">
             <button type="button" class="p-auth-cancel" id="mm-am-back">Zurück</button>
-            <button type="submit" class="p-auth-submit" id="mm-am-submit">Reset-Link senden</button>
+            <button type="submit" class="p-auth-submit" id="mm-am-submit">Link senden</button>
           </div>
         </form>
       </div>`
@@ -772,7 +963,7 @@ export function openAuthModal(onDone) {
         // Kein Leak: Erfolgsmeldung auch bei Fehler zeigen, außer bei Format-Fehler
         if (!res.ok && /gültige E-Mail/.test(res.error)) {
           btn.disabled = false
-          btn.textContent = 'Reset-Link senden'
+          btn.textContent = 'Link senden'
           render(res.error)
         } else {
           render('', 'Falls diese E-Mail registriert ist, hast du eine Mail bekommen.')
@@ -784,11 +975,12 @@ export function openAuthModal(onDone) {
     overlay.innerHTML = `
       <div class="p-auth-backdrop" id="mm-am-backdrop"></div>
       <div class="p-auth-card">
+        <button type="button" class="p-auth-close" id="mm-am-cancel" aria-label="Schließen">&times;</button>
         <div class="p-auth-brand">MOTOMATCH</div>
         <h3 class="p-auth-title">${isLogin ? 'Willkommen zurück' : 'Konto erstellen'}</h3>
         <p class="p-auth-sub">${isLogin ? 'Melde dich an — gilt für die ganze Plattform.' : 'Ein Konto für Website und Community.'}</p>
 
-        <div id="mm-am-google-btn" class="p-auth-google-slot"></div>
+        <div id="mm-am-google-btn" class="p-auth-social-slot"></div>
         <div class="p-auth-divider"><span>oder</span></div>
 
         <form id="mm-am-form" autocomplete="off">
@@ -806,7 +998,8 @@ export function openAuthModal(onDone) {
             <input class="p-auth-input" id="mm-am-pass" type="password" ${isLogin ? '' : `minlength="${MIN_PASSWORD_LENGTH}"`} placeholder="••••••••" required>
           </label>
           ${isLogin && !OFFLINE_MODE ? `
-          <div style="margin:-8px 0 12px;text-align:right">
+          <div class="p-auth-helprow">
+            <button type="button" class="p-auth-toggle" id="mm-am-ohnepass">Ohne Passwort anmelden</button>
             <button type="button" class="p-auth-toggle" id="mm-am-forgot">Passwort vergessen?</button>
           </div>` : ''}
           ${isLogin ? '' : `
@@ -837,7 +1030,6 @@ export function openAuthModal(onDone) {
             <button type="button" class="p-auth-toggle" id="mm-am-resend">Mail nicht angekommen? Erneut senden</button>
           </div>` : ''}
           <div class="p-auth-actions">
-            <button type="button" class="p-auth-cancel" id="mm-am-cancel">Abbrechen</button>
             <button type="submit" class="p-auth-submit">${isLogin ? 'Anmelden' : 'Registrieren'}</button>
           </div>
         </form>
@@ -851,13 +1043,14 @@ export function openAuthModal(onDone) {
     overlay.querySelector('#mm-am-cancel').addEventListener('click', () => close(false))
     overlay.querySelector('#mm-am-toggle').addEventListener('click', () => { mode = isLogin ? 'register' : 'login'; render() })
     overlay.querySelector('#mm-am-forgot')?.addEventListener('click', () => { mode = 'forgot'; render() })
+    overlay.querySelector('#mm-am-ohnepass')?.addEventListener('click', () => { mode = 'ohnepass'; codeMail = ''; render() })
     overlay.querySelector('#mm-am-resend')?.addEventListener('click', async ev => {
       ev.target.disabled = true
       ev.target.textContent = 'Senden…'
       const res = await resendConfirmation(pendingEmail)
       render(res.ok ? '' : res.error, res.ok ? `Neue Bestätigungsmail an ${pendingEmail} unterwegs.` : '')
     })
-    renderGoogleButton(overlay.querySelector('#mm-am-google-btn'), () => close(true), 'outline')
+    renderSocialButtons(overlay.querySelector('#mm-am-google-btn'), () => close(true), 'outline')
     overlay.querySelector('#mm-am-form').addEventListener('submit', async e => {
       e.preventDefault()
       const submitBtn = overlay.querySelector('button[type="submit"]')

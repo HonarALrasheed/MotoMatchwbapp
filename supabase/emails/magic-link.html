@@ -1,0 +1,154 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<!--
+  MotoMatch — Vorlage "Magic link or OTP"
+  Einzufuegen in Supabase unter Authentication → Emails → Magic link or OTP → Body.
+
+  ══ Warum die Mail im Dunkelmodus hell wurde ══════════════════════════
+  Gmail und Outlook drehen im eigenen Dunkelmodus die Farben einer Mail um.
+  Die beiden color-scheme-Angaben allein reichen dagegen NICHT — Apple Mail
+  hoert darauf, Gmail nicht.
+
+  Was gegen Gmail wirkt: Gmail kehrt background-color um, ein
+  background-image aber nicht. Jede dunkle Flaeche traegt deshalb zusaetzlich
+  einen Verlauf aus zweimal derselben Farbe. Fuer Gmail ist das ein Bild und
+  bleibt unangetastet, fuer alle anderen Programme sieht es aus wie eine
+  einfarbige Flaeche.
+
+  Was gegen Outlook wirkt: Outlook haengt beim Umfaerben die Attribute
+  data-ogsc (Schrift) und data-ogsb (Flaeche) an die Elemente. Ueber diese
+  Attribute holt der Stilblock unten die richtigen Farben zurueck.
+
+  ══ Weitere Regeln fuer Mail-HTML ═════════════════════════════════════
+  - Layout ueber <table>. Outlook rendert mit Word und kennt weder flex
+    noch grid.
+  - Farben inline am Element, zusaetzlich zum Stilblock. Gmail entfernt
+    Stilbloecke teilweise; inline ueberlebt.
+  - Keine rgba()-Farben. Aeltere Outlook-Fassungen verschlucken Farben mit
+    Alphakanal und fallen auf Schwarz zurueck — in einer dunklen Mail waere
+    das unsichtbarer Text.
+  - Keine Bilder. Viele Programme blockieren sie erst einmal; der Schriftzug
+    ist deshalb Text.
+
+  ══ Zum Kopieren ══════════════════════════════════════════════════════
+  Ein Knopf dafuer ist unmoeglich, Mailprogramme fuehren kein JavaScript aus.
+  Ersatz: user-select:all (ein Tipp waehlt den ganzen Code), der Code im
+  Betreff, und das Wort "Code" bei den Ziffern, damit iOS und Android ihn
+  ueber der Tastatur anbieten.
+
+  Die Laenge des Codes steht in Supabase unter Authentication → Email OTP
+  Length. Die Vorlage nennt bewusst keine Ziffernzahl, damit sie nicht luegt,
+  wenn die Einstellung sich aendert.
+
+  {{ .Token }}           = der Code
+  {{ .ConfirmationURL }} = der Anmeldelink
+-->
+<meta name="color-scheme" content="dark">
+<meta name="supported-color-schemes" content="dark">
+<style>
+  :root { color-scheme: dark; supported-color-schemes: dark; }
+  body { margin: 0; padding: 0; background: #0a0a0a; }
+
+  /* Outlook-Dunkelmodus: Flaechen zurueckholen */
+  [data-ogsb] .mm-seite  { background-color: #0a0a0a !important; }
+  [data-ogsb] .mm-karte  { background-color: #141414 !important; }
+  [data-ogsb] .mm-code   { background-color: #000000 !important; }
+  [data-ogsb] .mm-knopf  { background-color: #ffffff !important; }
+  /* Outlook-Dunkelmodus: Schrift zurueckholen */
+  [data-ogsc] .mm-weiss  { color: #ffffff !important; }
+  [data-ogsc] .mm-grau   { color: #9a9a9a !important; }
+  [data-ogsc] .mm-leise  { color: #7a7a7a !important; }
+  [data-ogsc] .mm-fuss   { color: #5f5f5f !important; }
+  [data-ogsc] .mm-knopf  { color: #111111 !important; }
+</style>
+</head>
+<body style="margin:0;padding:0;background:#0a0a0a;">
+
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" class="mm-seite"
+       style="background-color:#0a0a0a;background-image:linear-gradient(#0a0a0a,#0a0a0a);margin:0;padding:32px 12px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif;">
+  <tr>
+    <td align="center">
+
+      <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" class="mm-karte"
+             style="max-width:520px;background-color:#141414;background-image:linear-gradient(#141414,#141414);border-radius:16px;overflow:hidden;border:1px solid #262626;">
+
+        <!-- Kopf -->
+        <tr>
+          <td class="mm-karte" style="background-color:#141414;background-image:linear-gradient(#141414,#141414);padding:24px 32px 22px;border-bottom:1px solid #222222;">
+            <div class="mm-weiss" style="color:#ffffff;font-size:13px;font-weight:700;letter-spacing:4px;">MOTOMATCH</div>
+          </td>
+        </tr>
+
+        <!-- Inhalt -->
+        <tr>
+          <td class="mm-karte" style="background-color:#141414;background-image:linear-gradient(#141414,#141414);padding:34px 32px 8px;">
+            <h1 class="mm-weiss" style="margin:0 0 10px;font-size:22px;line-height:1.3;font-weight:700;color:#ffffff;">
+              Dein Anmelde-Code
+            </h1>
+            <p class="mm-grau" style="margin:0;font-size:15px;line-height:1.6;color:#9a9a9a;">
+              Gib diesen Code auf motomatch.studio ein, um dich anzumelden.
+            </p>
+          </td>
+        </tr>
+
+        <!-- Code -->
+        <tr>
+          <td class="mm-karte" style="background-color:#141414;background-image:linear-gradient(#141414,#141414);padding:24px 32px;">
+            <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" class="mm-code"
+                   style="background-color:#000000;background-image:linear-gradient(#000000,#000000);border:1px solid #2e2e2e;border-radius:12px;">
+              <tr>
+                <td align="center" class="mm-code" style="background-color:#000000;background-image:linear-gradient(#000000,#000000);padding:24px 12px;">
+                  <div class="mm-weiss" style="font-family:'SF Mono',Menlo,Consolas,monospace;font-size:32px;font-weight:700;letter-spacing:8px;color:#ffffff;text-indent:8px;-webkit-user-select:all;-moz-user-select:all;-ms-user-select:all;user-select:all;">{{ .Token }}</div>
+                  <div class="mm-leise" style="margin-top:12px;font-size:12px;color:#7a7a7a;">Antippen wählt den Code aus · gültig für 60 Minuten</div>
+                </td>
+              </tr>
+            </table>
+          </td>
+        </tr>
+
+        <!-- Direktweg -->
+        <tr>
+          <td align="center" class="mm-karte" style="background-color:#141414;background-image:linear-gradient(#141414,#141414);padding:0 32px 8px;">
+            <p class="mm-grau" style="margin:0 0 16px;font-size:14px;color:#9a9a9a;">Oder melde dich direkt an:</p>
+            <a href="{{ .ConfirmationURL }}" class="mm-knopf"
+               style="display:inline-block;background-color:#ffffff;background-image:linear-gradient(#ffffff,#ffffff);color:#111111;text-decoration:none;font-size:15px;font-weight:700;padding:13px 30px;border-radius:999px;">
+              Jetzt anmelden
+            </a>
+          </td>
+        </tr>
+
+        <!-- Hinweis -->
+        <tr>
+          <td class="mm-karte" style="background-color:#141414;background-image:linear-gradient(#141414,#141414);padding:30px 32px 0;">
+            <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
+              <tr><td style="border-top:1px solid #262626;font-size:0;line-height:0;">&nbsp;</td></tr>
+            </table>
+            <p class="mm-leise" style="margin:18px 0 0;font-size:13px;line-height:1.6;color:#7a7a7a;">
+              Du hast keine Anmeldung angefordert? Dann ignoriere diese Nachricht einfach —
+              ohne den Code passiert nichts, und dein Konto bleibt unberührt.
+            </p>
+          </td>
+        </tr>
+
+        <!-- Fuss -->
+        <tr>
+          <td class="mm-karte" style="background-color:#141414;background-image:linear-gradient(#141414,#141414);padding:22px 32px 30px;">
+            <p class="mm-fuss" style="margin:0;font-size:12px;line-height:1.7;color:#5f5f5f;">
+              MotoMatch · motomatch.studio<br>
+              <a href="https://motomatch.studio/impressum.html" class="mm-grau" style="color:#8a8a8a;text-decoration:underline;">Impressum</a>
+              &nbsp;·&nbsp;
+              <a href="https://motomatch.studio/datenschutz.html" class="mm-grau" style="color:#8a8a8a;text-decoration:underline;">Datenschutz</a>
+            </p>
+          </td>
+        </tr>
+
+      </table>
+
+    </td>
+  </tr>
+</table>
+
+</body>
+</html>

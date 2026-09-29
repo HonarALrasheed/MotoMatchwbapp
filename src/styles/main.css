@@ -567,12 +567,54 @@ html.has-landing body {
   font-family: var(--p-font); font-size: 13px; color: #777;
   line-height: 1.5; margin: 0 0 24px;
 }
-.p-auth-google-slot { display: flex; justify-content: center; min-height: 40px; }
-.p-auth-google-btn { display: flex; align-items: center; gap: 10px; justify-content: center; width: 100%; padding: 10px 16px; border: 1px solid #dadce0; border-radius: 4px; background: #fff; color: #3c4043; font-size: 14px; font-weight: 500; cursor: pointer; transition: background .15s, box-shadow .15s; }
-@media (hover: hover) and (pointer: fine) {
-  .p-auth-google-btn:hover { background: #f8f9fa; box-shadow: 0 1px 3px rgba(0,0,0,.15); }
+/* Ein Knopf je Anbieter, untereinander. Alle im selben hellen Stil: Google,
+   GitHub und Microsoft verlangen in ihren Marken-Vorgaben ohnehin eine helle
+   Flaeche mit ihrem Zeichen, und gemischte Markenfarben saehen nebeneinander
+   aus wie ein Sammelsurium. */
+.p-auth-social-slot { display: flex; gap: 8px; min-height: 44px; }
+.p-auth-social-btn { flex: 1; display: flex; align-items: center; justify-content: center; padding: 13px 0; border: 1px solid #dadce0; border-radius: 4px; background: #fff; color: #3c4043; font-family: inherit; font-size: 14px; font-weight: 500; cursor: pointer; transition: background .15s, box-shadow .15s; }
+/* Sichtbar bleibt nur das Zeichen; der Name bleibt fuer Vorlesegeraete da. */
+.p-auth-social-name {
+  position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+  overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0;
 }
-.p-auth-google-btn:disabled { opacity: .6; cursor: not-allowed; }
+@media (hover: hover) and (pointer: fine) {
+  .p-auth-social-btn:hover { background: #f8f9fa; box-shadow: 0 1px 3px rgba(0,0,0,.15); }
+}
+.p-auth-social-btn:disabled { opacity: .6; cursor: not-allowed; }
+/* Zwei Nebenwege unter dem Passwortfeld — nebeneinander, damit sie nicht wie
+   zwei Absätze wirken. */
+.p-auth-helprow {
+  display: flex; justify-content: space-between; align-items: center;
+  gap: 12px; margin: -8px 0 12px;
+}
+/* Auf schmalen Bildschirmen passten beide Beschriftungen nicht nebeneinander
+   und brachen um. Statt sie zu stapeln — und das Fenster damit anders aussehen
+   zu lassen als am Rechner — bekommt die Karte dort weniger Seitenrand: 36px
+   sind auf einem Telefon ohnehin zu viel, und die gewonnenen 24px reichen fuer
+   die Zeile. */
+@media (max-width: 430px) {
+  .p-auth-card { padding: 32px 24px; }
+  .p-auth-helprow { gap: 10px; }
+}
+/* Nachgemessen: beide Beschriftungen brauchen zusammen 272px. Ab 375px
+   Bildschirmbreite stehen 277px zur Verfuegung, darunter reicht es nicht mehr
+   — bei 360px sind es nur 264px, und die Knoepfe brechen wieder zweizeilig um.
+   Sie kleiner zu setzen waere schlechter lesbar als sie zu stapeln. Betrifft
+   nur sehr schmale Geraete; ab iPhone SE (375px) steht die Zeile wie am
+   Rechner. */
+@media (max-width: 369px) {
+  .p-auth-helprow { flex-direction: column; align-items: flex-start; gap: 7px; }
+}
+/* Der Code wird ziffernweise gelesen und abgetippt: gesperrt und mittig. */
+.p-auth-code {
+  text-align: center;
+  font-size: 21px; font-weight: 700;
+  letter-spacing: 0.3em; text-indent: 0.3em;
+  font-variant-numeric: tabular-nums;
+}
+/* Der Platzhalter ist ein Wort, kein Code — der darf nicht gesperrt sein. */
+.p-auth-code::placeholder { letter-spacing: normal; font-size: 15px; font-weight: 400; }
 .p-auth-divider {
   display: flex; align-items: center; gap: 12px;
   margin: 20px 0; color: #aaa;
@@ -630,6 +672,17 @@ select.p-auth-input {
 .p-auth-switch {
   font-family: var(--p-font); font-size: 13px; color: #999;
   text-align: center; margin: 20px 0 0;
+}
+.p-auth-close {
+  position: absolute; top: 12px; right: 12px;
+  width: 34px; height: 34px;
+  display: flex; align-items: center; justify-content: center;
+  background: transparent; border: none;
+  color: #aaa; font-size: 22px; line-height: 1; cursor: pointer;
+  transition: color .15s;
+}
+@media (hover: hover) and (pointer: fine) {
+  .p-auth-close:hover { color: #000; }
 }
 .p-auth-toggle {
   background: none; border: none; color: #000;
@@ -8839,8 +8892,22 @@ select.p-auth-input {
 }
 @media (max-width: 720px) {
   .acc-set-layout { grid-template-columns: 1fr; }
-  .acc-set-nav { flex-direction: row; overflow-x: auto; gap: 4px; position: static; padding-bottom: 4px; }
-  .acc-set-navitem { white-space: nowrap; }
+  /* Aus der Seitenspalte wird eine Zeile, die seitlich laeuft. Die Bildlaufleiste
+     bleibt ausgeblendet — als 16px hoher grauer Balken unter „Profil" sah sie
+     aus wie ein kaputtes Bedienelement. Dass es weitergeht, zeigt stattdessen
+     der angeschnittene Eintrag am rechten Rand. */
+  .acc-set-nav {
+    flex-direction: row;
+    overflow-x: auto;
+    overscroll-behavior-x: contain;
+    scrollbar-width: none;
+    gap: 4px;
+    position: static;
+    margin: 0 -26px;
+    padding: 0 26px 2px;
+  }
+  .acc-set-nav::-webkit-scrollbar { display: none; }
+  .acc-set-navitem { white-space: nowrap; flex: 0 0 auto; }
 }
 .acc-section-title {
   font-size: 13px;
@@ -9675,6 +9742,35 @@ select.acc-input option { background: #1a1a1a; color: #fff; }
   vertical-align: middle;
 }
 
+/* ─── Vergleich auf dem Handy ───
+   Die Tabelle hat eine feste Beschriftungsspalte von 160px. Im Panel bleiben
+   rund 265px, also blieben fuer drei Bikes je 35px — die Spalten wurden am
+   Tabellenrand einfach abgeschnitten (.acc-cmp-table blendet Ueberstand aus).
+   Statt die Tabelle seitlich scrollen zu lassen, wandert die Beschriftung
+   ueber ihre Zeile: die drei Bikes bekommen die volle Breite und stehen
+   untereinander immer an derselben Stelle. */
+@media (max-width: 820px) {
+  .acc-cmp-header,
+  .acc-cmp-row { grid-template-columns: repeat(3, 1fr); }
+
+  /* Die leere Ecke oben links hat ohne Beschriftungsspalte keine Aufgabe. */
+  .acc-cmp-header > div:first-child { display: none; }
+  .acc-cmp-header .acc-cmp-col:nth-child(2) { border-left: none; }
+
+  .acc-cmp-label {
+    grid-column: 1 / -1;
+    padding: 12px 14px 4px;
+    font-size: 11px;
+  }
+  .acc-cmp-row .acc-cmp-cell:nth-child(2) { border-left: none; }
+
+  .acc-cmp-col { padding: 14px 8px; }
+  .acc-cmp-cell { padding: 8px 6px 14px; font-size: 15px; }
+  .acc-cmp-bike-icon { width: 100%; max-width: 64px; height: 42px; }
+  .acc-cmp-bike-name { font-size: 12px; }
+  .acc-cmp-best-tag { display: block; width: fit-content; margin: 4px auto 0; }
+}
+
 /* Journal */
 /* ══════════════════════════════════════
    RIDE JOURNAL — Pinboard redesign
@@ -9902,6 +9998,9 @@ select.acc-input option { background: #1a1a1a; color: #fff; }
   margin-right: 4px;
 }
 .rj-mood-opt input, .rj-accent-opt input { display: none; }
+/* Eigene Reihe fuer die sechs Felder: so kann die Beschriftung auf schmalen
+   Bildschirmen darueber rutschen, ohne dass die Felder umbrechen. */
+.rj-mood-opts { display: flex; gap: 8px; min-width: 0; }
 .rj-mood-opt span {
   display: flex;
   align-items: center;
@@ -9909,15 +10008,16 @@ select.acc-input option { background: #1a1a1a; color: #fff; }
   width: 32px;
   height: 32px;
   border-radius: 8px;
-  font-size: 18px;
+  color: rgba(255,255,255,0.45);
   background: rgba(255,255,255,0.04);
   border: 1.5px solid rgba(255,255,255,0.07);
   cursor: pointer;
-  transition: all .15s;
+  transition: background .15s, border-color .15s, color .15s, transform .15s;
 }
 .rj-mood-opt input:checked + span {
   background: rgba(255,255,255,0.1);
   border-color: rgba(255,255,255,0.3);
+  color: #fff;
   transform: scale(1.12);
 }
 .rj-accent-opt span {
@@ -10082,7 +10182,11 @@ select.acc-input option { background: #1a1a1a; color: #fff; }
   padding: 3px 8px;
   border-radius: 20px;
 }
-.rj-chip-mood { background: rgba(255,255,255,0.04); border: none; font-size: 13px; padding: 0; }
+.rj-chip-mood {
+  background: rgba(255,255,255,0.04); border: none; padding: 0;
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 22px; height: 22px; color: rgba(255,255,255,0.7);
+}
 .rj-card-notes {
   font-size: 12px;
   color: #777;
@@ -10199,6 +10303,46 @@ select.acc-input option { background: #1a1a1a; color: #fff; }
 }
 @media (hover: hover) and (pointer: fine) {
   .acc-empty-cta:hover { background: #e0e0e0; }
+}
+
+/* ─── Fahrtenbuch auf dem Handy ───
+   Die Leiste und das Formular waren fuer die Breite der Desktop-Spalte
+   gerechnet. Im Panel bleiben nur rund 260 px, und mehrere Bausteine konnten
+   nicht schmaler werden: die vier Kennzahlen neben dem Knopf, das feste
+   130 px breite Datumsfeld neben dem Titel, die Zahlenfelder im Zweierraster.
+   Alles davon lief ueber den Rand hinaus statt umzubrechen. */
+@media (max-width: 820px) {
+  .rj-header { flex-wrap: wrap; row-gap: 12px; padding: 14px 12px; }
+  /* min-width: 0 hebt die Vorgabe auf, dass ein Flex-Kind nie schmaler wird
+     als sein Inhalt — ohne das schiebt allein das Wort „Stunden" die Reihe
+     auf. */
+  .rj-stat { min-width: 0; }
+  .rj-stat-num { font-size: 18px; }
+  .rj-stat-lbl { font-size: 9px; letter-spacing: 0; }
+  .rj-add-btn {
+    flex: 0 0 100%;
+    margin-left: 0;
+    justify-content: center;
+    padding: 11px 14px;
+  }
+
+  .rj-sheet-inner { padding: 26px 14px 18px; }
+  .rj-field-title-wrap { flex-direction: column; gap: 8px; }
+  /* Zwei Klassen statt einer: weiter unten setzt der Block fuer Tippgeraete
+     das Datumsfeld auf feste 165px, damit „TT.MM.JJJJ" bei 16px Schrift nicht
+     abschneidet. Untereinander darf es die volle Breite haben, und die ist
+     ohnehin breiter als 165px. */
+  .rj-field-title-wrap .rj-date-input { width: 100%; }
+  .rj-field { min-width: 0; }
+  .rj-title-input, .rj-input { min-width: 0; }
+
+  /* „Wetter" nach oben, die sechs Felder darunter in eine Reihe. Sie teilen
+     sich die Breite, statt in eine zweite Zeile zu kippen. */
+  .rj-mood-row { flex-wrap: wrap; gap: 6px; }
+  .rj-mood-row .rj-mood-label { flex: 0 0 100%; margin: 0 0 2px; }
+  .rj-mood-opts { width: 100%; gap: 6px; }
+  .rj-mood-opt { flex: 1 1 0; min-width: 0; }
+  .rj-mood-opt span { width: 100%; height: 34px; }
 }
 
 /* ═══════════════════════════════════════════════════
@@ -10554,9 +10698,10 @@ select.acc-input option { background: #1a1a1a; color: #fff; }
 .mmc-auth-logo { color: #fff; font-size: 15px; }
 .mmc-auth-card {
   position: relative; z-index: 1;
-  width: 100%; max-width: 820px;
-  display: grid; grid-template-columns: 1fr auto;
-  gap: 0;
+  /* War zweispaltig, rechts stand eine App-Anmeldung, die es nicht gibt.
+     Ohne sie bleibt eine Spalte — und die halbe Breite. */
+  width: 100%; max-width: 440px;
+  display: block;
   background: rgba(20,20,22,0.94);
   border: 1px solid rgba(255,255,255,0.08);
   border-radius: 6px;
@@ -10564,7 +10709,7 @@ select.acc-input option { background: #1a1a1a; color: #fff; }
   box-shadow: 0 40px 100px rgba(0,0,0,0.75);
   -webkit-backdrop-filter: blur(4px); backdrop-filter: blur(4px);
 }
-.mmc-auth-main { min-width: 0; padding-right: 40px; }
+.mmc-auth-main { min-width: 0; }
 .mmc-auth-title {
   font-family: var(--p-font); font-size: 26px; font-weight: 700;
   color: #fff; margin: 0 0 6px; letter-spacing: -0.01em; text-align: center;
@@ -10576,42 +10721,23 @@ select.acc-input option { background: #1a1a1a; color: #fff; }
 .mmc-req { color: rgba(255,255,255,0.4); }
 .mmc-forgot {
   background: none; border: none; cursor: pointer; text-align: left;
-  color: var(--gold); font-family: var(--p-font); font-size: 13px;
+  color: rgba(255,255,255,0.72); font-family: var(--p-font); font-size: 13px;
+  text-decoration: underline; text-underline-offset: 3px;
   padding: 0; margin: -6px 0 0; align-self: flex-start;
 }
 @media (hover: hover) and (pointer: fine) {
-  .mmc-forgot:hover { text-decoration: underline; }
+  .mmc-forgot:hover { color: #fff; }
 }
 .mmc-auth-form { display: flex; flex-direction: column; gap: 16px; }
+.mmc-helprow {
+  display: flex; justify-content: space-between; align-items: center;
+  gap: 10px; margin: -6px 0 0;
+}
+.mmc-helprow .mmc-forgot { margin: 0; }
+@media (max-width: 369px) {
+  .mmc-helprow { flex-direction: column; align-items: flex-start; gap: 7px; }
+}
 
-/* ── QR panel (right column) ── */
-.mmc-auth-qr {
-  display: flex; flex-direction: column; align-items: center; text-align: center;
-  width: 240px; padding: 8px 8px 0 40px;
-  border-left: 1px solid rgba(255,255,255,0.08);
-}
-.mmc-skip {
-  align-self: flex-end; margin-bottom: 10px;
-  background: none; border: none; cursor: pointer;
-  color: rgba(255,255,255,0.4); font-family: var(--p-font);
-  font-size: 11px; font-weight: 500; text-transform: uppercase; letter-spacing: 0.1em;
-  padding: 4px 6px; transition: color 0.15s;
-}
-@media (hover: hover) and (pointer: fine) {
-  .mmc-skip:hover { color: #fff; }
-}
-.mmc-qr-box {
-  background: #fff; border-radius: 8px; padding: 12px; line-height: 0;
-  box-shadow: 0 8px 24px rgba(0,0,0,0.4);
-}
-.mmc-qr-title {
-  font-family: var(--p-font); font-size: 20px; font-weight: 700; color: #fff;
-  margin: 20px 0 8px; line-height: 1.2;
-}
-.mmc-qr-text {
-  font-family: var(--p-font); font-size: 13px; color: rgba(255,255,255,0.5);
-  margin: 0; line-height: 1.5;
-}
 /* Kennzeichnung der Partnerlinks in der Ausruestung.
    Steht ueber dem Raster, damit sie vor dem ersten Produkt gelesen wird —
    ein Hinweis unter 64 Kacheln waere formal vorhanden und praktisch unsichtbar. */
@@ -10736,18 +10862,16 @@ select.mmc-input option { background: #111; color: #fff; }
 }
 .mmc-auth-toggle {
   background: none; border: none; cursor: pointer;
-  color: var(--gold); font-family: var(--p-font); font-size: 13px;
+  color: #fff; font-family: var(--p-font); font-size: 13px;
   font-weight: 500; padding: 0 2px;
+  text-decoration: underline; text-underline-offset: 3px;
 }
 @media (hover: hover) and (pointer: fine) {
-  .mmc-auth-toggle:hover { text-decoration: underline; }
+  .mmc-auth-toggle:hover { color: rgba(255,255,255,0.75); }
 }
 
-/* Auth responsive: hide QR column on narrow screens */
 @media (max-width: 680px) {
-  .mmc-auth-card { grid-template-columns: 1fr; max-width: 400px; padding: 32px 28px; }
-  .mmc-auth-main { padding-right: 0; }
-  .mmc-auth-qr { display: none; }
+  .mmc-auth-card { max-width: 400px; padding: 32px 24px; }
 }
 
 /* ── Discord-style shell ── */
@@ -12407,6 +12531,10 @@ select.mmc-input option { background: #111; color: #fff; }
 @media (max-width: 820px) {
   .acc-profile { grid-template-columns: 1fr; }
   .acc-side { position: static; }
+  /* Sobald die Spalten uebereinander liegen, steht die Reiterliste direkt
+     ueber dem Inhalt — der Schnellzugriff waere dann dieselbe Auswahl ein
+     zweites Mal, nur anders gestaltet. */
+  .acc-section--quick { display: none; }
 }
 
 /* ── Community: Benutzer-Popover (Klick auf Avatar) ── */
@@ -14197,6 +14325,89 @@ body.rj-rec-offen { overflow: hidden; }
 }
 
 /* ═══════════════════════════════════════════
+   PROFILBILD ZUSCHNEIDEN
+   ═══════════════════════════════════════════ */
+.av-overlay {
+  position: fixed; inset: 0; z-index: 4000;
+  display: flex; align-items: center; justify-content: center;
+  padding: 20px;
+  background: rgba(6,6,6,0.88);
+  -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px);
+}
+body.av-offen { overflow: hidden; }
+.av-box { display: flex; flex-direction: column; align-items: center; gap: 16px; max-width: 100%; }
+.av-titel {
+  margin: 0; font-size: 12px; font-weight: 700;
+  letter-spacing: 0.12em; text-transform: uppercase;
+  color: rgba(255,255,255,0.5);
+}
+/* Ohne Regler steht nirgends mehr, dass man zoomen kann — also einmal sagen. */
+.av-titel + .av-hinweis {
+  margin: -10px 0 0; font-size: 12px;
+  color: rgba(255,255,255,0.35);
+  text-align: center;
+}
+.av-buehne {
+  position: relative;
+  overflow: hidden;
+  border-radius: 14px;
+  background: #0b0b0b;
+  /* Der Finger schiebt das Bild, nicht die Seite darunter. */
+  touch-action: none;
+  cursor: grab;
+  user-select: none;
+}
+.av-buehne:active { cursor: grabbing; }
+.av-bild {
+  position: absolute; top: 0; left: 0;
+  transform-origin: 0 0;
+  max-width: none;          /* sonst greift die globale Bildregel ein */
+  pointer-events: none;
+  -webkit-user-drag: none;
+}
+/* Der Kreis zeigt, was spaeter zu sehen ist. Der riesige Schatten faerbt alles
+   ausserhalb ab und wird von der Buehne beschnitten. */
+.av-maske {
+  position: absolute; inset: 0;
+  border-radius: 50%;
+  box-shadow: 0 0 0 9999px rgba(8,8,8,0.62);
+  border: 2px solid rgba(255,255,255,0.85);
+  pointer-events: none;
+}
+.av-aktionen { display: flex; gap: 10px; }
+.av-btn {
+  border-radius: 999px; padding: 11px 24px;
+  font-family: inherit; font-size: 14px; font-weight: 700;
+  cursor: pointer; border: 1px solid transparent;
+}
+.av-btn--haupt { background: #fff; color: #111; }
+.av-btn--still { background: rgba(255,255,255,0.06); border-color: rgba(255,255,255,0.14); color: #ddd; }
+@media (hover: hover) and (pointer: fine) {
+  .av-btn--haupt:hover { background: #e6e6e6; }
+  .av-btn--still:hover { background: rgba(255,255,255,0.12); color: #fff; }
+}
+
+/* ─── Seitlich scrollende Zeilen ───
+   Wo die Bildlaufleiste ausgeblendet ist, muss trotzdem zu sehen sein, dass
+   es weitergeht. Statt eines Pfeils, der bedient werden will, blendet die
+   Kante ihren Inhalt aus: Text, der verschwindet, liest sich als „da kommt
+   noch was", waehrend Text, der hart abbricht, wie ein Fehler aussieht.
+   scrollZeileMarkieren() in account.js setzt die Klassen nur fuer die Seiten,
+   hinter denen tatsaechlich noch etwas liegt. */
+.mm-schiebe--rechts {
+  -webkit-mask-image: linear-gradient(90deg, #000 calc(100% - 72px), transparent 100%);
+          mask-image: linear-gradient(90deg, #000 calc(100% - 72px), transparent 100%);
+}
+.mm-schiebe--links {
+  -webkit-mask-image: linear-gradient(90deg, transparent 0, #000 72px);
+          mask-image: linear-gradient(90deg, transparent 0, #000 72px);
+}
+.mm-schiebe--links.mm-schiebe--rechts {
+  -webkit-mask-image: linear-gradient(90deg, transparent 0, #000 72px, #000 calc(100% - 72px), transparent 100%);
+          mask-image: linear-gradient(90deg, transparent 0, #000 72px, #000 calc(100% - 72px), transparent 100%);
+}
+
+/* ═══════════════════════════════════════════
    FAVORITEN — Bikes, Ausrüstung und Orte in einem Reiter
    ═══════════════════════════════════════════ */
 
@@ -14227,6 +14438,28 @@ body.rj-rec-offen { overflow: hidden; }
   font-variant-numeric: tabular-nums;
 }
 .fav-btn--active .fav-btn-count { background: rgba(0,0,0,0.12); }
+
+/* Auf dem Handy standen die vier Filter in zwei Reihen und fuellten das halbe
+   Bild, bevor der erste Eintrag kam. Jetzt eine Zeile, die seitlich laeuft und
+   bis an den Rand reicht — das angeschnittene letzte Feld zeigt, dass es
+   weitergeht. */
+@media (max-width: 820px) {
+  .fav-bar {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    overscroll-behavior-x: contain;
+    scrollbar-width: none;
+    margin: 0 -26px 16px;
+    padding: 0 26px 2px;
+  }
+  .fav-bar::-webkit-scrollbar { display: none; }
+  .fav-btn {
+    flex: 0 0 auto;
+    padding: 8px 13px; gap: 6px; font-size: 12.5px;
+  }
+  .fav-btn-count { font-size: 10.5px; padding: 1px 6px; }
+  .acc-content .acc-empty { padding: 32px 8px; }
+}
 
 /* Abstand zwischen den Abschnitten, wenn „Alle" alle drei zeigt */
 .fav-sektion + .fav-sektion {

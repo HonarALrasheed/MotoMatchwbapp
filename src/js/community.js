@@ -27,7 +27,7 @@ import {
 } from './voice.js'
 import { enablePushNotifications, disablePushNotifications } from './push.js'
 // Zentrale, plattformweite Authentifizierung (geteilt mit der Haupt-Website)
-import { getSession, login, register, loginGuest, logout, ensureDemoUsers, renderGoogleButton, initSupabaseAuth, requestPasswordReset, resendConfirmation, MIN_PASSWORD_LENGTH } from './auth.js'
+import { getSession, login, register, logout, ensureDemoUsers, renderSocialButtons, initSupabaseAuth, requestPasswordReset, resendConfirmation, sendeAnmeldeCode, pruefeAnmeldeCode, MIN_PASSWORD_LENGTH } from './auth.js'
 import { openAccount } from './account.js'
 import { supabase, OFFLINE_MODE } from './supabase.js'
 import { report } from './monitoring.js'
@@ -536,25 +536,6 @@ function renderText(text, mentionNames = null) {
   return result
 }
 
-/* Bild fuer den rechten Anmelde-Bereich.
-   Hier stand ein QR-artiges Muster — deterministisch erzeugt, nicht scannbar.
-   Es sah aus wie ein funktionierender Code, direkt neben dem Satz "App-Login
-   kommt bald": wer es scannte, bekam nichts. Jetzt steht dort ein Telefon mit
-   Schloss, das erkennbar ein Symbol ist und nichts verspricht. */
-function appLoginArt() {
-  return `
-    <div class="mmc-qr-box mmc-qr-box--art" aria-hidden="true">
-      <svg width="150" height="150" viewBox="0 0 100 100" fill="none"
-           stroke="#111" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
-        <rect x="30" y="10" width="40" height="80" rx="7"/>
-        <line x1="44" y1="19" x2="56" y2="19"/>
-        <rect x="39" y="45" width="22" height="18" rx="3"/>
-        <path d="M44 45v-6a6 6 0 0 1 12 0v6"/>
-        <circle cx="50" cy="54" r="2" fill="#111" stroke="none"/>
-      </svg>
-    </div>`
-}
-
 /* ══════════════════════════════════════════════════════════════════
    PUBLIC ENTRY
    ══════════════════════════════════════════════════════════════════ */
@@ -672,7 +653,6 @@ function renderAuth(root, mode = 'login', error = '', info = '', pendingEmail = 
     <div class="mmc-auth" style="background-image:url('${commBg}')">
       <div class="mmc-auth-overlay"></div>
       <div class="mmc-auth-card">
-        <!-- Left: form -->
         <div class="mmc-auth-main">
           <h2 class="mmc-auth-title">${isLogin ? 'Willkommen zurück!' : 'Konto erstellen'}</h2>
           <p class="mmc-auth-sub">${isLogin ? 'Schön, dich in der MotoMatch-Community zu sehen!' : 'Wähle einen Namen und ein Passwort.'}</p>
@@ -717,7 +697,11 @@ function renderAuth(root, mode = 'login', error = '', info = '', pendingEmail = 
                 </select>
               </label>
             </div>`}
-            ${isLogin ? '<button type="button" class="mmc-forgot" id="mmc-forgot">Passwort vergessen?</button>' : ''}
+            ${isLogin ? `
+            <div class="mmc-helprow">
+              <button type="button" class="mmc-forgot" id="mmc-ohnepass">Ohne Passwort anmelden</button>
+              <button type="button" class="mmc-forgot" id="mmc-forgot">Passwort vergessen?</button>
+            </div>` : ''}
             <div class="mmc-auth-error" id="mmc-auth-error" ${error ? '' : 'hidden'}>${esc(error)}</div>
             ${info ? `<div class="mmc-auth-info" style="color:#2e7d32;margin:4px 0 8px;font-size:14px">${esc(info)}</div>` : ''}
             ${pendingEmail ? '<button type="button" class="mmc-forgot" id="mmc-resend">Mail nicht angekommen? Erneut senden</button>' : ''}
@@ -736,17 +720,38 @@ function renderAuth(root, mode = 'login', error = '', info = '', pendingEmail = 
           </p>
         </div>
 
-        <!-- Right: QR panel -->
-        <div class="mmc-auth-qr">
-          <button type="button" class="mmc-skip" id="mmc-skip" title="Als Gast ansehen — Lesen ja, Schreiben nur angemeldet">Überspringen →</button>
-          ${appLoginArt()}
-          <h3 class="mmc-qr-title">App-Login</h3>
-          <p class="mmc-qr-text">Die Anmeldung per App gibt es noch nicht. Melde dich links mit Benutzername oder E-Mail an.</p>
-        </div>
       </div>
       <div class="mmc-auth-brand"><span class="mmc-auth-logo">◆</span> MotoMatch Community</div>
     </div>
   `
+
+  /* Anmelden ohne Passwort — derselbe Weg wie im Anmeldefenster der
+     Hauptseite, hier in zwei kurzen Dialogen statt in einer eigenen Ansicht:
+     Adresse, dann Code. Wer sich auf der Seite ohne Passwort anmelden kann,
+     soll das in der Community auch koennen. */
+  root.querySelector('#mmc-ohnepass')?.addEventListener('click', () => {
+    openConfirmModal(root, {
+      title: 'Ohne Passwort anmelden',
+      text: 'Wir schicken dir einen Anmelde-Code an deine E-Mail-Adresse.',
+      confirmLabel: 'Code senden',
+      inputPlaceholder: 'du@mail.de',
+      onConfirm: async email => {
+        const res = await sendeAnmeldeCode(email)
+        if (!res.ok) { openInfoModal(root, 'Ohne Passwort anmelden', res.error); return }
+        openConfirmModal(root, {
+          title: 'Code eintippen',
+          text: `Wir haben dir einen Code an ${res.email} geschickt. Er gilt eine Stunde.`,
+          confirmLabel: 'Anmelden',
+          inputPlaceholder: 'Code aus der Mail',
+          onConfirm: async code => {
+            const pruefung = await pruefeAnmeldeCode(res.email, code)
+            if (!pruefung.ok) { openInfoModal(root, 'Ohne Passwort anmelden', pruefung.error); return }
+            resetNavState(); seedDemoFriends(); renderApp(root)
+          },
+        })
+      },
+    })
+  })
 
   root.querySelector('#mmc-forgot')?.addEventListener('click', () => {
     openConfirmModal(root, {
@@ -768,19 +773,8 @@ function renderAuth(root, mode = 'login', error = '', info = '', pendingEmail = 
     })
   })
 
-  renderGoogleButton(root.querySelector('#mmc-google-btn'), () => {
+  renderSocialButtons(root.querySelector('#mmc-google-btn'), () => {
     resetNavState(); seedDemoFriends(); renderApp(root)
-  })
-
-  // Gast-Login (Offline-Lese-Modus)
-  root.querySelector('#mmc-skip')?.addEventListener('click', async () => {
-    if (!OFFLINE_MODE) {
-      toast(root, 'Gast-Modus: Nur Lesen möglich. Bitte melde dich an, um zu schreiben.')
-    }
-    await loginGuest()
-    resetNavState()
-    seedDemoFriends()
-    renderApp(root)
   })
 
   root.querySelector('#mmc-auth-toggle')?.addEventListener('click', () => {

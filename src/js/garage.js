@@ -39,6 +39,7 @@ function loadThree() {
 }
 import {
   findBestBike,
+  ERGEBNIS_ANZAHL,
   findTopMatches,
   findBikeByShortName,
   scoreBikeAgainst,
@@ -145,7 +146,7 @@ export function loadGarage(answers) {
 
   /* Ein Durchlauf statt zwei: findBestBike() rechnete dasselbe noch einmal — und konnte seit der
      Stilgarantie sogar ein anderes Bike liefern als Platz eins der Fünferliste. */
-  const topMatches = findTopMatches(answers, 5);
+  const topMatches = findTopMatches(answers, ERGEBNIS_ANZAHL);
   const bikeData = topMatches[0]?.bike || findBestBike(answers);
 
   console.info(`[garage] Matched: ${bikeData.name}`);

@@ -939,11 +939,22 @@ export function findSimilarBikes(bike, n = 3) {
 export const MATCH_WEIGHTS = WEIGHT;
 
 /**
+ * Länge der Ergebnisliste nach dem Quiz. Sie ist mehr als eine Anzeigegröße: findTopMatches()
+ * lockert das Budget, bis mindestens so viele Bikes der Wunschgattung übrig sind — mit einer
+ * anderen Länge kann also ein anderes Bike auf Platz eins landen.
+ */
+export const ERGEBNIS_ANZAHL = 5;
+
+/**
  * Returns the single best matching bike object.
  * Maintains backward compatibility — returns the bike directly.
+ *
+ * Rechnet mit derselben Listenlänge wie die Ergebnisseite (garage.js). Mit n = 1 hielt die Walze
+ * (drop-animation.js) auf 37.884 von 129.600 Quizwegen bei einem anderen Bike als dem, das die
+ * Ergebnisseite danach zeigte.
  */
 export function findBestBike(answers) {
-  const results = findTopMatches(answers, 1);
+  const results = findTopMatches(answers, ERGEBNIS_ANZAHL);
   return results.length > 0 ? results[0].bike : catalog[0];
 }
 

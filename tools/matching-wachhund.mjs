@@ -12,11 +12,12 @@
  *   · Keine Maschine auf Platz eins, die weit über der sicheren Sitzhöhe liegt
  *   · Keine zwei Maschinen derselben Familie, höchstens zwei je Marke
  *   · Bei „Egal" höchstens zwei je Gattung
+ *   · Die Walze (findBestBike) hält beim selben Bike, das die Ergebnisseite auf Platz eins zeigt
  *
  *     node tools/matching-wachhund.mjs
  */
 import { readFileSync } from "node:fs";
-import { setCatalog, findTopMatches } from "../src/js/matching.js";
+import { setCatalog, findTopMatches, findBestBike, ERGEBNIS_ANZAHL } from "../src/js/matching.js";
 
 const katalog = JSON.parse(readFileSync(new URL("../public/data/katalog-de.json", import.meta.url)));
 setCatalog(katalog.bikes);
@@ -45,10 +46,13 @@ for (const q1 of LIZENZ) for (const q2 of ERFAHRUNG) for (const q3 of STIL) for 
 for (const q5 of BUDGET) for (const q6 of GROESSE) for (const q7 of SOZIUS) for (const q9 of CHARAKTER) {
   const a = { q1, q2, q3, q4, q5, q6, q7, q9 };
   const wer = `${q1}/${q2}/${q3}/${q4}/${q5} €/${q6} cm/${q7}/${q9}`;
-  const top = findTopMatches(a, 5);
+  const top = findTopMatches(a, ERGEBNIS_ANZAHL);
   laeufe++;
 
   if (!top.length) { melde("kein Ergebnis", wer); continue; }
+
+  const walze = findBestBike(a);
+  if (walze.name !== top[0].bike.name) melde("Walze hält bei anderem Bike als das Ergebnis", `${wer} → ${walze.name} statt ${top[0].bike.name}`);
 
   const budget = Number(q5);
   const erlaubt = LIZENZ_ERLAUBT[q1];

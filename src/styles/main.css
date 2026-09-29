@@ -401,17 +401,6 @@ html.has-landing body {
   color: rgba(255,255,255,0.55);
 }
 
-/* Scroll reveal */
-.reveal-p {
-  opacity: 0; transform: translateY(40px);
-  transition: opacity var(--p-dur-l) var(--p-ease-out),
-              transform var(--p-dur-l) var(--p-ease-out);
-}
-.reveal-p.vis { opacity: 1; transform: translateY(0); }
-.reveal-p.d1 { transition-delay: 0.1s; }
-.reveal-p.d2 { transition-delay: 0.2s; }
-.reveal-p.d3 { transition-delay: 0.3s; }
-
 /* ═══════════════════════════════════════════
    MODEL GRID  (Porsche 2-column)
    ═══════════════════════════════════════════ */
@@ -651,73 +640,25 @@ select.p-auth-input {
 /* ═══════════════════════════════════════════
    LIFESTYLE HERO  (full-width image)
    ═══════════════════════════════════════════ */
-.p-lifestyle-hero {
-  width: 100%; height: clamp(340px, 45vw, 600px);
-  overflow: hidden; display: block;
-}
-.p-lifestyle-hero img {
-  width: 100%; height: 100%;
-  object-fit: cover; object-position: center center;
-  display: block;
-}
-
 /* ═══════════════════════════════════════════
    LIFESTYLE CARDS  (3-up)
    ═══════════════════════════════════════════ */
-.p-lifestyle-cards {
-  display: grid; grid-template-columns: repeat(3, 1fr);
-  background: #f2f2f2;
+/* ═══════════════════════════════════════════
+   WAS MOTOMATCH MACHT — eine Zeile statt drei Bildkarten
+   ═══════════════════════════════════════════ */
+.p-intro {
+  background: #fff;
+  padding: clamp(48px, 7vw, 104px) clamp(24px, 5vw, 80px);
 }
-.p-lifestyle-card {
-  overflow: hidden;
-  background: #fff; position: relative;
-}
-.p-lifestyle-card-img {
-  height: clamp(160px, 18vw, 260px); overflow: hidden;
-  background: #111; /* fängt Rundungs-Lücken am Rand ab, statt Weiß durchscheinen zu lassen */
-}
-.p-lifestyle-card-img img {
-  width: 100%; height: 100%; object-fit: cover; display: block;
-  transition: transform var(--p-dur-l) var(--p-ease-out);
-  filter: brightness(0.88);
-}
-@media (hover: hover) and (pointer: fine) {
-  .p-lifestyle-card:hover .p-lifestyle-card-img img {
-    transform: scale3d(1.05, 1.05, 1.05);
-  }
-}
-.p-lifestyle-card-label {
-  display: block; padding: 14px 18px; text-align: center;
-  font-family: var(--p-font); font-size: 14px; font-weight: 500;
-  color: #000; border-top: 1px solid #eee;
+.p-intro-text {
+  max-width: 58ch; margin: 0 auto;
+  font-family: var(--p-font);
+  font-size: clamp(17px, 1.9vw, 26px); font-weight: 300;
+  line-height: 1.45; letter-spacing: -0.01em;
+  color: #111; text-align: center;
+  text-wrap: balance;
 }
 
-/* Kurze Vorschau-Info auf Hover/Tap — rein CSS-gesteuert (:hover +
-   transition-delay), damit sie erst nach kurzem Verweilen erscheint und beim
-   Verlassen sofort wieder verschwindet. Funktioniert auf Touch-Geräten über
-   die :hover-Emulation beim Tippen genauso. */
-.p-lifestyle-card-img { position: relative; }
-.p-lc-info {
-  position: absolute; inset: 0;
-  display: flex; align-items: center; justify-content: center;
-  text-align: center; padding: 20px;
-  background: rgba(0, 0, 0, 0.72);
-  backdrop-filter: blur(6px);
-  -webkit-backdrop-filter: blur(6px);
-  opacity: 0; pointer-events: none;
-  transition: opacity 0.2s ease 0s;
-  z-index: 2;
-}
-@media (hover: hover) and (pointer: fine) {
-  .p-lifestyle-card:hover .p-lc-info {
-    opacity: 1;
-    transition: opacity 0.2s ease 0.35s;
-  }
-}
-.p-lc-info-text {
-  color: #fff; font-family: var(--p-font); font-size: 13px; line-height: 1.5;
-  max-width: 220px; margin: 0;
-}
 
 /* ═══════════════════════════════════════════
    DISCOVER
@@ -725,7 +666,6 @@ select.p-auth-input {
 .p-discover {
   padding: var(--p-xxl) clamp(24px, 5vw, 80px);
   background: #fff;
-  border-top: 1px solid #e8e8e8;
 }
 .p-discover-title {
   font-family: var(--p-font);
@@ -746,10 +686,14 @@ select.p-auth-input {
 .p-discover-cat img {
   width: 100%; height: 100%; object-fit: cover; display: block;
   transition: transform 0.7s cubic-bezier(0.16,1,0.3,1);
-  filter: brightness(0.65);
+  /* Frueher 0.65: das war noetig, solange hier helle Landschaftsbilder lagen.
+     Die Studioaufnahmen bringen ihr Dunkel schon mit, ein zweites Mal
+     abgedunkelt verschwindet das Motorrad im Hintergrund. Lesbar bleibt die
+     Schrift ueber die Verlaeufe in -top/-bottom und ihren Schattenwurf. */
+  filter: brightness(0.92);
 }
 @media (hover: hover) and (pointer: fine) {
-  .p-discover-cat:hover img { transform: scale(1.06); filter: brightness(0.5); }
+  .p-discover-cat:hover img { transform: scale(1.06); filter: brightness(0.75); }
 }
 .p-discover-cat-label {
   position: absolute; top: 0; left: 0; right: 0;
@@ -784,16 +728,6 @@ select.p-auth-input {
   text-shadow: 0 1px 10px rgba(0,0,0,0.7);
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
-.p-discover-cat-bottom {
-  position: absolute; bottom: 0; left: 0; right: 0; z-index: 2;
-  padding: clamp(20px, 2.5vw, 36px) clamp(14px, 1.8vw, 24px) clamp(12px, 1.5vw, 20px);
-  background: linear-gradient(0deg, rgba(0,0,0,0.72) 0%, transparent 100%);
-}
-.p-discover-cat-desc {
-  font-family: var(--p-font); font-size: clamp(10px, 0.7vw, 12px);
-  color: rgba(255,255,255,0.65); line-height: 1.4;
-  font-weight: 400;
-}
 
 /* ═══════════════════════════════════════════
    SEARCH OVERLAY
@@ -804,6 +738,7 @@ select.p-auth-input {
   -webkit-backdrop-filter: blur(12px); backdrop-filter: blur(12px);
   display: flex; flex-direction: column;
   align-items: center; padding-top: clamp(60px, 12vh, 120px);
+  padding-bottom: clamp(24px, 4vh, 48px);
   opacity: 0; pointer-events: none;
   transition: opacity 0.3s var(--p-ease);
 }
@@ -819,8 +754,16 @@ select.p-auth-input {
 @media (hover: hover) and (pointer: fine) {
   .p-search-close:hover { color: #fff; }
 }
+/* Die Ueberlagerung liegt fix ueber der Seite und hatte keinen Scrollbereich:
+   bei gut 400 Modellen wurde die Liste rund 2800 px hoch und der Rest war
+   schlicht nicht erreichbar. Scrollen darf jetzt allein die Ergebnisliste,
+   damit Suchfeld und Schliessen-Knopf stehen bleiben. flex/min-height: 0 ist
+   dafuer noetig — ohne das waechst ein Flex-Element ueber seinen Platz hinaus,
+   statt zu schrumpfen, und overflow greift nie. */
 .p-search-inner {
   width: min(680px, 90vw);
+  display: flex; flex-direction: column;
+  flex: 1; min-height: 0;
 }
 .p-search-label {
   font-family: var(--p-font); font-size: 11px; font-weight: 600;
@@ -838,7 +781,21 @@ select.p-auth-input {
   font-weight: 300; color: #fff; caret-color: #fff;
 }
 .p-search-input::placeholder { color: rgba(255,255,255,0.18); }
-.p-search-results { display: flex; flex-direction: column; gap: 2px; }
+.p-search-results {
+  display: flex; flex-direction: column; gap: 2px;
+  overflow-y: auto; min-height: 0;
+  /* Sonst scrollt die Seite hinter der Ueberlagerung weiter, sobald die Liste
+     an ihrem Ende ist. */
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255,255,255,0.25) transparent;
+}
+.p-search-results::-webkit-scrollbar { width: 6px; }
+.p-search-results::-webkit-scrollbar-track { background: transparent; }
+.p-search-results::-webkit-scrollbar-thumb {
+  background: rgba(255,255,255,0.22); border-radius: 3px;
+}
 .p-search-result {
   display: flex; align-items: center; gap: 16px;
   padding: 12px 0; border-bottom: 1px solid rgba(255,255,255,0.07);
@@ -938,14 +895,39 @@ select.p-auth-input {
    RESPONSIVE — Landing
    ═══════════════════════════════════════════ */
 @media (max-width: 900px) {
-  .p-finder { grid-template-columns: 1fr; }
-  .p-finder-visual { height: auto; order: 2; }
-  .p-finder-visual img { height: auto; object-fit: contain; }
-  .p-finder-text { padding: var(--p-xl) clamp(20px, 5vw, 40px); order: 1; }
+  /* Gestapelt stoesst die Bildunterkante direkt an den schwarzen Fussbereich.
+     3rem sind bei 16 px Grundschrift und 1,5 Zeilenabstand genau zwei Zeilen
+     Weiss dazwischen. */
+  .p-finder { grid-template-columns: 1fr; min-height: 0; padding-bottom: 3rem; }
+  /* Das Trio-Bild bringt oben rund 15 % weisse Luft und unten den Schatten mit.
+     Nebeneinander faellt das nicht auf, gestapelt stand darum eine leere Flaeche
+     zwischen Knopf und Motorraedern. Statt "contain" bekommt das Bild deshalb
+     einen festen Ausschnitt, der genau dieses Weiss wegschneidet. */
+  .p-finder-visual { order: 2; aspect-ratio: 3 / 2; }
+  .p-finder-visual img { height: 100%; object-fit: cover; object-position: center 60%; }
+  /* Nebeneinander steht der Text ohnehin rechts vom Bild. Gestapelt ging diese
+     Kante verloren; rechtsbuendig bleibt sie erhalten. */
+  .p-finder-text {
+    padding: var(--p-xl) clamp(20px, 5vw, 40px); order: 1;
+    align-items: flex-end; text-align: right;
+  }
+  .p-finder-form { justify-content: flex-end; }
 }
 @media (max-width: 600px) {
-  .p-finder-text { padding: var(--p-lg) clamp(20px, 5vw, 40px); }
+  .p-finder-text { padding: var(--p-lg) clamp(20px, 5vw, 40px) var(--p-md); }
   .p-finder-desc { margin-bottom: var(--p-sm); }
+  /* Kleiner geht nur ueber die Breite, nicht ueber den Ausschnitt: unterhalb
+     von rund 260 px Hoehe wuerde das Beschneiden bereits die Reifen kappen.
+     Linksbuendig, damit das im Bild ohnehin angeschnittene erste Motorrad am
+     Bildschirmrand haengen bleibt statt frei in der Flaeche zu schweben — und
+     als Gegengewicht zum rechtsbuendigen Text darueber. */
+  /* Kein fester Rahmen mehr: das Bild behaelt sein eigenes Seitenverhaeltnis,
+     damit nichts beschnitten wird. Kleiner wird es dann allein ueber die
+     Breite. 1,5rem sind eine Zeile Abstand nach oben. */
+  .p-finder-visual {
+    aspect-ratio: auto; width: 72%; margin-right: auto; margin-top: 1.5rem;
+  }
+  .p-finder-visual img { height: auto; object-fit: contain; }
 }
 @media (max-width: 768px) {
   .p-models-grid { grid-template-columns: 1fr; }
@@ -955,18 +937,33 @@ select.p-auth-input {
 
   /* Lifestyle-Karten: 2 kompakte Spalten statt 3× voller Breite gestapelt;
      die dritte Karte spannt beide Spalten, damit keine Lücke entsteht. */
-  .p-lifestyle-cards { grid-template-columns: repeat(2, 1fr); }
-  .p-lifestyle-card:nth-child(3) { grid-column: 1 / -1; }
-  .p-lifestyle-card-img { height: clamp(130px, 32vw, 200px); }
 
   /* Entdecken: 2-Spalten-Grid im Hochformat statt 6 riesigen Vollbreite-Karten */
   .p-discover { padding: var(--p-lg) clamp(16px, 4vw, 24px); }
   .p-discover-title { margin-bottom: clamp(20px, 3vw, 32px); }
   .p-discover-cats { grid-template-columns: repeat(2, 1fr); }
-  .p-discover-cat { aspect-ratio: 3 / 4; }
-  .p-discover-cat-desc {
-    display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
-    overflow: hidden;
+  /* Hochformat wie zuvor, aber die Studioaufnahmen sind 4:3 quer: formatfuellend
+     beschnitten fielen 44 % der Breite weg, also Vorder- und Hinterrad. Das Bild
+     liegt deshalb als Band in der Mitte, den Rest traegt der Hintergrund.
+     Das Band beginnt bei 22 % und endet bei 78 % der Kachelhoehe (3:4 aussen,
+     4:3 innen). Eine feste Hintergrundfarbe trifft die Bildkante nicht: die
+     Aufnahmen haben eine Vignette, die Oberkante laeuft von 0 in den Ecken auf
+     21 in der Mitte. Deshalb blendet die Bildkante ueber eine Maske aus — das
+     deckt jede Kante ab, unabhaengig von der gemessenen Farbe. Die 12 % oben
+     und 10 % unten liegen vollstaendig im Hintergrund der Aufnahme, das
+     Motorrad beginnt erst bei rund 30 % Bildhoehe. */
+  .p-discover-cat {
+    aspect-ratio: 3 / 4;
+    background: linear-gradient(180deg,
+      #050505 0%, #0b0b0b 22%, #1a1a1a 78%, #1f1f1f 100%);
+  }
+  .p-discover-cat img {
+    position: absolute; left: 0; right: 0; top: 0; bottom: 0; margin: auto;
+    width: 100%; height: auto; object-fit: contain;
+    -webkit-mask-image: linear-gradient(180deg,
+      transparent 0%, #000 12%, #000 90%, transparent 100%);
+    mask-image: linear-gradient(180deg,
+      transparent 0%, #000 12%, #000 90%, transparent 100%);
   }
 
   .p-footer-cols { gap: var(--p-sm) var(--p-md); }
@@ -976,7 +973,7 @@ select.p-auth-input {
     animation-duration: 0.01ms !important;
     transition-duration: 0.15s !important;
   }
-  .hw, .anim-p, .reveal-p { opacity: 1 !important; transform: none !important; }
+  .hw, .anim-p { opacity: 1 !important; transform: none !important; }
 }
 
 
@@ -8890,6 +8887,9 @@ select.p-auth-input {
     border-color: rgba(255,255,255,0.14);
   }
 }
+/* Frueher ein Emoji auf einem farbigen Verlauf — vier verschiedene Farben
+   nebeneinander, die sonst nirgends auf der Seite vorkommen. Jetzt dasselbe
+   Strich-Symbol wie in der Navigation links daneben, auf neutralem Grund. */
 .acc-quick-icon {
   width: 38px;
   height: 38px;
@@ -8897,10 +8897,12 @@ select.p-auth-input {
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 18px;
-  color: #fff;
+  background: rgba(255,255,255,0.06);
+  border: 1px solid rgba(255,255,255,0.07);
+  color: rgba(255,255,255,0.75);
   flex-shrink: 0;
 }
+.acc-quick-icon svg { width: 18px; height: 18px; }
 .acc-quick-label {
   font-size: 13px;
   font-weight: 700;
@@ -8925,16 +8927,30 @@ select.p-auth-input {
 .acc-activity-time {
   font-size: 11px; color: #666; flex-shrink: 0; white-space: nowrap;
 }
+/* 4:3 statt quadratisch, damit die Studio-Aufnahmen (1280x960) formatgleich
+   hineinpassen und kein Rad abgeschnitten wird. Eintraege ohne Foto behalten
+   dieselbe Kachel, damit die linke Kante der Liste gerade bleibt. */
 .acc-activity-icon {
-  font-size: 22px;
-  width: 38px;
-  height: 38px;
+  width: 52px;
+  height: 39px;
   background: rgba(255,255,255,0.06);
+  border: 1px solid rgba(255,255,255,0.07);
   border-radius: 8px;
   display: flex;
   align-items: center;
   justify-content: center;
+  color: rgba(255,255,255,0.7);
   flex-shrink: 0;
+  overflow: hidden;
+}
+.acc-activity-icon svg { width: 17px; height: 17px; }
+/* Die freigestellten Kacheln stehen auf Weiss. Eine dunkle Flaeche darunter
+   zeigte sich als Rand an den abgerundeten Ecken. */
+.acc-activity-icon--foto {
+  background: #fff; border-color: rgba(255,255,255,0.14);
+}
+.acc-activity-icon img {
+  width: 100%; height: 100%; object-fit: cover; display: block;
 }
 .acc-activity-body { min-width: 0; flex: 1; }
 .acc-activity-title {
@@ -9000,16 +9016,25 @@ select.p-auth-input {
     border-color: rgba(255,255,255,0.10);
   }
 }
+/* 4:3 statt quadratisch: die freigestellten Kacheln sind 840x600, in einem
+   Quadrat waere links und rechts ein Rad abgeschnitten. Eintraege ohne Foto
+   behalten dieselbe Flaeche, damit die Liste eine gerade Kante hat. */
 .acc-bike-icon {
-  width: 42px;
+  width: 56px;
   height: 42px;
   border-radius: 10px;
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 20px;
+  background: rgba(255,255,255,0.06);
+  border: 1px solid rgba(255,255,255,0.07);
+  color: rgba(255,255,255,0.7);
   flex-shrink: 0;
+  overflow: hidden;
 }
+.acc-bike-icon svg { width: 18px; height: 18px; }
+.acc-bike-icon--foto { background: #fff; border-color: rgba(255,255,255,0.14); }
+.acc-bike-icon img { width: 100%; height: 100%; object-fit: cover; display: block; }
 .acc-bike-info { flex: 1; min-width: 0; }
 .acc-bike-name { font-size: 14px; font-weight: 700; color: #fff; }
 .acc-bike-meta { font-size: 11.5px; color: #777; margin-top: 2px; }
@@ -9187,26 +9212,10 @@ select.p-auth-input {
 }
 .acc-mini-stat-label { font-size: 11px; color: #888; margin-top: 3px; }
 
-/* Places */
-.acc-places-map-wrap {
-  width: 100%;
-  height: 220px;
-  border-radius: 14px;
-  overflow: hidden;
-  margin-bottom: 14px;
-  border: 1px solid rgba(255,255,255,0.07);
-}
-.acc-places-map { width: 100%; height: 100%; }
-.acc-map-pin { font-size: 22px; line-height: 1; background: none; border: none; }
-.leaflet-popup-content-wrapper {
-  background: #1a1a1a !important;
-  border: 1px solid rgba(255,255,255,0.1) !important;
-  color: #fff !important;
-  border-radius: 10px !important;
-  box-shadow: 0 4px 24px rgba(0,0,0,0.5) !important;
-}
-.leaflet-popup-tip { background: #1a1a1a !important; }
-.leaflet-popup-close-button { color: #888 !important; }
+/* Places
+   Die Regeln fuer die Kartenvorschau (.acc-places-map-wrap, .acc-places-map,
+   .acc-map-pin) sind mit der Karte selbst entfallen. Die drei .leaflet-*-
+   Regeln lagen schon vorher tot herum: Leaflet wird nirgends geladen. */
 .acc-places-list {
   display: flex;
   flex-direction: column;
@@ -9596,15 +9605,21 @@ select.acc-input option { background: #1a1a1a; color: #fff; }
   border-left: 1px solid rgba(255,255,255,0.06);
 }
 .acc-cmp-bike-icon {
-  width: 50px;
-  height: 50px;
-  border-radius: 50%;
+  width: 64px;
+  height: 48px;
+  border-radius: 8px;
   margin: 0 auto 8px;
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 22px;
+  background: rgba(255,255,255,0.06);
+  border: 1px solid rgba(255,255,255,0.07);
+  color: rgba(255,255,255,0.7);
+  overflow: hidden;
 }
+.acc-cmp-bike-icon svg { width: 20px; height: 20px; }
+.acc-cmp-bike-icon--foto { background: #fff; border-color: rgba(255,255,255,0.14); }
+.acc-cmp-bike-icon img { width: 100%; height: 100%; object-fit: cover; display: block; }
 .acc-cmp-bike-name { font-size: 13px; font-weight: 700; color: #fff; line-height: 1.2; }
 .acc-cmp-remove {
   position: absolute;
@@ -9658,159 +9673,6 @@ select.acc-input option { background: #1a1a1a; color: #fff; }
   margin-left: 4px;
   letter-spacing: 0.1em;
   vertical-align: middle;
-}
-
-/* Maintenance */
-/* ══════════════════════════════════════
-   WARTUNG — Maintenance redesign
-   ══════════════════════════════════════ */
-
-.mw-wrap { display: flex; flex-direction: column; gap: 12px; padding: 4px 0 28px; }
-
-/* Search */
-.mw-search-wrap { position: relative; }
-.mw-search-input {
-  width: 100%; padding: 11px 16px; background: rgba(255,255,255,0.05);
-  border: 1px solid rgba(255,255,255,0.08); border-radius: 12px;
-  color: #fff; font-size: 13px; outline: none; box-sizing: border-box;
-  transition: border-color .15s, background .15s;
-}
-.mw-search-input::placeholder { color: #444; }
-.mw-search-input:focus { border-color: rgba(255,255,255,0.2); background: rgba(255,255,255,0.08); }
-.mw-search-results {
-  display: none; position: absolute; top: calc(100% + 6px); left: 0; right: 0;
-  background: #161616; border: 1px solid rgba(255,255,255,0.1); border-radius: 14px;
-  list-style: none; margin: 0; padding: 6px; z-index: 20; overflow: hidden;
-  box-shadow: 0 12px 40px rgba(0,0,0,0.5);
-}
-.mw-search-item {
-  display: flex; align-items: center; gap: 12px; padding: 9px 12px;
-  border-radius: 9px; cursor: pointer; transition: background .12s;
-}
-@media (hover: hover) and (pointer: fine) {
-  .mw-search-item:hover { background: rgba(255,255,255,0.06); }
-}
-.mw-search-item-img { width: 44px; height: 32px; object-fit: cover; border-radius: 7px; flex-shrink: 0; }
-.mw-search-item-icon { font-size: 22px; width: 44px; text-align: center; flex-shrink: 0; }
-.mw-search-item-name { font-size: 13px; font-weight: 700; color: #fff; flex: 1; }
-.mw-search-item-style { font-size: 11px; color: #555; }
-
-/* Empty state */
-.mw-empty {
-  display: flex; flex-direction: column; align-items: center;
-  text-align: center; padding: 50px 20px; gap: 10px;
-}
-.mw-empty-icon { font-size: 44px; opacity: .2; }
-.mw-empty-title { font-size: 15px; font-weight: 700; color: #fff; }
-.mw-empty-sub { font-size: 12px; color: #444; line-height: 1.6; max-width: 260px; }
-
-/* Bike selector tabs */
-.mw-bike-tabs { display: flex; gap: 6px; flex-wrap: wrap; }
-.mw-bike-tab {
-  display: flex; align-items: center; gap: 7px;
-  background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.07);
-  color: #666; border-radius: 22px; padding: 6px 14px;
-  font-size: 12px; font-weight: 600; cursor: pointer; transition: all .15s;
-}
-.mw-bike-tab--active { background: rgba(255,255,255,0.09); border-color: rgba(255,255,255,0.18); color: #e8e8e8; }
-@media (hover: hover) and (pointer: fine) {
-  .mw-bike-tab:hover:not(.mw-bike-tab--active) { color: #bbb; border-color: rgba(255,255,255,0.12); }
-}
-.mw-bike-tab-dot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; }
-.mw-bike-tab-img { width: 26px; height: 20px; object-fit: cover; border-radius: 4px; flex-shrink: 0; }
-
-/* ── Hero card ─────────────────────────────────── */
-.mw-hero {
-  border-radius: 16px; overflow: hidden; position: relative;
-  background: rgba(255,255,255,0.025);
-  border: 1px solid rgba(255,255,255,0.07);
-  border-left: 2px solid rgba(255,255,255,0.18);
-}
-.mw-hero-inner { display: flex; align-items: stretch; }
-.mw-hero-left {
-  flex: 1; display: flex; align-items: center; gap: 14px;
-  padding: 18px 16px 18px 20px;
-}
-.mw-hero-icon {
-  width: 52px; height: 52px; border-radius: 12px; font-size: 26px;
-  background: rgba(255,255,255,0.06);
-  display: flex; align-items: center; justify-content: center; flex-shrink: 0;
-}
-.mw-hero-img {
-  width: 76px; height: 56px; object-fit: cover; border-radius: 10px;
-  flex-shrink: 0; background: rgba(255,255,255,0.04);
-}
-.mw-hero-info { display: flex; flex-direction: column; gap: 2px; }
-.mw-hero-name { font-size: 16px; font-weight: 800; color: #fff; }
-.mw-hero-style { font-size: 10px; font-weight: 600; color: #555; letter-spacing: 0.07em; text-transform: uppercase; }
-.mw-hero-alert {
-  display: inline-flex; align-items: center; gap: 4px;
-  color: #e05555; font-size: 10px; font-weight: 700;
-  margin-top: 5px; letter-spacing: 0.02em;
-}
-.mw-hero-km {
-  display: flex; flex-direction: column; align-items: center; justify-content: center;
-  padding: 0 20px; border-left: 1px solid rgba(255,255,255,0.06);
-  gap: 3px; min-width: 96px;
-}
-.mw-hero-km-label {
-  font-size: 9px; font-weight: 700; letter-spacing: 0.1em;
-  text-transform: uppercase; color: #3a3a3a;
-}
-.mw-km-input {
-  background: transparent; border: none; border-bottom: 1px solid rgba(255,255,255,0.1);
-  color: #fff; font-size: 24px; font-weight: 800; font-family: inherit;
-  width: 84px; text-align: center; outline: none; padding: 2px 0;
-  transition: border-color .15s; -moz-appearance: textfield;
-}
-.mw-km-input::-webkit-inner-spin-button,
-.mw-km-input::-webkit-outer-spin-button { -webkit-appearance: none; }
-.mw-km-input:focus { border-bottom-color: rgba(255,255,255,0.35); }
-.mw-hero-km-sub { font-size: 10px; color: #3a3a3a; font-weight: 600; letter-spacing: 0.08em; }
-
-/* ── Service cards ─────────────────────────────── */
-.mw-services { display: flex; flex-direction: column; gap: 6px; }
-.mw-service-card {
-  display: flex; align-items: center; gap: 14px;
-  background: rgba(255,255,255,0.02);
-  border: 1px solid rgba(255,255,255,0.06);
-  border-radius: 14px; padding: 15px 14px 15px 16px;
-  transition: background .15s;
-}
-@media (hover: hover) and (pointer: fine) {
-  .mw-service-card:hover { background: rgba(255,255,255,0.04); }
-}
-.mw-service-card--alert { border-color: rgba(255,255,255,0.08); }
-.mw-service-icon {
-  width: 38px; height: 38px; flex-shrink: 0; border-radius: 10px;
-  background: rgba(255,255,255,0.04); color: rgba(255,255,255,0.35);
-  display: flex; align-items: center; justify-content: center;
-}
-.mw-service-icon svg { width: 19px; height: 19px; }
-.mw-service-body { flex: 1; min-width: 0; }
-.mw-service-top { display: flex; align-items: center; margin-bottom: 8px; }
-.mw-service-name { font-size: 13px; font-weight: 600; color: #d0d0d0; flex: 1; }
-.mw-service-status { font-size: 11px; font-weight: 600; color: #888; white-space: nowrap; }
-.mw-service-status--ok { color: #fff; }
-.mw-service-status--warn { color: #e8b94a; }
-.mw-service-status--bad { color: #e05555; }
-.mw-bar {
-  height: 3px; background: rgba(255,255,255,0.07);
-  border-radius: 2px; overflow: hidden; margin-bottom: 6px;
-}
-.mw-bar-fill { height: 100%; border-radius: 2px; background: rgba(255,255,255,0.25); transition: width .5s cubic-bezier(.4,0,.2,1); }
-.mw-bar-fill--warn { background: #e8b94a; }
-.mw-bar-fill--bad { background: #e05555; }
-.mw-bar-labels { display: flex; justify-content: space-between; font-size: 10px; color: #3a3a3a; }
-.mw-done-btn {
-  width: 34px; height: 34px; flex-shrink: 0;
-  background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.08);
-  color: rgba(255,255,255,0.3); border-radius: 10px; cursor: pointer;
-  display: flex; align-items: center; justify-content: center;
-  transition: background .15s, color .15s, border-color .15s;
-}
-@media (hover: hover) and (pointer: fine) {
-  .mw-done-btn:hover { background: rgba(255,255,255,0.09); color: #fff; border-color: rgba(255,255,255,0.18); }
 }
 
 /* Journal */
@@ -10185,7 +10047,10 @@ select.acc-input option { background: #1a1a1a; color: #fff; }
   justify-content: center;
 }
 
-.rj-card-body { padding: 12px 14px 14px; }
+/* Unten mehr Luft: der Bearbeiten-Hinweis liegt als Streifen ueber dem
+   Kartenfuss. Ohne diesen Abstand laeuft die letzte Notizzeile darunter —
+   auf Beruehrungsgeraeten dauerhaft, weil der Hinweis dort immer steht. */
+.rj-card-body { padding: 12px 14px 30px; }
 .rj-card-date {
   font-size: 11px;
   font-weight: 800;
@@ -13305,10 +13170,7 @@ select.mmc-input option { background: #111; color: #fff; }
   }
 }
 
-.p-lifestyle-cards--3 { grid-template-columns: repeat(3, 1fr); }
-.p-lifestyle-cards--3 .p-lifestyle-card { cursor: pointer; }
 @media (max-width: 900px) {
-  .p-lifestyle-cards--3 { grid-template-columns: repeat(2, 1fr); }
 }
 
 /* Chooser overlay */
@@ -13564,52 +13426,11 @@ html { -webkit-tap-highlight-color: transparent; }
    gewinnen würden (gleiche Spezifität, spätere Position zählt).
    ═══════════════════════════════════════════ */
 @media (max-width: 600px) {
-  /* Das Vollbild-Foto entfällt auf dem Handy komplett: es belegte einen
-     halben Screen, ohne zusätzliche Information zu tragen, und
-     wiederholte die Bildsprache der Karten direkt darunter. Auf
-     Tablet/Desktop bleibt es unverändert stehen. */
-  .p-lifestyle-hero { display: none; }
-
   /* Aus dem 2+1-Raster werden drei gleich große Vollbreite-Bänder: kein
      Sonderfall für die dritte Karte mehr, keine unterschiedlich hohen
      Label-Blöcke durch Zeilenumbruch ("Finde dein perfektes Bike" brach
      zweizeilig um, die Nachbarkarte nicht) und keine weißen Flächen
      zwischen Bild und Text. */
-  .p-lifestyle-cards--3 {
-    grid-template-columns: 1fr;
-    row-gap: 2px;
-    background: #e4e4e4; /* wird zur 2px-Trennlinie zwischen den Bändern */
-  }
-  .p-lifestyle-cards--3 .p-lifestyle-card-img {
-    height: clamp(140px, 41vw, 168px);
-    object-fit: cover;
-  }
-  .p-lifestyle-cards--3 .p-lifestyle-card-img img {
-    filter: brightness(0.66);
-    object-position: center 42%;
-  }
-  /* Scrim nach unten, damit das Label auf jedem Motiv lesbar bleibt. */
-  .p-lifestyle-cards--3 .p-lifestyle-card-img::after {
-    content: "";
-    position: absolute; inset: 0;
-    background: linear-gradient(to top, rgba(0,0,0,0.62) 0%, rgba(0,0,0,0.18) 46%, rgba(0,0,0,0) 78%);
-    z-index: 1;
-  }
-  /* Label liegt im Bild statt darunter — spart die weiße Textzeile und
-     gibt allen drei Karten dieselbe Höhe. */
-  .p-lifestyle-cards--3 .p-lifestyle-card-label {
-    position: absolute; left: 18px; right: 18px; bottom: 14px;
-    z-index: 3;
-    padding: 0; border-top: none;
-    text-align: left;
-    color: #fff;
-    font-size: 17px; font-weight: 600; line-height: 1.25;
-    letter-spacing: 0.01em;
-    text-shadow: 0 1px 12px rgba(0,0,0,0.45);
-  }
-  /* Der Hover-Info-Text war auf Touch ohnehin nie erreichbar (:hover) und
-     würde über dem Label doppeln. */
-  .p-lifestyle-cards--3 .p-lc-info { display: none; }
 }
 
 /* ═══════════════════════════════════════════
@@ -14017,3 +13838,469 @@ html {
   border-radius: 10px;
   padding: 8px 14px;
 }
+
+/* ═══════════════════════════════════════════
+   FAHRTENBUCH — Aufzeichnung, Strecke, Teilen
+   ═══════════════════════════════════════════ */
+
+/* Aufnahme starten */
+.rj-rec-btn {
+  display: inline-flex; align-items: center; gap: 8px;
+  padding: 10px 18px; border-radius: 999px;
+  background: rgba(255,255,255,0.06);
+  border: 1px solid rgba(255,255,255,0.14);
+  color: #fff; font-family: inherit; font-size: 13px; font-weight: 700;
+  cursor: pointer; white-space: nowrap;
+  transition: background 0.15s, border-color 0.15s;
+}
+@media (hover: hover) and (pointer: fine) {
+  .rj-rec-btn:hover { background: rgba(255,255,255,0.11); border-color: rgba(255,255,255,0.24); }
+}
+.rj-rec-btn-dot {
+  width: 9px; height: 9px; border-radius: 50%;
+  background: #e05555; flex-shrink: 0;
+}
+
+/* Unterbrochene Aufzeichnung */
+.rj-resume {
+  display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between;
+  gap: 12px; margin-bottom: 16px; padding: 14px 16px;
+  background: rgba(232,197,109,0.08);
+  border: 1px solid rgba(232,197,109,0.28);
+  border-radius: 12px;
+}
+.rj-resume-text { font-size: 13px; color: rgba(255,255,255,0.8); }
+.rj-resume-text strong { color: #fff; }
+.rj-resume-btns { display: flex; gap: 8px; }
+.rj-resume-go, .rj-resume-drop {
+  padding: 8px 14px; border-radius: 8px; cursor: pointer;
+  font-family: inherit; font-size: 12px; font-weight: 700;
+}
+.rj-resume-go { background: #e8c56d; border: none; color: #111; }
+.rj-resume-drop {
+  background: none; border: 1px solid rgba(255,255,255,0.16);
+  color: rgba(255,255,255,0.6);
+}
+
+/* Laufende Aufzeichnung */
+/* Vollbild statt Kaestchen im Fluss: waehrend der Fahrt schaut man aus
+   Armlaenge auf das Telefon, da muessen die Zahlen gross stehen und darf
+   nichts anderes im Bild sein. */
+.rj-rec {
+  position: fixed; inset: 0; z-index: 1200;
+  display: flex; flex-direction: column;
+  padding: max(20px, env(safe-area-inset-top)) 20px max(20px, env(safe-area-inset-bottom));
+  background: #080808;
+  overflow-y: auto;
+}
+.rj-rec[hidden] { display: none; }
+body.rj-rec-offen { overflow: hidden; }
+.rj-rec.is-paused { background: #0d0b06; }
+
+.rj-rec-top {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 12px; margin-bottom: 8px;
+}
+.rj-rec-gps { font-size: 11px; color: rgba(255,255,255,0.25); }
+.rj-rec-status {
+  display: flex; align-items: center; gap: 9px;
+  font-size: 12px; font-weight: 600; letter-spacing: 0.06em;
+  text-transform: uppercase; color: rgba(255,255,255,0.55);
+}
+
+/* Die Kilometer sind die Zahl, auf die man im Fahren schaut. */
+.rj-rec-haupt { text-align: center; margin: 12px 0 4px; }
+.rj-rec-haupt-num {
+  display: block;
+  font-size: clamp(64px, 20vw, 120px); font-weight: 200;
+  line-height: 1; color: #fff; letter-spacing: -0.03em;
+  font-variant-numeric: tabular-nums;
+}
+.rj-rec-haupt-lbl {
+  display: block; margin-top: 6px;
+  font-size: 12px; letter-spacing: 0.16em; text-transform: uppercase;
+  color: rgba(255,255,255,0.3);
+}
+.rj-rec-dot {
+  width: 10px; height: 10px; border-radius: 50%;
+  background: #e05555; flex-shrink: 0;
+  animation: rj-puls 1.6s ease-in-out infinite;
+}
+.rj-rec-dot.is-paused { background: rgba(255,255,255,0.35); animation: none; }
+@keyframes rj-puls {
+  0%, 100% { opacity: 1; }
+  50%      { opacity: 0.25; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .rj-rec-dot { animation: none; }
+}
+
+.rj-rec-map {
+  position: relative;
+  flex: 1; min-height: 150px; margin: 14px 0 16px;
+  background: rgba(255,255,255,0.03);
+  border-radius: 10px;
+  overflow: hidden;
+}
+.rj-rec-svg { width: 100%; height: 100%; display: block; color: #e8c56d; }
+.rj-rec-empty {
+  position: absolute; inset: 0;
+  display: flex; align-items: center; justify-content: center;
+  padding: 0 24px; text-align: center;
+  font-size: 12px; color: rgba(255,255,255,0.3);
+}
+/* display: flex sticht das hidden-Attribut aus — ohne diese Zeile bleibt der
+   Hinweis ueber der fertig gezeichneten Strecke stehen. */
+.rj-rec-empty[hidden] { display: none; }
+
+.rj-rec-nums {
+  display: grid; grid-template-columns: repeat(4, 1fr);
+  gap: 8px; margin-bottom: 16px;
+}
+.rj-rec-num { text-align: center; }
+.rj-rec-num span {
+  display: block;
+  font-size: clamp(22px, 5vw, 30px); font-weight: 300;
+  color: #fff; line-height: 1.1;
+  /* Ohne feste Ziffernbreite zittert die Anzeige bei jedem Messwert. */
+  font-variant-numeric: tabular-nums;
+}
+.rj-rec-num small {
+  display: block; margin-top: 4px;
+  font-size: 11px; letter-spacing: 0.08em;
+  color: rgba(255,255,255,0.35);
+}
+
+.rj-rec-btns { display: flex; gap: 10px; }
+.rj-rec-pause, .rj-rec-stop {
+  flex: 1; padding: 13px; border-radius: 10px; cursor: pointer;
+  font-family: inherit; font-size: 13px; font-weight: 700;
+}
+.rj-rec-pause {
+  background: rgba(255,255,255,0.07);
+  border: 1px solid rgba(255,255,255,0.14);
+  color: #fff;
+}
+.rj-rec-stop { background: #fff; border: none; color: #111; }
+.rj-rec-cancel {
+  display: block; width: 100%; margin-top: 10px; padding: 8px;
+  background: none; border: none; cursor: pointer;
+  font-family: inherit; font-size: 12px; color: rgba(255,255,255,0.35);
+}
+@media (hover: hover) and (pointer: fine) {
+  .rj-rec-cancel:hover { color: rgba(255,255,255,0.6); }
+}
+.rj-rec-hint {
+  margin: 12px 0 0; font-size: 11px; line-height: 1.5;
+  color: rgba(255,255,255,0.28); text-align: center;
+}
+
+/* Strecke auf der Karteikarte */
+.rj-card-spur-wrap {
+  height: 120px; display: flex; align-items: center; justify-content: center;
+  background: rgba(0,0,0,0.04);
+  color: var(--accent, #e8c56d);
+}
+.rj-card-spur { width: 100%; height: 100%; display: block; }
+.rj-card-spur-strip {
+  height: 34px; color: var(--accent, #e8c56d);
+  background: rgba(0,0,0,0.05);
+}
+
+/* Teilen */
+.rj-card-share {
+  position: absolute; top: 8px; right: 8px; z-index: 3;
+  width: 30px; height: 30px; border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  background: rgba(0,0,0,0.42); border: none; color: #fff;
+  cursor: pointer; opacity: 0; pointer-events: none;
+  transition: opacity 0.18s, background 0.18s;
+}
+/* Auf Zeigergeraeten erst beim Ueberfahren — auf Beruehrung gibt es kein
+   Ueberfahren, dort steht der Knopf dauerhaft. */
+@media (hover: hover) and (pointer: fine) {
+  .rj-card:hover .rj-card-share,
+  .rj-card-share:focus-visible { opacity: 1; pointer-events: auto; }
+  .rj-card-share:hover { background: rgba(0,0,0,0.65); }
+}
+@media (hover: none) {
+  .rj-card-share { opacity: 1; pointer-events: auto; }
+}
+.rj-card-share:disabled { opacity: 0.4; cursor: default; }
+
+/* ═══════════════════════════════════════════
+   FAHRTENBUCH — Bestwerte und Detailansicht
+   ═══════════════════════════════════════════ */
+
+.rj-bests {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 2px; margin-bottom: 18px;
+  background: rgba(255,255,255,0.06);
+  border-radius: 12px; overflow: hidden;
+}
+.rj-bests[hidden] { display: none; }
+.rj-best { padding: 14px 16px; background: #141414; }
+.rj-best-lbl {
+  display: block; font-size: 10px; letter-spacing: 0.14em;
+  text-transform: uppercase; color: rgba(255,255,255,0.3);
+}
+.rj-best-val {
+  display: block; margin-top: 5px;
+  font-size: 22px; font-weight: 300; color: #fff;
+  font-variant-numeric: tabular-nums;
+}
+.rj-best-sub {
+  display: block; margin-top: 2px;
+  font-size: 11px; color: rgba(255,255,255,0.35);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+
+/* Detailansicht */
+.rj-detail[hidden] { display: none; }
+.rj-detail-kopf {
+  display: flex; align-items: center; justify-content: space-between;
+  margin-bottom: 18px;
+}
+.rj-detail-zurueck, .rj-detail-teilen {
+  display: inline-flex; align-items: center; gap: 8px;
+  background: none; border: none; cursor: pointer;
+  font-family: inherit; font-size: 13px; color: rgba(255,255,255,0.6);
+  padding: 6px 0;
+}
+.rj-detail-teilen {
+  padding: 8px 16px; border-radius: 8px;
+  border: 1px solid rgba(255,255,255,0.16); color: #fff; font-weight: 600;
+}
+@media (hover: hover) and (pointer: fine) {
+  .rj-detail-zurueck:hover, .rj-detail-teilen:hover { color: #fff; }
+}
+.rj-detail-titel {
+  margin: 0; font-size: clamp(22px, 4vw, 30px); font-weight: 300;
+  color: #fff; letter-spacing: -0.01em;
+}
+.rj-detail-datum {
+  margin-top: 4px; font-size: 12px; color: rgba(255,255,255,0.35);
+}
+
+.rj-detail-spur {
+  margin: 20px 0; height: 260px;
+  background: rgba(255,255,255,0.03); border-radius: 12px;
+  color: var(--accent, #e8c56d);
+  display: flex; align-items: center; justify-content: center;
+}
+.rj-detail-spur-svg { width: 100%; height: 100%; display: block; }
+
+.rj-detail-zahlen {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(84px, 1fr));
+  gap: 2px; margin-bottom: 24px;
+  background: rgba(255,255,255,0.06); border-radius: 12px; overflow: hidden;
+}
+.rj-detail-zahl { padding: 14px 10px; background: #141414; text-align: center; }
+.rj-detail-zahl span {
+  display: block; font-size: 24px; font-weight: 300; color: #fff;
+  font-variant-numeric: tabular-nums;
+}
+.rj-detail-zahl small {
+  display: block; margin-top: 4px;
+  font-size: 10px; letter-spacing: 0.1em; color: rgba(255,255,255,0.3);
+}
+
+.rj-detail-block { margin-bottom: 26px; }
+.rj-detail-h {
+  margin: 0 0 10px; font-size: 12px; font-weight: 600;
+  letter-spacing: 0.14em; text-transform: uppercase;
+  color: rgba(255,255,255,0.4);
+}
+.rj-detail-leer, .rj-detail-notiz {
+  margin: 0; font-size: 13px; line-height: 1.6; color: rgba(255,255,255,0.45);
+}
+
+/* Verlaufskurven */
+.rj-kurve {
+  position: relative; height: 120px;
+  background: rgba(255,255,255,0.03); border-radius: 10px; overflow: hidden;
+}
+.rj-kurve svg { width: 100%; height: 100%; display: block; }
+.rj-kurve-linie { fill: none; stroke-width: 2; vector-effect: non-scaling-stroke; }
+.rj-kurve-flaeche { stroke: none; }
+.rj-kurve.is-tempo .rj-kurve-linie  { stroke: #7ab3e0; }
+.rj-kurve.is-tempo .rj-kurve-flaeche { fill: rgba(122,179,224,0.14); }
+.rj-kurve.is-hoehe .rj-kurve-linie  { stroke: #81b29a; }
+.rj-kurve.is-hoehe .rj-kurve-flaeche { fill: rgba(129,178,154,0.14); }
+.rj-kurve-max, .rj-kurve-min {
+  position: absolute; right: 10px;
+  font-size: 10px; color: rgba(255,255,255,0.35);
+  font-variant-numeric: tabular-nums;
+}
+.rj-kurve-max { top: 8px; }
+.rj-kurve-min { bottom: 8px; }
+
+/* Kilometer-Abschnitte */
+.rj-splits { display: flex; flex-direction: column; gap: 2px; }
+.rj-split {
+  display: grid;
+  grid-template-columns: 52px 1fr 72px 56px 48px;
+  align-items: center; gap: 10px;
+  padding: 9px 12px; background: rgba(255,255,255,0.03); border-radius: 8px;
+  font-size: 12px; font-variant-numeric: tabular-nums;
+}
+.rj-split-km { color: rgba(255,255,255,0.5); }
+.rj-split-bar {
+  height: 6px; border-radius: 3px; background: rgba(255,255,255,0.06);
+  overflow: hidden;
+}
+/* Die Balkenlaenge steht zum schnellsten Kilometer, nicht zu null — sonst
+   sehen alle Abschnitte einer gleichmaessigen Fahrt gleich lang aus. */
+.rj-split-bar i { display: block; height: 100%; background: #7ab3e0; }
+.rj-split-kmh { color: #fff; text-align: right; }
+.rj-split-zeit { color: rgba(255,255,255,0.45); text-align: right; }
+.rj-split-hm { color: rgba(255,255,255,0.35); text-align: right; }
+
+@media (max-width: 560px) {
+  .rj-split {
+    grid-template-columns: 44px 1fr 62px 48px;
+    gap: 8px; font-size: 11px;
+  }
+  .rj-split-hm { display: none; }
+}
+
+.rj-detail-bearbeiten {
+  width: 100%; padding: 13px; border-radius: 10px;
+  background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.12);
+  color: rgba(255,255,255,0.7); font-family: inherit; font-size: 13px;
+  cursor: pointer;
+}
+
+/* Zustimmung vor dem Laden fremder Kartenkacheln (Reiter „Orte") */
+.acc-map-consent {
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 14px; height: 100%; padding: 20px;
+  text-align: center;
+  background: rgba(255,255,255,0.03);
+  border: 1px dashed rgba(255,255,255,0.12);
+  border-radius: 12px;
+}
+.acc-map-consent-text {
+  margin: 0; max-width: 42ch;
+  font-size: 12px; line-height: 1.6; color: rgba(255,255,255,0.5);
+}
+.acc-map-consent-text strong { color: rgba(255,255,255,0.8); }
+.acc-map-consent-text a { color: rgba(255,255,255,0.8); text-decoration: underline; }
+.acc-map-consent-btn {
+  padding: 10px 20px; border-radius: 8px;
+  background: rgba(255,255,255,0.09); border: 1px solid rgba(255,255,255,0.16);
+  color: #fff; font-family: inherit; font-size: 13px; font-weight: 600;
+  cursor: pointer;
+}
+@media (hover: hover) and (pointer: fine) {
+  .acc-map-consent-btn:hover { background: rgba(255,255,255,0.16); }
+}
+
+/* ═══════════════════════════════════════════
+   FAVORITEN — Bikes, Ausrüstung und Orte in einem Reiter
+   ═══════════════════════════════════════════ */
+
+.fav-bar {
+  display: flex; flex-wrap: wrap; gap: 6px;
+  margin-bottom: 20px;
+}
+.fav-btn {
+  display: inline-flex; align-items: center; gap: 7px;
+  padding: 9px 15px; border-radius: 999px;
+  background: rgba(255,255,255,0.05);
+  border: 1px solid rgba(255,255,255,0.08);
+  color: rgba(255,255,255,0.6);
+  font-family: inherit; font-size: 13px; font-weight: 600;
+  cursor: pointer; white-space: nowrap;
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
+}
+@media (hover: hover) and (pointer: fine) {
+  .fav-btn:hover { background: rgba(255,255,255,0.09); color: #fff; }
+}
+.fav-btn--active {
+  background: #fff; border-color: #fff; color: #111;
+}
+.fav-btn-count {
+  font-size: 11px; font-weight: 700;
+  padding: 1px 7px; border-radius: 999px;
+  background: rgba(255,255,255,0.1); color: inherit;
+  font-variant-numeric: tabular-nums;
+}
+.fav-btn--active .fav-btn-count { background: rgba(0,0,0,0.12); }
+
+/* Abstand zwischen den Abschnitten, wenn „Alle" alle drei zeigt */
+.fav-sektion + .fav-sektion {
+  margin-top: 30px; padding-top: 30px;
+  border-top: 1px solid rgba(255,255,255,0.07);
+}
+
+/* ─── Favoriten: eine Zeilenform für alle drei Arten ───
+   Bikes, Ausrüstung und Orte hatten je eigene Karten mit eigenen Abständen,
+   Schriftgrößen und Zusatzangaben. Untereinander sah das nach drei Baustellen
+   aus. Jetzt dieselbe Zeile für alles: Bild (nur bei Bikes), Name, eine
+   Meta-Zeile, optional ein Wert, dann die Aktionen. */
+.fav-h {
+  margin: 0 0 12px;
+  font-size: 13px; font-weight: 600;
+  letter-spacing: 0.12em; text-transform: uppercase;
+  color: rgba(255,255,255,0.4);
+}
+.fav-h--zweit { margin-top: 26px; }
+
+.fav-suche {
+  width: 100%; margin-bottom: 14px;
+}
+.fav-hinweis { margin: 0; }
+
+.fav-liste { display: flex; flex-direction: column; gap: 2px; }
+
+.fav-zeile {
+  display: flex; align-items: center; gap: 12px;
+  padding: 10px 12px;
+  background: rgba(255,255,255,0.03);
+  border-radius: 10px;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+@media (hover: hover) and (pointer: fine) {
+  .fav-zeile:hover { background: rgba(255,255,255,0.07); }
+}
+.fav-zeile-bild {
+  width: 52px; height: 39px; flex-shrink: 0;
+  border-radius: 8px; overflow: hidden;
+  display: flex; align-items: center; justify-content: center;
+  background: rgba(255,255,255,0.06);
+  border: 1px solid rgba(255,255,255,0.07);
+  color: rgba(255,255,255,0.7);
+}
+.fav-zeile-bild svg { width: 17px; height: 17px; }
+.fav-zeile-bild--foto { background: #fff; border-color: rgba(255,255,255,0.14); }
+.fav-zeile-bild img { width: 100%; height: 100%; object-fit: cover; display: block; }
+
+.fav-zeile-text { flex: 1; min-width: 0; }
+.fav-zeile-name {
+  font-size: 14px; font-weight: 600; color: #fff;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.fav-zeile-meta {
+  margin-top: 2px; font-size: 11.5px; color: rgba(255,255,255,0.4);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.fav-zeile-wert {
+  font-size: 13px; color: rgba(255,255,255,0.75); white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+.fav-zeile-pfeil { color: rgba(255,255,255,0.25); flex-shrink: 0; }
+.fav-zeile-aktion {
+  display: flex; align-items: center; justify-content: center;
+  width: 28px; height: 28px; flex-shrink: 0;
+  border-radius: 50%; border: none; cursor: pointer;
+  background: rgba(255,255,255,0.06); color: rgba(255,255,255,0.55);
+}
+@media (hover: hover) and (pointer: fine) {
+  .fav-zeile-aktion:hover { background: rgba(255,255,255,0.14); color: #fff; }
+}
+
+.acc-leer { padding: 28px 16px; text-align: center; }
+.acc-leer p { margin: 0; font-size: 14px; color: rgba(255,255,255,0.6); }
+.acc-leer-sub { margin-top: 6px !important; font-size: 12px !important; color: rgba(255,255,255,0.35) !important; }

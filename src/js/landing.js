@@ -3,7 +3,6 @@ import { getCatalog, findBikeByShortName } from "./matching.js";
 import { bikeBild } from "./bike-bild.js";
 import { esc } from "./util.js";
 
-let landingObserver = null;
 let _scrollHandler = null;
 
 // Kurze Vorschau-Info auf den Lifestyle-Karten — erscheint rein per CSS
@@ -18,9 +17,9 @@ const LC_INFO = {
 
 // Nutzungs-Sektionen unter dem Hero — adressieren neue und Bestandsfahrer.
 const USE_SECTIONS = [
-  { id: "lc-quiz",      label: "Finde dein perfektes Bike", img: "/quiz-lifestyle.webp",      action: "quiz"      },
-  { id: "lc-garage",    label: "Deine Garage im Blick",     img: "/dealer-lifestyle.webp",    action: "garage"    },
-  { id: "lc-community", label: "Fahr nicht allein",         img: "/community-lifestyle.webp", action: "community" },
+  { id: "lc-quiz",      label: "Finde dein perfektes Bike", action: "quiz"      },
+  { id: "lc-garage",    label: "Deine Garage im Blick",     action: "garage"    },
+  { id: "lc-community", label: "Fahr nicht allein",         action: "community" },
 ];
 
 const FEATURED_BIKES = [
@@ -81,13 +80,22 @@ function resolveFeaturedBike(def) {
   return findBikeByShortName(def.name) || def;
 }
 
+/* Sechs Kategorien, je das beliebteste Modell darin. "Beliebt" ist nicht
+   geschaetzt, sondern das Feld pop aus katalog-de.json (BMW R 1250 GS 0,965 …
+   Harley Sportster S 0,719). Wo die Nummer eins einer Kategorie dieselbe Marke
+   gehabt haette wie eine schon vergebene, steht die naechste: Sportbike waere
+   sonst die zweite Kawasaki, Cruiser die zweite Honda. So stehen sechs Marken
+   nebeneinander statt drei doppelt.
+   Bilder aus /bikes/showroom/ — die selbst erzeugten Studioaufnahmen. Sie sind
+   schon dunkel, deshalb faellt der Abdunkler in .p-discover-cat img schwaecher
+   aus als bei den fruehereren Landschaftsbildern. */
 const DISCOVER_CATS = [
-  { type: "Stil", name: "Cruiser",   primaryBike: "Iron 883",    bikes: "Iron 883 · Seventy-Two",   desc: "Dark Custom mit V-Twin. Minimalistisch, roh, unverkennbar.",        img: "/bikes/harley_iron883_2018_kachel.webp",    filter: "Cruiser"   },
-  { type: "Stil", name: "Sportbike", primaryBike: "YZF-R3",      bikes: "YZF-R3 · NR750",           desc: "Agilität trifft Technik. Für die Rennstrecke und die Straße.",       img: "/bikes/yamaha_yzfr3_2017_kachel.webp",      filter: "Sport"     },
-  { type: "Stil", name: "Klassiker", primaryBike: "CB 750 F",    bikes: "CB 750 F · RX King",       desc: "Zeitlose Legenden. Geschichte, die man fahren kann.",                img: "/bikes/honda_cb750f_1970_kachel.webp",      filter: "Klassiker" },
-  { type: "Stil", name: "Custom",    primaryBike: "500 Custom",  bikes: "500 Custom · DT 125",      desc: "Einzigartiger Stil. Jedes Bike ein Unikat.",                         img: "/bikes/yamaha_500custom.webp",       filter: "Custom"    },
-  { type: "Stil", name: "Naked",     primaryBike: "NR750",       bikes: "CRF450R · Speed Triple",   desc: "Puristische Power ohne Verkleidung. Fahrspaß pur.",                 img: "/bikes/honda_nr750_1994.webp",       filter: "Sportbike" },
-  { type: "Stil", name: "Vintage",   primaryBike: "Seventy-Two", bikes: "Seventy-Two · CB 750 F",   desc: "Klassisches Design, moderne Seele. Retro mit Charakter.",           img: "/bikes/harley_seventytwo_2015_kachel.webp", filter: "Cruiser"   },
+  { type: "Stil", name: "Reiseenduro", fullName: "BMW R 1250 GS",               primaryBike: "R 1250 GS",   bikes: "R 1250 GS · Africa Twin", img: "/bikes/showroom/bmw_r1250gs_2022.webp",       filter: "Enduro" },
+  { type: "Stil", name: "Klassiker",   fullName: "Yamaha XSR900",               primaryBike: "XSR900",      bikes: "XSR900 · Speed Twin",     img: "/bikes/showroom/yamaha_xsr900_2022.webp",     filter: "Klassiker" },
+  { type: "Stil", name: "Naked",       fullName: "Kawasaki Z900",               primaryBike: "Z900",        bikes: "Z900 · MT-09",            img: "/bikes/showroom/kawasaki_z900_2022.webp",     filter: "Naked" },
+  { type: "Stil", name: "Sportbike",   fullName: "Honda CBR650R",               primaryBike: "CBR650R",     bikes: "CBR650R · Ninja ZX-6R",   img: "/bikes/showroom/honda_cbr650r_2022.webp",     filter: "Sportbike" },
+  { type: "Stil", name: "Cruiser",     fullName: "Harley-Davidson Sportster S", primaryBike: "Sportster S", bikes: "Sportster S · Rebel 500", img: "/bikes/showroom/harley_sportsters_2022.webp", filter: "Cruiser" },
+  { type: "Stil", name: "Roller",      fullName: "Vespa GTS 125",               primaryBike: "GTS 125",     bikes: "GTS 125 · Forza 125",     img: "/bikes/showroom/vespa_gts125_2022.webp",      filter: "Roller" },
 ];
 
 // ── Toast helper ─────────────────────────────────────────
@@ -130,6 +138,10 @@ function buildSearchOverlay() {
   const results = overlay.querySelector("#p-search-results");
 
   const renderResults = (query) => {
+    /* Seit die Liste scrollt, bleibt sie beim Neuaufbau sonst auf der alten
+       Position stehen: nach dem Tippen landete man mitten in den Treffern
+       statt beim ersten. */
+    results.scrollTop = 0;
     const q = query.trim().toLowerCase();
     const catalog = getCatalog();
     /* Der Katalog umfasst seit 2026-09-17 den ganzen deutschen Markt. Ohne Suchwort stehen
@@ -363,7 +375,6 @@ export function ensureLandingRendered() {
 }
 
 export function initLanding() {
-  if (landingObserver) { landingObserver.disconnect(); landingObserver = null; }
   if (_scrollHandler) { window.removeEventListener("scroll", _scrollHandler); _scrollHandler = null; }
 
   const landing = document.getElementById("landing");
@@ -437,48 +448,40 @@ export function initLanding() {
       </div>
     </section>
 
-    <!-- ═══ LIFESTYLE HERO ═══ -->
-    <div class="p-lifestyle-hero">
-      <img src="/hero-lifestyle.webp" alt="Fahrerlebnis" loading="lazy" decoding="async" />
-    </div>
-
-    <!-- ═══ USE SECTIONS ═══ -->
-    <div class="p-lifestyle-cards p-lifestyle-cards--3">
-      ${USE_SECTIONS.map(s => `
-        <article class="p-lifestyle-card" id="${esc(s.id)}" data-action="${esc(s.action)}">
-          <div class="p-lifestyle-card-img">
-            <img src="${esc(s.img)}" alt="${esc(s.label)}" loading="lazy" decoding="async">
-            <div class="p-lc-info"><p class="p-lc-info-text">${esc(LC_INFO[s.id] || "")}</p></div>
-          </div>
-          <span class="p-lifestyle-card-label">${esc(s.label)}</span>
-        </article>
-      `).join("")}
-    </div>
+    <!-- ═══ WAS MOTOMATCH MACHT ═══ -->
+    <!-- Ersetzt die drei Bildkarten. Zwei davon waren Dopplung: die Quiz-Karte
+         klickte den Hero-Knopf an, die Garage-Karte fuehrte dorthin, wohin auch
+         "Ich hab schon eins" fuehrt.
+         Zwischenschritte, die wieder raus sind: erst ein Fliesstext mit vier
+         eingebetteten Verweisen (am Telefon sieben zentrierte Zeilen), dann ein
+         Satz mit einer Verweis-Reihe darunter. Beides war zu viel fuer die
+         Stelle. Geblieben ist eine Zeile im Ton des Hero. Garage, Ausruestung,
+         Karte und Community stehen ohnehin alle im Menue. -->
+    <section class="p-intro">
+      <p class="p-intro-text">Über 1.000 Motorräder mit Preis, Technik und Führerscheinklasse. Acht Fragen zeigen dir, welche davon zu dir passen.</p>
+    </section>
 
     <!-- ═══ DISCOVER ═══ -->
-    <section class="p-discover reveal-p" id="p-discover">
+    <section class="p-discover" id="p-discover">
       <h2 class="p-discover-title">Entdecken</h2>
       <div class="p-discover-cats">
         ${DISCOVER_CATS.map(c => `
           <div class="p-discover-cat" data-primary-bike="${c.primaryBike}">
-            <img src="${c.img}" alt="${c.name}" loading="lazy" decoding="async">
+            <img src="${c.img}" alt="${c.fullName} \u2014 ${c.name}" loading="lazy" decoding="async">
             <div class="p-discover-cat-top">${c.bikes}</div>
-            <div class="p-discover-cat-bottom">
-              <div class="p-discover-cat-desc">${c.desc}</div>
-            </div>
           </div>
         `).join("")}
       </div>
     </section>
 
     <!-- ═══ FINDER ═══ -->
-    <section class="p-finder reveal-p" id="p-finder">
+    <section class="p-finder" id="p-finder">
       <div class="p-finder-visual">
         <img src="/bikes/sportbikes_trio.webp" alt="MotoMatch Motorrad" loading="lazy" decoding="async" />
       </div>
       <div class="p-finder-text">
-        <h2 class="p-finder-title">Finde mit 7 Fragen<br>dein passendes Bike.</h2>
-        <p class="p-finder-desc">Keine Verkaufsberatung, sondern ehrliches Matching — und Händler in deiner Nähe für eine unverbindliche Probefahrt.</p>
+        <h2 class="p-finder-title">Finde mit 8 Fragen<br>dein passendes Bike.</h2>
+        <p class="p-finder-desc">Führerschein, Budget, Fahrstil, Körpergröße — mehr braucht es nicht.</p>
         <div class="p-finder-form">
           <button class="p-finder-submit" id="finder-submit">MATCH FINDEN</button>
         </div>
@@ -508,7 +511,6 @@ export function initLanding() {
   // ── Quiz start ──────────────────────────────────────────
   const startQuiz = async () => {
     if (_scrollHandler) { window.removeEventListener("scroll", _scrollHandler); _scrollHandler = null; }
-    if (landingObserver) { landingObserver.disconnect(); landingObserver = null; }
     document.documentElement.classList.remove("has-landing");
     landing.style.transition = "opacity 0.5s ease";
     landing.style.opacity = "0";
@@ -525,8 +527,8 @@ export function initLanding() {
   document.getElementById("hero-cta-existing").addEventListener("click", openExistingRiderChooser);
 
   // ── Use-section cards → passenden Screen ────────────────
-  landing.querySelectorAll(".p-lifestyle-card[data-action]").forEach((card) => {
-    card.addEventListener("click", () => runLandingAction(card.dataset.action));
+  landing.querySelectorAll("[data-action]").forEach((el) => {
+    el.addEventListener("click", () => runLandingAction(el.dataset.action));
   });
 
   // ── Discover category cards → Garage ───────────────────
@@ -654,7 +656,6 @@ export function initLanding() {
       // Hintergrund aktiv (Menü/Scroll-Handler etc.), während der
       // Konfigurator angezeigt wird.
       if (_scrollHandler) { window.removeEventListener("scroll", _scrollHandler); _scrollHandler = null; }
-      if (landingObserver) { landingObserver.disconnect(); landingObserver = null; }
       document.documentElement.classList.remove("has-landing");
       landing.style.transition = "opacity 0.3s ease";
       landing.style.opacity = "0";
@@ -706,20 +707,6 @@ export function initLanding() {
   // ── First-visit onboarding ─────────────────────────────────
   maybeShowOnboarding();
 
-  // ── Scroll reveal ────────────────────────────────────────
-  landingObserver = new IntersectionObserver(
-    (entries) => entries.forEach((e) => { if (e.isIntersecting) e.target.classList.add("vis"); }),
-    { threshold: 0, rootMargin: "0px 0px -5% 0px" },
-  );
-  landing.querySelectorAll(".reveal-p").forEach((el) => landingObserver.observe(el));
-  // Fallback: mark already-visible elements immediately
-  setTimeout(() => {
-    landing.querySelectorAll(".reveal-p:not(.vis)").forEach((el) => {
-      const r = el.getBoundingClientRect();
-      if (r.top < window.innerHeight) el.classList.add("vis");
-    });
-  }, 100);
-
   // ── Hero entrance animation ──────────────────────────────
   const words = landing.querySelectorAll(".p-hero-title .hw");
   words.forEach((w, i) => setTimeout(() => w.classList.add("vis"), 200 + i * 180));
@@ -731,6 +718,6 @@ export function initLanding() {
   }, delay);
   // ── Hard fallback: ensure nothing stays invisible ────────
   setTimeout(() => {
-    landing.querySelectorAll(".hw, .anim-p, .reveal-p").forEach((el) => el.classList.add("vis"));
+    landing.querySelectorAll(".hw, .anim-p").forEach((el) => el.classList.add("vis"));
   }, 1200);
 }

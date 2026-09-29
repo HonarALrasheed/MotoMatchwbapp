@@ -112,19 +112,6 @@ const questions = [
       { value: "Nein", label: "Nein, nur allein" },
     ],
   },
-  {
-    id: 8,
-    question: "Deine Schrittlänge?",
-    hinweis: "Innenbein vom Boden bis zum Schritt. Sie entscheidet, ob du sicher stehst — nicht die Körpergröße. Der Vorschlag stammt aus deiner Größe, du kannst ihn einfach übernehmen.",
-    type: "slider",
-    unit: "cm",
-    min: 65,
-    max: 100,
-    step: 1,
-    default: 79,
-    // Vorschlag aus der Körpergröße (q6): die Schrittlänge liegt im Mittel bei 45 % davon.
-    ableiten: (a) => Math.round((Number(a.q6) || 175) * 0.45),
-  },
 ];
 
 /* ═══ State ═══ */
@@ -1316,7 +1303,7 @@ function showQuestion(i) {
     const nextBtn = document.getElementById("next-btn");
 
     const stored = answers[`q${q.id}`];
-    /* Fragen mit ableiten() (z.B. Schrittlaenge aus Groesse) sollen den Vorschlag live
+    /* Fragen mit ableiten() sollen ihren Vorschlag live
        aus der Quellantwort neu berechnen — sonst zeigt ein gespeicherter Wert nach einer
        Korrektur der Quellfrage (z.B. Groesse geaendert) weiterhin den alten, unpassenden
        Vorschlag an. */

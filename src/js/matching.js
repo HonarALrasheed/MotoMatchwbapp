@@ -411,9 +411,14 @@ function idealSeatFromHeight(heightCm) {
   return Math.min(92, Math.max(68, heightCm * 0.48 - 2.8));
 }
 
-/* Die Höhe, bei der man noch sicher steht. Gefragt ist die Schrittlänge (q8, freiwillig) — sie entscheidet
-   in der Wirklichkeit, nicht die Körpergröße. Ohne Angabe die übliche Näherung: Schritt ≈ 45 % der Größe.
-   Mit beiden Ballen am Boden geht etwa die Schrittlänge selbst als Sitzhöhe durch. */
+/* Die Höhe, bei der man noch sicher steht. Ausschlaggebend ist in der Wirklichkeit die Schrittlänge,
+   nicht die Körpergröße — danach wurde bis 2026-09-29 eigens gefragt. Die Frage ist entfallen: Sie
+   schlug ohnehin nur die Näherung unten vor, und fast niemand hat den Vorschlag geändert.
+   Übliche Näherung: Schritt ≈ 45 % der Größe. Mit beiden Ballen am Boden geht etwa die Schrittlänge
+   selbst als Sitzhöhe durch.
+
+   Der zweite Parameter bleibt bewusst stehen: Kommt die Frage zurück oder liefert ein Profil die
+   Schrittlänge, reicht es, sie hier wieder hereinzureichen. */
 function sichereSitzhoehe(heightCm, schrittCm) {
   const schritt = Number(schrittCm) || (Number(heightCm) || 175) * 0.45;
   return Math.min(95, Math.max(66, schritt * 1.03));
@@ -812,7 +817,7 @@ function buildContext(answers = {}) {
       style: answers.q3,
       normalizedUse: USE_ALIASES[answers.q4] || answers.q4,
       idealSeat: idealSeatFromHeight(Number(answers.q6)),
-      sicherSeat: sichereSitzhoehe(Number(answers.q6), Number(answers.q8)),
+      sicherSeat: sichereSitzhoehe(Number(answers.q6)),
       wantsPassenger: answers.q7 === "Ja",
       isBeginner: answers.q2 === "Anfanger" || answers.q2 === "Anfänger",
       // Beide wandern jetzt in die Bewertung statt nur in den harten Filter.

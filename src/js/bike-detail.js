@@ -3,11 +3,29 @@
  * State 1: "Deckblatt" — Hero image with giant specs
  * State 2: "Konfigurator" — Split-screen with sticky 3D viewer + scrollable data
  */
-import * as THREE from 'three'
-import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js'
-import { MeshoptDecoder } from 'three/addons/libs/meshopt_decoder.module.js'
-import { DRACOLoader } from 'three/addons/loaders/DRACOLoader.js'
-import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js'
+// three.js liegt in einem gemeinsamen Chunk von 667 KB. Die meisten Screens
+// (Ausrüstung, Karte, Community) zeigen kein Modell — deshalb erst laden,
+// wenn wirklich ein Viewer aufgebaut wird.
+let THREE, GLTFLoader, DRACOLoader, MeshoptDecoder, RoomEnvironment
+let _threePromise = null
+function loadThree() {
+  if (!_threePromise) {
+    _threePromise = Promise.all([
+      import('three'),
+      import('three/addons/loaders/GLTFLoader.js'),
+      import('three/addons/loaders/DRACOLoader.js'),
+      import('three/addons/libs/meshopt_decoder.module.js'),
+      import('three/addons/environments/RoomEnvironment.js'),
+    ]).then(([three, gltf, draco, meshopt, room]) => {
+      THREE = three
+      GLTFLoader = gltf.GLTFLoader
+      DRACOLoader = draco.DRACOLoader
+      MeshoptDecoder = meshopt.MeshoptDecoder
+      RoomEnvironment = room.RoomEnvironment
+    })
+  }
+  return _threePromise
+}
 import { getGear } from './gear.js'
 import { initHubMap, searchNearby, getHubSearchResults, onHubResults, focusHubResult, recenterHubMap, zoomHubMap, getUserCoords, searchNearbyAt, retryHubLocation, hasMapsConsent, onHubMapMoved, panHubToCoords, haversineKm, resolveOrt } from './garage.js'
 import { esc, fmtRelative, LS_QUIZ_ANSWERS } from './util.js'
@@ -4545,7 +4563,7 @@ function rebindPointerEvents(container) {
   canvas.style.cursor = 'grab'
 }
 
-function initDetail3D(data, darkMode) {
+async function initDetail3D(data, darkMode) {
   if (!data.glb) {
     // Freigegebene Bikes ohne 3D-Modell: Studio-Bild statt 3D (wie garage.js, init3DViewer).
     const wrap = document.getElementById('bd-3d-wrap')
@@ -4559,6 +4577,15 @@ function initDetail3D(data, darkMode) {
   const wrap = document.getElementById('bd-3d-wrap') || document.getElementById('konf-3d-wrap')
   const canvas = wrap?.querySelector('canvas')
   if (!wrap || !canvas) return
+
+  try {
+    await loadThree()
+  } catch (err) {
+    console.error('[MotoMatch] three.js konnte nicht geladen werden', err)
+    return
+  }
+  // Während des Ladens kann der Nutzer den Screen längst verlassen haben
+  if (!canvas.isConnected) return
 
   detailScene = new THREE.Scene()
   detailScene.background = darkMode ? new THREE.Color(0x1a1a1a) : null

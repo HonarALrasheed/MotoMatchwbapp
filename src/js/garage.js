@@ -13,12 +13,30 @@
  * ══════════════════════════════════════════════════════════════
  */
 
-import * as THREE from "three";
 import { enterScreen, goBack as navGoBack } from "./nav.js";
-import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
-import { DRACOLoader } from "three/addons/loaders/DRACOLoader.js";
-import { MeshoptDecoder } from "three/addons/libs/meshopt_decoder.module.js";
-import { RoomEnvironment } from "three/addons/environments/RoomEnvironment.js";
+// three.js liegt in einem gemeinsamen Chunk von 667 KB. Die meisten Screens
+// (Karte, Ausrüstung, Community) zeigen kein Modell — deshalb erst laden,
+// wenn wirklich ein Viewer aufgebaut wird.
+let THREE, GLTFLoader, DRACOLoader, MeshoptDecoder, RoomEnvironment
+let _threePromise = null
+function loadThree() {
+  if (!_threePromise) {
+    _threePromise = Promise.all([
+      import('three'),
+      import('three/addons/loaders/GLTFLoader.js'),
+      import('three/addons/loaders/DRACOLoader.js'),
+      import('three/addons/libs/meshopt_decoder.module.js'),
+      import('three/addons/environments/RoomEnvironment.js'),
+    ]).then(([three, gltf, draco, meshopt, room]) => {
+      THREE = three
+      GLTFLoader = gltf.GLTFLoader
+      DRACOLoader = draco.DRACOLoader
+      MeshoptDecoder = meshopt.MeshoptDecoder
+      RoomEnvironment = room.RoomEnvironment
+    })
+  }
+  return _threePromise
+}
 import {
   findBestBike,
   findTopMatches,
@@ -428,7 +446,7 @@ function garage3dCanvasSize(wrap) {
   return { w, h };
 }
 
-function init3DViewer(bikeData) {
+async function init3DViewer(bikeData) {
   if (!bikeData.has3D || !bikeData.glb) {
     // Ohne 3D-Modell steht hier der 3D-Ersatz: dasselbe Motorrad im dunklen Studio, 4:3
     // (freigegebene Bikes, tools/catalog/einbau.py).
@@ -481,6 +499,15 @@ function init3DViewer(bikeData) {
   const wrap = document.getElementById("gr-3d-wrap");
   const canvas = document.getElementById("gr-3d-canvas");
   if (!wrap || !canvas) return;
+
+  try {
+    await loadThree();
+  } catch (err) {
+    console.error("[MotoMatch] three.js konnte nicht geladen werden", err);
+    return;
+  }
+  // Während des Ladens kann der Nutzer den Screen längst verlassen haben
+  if (!canvas.isConnected) return;
 
   garageScene = new THREE.Scene();
   garageScene.background = null; // transparent — blends with page

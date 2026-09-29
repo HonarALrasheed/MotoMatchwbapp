@@ -198,6 +198,10 @@ const PREFERS_REDUCED = window.matchMedia(
   "(prefers-reduced-motion: reduce)",
 ).matches;
 
+/* Jeder initQuiz()-Aufruf bekommt eine eigene Generation. Ein Lade-Callback
+   aus einem früheren Durchlauf hängt sonst sein Modell in die neue Szene. */
+let loadGeneration = 0;
+
 /* ═══ Preload ═══ */
 let preloadedBikeGLTF = null;
 
@@ -244,6 +248,13 @@ export function initQuiz() {
   transitionActive = false;
   bobPhase = 0;
   shakeIntensity = 0;
+  // Asynchron geladene Refs des letzten Laufs verwerfen, sonst zeigen sie
+  // auf die alte, bereits disposte Szene, während das GLB noch lädt
+  bike = null;
+  bikePivotGroup = null;
+  headlight = null;
+  wheels = [];
+  loadGeneration++;
 
   setupThreeJS();
   setupGauge();
@@ -307,9 +318,13 @@ function setupThreeJS() {
   createParticles();
 
   // Load GLB with DRACO decompression (use preloaded if available)
+  const myGeneration = loadGeneration;
   const setupBike = (gltf) => {
     // Guard: scene was cleaned up while model was loading
     if (!scene || !worldGroup) return;
+    // Guard: das Quiz wurde inzwischen neu gestartet — dieses Modell gehört
+    // zum vorigen Durchlauf und darf die neue Szene nicht anfassen
+    if (myGeneration !== loadGeneration) return;
     bike = gltf.scene;
 
     const box = new THREE.Box3().setFromObject(bike);
@@ -642,7 +657,7 @@ function loop() {
   }
 
   // Phase 2 (Q4+): wheelie via pivot group
-  if (phase2Active && bikePivotGroup) {
+  if (phase2Active && bike && bikePivotGroup) {
     wheelieAmount += (wheelieTarget - wheelieAmount) * dt * 6;
     bikePivotGroup.rotation.x = wheelieAmount * -0.4;
     bikePivotGroup.rotation.z = 0;
@@ -1195,6 +1210,9 @@ function finishExit() {
       mixer = null;
       handAction = null;
       bike = null;
+      bikePivotGroup = null;
+      headlight = null;
+      wheels = [];
       clock = null;
       if (handTimeout) { clearTimeout(handTimeout); handTimeout = null; }
       if (innerHandTimeout) { clearTimeout(innerHandTimeout); innerHandTimeout = null; }

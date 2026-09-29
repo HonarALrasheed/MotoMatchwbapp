@@ -17,7 +17,7 @@
  * ══════════════════════════════════════════════════════════════════
  */
 
-import commBg from '../assets/community-bg.jpeg'
+import commBg from '../assets/community-bg.webp'
 import { esc, safeUrl } from './util.js'
 import { HAS_STICKER_API, searchStickerApi, trendingStickerApi } from './stickers.js'
 import {

@@ -13,8 +13,20 @@
 
 // Zentrale, plattformweite Auth — dieselbe Session/DB wie im Community-Bereich
 import * as auth from './auth.js'
-import { getCatalog } from './matching.js'
-import { esc } from './util.js'
+import { aktiveAnbieter } from './auth.js'
+import { getCatalog, preisAb, findBikeByShortName } from './matching.js'
+import { bikeBild } from './bike-bild.js'
+import { esc, fmtDate, fmtRelative } from './util.js'
+import {
+  starteAufzeichnung, standortVerfuegbar, unterbrocheneAufzeichnung,
+  verwerfeUnterbrochene, spurPfad, formatiereDauer,
+} from './ride-tracker.js'
+import { teileFahrt } from './ride-share.js'
+import { avatarZuschneiden } from './avatar-zuschnitt.js'
+import {
+  kilometerAbschnitte, tempoVerlauf, hoehenVerlauf,
+  verlaufPfad, verlaufFlaeche, bestwerte,
+} from './ride-stats.js'
 
 const DEFAULT_ACCOUNT = {
   name: 'Gast',
@@ -49,23 +61,6 @@ function stringColor(str) {
 }
 function getInitials(name) {
   return name.split(/[\s·]+/).filter(Boolean).slice(0,2).map(s => s[0]).join('').toUpperCase()
-}
-function fmtDate(ts) {
-  return new Date(ts).toLocaleDateString('de-DE', { day: '2-digit', month: 'short', year: 'numeric' })
-}
-/** Relative Zeit für die Chronik — "Gerade eben" / "vor 3 Std." / "Gestern" / Datum. */
-function fmtRelative(ts) {
-  if (!ts) return ''
-  const diffMs = Date.now() - ts
-  const min = Math.floor(diffMs / 60000)
-  if (min < 1) return 'Gerade eben'
-  if (min < 60) return `vor ${min} Min.`
-  const h = Math.floor(min / 60)
-  if (h < 24) return `vor ${h} Std.`
-  const d = Math.floor(h / 24)
-  if (d === 1) return 'Gestern'
-  if (d < 7) return `vor ${d} Tagen`
-  return fmtDate(ts)
 }
 
 // ─── Data collectors from other features ───
@@ -165,12 +160,12 @@ function buildAccountHTML() {
   const I = ACC_NAV_ICONS
   const navItems = [
     ['overview', 'Chronik', I.chronik, null],
-    ['bikes', 'Meine Bikes', I.bike, owned.length],
+    /* Bikes, Ausruestung und Orte waren drei Reiter mit demselben Inhaltstyp:
+       Dinge, die man sich gemerkt hat. Einzeln standen sie oft leer da. Jetzt
+       ein Reiter mit einer Leiste darin. */
+    ['favoriten', 'Favoriten', I.stern, owned.length + gear.length + mapFavs.length],
     ['journal', 'Fahrten', I.route, null],
-    ['maintenance', 'Wartung', I.wrench, null],
     ['compare', 'Vergleich', I.compare, null],
-    ['gear', 'Ausrüstung', I.gear2, gear.length],
-    ['places', 'Orte', I.pin, mapFavs.length],
     ['settings', 'Einstellungen', I.cog, null],
   ]
   return `
@@ -204,7 +199,7 @@ function buildAccountHTML() {
 
             <nav class="acc-navlist" role="tablist">
               ${navItems.map(([id, label, icon, count], i) => `
-                <button class="acc-navitem ${i === 0 ? 'acc-navitem--active' : ''}" data-tab="${id}">
+                <button class="acc-navitem ${i === 0 ? 'acc-navitem--active' : ''}" data-tab="${id}" aria-label="${label}">
                   <span class="acc-navitem-ic">${icon}</span>
                   <span class="acc-navitem-label">${label}</span>
                   ${count != null ? `<span class="acc-navcount">${count}</span>` : '<span class="acc-navchev">›</span>'}
@@ -229,12 +224,12 @@ const ACC_NAV_ICONS = {
   chronik: '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>',
   bike:    '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="6" cy="17" r="3"/><circle cx="18" cy="17" r="3"/><path d="M6 17 10 8h4l2 4M10 8l2 9"/></svg>',
   route:   '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="6" cy="19" r="3"/><circle cx="18" cy="5" r="3"/><path d="M9 19h8.5a3.5 3.5 0 0 0 0-7h-11a3.5 3.5 0 0 1 0-7H15"/></svg>',
-  wrench:  '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg>',
   compare: '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"/><rect x="7" y="10" width="3" height="7"/><rect x="14" y="6" width="3" height="11"/></svg>',
   gear2:   '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 8V6a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v2M4 8h16v11a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2z"/><path d="M9 8V5a3 3 0 0 1 6 0v3"/></svg>',
   chat:    '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>',
   pin:     '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0z"/><circle cx="12" cy="10" r="3"/></svg>',
   cog:     '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h3M19 12h3M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg>',
+  stern:   '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l2.9 5.9 6.5.9-4.7 4.6 1.1 6.5L12 17.8 6.2 20.9l1.1-6.5L2.6 9.8l6.5-.9z"/></svg>',
 }
 
 /** Aktualisiert Avatar/Name/Bio im Profil-Header, ohne das ganze Panel neu zu rendern. */
@@ -261,16 +256,26 @@ function renderTabContent(tab) {
   if (!c) return
   switch (tab) {
     case 'overview':    c.innerHTML = renderOverview(); break
+    case 'favoriten':   c.innerHTML = renderFavoriten(); wireFavoriten(); break
     case 'bikes':       c.innerHTML = renderBikes(); wireBikeSearch(); break
     case 'compare':     c.innerHTML = renderCompare(); wireCompare(); break
-    case 'maintenance': c.innerHTML = renderMaintenance(); wireMaintenance(); break
     case 'journal':     c.innerHTML = renderJournal(); wireJournal(); break
     case 'gear':        c.innerHTML = renderGear(); break
     case 'community':   c.innerHTML = renderCommunity(); break
-    case 'places':      c.innerHTML = renderPlaces(); requestAnimationFrame(() => requestAnimationFrame(wirePlaces)); break
     case 'settings':    c.innerHTML = renderSettings(); wireSettings(); break
   }
   wireTabContent()
+}
+
+/* Die Plakette am Reiter zaehlt alle drei Arten zusammen — nach dem Entfernen
+   eines Eintrags muss sie neu gerechnet werden, nicht nur die eine Zahl
+   gesetzt. */
+function aktualisiereFavoritenZaehler() {
+  const badge = document.querySelector('.acc-navitem[data-tab="favoriten"] .acc-navcount')
+  if (!badge) return
+  badge.textContent = String(
+    getOwnedBikes().length + collectGearFavs().length + collectMapFavs().length,
+  )
 }
 
 function wireTabContent() {
@@ -290,10 +295,20 @@ function wireTabContent() {
       closeAccount()
     })
   })
-  // Zu einem anderen Reiter springen (Schnellzugriff-Kacheln, Chronik-Einträge, …)
+  /* Zu einem anderen Reiter springen (Schnellzugriff-Kacheln, Chronik-Einträge, …)
+     bikes, gear und places sind keine eigenen Reiter mehr, sondern Filter
+     innerhalb von "Favoriten" — die alten Ziele bleiben trotzdem gueltig und
+     stellen den passenden Filter ein. */
+  const FAV_ZIELE = { gear: 'gear', favoriten: 'alle' }
   document.querySelectorAll('[data-tab-jump]').forEach(el => {
     el.addEventListener('click', () => {
-      document.querySelector(`.acc-navitem[data-tab="${el.dataset.tabJump}"]`)?.click()
+      const ziel = el.dataset.tabJump
+      if (FAV_ZIELE[ziel]) {
+        setFavFilter(FAV_ZIELE[ziel])
+        document.querySelector('.acc-navitem[data-tab="favoriten"]')?.click()
+        return
+      }
+      document.querySelector(`.acc-navitem[data-tab="${ziel}"]`)?.click()
     })
   })
   // Eigenes Bike wieder entfernen
@@ -301,6 +316,7 @@ function wireTabContent() {
     el.addEventListener('click', e => {
       e.stopPropagation()
       toggleOwnedBike(el.dataset.removeOwnedBike)
+      aktualisiereFavoritenZaehler()
       renderTabContent(getActiveTab())
     })
   })
@@ -316,8 +332,7 @@ function wireTabContent() {
         const meta = JSON.parse(localStorage.getItem('mm_gear_favs_meta') || '{}')
         delete meta[id]
         localStorage.setItem('mm_gear_favs_meta', JSON.stringify(meta))
-        const badge = document.querySelector('.acc-navitem[data-tab="gear"] .acc-navcount')
-        if (badge) badge.textContent = String(favs.length)
+        aktualisiereFavoritenZaehler()
         renderTabContent(getActiveTab())
       } catch {}
     })
@@ -334,8 +349,7 @@ function wireTabContent() {
         const meta = JSON.parse(localStorage.getItem('mm_kv_favs_meta') || '{}')
         delete meta[id]
         localStorage.setItem('mm_kv_favs_meta', JSON.stringify(meta))
-        const badge = document.querySelector('.acc-navitem[data-tab="places"] .acc-navcount')
-        if (badge) badge.textContent = String(favs.length)
+        aktualisiereFavoritenZaehler()
         renderTabContent(getActiveTab())
       } catch {}
     })
@@ -367,6 +381,24 @@ function getActiveTab() {
   return document.querySelector('.acc-navitem--active')?.dataset.tab || 'overview'
 }
 
+/* Ein Bike in einer Liste zeigt sein eigenes Foto, nicht ein Sinnbild fuer
+   "Motorrad". Genommen wird die freigestellte Kachel (…_kachel.webp), dieselbe
+   wie in der Suche.
+
+   Gesucht wird ueber findBikeByShortName aus matching.js statt ueber einen
+   eigenen Vergleich auf name: die Speicher legen mal den vollen Namen ab
+   ("Harley-Davidson Iron 883"), mal den kurzen aus dem Konfigurator
+   ("Iron 883") — nur name zu pruefen liess jede Vergleichsspalte leer.
+
+   Findet sich nichts oder fehlt das Foto, kommt der graue Universal-
+   Platzhalter aus der Bildwerkstatt. Er traegt keine Marke, damit ihn niemand
+   fuer das gesuchte Modell haelt. */
+function bikeKachel(name, klasse) {
+  const kat = findBikeByShortName(name)
+  const bild = bikeBild(kat, 'kachel')
+  return `<div class="${klasse} ${klasse}--foto"><img src="${esc(bild)}" alt="" loading="lazy" decoding="async"></div>`
+}
+
 // ─── Tab renderers ───
 /** Sammelt alle bekannten Nutzeraktionen aus den verschiedenen Feature-Speichern
  *  zu einer einzigen, chronologisch sortierten Aktivitäts-Chronik. */
@@ -375,40 +407,36 @@ function collectActivityFeed(limit = 12) {
   const com = collectCommunityActivity()
   const recents = collectRecentBikes()
   const rides = getRides()
-  const maintenance = getMaintenanceData()
 
+  /* Die Chronik speichert nur Name, Stil und Zeit — das Bild steht im Katalog.
+     Genommen wird die freigestellte Kachel, dieselbe wie in der Suche; ohne
+     Treffer der graue Universal-Platzhalter. Beide stehen auf Weiss, deshalb
+     bekommt die Kachel in .acc-activity-icon--foto eine helle Flaeche. */
   const activities = []
-  recents.forEach(b => activities.push({
-    type: 'bike', icon: '🏍', color: 'linear-gradient(135deg,#d49258,#a76d3a)',
-    title: `${b.name} angesehen`, sub: b.style, ts: b.ts,
-    jump: { openBike: b.name },
-  }))
+  recents.forEach(b => {
+    const kat = findBikeByShortName(b.name)
+    activities.push({
+      type: 'bike', icon: ACC_NAV_ICONS.bike,
+      bild: bikeBild(kat, 'kachel'),
+      title: `${b.name} angesehen`, sub: b.style, ts: b.ts,
+      jump: { openBike: b.name },
+    })
+  })
   gear.forEach(g => activities.push({
-    type: 'gear', icon: '🎒', color: 'linear-gradient(135deg,#4a8eff,#3066d6)',
+    type: 'gear', icon: ACC_NAV_ICONS.gear2,
     title: `${g.brand} ${g.name} gemerkt`, sub: `${g.type} · ${g.price}`, ts: g.ts || 0,
     jump: { tab: 'gear' },
   }))
   com.posts.forEach(p => activities.push({
-    type: 'post', icon: '💬', color: 'linear-gradient(135deg,#e05555,#c074dc)',
+    type: 'post', icon: ACC_NAV_ICONS.chat,
     title: `Beitrag veröffentlicht: ${p.title}`, sub: p.category, ts: p.createdAt,
     jump: { community: true },
   }))
   rides.forEach(r => activities.push({
-    type: 'ride', icon: '🛣️', color: 'linear-gradient(135deg,#5fc587,#3da567)',
+    type: 'ride', icon: ACC_NAV_ICONS.route,
     title: `Fahrt erfasst: ${r.title}`, sub: `${r.km} km${r.hours ? ` · ${r.hours} h` : ''}`, ts: r.date,
     jump: { tab: 'journal' },
   }))
-  Object.entries(maintenance).forEach(([bikeName, bikeData]) => {
-    MAINTENANCE_INTERVALS.forEach(iv => {
-      const doneAt = bikeData[iv.key + '_date']
-      if (doneAt) activities.push({
-        type: 'maintenance', icon: '🔧', color: 'linear-gradient(135deg,#e8b94a,#b8842a)',
-        title: `${iv.label} erledigt`, sub: bikeName, ts: doneAt,
-        jump: { tab: 'maintenance' },
-      })
-    })
-  })
-
   activities.sort((a, b) => b.ts - a.ts)
   return activities.slice(0, limit)
 }
@@ -416,24 +444,20 @@ function collectActivityFeed(limit = 12) {
 function renderOverview() {
   const recent5 = collectActivityFeed(12)
   return `
-    <div class="acc-section">
+    <div class="acc-section acc-section--quick">
       <h3 class="acc-section-title">Schnellzugriff</h3>
       <div class="acc-quick-grid">
         <button class="acc-quick-card" data-open-community>
-          <div class="acc-quick-icon" style="background:linear-gradient(135deg,#e05555,#c074dc)">💬</div>
+          <div class="acc-quick-icon">${ACC_NAV_ICONS.chat}</div>
           <span class="acc-quick-label">Community</span>
         </button>
-        <button class="acc-quick-card" data-tab-jump="gear">
-          <div class="acc-quick-icon" style="background:linear-gradient(135deg,#4a8eff,#3066d6)">🎒</div>
-          <span class="acc-quick-label">Ausrüstung</span>
+        <button class="acc-quick-card" data-tab-jump="journal">
+          <div class="acc-quick-icon">${ACC_NAV_ICONS.route}</div>
+          <span class="acc-quick-label">Fahrten</span>
         </button>
-        <button class="acc-quick-card" data-tab-jump="places">
-          <div class="acc-quick-icon" style="background:linear-gradient(135deg,#5fc587,#3da567)">📍</div>
-          <span class="acc-quick-label">Meine Orte</span>
-        </button>
-        <button class="acc-quick-card" data-tab-jump="bikes">
-          <div class="acc-quick-icon" style="background:linear-gradient(135deg,#d49258,#a76d3a)">🏍</div>
-          <span class="acc-quick-label">Meine Bikes</span>
+        <button class="acc-quick-card" data-tab-jump="favoriten">
+          <div class="acc-quick-icon">${ACC_NAV_ICONS.stern}</div>
+          <span class="acc-quick-label">Favoriten</span>
         </button>
       </div>
     </div>
@@ -448,7 +472,7 @@ function renderOverview() {
         <div class="acc-activity-list">
           ${recent5.map(a => `
             <div class="acc-activity-item" ${a.jump?.openBike ? `data-open-bike="${a.jump.openBike}"` : ''} ${a.jump?.tab ? `data-tab-jump="${a.jump.tab}"` : ''} ${a.jump?.community ? 'data-open-community' : ''}>
-              <div class="acc-activity-icon" style="background:${a.color}">${a.icon}</div>
+              <div class="acc-activity-icon${a.bild ? ' acc-activity-icon--foto' : ''}">${a.bild ? `<img src="${esc(a.bild)}" alt="" loading="lazy" decoding="async">` : a.icon}</div>
               <div class="acc-activity-body">
                 <div class="acc-activity-title">${esc(a.title)}</div>
                 <div class="acc-activity-sub">${esc(a.sub)}</div>
@@ -462,12 +486,54 @@ function renderOverview() {
   `
 }
 
-/* ─── Bike comparison data + storage ─── */
+/* ─── Bike comparison data + storage ───
+   COMPARE_SPECS deckt nur die vier Schaustück-Bikes ab — jedes echte
+   Katalog-Bike (aus "Zuletzt angesehen" oder der Suche) fand hier nie einen
+   Eintrag und zeigte deshalb überall "–" (2026-09-27 Audit). Specs kommen
+   jetzt live aus dem Katalog, COMPARE_SPECS bleibt nur als Fallback für die
+   vier Demo-Namen ohne echten Katalogeintrag. */
 const COMPARE_SPECS = {
   'Iron 883':      { ps: 51, weight: 256, accel: 6.5, topSpeed: 161, cc: 883,  price: 7000 },
   'Seventy-Two':   { ps: 66, weight: 255, accel: 5.2, topSpeed: 170, cc: 1202, price: 15000 },
   'CB 750 F':      { ps: 67, weight: 235, accel: 5.8, topSpeed: 200, cc: 736,  price: 12000 },
   '500 Custom':    { ps: 48, weight: 200, accel: 6.0, topSpeed: 180, cc: 500,  price: 6500 },
+}
+/* Der Name kommt mal mit, mal ohne Marke an: `trackBikeVisit` (bike-detail.js) schreibt
+   `data.fullName || bikeData.name`, also "Honda CMX500 Rebel" oder "CMX500 Rebel". Früher stand hier
+   eine Regex mit neun fest verdrahteten Marken — sie kannte 33 der 42 Marken im Katalog nicht (378 von
+   1192 Bikes: MV Agusta, Moto Guzzi, Aprilia, Vespa, Piaggio …) und traf "Honda CMX500 Rebel" auch bei
+   den neun nicht, weil sie die Marke am Katalognamen abschnitt statt am gesuchten. Beides zeigte in der
+   Vergleichstabelle überall "–" (2026-09-27 Audit).
+   Jetzt entscheidet `brand` aus dem Katalog — bei allen 1192 Einträgen gesetzt, und `name` beginnt
+   immer damit. Verglichen wird ohne Sonderzeichen, damit "R 1250 GS" und "R1250GS" dasselbe sind. */
+function normName(s) {
+  return String(s || '').toLowerCase().replace(/[^a-z0-9]/g, '')
+}
+function findCatalogBikeByFullName(name) {
+  const gesucht = normName(name)
+  if (!gesucht) return null
+  return getCatalog().find((b) => {
+    const voll = normName(b.name)
+    if (voll === gesucht) return true
+    const ohneMarke = normName(String(b.name || '').slice(String(b.brand || '').length))
+    return Boolean(ohneMarke) && ohneMarke === gesucht
+  }) || null
+}
+function compareSpecsFor(name) {
+  const bike = findCatalogBikeByFullName(name)
+  if (!bike) return COMPARE_SPECS[name] || null
+  const preis = preisAb(bike, Infinity)
+  return {
+    ps: bike.ps ?? null,
+    weight: bike.weight ?? null,
+    accel: bike.accel ?? null,
+    topSpeed: bike.topSpeed ?? null,
+    cc: bike.cc ?? null,
+    // Die 1 war nie ein Platzhalter, sondern ein Fehler in csv_de.py: `x and not y` ergibt True statt x,
+    // woraus zahl(True) eine 1 machte (2026-09-27 behoben). Der Katalog lässt den Preis jetzt weg, wenn
+    // keiner belegt ist — deshalb zählt nur noch, ob überhaupt eine Zahl da ist.
+    price: Number.isFinite(preis) ? preis : null,
+  }
 }
 function getCompareSet() {
   try { return JSON.parse(localStorage.getItem('mm_compare_v1') || '[]') } catch { return [] }
@@ -483,9 +549,14 @@ function renderCompare() {
   const options = recents.length
     ? recents.map(b => b.name)
     : ['Iron 883', 'Seventy-Two', 'CB 750 F', '500 Custom']
-  const searchBar = `
+  /* Bei drei Bikes ist der Vergleich voll. Suchfeld und Vorschlagszeile waren
+     dann nur noch ausgegraut da — zwei tote Zeilen ueber der Tabelle. Sie
+     verschwinden stattdessen und kommen zurueck, sobald ein Bike ueber das ×
+     in der Tabelle weicht. */
+  const voll = set.length >= 3
+  const searchBar = voll ? '' : `
     <div class="acc-cmp-search-wrap">
-      <input class="acc-cmp-search-input" id="cmp-search-input" type="text" placeholder="Bike suchen …" autocomplete="off" ${set.length >= 3 ? 'disabled' : ''}>
+      <input class="acc-cmp-search-input" id="cmp-search-input" type="text" placeholder="Bike suchen …" autocomplete="off">
       <ul class="acc-cmp-search-results" id="cmp-search-results" style="display:none"></ul>
     </div>
   `
@@ -514,7 +585,7 @@ function renderCompare() {
     let bestVal = null
     let bestName = null
     set.forEach(name => {
-      const v = COMPARE_SPECS[name]?.[key]
+      const v = compareSpecsFor(name)?.[key]
       if (v == null) return
       if (bestVal === null) { bestVal = v; bestName = name; return }
       if (lowerBetter[key] ? v < bestVal : v > bestVal) { bestVal = v; bestName = name }
@@ -525,17 +596,18 @@ function renderCompare() {
     <div class="acc-section">
       <h3 class="acc-section-title">Bike-Vergleich <span class="acc-count">${set.length}/3</span></h3>
       ${searchBar}
+      ${voll ? '' : `
       <div class="acc-cmp-picker">
         ${options.filter(n => !set.includes(n)).slice(0, 6).map(name => `
-          <button class="acc-cmp-add" data-cmp-add="${name}" ${set.length >= 3 ? 'disabled' : ''}>+ ${name}</button>
+          <button class="acc-cmp-add" data-cmp-add="${name}">+ ${name}</button>
         `).join('')}
-      </div>
+      </div>`}
       <div class="acc-cmp-table">
         <div class="acc-cmp-header">
           <div></div>
           ${set.map(name => `
             <div class="acc-cmp-col">
-              <div class="acc-cmp-bike-icon" style="background:linear-gradient(135deg,${stringColor(name)},#1a1a1a)">🏍</div>
+              ${bikeKachel(name, 'acc-cmp-bike-icon')}
               <div class="acc-cmp-bike-name">${name}</div>
               <button class="acc-cmp-remove" data-cmp-remove="${name}" aria-label="Entfernen">×</button>
             </div>
@@ -547,8 +619,8 @@ function renderCompare() {
             <div class="acc-cmp-row">
               <div class="acc-cmp-label">${specLabels[key]}</div>
               ${set.map(name => {
-                const v = COMPARE_SPECS[name]?.[key] ?? '—'
-                const display = key === 'price' ? `${v.toLocaleString('de-DE')} €` : v
+                const v = compareSpecsFor(name)?.[key] ?? '—'
+                const display = key === 'price' && v !== '—' ? `${v.toLocaleString('de-DE')} €` : v
                 return `<div class="acc-cmp-cell ${name === best ? 'acc-cmp-cell--best' : ''}">${display}${name === best ? ' <span class="acc-cmp-best-tag">BEST</span>' : ''}</div>`
               }).join('')}
             </div>
@@ -595,7 +667,7 @@ function wireCompare() {
       searchResults.innerHTML = hits.map(b => `
         <li class="acc-cmp-search-item ${set.includes(b.name) ? 'acc-cmp-search-item--in' : ''}"
           data-name="${b.name}" data-style="${b.style}" data-image="${b.image}">
-          ${b.image ? `<img class="acc-cmp-search-img" src="${b.image}" alt="">` : '<span class="acc-cmp-search-img acc-cmp-search-img--placeholder">🏍</span>'}
+          <img class="acc-cmp-search-img" src="${bikeBild(b, 'kachel')}" alt="">
           <span class="acc-cmp-search-name">${b.name}</span>
           <span class="acc-cmp-search-style">${b.style}</span>
           ${set.includes(b.name) ? '<span class="acc-cmp-search-check">✓</span>' : ''}
@@ -623,271 +695,15 @@ function wireCompare() {
   }, { once: true })
 }
 
-/* ─── Maintenance tracker ─── */
-const MAINTENANCE_INTERVALS = [
-  { key: 'oil',    label: 'Ölwechsel',         km: 5000 },
-  { key: 'tires',  label: 'Reifenwechsel',     km: 20000 },
-  { key: 'chain',  label: 'Kette/Riemen',      km: 15000 },
-  { key: 'brakes', label: 'Bremsen-Check',     km: 10000 },
-  { key: 'tuv',    label: 'TÜV/AU',            km: 0, months: 24 },
-]
-/** Style-spezifische Intervall-Overrides */
-function getBikeIntervals(style) {
-  const s = (style || '').toLowerCase()
-  const base = MAINTENANCE_INTERVALS.map(iv => ({ ...iv }))
-  if (s.includes('cruiser') || s.includes('chopper')) {
-    // Cruiser: größerer Motor, längere Ölwechsel, Riemenantrieb statt Kette
-    base.find(iv => iv.key === 'oil').km = 8000
-    const chain = base.find(iv => iv.key === 'chain')
-    chain.label = 'Riemen-Check'
-    chain.km = 25000
-  } else if (s.includes('sport') || s.includes('supersport')) {
-    // Sportbike: kürzere Intervalle, härtere Beanspruchung
-    base.find(iv => iv.key === 'oil').km = 3000
-    base.find(iv => iv.key === 'chain').km = 8000
-    base.find(iv => iv.key === 'brakes').km = 8000
-    base.find(iv => iv.key === 'tires').km = 10000
-  } else if (s.includes('adventure') || s.includes('enduro') || s.includes('reise')) {
-    // Adventure: robustere Wartung, Shaft/Kette je nach Modell
-    base.find(iv => iv.key === 'oil').km = 7500
-    base.find(iv => iv.key === 'chain').km = 12000
-    base.find(iv => iv.key === 'tires').km = 15000
-  } else if (s.includes('naked') || s.includes('streetfighter')) {
-    base.find(iv => iv.key === 'oil').km = 6000
-  }
-  return base
-}
-function getMaintenanceData() {
-  try { return JSON.parse(localStorage.getItem('mm_maintenance_v1') || '{}') } catch { return {} }
-}
-function saveMaintenanceData(data) {
-  try { localStorage.setItem('mm_maintenance_v1', JSON.stringify(data)) } catch {}
-}
-const MAINT_ICONS = {
-  oil:    `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M8 2l1 4H5l1-4M3 10h6l-2 10H5L3 10zM14 2s3 3 3 7-3 7-3 7"/><path d="M17 9h4v12h-4z"/></svg>`,
-  tires:  `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="4"/><path d="M12 3v2M12 19v2M3 12h2M19 12h2"/></svg>`,
-  chain:  `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="9" width="6" height="6" rx="2"/><rect x="16" y="9" width="6" height="6" rx="2"/><path d="M8 12h8"/></svg>`,
-  brakes: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="3"/><path d="M12 3v3M12 18v3M3 12h3M18 12h3"/></svg>`,
-  tuv:    `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2l3 7h7l-5.5 4 2 7L12 16l-6.5 4 2-7L2 9h7z"/></svg>`,
-}
-
-function renderMaintenance() {
-  const owned = getOwnedBikes()
-  const data = getMaintenanceData()
-
-  const searchBar = `
-    <div class="mw-search-wrap">
-      <input class="mw-search-input" id="mw-search-input" placeholder="Motorrad suchen und hinzufügen…" autocomplete="off">
-      <ul class="mw-search-results" id="mw-search-results"></ul>
-    </div>
-  `
-
-  if (!owned.length) {
-    return `
-      <div class="mw-wrap">
-        ${searchBar}
-        <div class="mw-empty">
-          <div class="mw-empty-icon">🔧</div>
-          <div class="mw-empty-title">Noch kein Bike hinterlegt</div>
-          <div class="mw-empty-sub">Suche dein Motorrad oben oder markiere es im Bike-Ansicht-Tab als „Ich fahre dieses Bike".</div>
-        </div>
-      </div>
-    `
-  }
-
-  // Pick active bike (first owned by default)
-  const activeBikeName = data.__activeBike || owned[0].name
-  const activeBike = owned.find(b => b.name === activeBikeName) || owned[0]
-  const bData = data[activeBike.name] || {}
-  const currentKm = bData.km || 0
-  const intervals = getBikeIntervals(activeBike.style)
-
-  // Compute next service urgency
-  const urgentCount = intervals.filter(iv => {
-    if (!iv.km) return false
-    const lastKm = bData[iv.key + '_km'] || 0
-    return (currentKm - lastKm) >= (iv.km - 500)
-  }).length
-
-  const heroIcon = activeBike.image
-    ? `<img class="mw-hero-img" src="${activeBike.image}" alt="${activeBike.name}">`
-    : `<div class="mw-hero-icon">🏍</div>`
-
-  return `
-    <div class="mw-wrap">
-      ${searchBar}
-
-      <!-- Bike selector (if multiple bikes) -->
-      ${owned.length > 1 ? `
-        <div class="mw-bike-tabs">
-          ${owned.map(b => `
-            <button class="mw-bike-tab ${b.name === activeBike.name ? 'mw-bike-tab--active' : ''}" data-select-bike="${b.name}">
-              ${b.image ? `<img class="mw-bike-tab-img" src="${b.image}" alt="${b.name}">` : `<span class="mw-bike-tab-dot" style="background:${stringColor(b.name)}"></span>`}
-              ${b.name}
-            </button>
-          `).join('')}
-        </div>
-      ` : ''}
-
-      <!-- Bike header card -->
-      <div class="mw-hero" style="--bcolor:${stringColor(activeBike.name)}">
-        <div class="mw-hero-inner">
-          <div class="mw-hero-left">
-            ${heroIcon}
-            <div class="mw-hero-info">
-              <div class="mw-hero-name">${activeBike.name}</div>
-              <div class="mw-hero-style">${activeBike.style}</div>
-              ${urgentCount > 0 ? `<div class="mw-hero-alert">⚠ ${urgentCount} Service${urgentCount > 1 ? 's' : ''} fällig</div>` : ''}
-            </div>
-          </div>
-          <div class="mw-hero-km">
-            <div class="mw-hero-km-label">Km-Stand</div>
-            <input type="number" class="mw-km-input" id="mw-km-input" data-bike="${activeBike.name}" value="${currentKm}" min="0" step="100" placeholder="0">
-            <div class="mw-hero-km-sub">km</div>
-          </div>
-        </div>
-      </div>
-
-      <!-- Service cards -->
-      <div class="mw-services">
-        ${intervals.map(iv => {
-          const lastKm = bData[iv.key + '_km'] || 0
-          const lastDate = bData[iv.key + '_date']
-          const pct = iv.km ? Math.max(0, Math.min(100, ((currentKm - lastKm) / iv.km) * 100)) : 0
-          const remain = iv.km ? (lastKm + iv.km) - currentKm : null
-          const urgent = remain !== null && remain < 500
-          const overdue = remain !== null && remain < 0
-          const statusCls = overdue ? 'bad' : urgent ? 'warn' : 'ok'
-          const statusLabel = remain === null
-            ? (lastDate ? `Zuletzt: ${new Date(lastDate).toLocaleDateString('de-DE',{day:'2-digit',month:'short',year:'numeric'})}` : 'Noch nie geprüft')
-            : overdue
-              ? `Überfällig ${Math.abs(remain).toLocaleString('de-DE')} km`
-              : `Noch ${remain.toLocaleString('de-DE')} km`
-
-          return `
-            <div class="mw-service-card ${urgent || overdue ? 'mw-service-card--alert' : ''}">
-              <div class="mw-service-icon">${MAINT_ICONS[iv.key] || ''}</div>
-              <div class="mw-service-body">
-                <div class="mw-service-top">
-                  <span class="mw-service-name">${iv.label}</span>
-                  <span class="mw-service-status mw-service-status--${statusCls}">${statusLabel}</span>
-                </div>
-                ${iv.km ? `
-                  <div class="mw-bar">
-                    <div class="mw-bar-fill ${statusCls !== 'ok' ? 'mw-bar-fill--' + statusCls : ''}" style="width:${pct}%"></div>
-                  </div>
-                  <div class="mw-bar-labels">
-                    <span>${lastDate || lastKm ? `Zuletzt bei ${lastKm.toLocaleString('de-DE')} km` : 'Noch kein Eintrag'}</span>
-                    <span>alle ${(iv.km/1000).toLocaleString('de-DE')} Tkm</span>
-                  </div>
-                ` : `
-                  <div class="mw-bar-labels">
-                    <span>${lastDate ? `Letzter TÜV: ${new Date(lastDate).toLocaleDateString('de-DE',{month:'short',year:'numeric'})}` : 'Noch kein Eintrag'}</span>
-                    <span>alle 2 Jahre</span>
-                  </div>
-                `}
-              </div>
-              <button class="mw-done-btn" data-bike="${activeBike.name}" data-key="${iv.key}" title="Als erledigt markieren">
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M20 6L9 17l-5-5"/></svg>
-              </button>
-            </div>
-          `
-        }).join('')}
-      </div>
-
-    </div>
-  `
-}
-function wireMaintenance() {
-  // Bike search
-  const searchInput = document.getElementById('mw-search-input')
-  const searchResults = document.getElementById('mw-search-results')
-  let allBikes = []
-
-  if (searchInput) {
-    const bikeListPromise = import('./bike-detail.js').then(m =>
-      Object.values(m.BIKE_DATA || {}).map(b => ({
-        name: b.fullName, style: b.style || '', image: b.img1 || b.img2 || '',
-      }))
-    ).catch(() => [])
-
-    searchInput.addEventListener('input', () => {
-      const q = searchInput.value.trim().toLowerCase()
-      if (!q) { searchResults.innerHTML = ''; searchResults.style.display = 'none'; return }
-      bikeListPromise.then(bikes => {
-        const hits = bikes.filter(b => b.name.toLowerCase().includes(q) || b.style.toLowerCase().includes(q)).slice(0, 6)
-      if (!hits.length) { searchResults.innerHTML = ''; searchResults.style.display = 'none'; return }
-      searchResults.innerHTML = hits.map(b => `
-        <li class="mw-search-item" data-name="${b.name}" data-style="${b.style}" data-image="${b.image}">
-          ${b.image ? `<img class="mw-search-item-img" src="${b.image}" alt="">` : '<span class="mw-search-item-icon">🏍</span>'}
-          <span class="mw-search-item-name">${b.name}</span>
-          <span class="mw-search-item-style">${b.style}</span>
-        </li>
-      `).join('')
-      searchResults.style.display = 'block'
-
-      searchResults.querySelectorAll('.mw-search-item').forEach(li => {
-        li.addEventListener('click', () => {
-          addOwnedBike(li.dataset.name, li.dataset.style, li.dataset.image)
-          const mData = getMaintenanceData()
-          mData.__activeBike = li.dataset.name
-          saveMaintenanceData(mData)
-          searchInput.value = ''
-          searchResults.style.display = 'none'
-          renderTabContent('maintenance')
-        })
-      })
-    }) // closes bikeListPromise.then
-    }) // closes searchInput.addEventListener
-
-    document.addEventListener('click', e => {
-      if (!searchInput.contains(e.target) && !searchResults.contains(e.target)) {
-        searchResults.style.display = 'none'
-      }
-    }, { capture: true, once: false })
-  }
-
-  // Bike selector tabs
-  document.querySelectorAll('[data-select-bike]').forEach(btn => {
-    btn.addEventListener('click', () => {
-      const data = getMaintenanceData()
-      data.__activeBike = btn.dataset.selectBike
-      saveMaintenanceData(data)
-      renderTabContent('maintenance')
-    })
-  })
-
-  // km input — save on blur/enter
-  const kmInput = document.getElementById('mw-km-input')
-  const saveKm = () => {
-    const data = getMaintenanceData()
-    const bike = kmInput?.dataset.bike
-    if (!bike) return
-    data[bike] = data[bike] || {}
-    data[bike].km = parseInt(kmInput.value) || 0
-    saveMaintenanceData(data)
-    renderTabContent('maintenance')
-  }
-  kmInput?.addEventListener('change', saveKm)
-  kmInput?.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); saveKm() } })
-
-  // Mark done
-  document.querySelectorAll('.mw-done-btn').forEach(btn => {
-    btn.addEventListener('click', () => {
-      const data = getMaintenanceData()
-      const bike = btn.dataset.bike
-      const key = btn.dataset.key
-      data[bike] = data[bike] || {}
-      data[bike][key + '_km'] = data[bike].km || 0
-      data[bike][key + '_date'] = Date.now()
-      saveMaintenanceData(data)
-      showFlash('Service eingetragen ✓')
-      renderTabContent('maintenance')
-    })
-  })
-}
-
 /* ─── Ride journal ─── */
+
+/* Die Aufzeichnung ist gebaut und geprueft, geht aber noch nicht mit live:
+   sie braucht eine Runde auf echter Strasse mit echtem Satellitenempfang,
+   bevor Nutzer sie zu sehen bekommen. Der Schalter blendet den Knopf, die
+   Vollbild-Ansicht und den Hinweis auf eine unterbrochene Aufzeichnung aus.
+   Alles andere im Fahrtenbuch bleibt: eine Fahrt von Hand eintragen, die
+   Karteikarten, das Teilen. Auf true stellen, dann ist sie wieder da. */
+const AUFZEICHNEN_AKTIV = false
 function getRides() {
   try { return JSON.parse(localStorage.getItem('mm_rides_v1') || '[]') } catch { return [] }
 }
@@ -895,7 +711,37 @@ function saveRides(arr) {
   try { localStorage.setItem('mm_rides_v1', JSON.stringify(arr)) } catch {}
 }
 
-const RIDE_MOODS = ['☀️','⛅','🌧️','🌩️','❄️','🌫️']
+/* Wetter als Strichzeichnungen statt Emojis: die stellt jedes Betriebssystem
+   anders dar (bunt, verschieden gross, teils mit eigenem Hintergrund), was im
+   dunklen Formular wie Fremdkoerper wirkte. Gespeichert wird ab jetzt ein
+   Kuerzel; aeltere Eintraege haben noch das Emoji stehen und werden beim Lesen
+   umgesetzt. */
+const RIDE_WETTER = [
+  { id: 'sonne',    label: 'Sonne',    d: '<circle cx="12" cy="12" r="4.6"/><path d="M12 1.6v2.2M12 20.2v2.2M4.5 4.5l1.6 1.6M17.9 17.9l1.6 1.6M1.6 12h2.2M20.2 12h2.2M4.5 19.5l1.6-1.6M17.9 6.1l1.6-1.6"/>' },
+  { id: 'wolkig',   label: 'Wolkig',   d: '<path d="M18 10h-1.26A8 8 0 1 0 9 20h9a5 5 0 0 0 0-10z"/>' },
+  { id: 'regen',    label: 'Regen',    d: '<path d="M20 16.6A5 5 0 0 0 18 7h-1.26A8 8 0 1 0 4 15.25"/><path d="M8 14v5M12 16v5M16 14v5"/>' },
+  { id: 'gewitter', label: 'Gewitter', d: '<path d="M19 16.9A5 5 0 0 0 18 7h-1.26a8 8 0 1 0-11.62 9"/><path d="M13 11l-4 6h6l-4 6"/>' },
+  { id: 'schnee',   label: 'Schnee',   d: '<path d="M20 17.6A5 5 0 0 0 18 8h-1.26A8 8 0 1 0 4 16.25"/><path d="M8 16h.01M8 20h.01M12 18h.01M12 22h.01M16 16h.01M16 20h.01"/>' },
+  { id: 'nebel',    label: 'Nebel',    d: '<path d="M3 7.5c2-1.6 4-1.6 6 0s4 1.6 6 0 4-1.6 6 0M3 12.8c2-1.6 4-1.6 6 0s4 1.6 6 0 4-1.6 6 0M3 18c2-1.6 4-1.6 6 0s4 1.6 6 0 4-1.6 6 0"/>' },
+]
+
+/* Alte Eintraege: Emoji -> Kuerzel */
+const RIDE_WETTER_ALT = {
+  '☀️': 'sonne', '⛅': 'wolkig', '🌧️': 'regen',
+  '🌩️': 'gewitter', '❄️': 'schnee', '🌫️': 'nebel',
+}
+
+function wetterEintrag(wert) {
+  if (!wert) return null
+  const id = RIDE_WETTER_ALT[wert] || wert
+  return RIDE_WETTER.find(w => w.id === id) || null
+}
+
+function wetterIcon(wert, groesse = 17) {
+  const w = wetterEintrag(wert)
+  if (!w) return ''
+  return `<svg viewBox="0 0 24 24" width="${groesse}" height="${groesse}" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">${w.d}</svg>`
+}
 const CARD_ACCENTS = ['#e8c56d','#7ab3e0','#e07a5f','#81b29a','#c77dff','#f4a261']
 const CARD_ROTATIONS = ['-1.2deg','0.8deg','-0.5deg','1.5deg','-0.9deg','0.4deg']
 
@@ -913,8 +759,115 @@ function compressPhoto(file) {
       URL.revokeObjectURL(url)
       resolve(canvas.toDataURL('image/jpeg', 0.72))
     }
+    // Ohne diesen Zweig wird das Promise bei einer defekten oder
+    // nicht-dekodierbaren Datei NIE aufgeloest — der await davor haengt dann
+    // fuer immer, und der Nutzer sieht gar keine Rueckmeldung.
+    img.onerror = () => { URL.revokeObjectURL(url); resolve(null) }
     img.src = url
   })
+}
+
+/* Die aufgezeichnete Strecke als Linie — ohne Kartendienst. Ein Kartenbild
+   haette den Standort an einen fremden Anbieter gemeldet und braeuchte eine
+   Einwilligung; die blosse Form der Strecke verraet dagegen nicht, wo sie
+   liegt. Genau deshalb steht in der Vorschau auch kein Ortsname. */
+function spurSvg(track, b, h, klasse) {
+  const d = spurPfad(track?.punkte, b, h, 8)
+  if (!d) return ''
+  return `<svg class="${klasse}" viewBox="0 0 ${b} ${h}" preserveAspectRatio="xMidYMid meet" aria-hidden="true">
+    <path d="${d}" fill="none" stroke="currentColor" stroke-width="2.5"
+          stroke-linecap="round" stroke-linejoin="round"/>
+  </svg>`
+}
+
+/* Die Detailansicht einer aufgezeichneten Fahrt: Streckenriss, Kilometer-
+   Abschnitte, Tempo- und Hoehenverlauf. Alles aus der gespeicherten Spur
+   gerechnet, keine Nachfrage an irgendeinen Dienst. */
+function renderFahrtDetail(r) {
+  const t = r.track
+  const abschnitte = kilometerAbschnitte(t)
+  const tempo = tempoVerlauf(t)
+  const hoehe = hoehenVerlauf(t)
+  const schnellster = abschnitte.length
+    ? abschnitte.reduce((a, b) => (b.kmh > a.kmh ? b : a)) : null
+
+  const kurve = (werte, schluessel, klasse, einheit, nachkomma = 0) => {
+    if (!werte.length) return ''
+    const { d, min, max } = verlaufPfad(werte, schluessel, 600, 120, 6)
+    if (!d) return ''
+    return `
+      <div class="rj-kurve ${klasse}">
+        <svg viewBox="0 0 600 120" preserveAspectRatio="none" aria-hidden="true">
+          <path d="${verlaufFlaeche(d, 600, 120, 6)}" class="rj-kurve-flaeche"/>
+          <path d="${d}" class="rj-kurve-linie"/>
+        </svg>
+        <span class="rj-kurve-max">${max.toFixed(nachkomma)} ${einheit}</span>
+        <span class="rj-kurve-min">${min.toFixed(nachkomma)} ${einheit}</span>
+      </div>`
+  }
+
+  return `
+    <div class="rj-detail-kopf">
+      <button class="rj-detail-zurueck" id="rj-detail-zurueck">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 12H5M12 19l-7-7 7-7"/></svg>
+        Fahrtenbuch
+      </button>
+      <button class="rj-detail-teilen" data-share-ride="${r.id}">Teilen</button>
+    </div>
+
+    <h3 class="rj-detail-titel">${esc(r.title)}</h3>
+    <div class="rj-detail-datum">${new Date(r.date).toLocaleDateString('de-DE', { weekday: 'long', day: '2-digit', month: 'long', year: 'numeric' })}</div>
+
+    <div class="rj-detail-spur" style="--accent:${r.accent || '#e8c56d'}">
+      ${spurSvg(t, 600, 300, 'rj-detail-spur-svg')}
+    </div>
+
+    <div class="rj-detail-zahlen">
+      <div class="rj-detail-zahl"><span>${(r.km || 0).toLocaleString('de-DE')}</span><small>Kilometer</small></div>
+      <div class="rj-detail-zahl"><span>${formatiereDauer(t.fahrMs)}</span><small>Fahrzeit</small></div>
+      <div class="rj-detail-zahl"><span>${Math.round(t.schnittKmh || 0)}</span><small>km/h ø</small></div>
+      <div class="rj-detail-zahl"><span>${Math.round(t.maxKmh || 0)}</span><small>km/h max</small></div>
+      ${t.hoehenMeter ? `<div class="rj-detail-zahl"><span>${Math.round(t.hoehenMeter)}</span><small>Höhenmeter</small></div>` : ''}
+    </div>
+
+    ${tempo.length ? `
+      <div class="rj-detail-block">
+        <h4 class="rj-detail-h">Tempo über die Strecke</h4>
+        ${kurve(tempo, 'kmh', 'is-tempo', 'km/h')}
+      </div>` : ''}
+
+    ${hoehe.length ? `
+      <div class="rj-detail-block">
+        <h4 class="rj-detail-h">Höhe</h4>
+        ${kurve(hoehe, 'h', 'is-hoehe', 'm')}
+      </div>` : `
+      <div class="rj-detail-block">
+        <h4 class="rj-detail-h">Höhe</h4>
+        <p class="rj-detail-leer">Dieses Gerät hat während der Fahrt keine Höhe geliefert. Das ist normal — viele Telefone melden sie nur bei gutem Empfang unter freiem Himmel.</p>
+      </div>`}
+
+    ${abschnitte.length ? `
+      <div class="rj-detail-block">
+        <h4 class="rj-detail-h">Kilometer</h4>
+        <div class="rj-splits">
+          ${abschnitte.map(a => {
+            const anteil = schnellster && schnellster.kmh > 0 ? a.kmh / schnellster.kmh : 0
+            return `
+              <div class="rj-split">
+                <span class="rj-split-km">${a.teil ? `${a.km} (${a.teil} km)` : a.km}</span>
+                <span class="rj-split-bar"><i style="width:${(anteil * 100).toFixed(1)}%"></i></span>
+                <span class="rj-split-kmh">${a.kmh.toFixed(1).replace('.', ',')} km/h</span>
+                <span class="rj-split-zeit">${formatiereDauer(a.dauerMs)}</span>
+                ${a.anstieg != null ? `<span class="rj-split-hm">${a.anstieg > 0 ? '+' : ''}${a.anstieg} m</span>` : '<span class="rj-split-hm"></span>'}
+              </div>`
+          }).join('')}
+        </div>
+      </div>` : ''}
+
+    ${r.notes ? `<div class="rj-detail-block"><h4 class="rj-detail-h">Notiz</h4><p class="rj-detail-notiz">${esc(r.notes)}</p></div>` : ''}
+
+    <button class="rj-detail-bearbeiten" data-edit-ride="${r.id}">Eintrag bearbeiten</button>
+  `
 }
 
 function renderJournal() {
@@ -933,11 +886,81 @@ function renderJournal() {
         <div class="rj-stat"><span class="rj-stat-num">${totalKm.toLocaleString('de-DE')}</span><span class="rj-stat-lbl">km</span></div>
         <div class="rj-stat"><span class="rj-stat-num">${totalHours.toFixed(0)}</span><span class="rj-stat-lbl">Stunden</span></div>
         <div class="rj-stat"><span class="rj-stat-num">${months.length}</span><span class="rj-stat-lbl">Monate</span></div>
+        ${AUFZEICHNEN_AKTIV && standortVerfuegbar() ? `
+          <button class="rj-rec-btn" id="rj-start-rec">
+            <span class="rj-rec-btn-dot"></span>
+            Aufzeichnen
+          </button>
+        ` : ''}
         <button class="rj-add-btn" id="rj-open-form">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 5v14M5 12h14"/></svg>
           Neue Fahrt
         </button>
       </div>
+
+      ${(() => {
+        /* Wer waehrend der Fahrt die Seite neu laedt oder dessen Telefon den
+           Browser wegraeumt, soll die gefahrenen Kilometer nicht verlieren.
+           Der Zwischenstand wird alle fuenf Sekunden gesichert. */
+        if (!AUFZEICHNEN_AKTIV) return ''
+        const offen = unterbrocheneAufzeichnung()
+        if (!offen) return ''
+        const km = (offen.meter / 1000).toFixed(1).replace('.', ',')
+        return `
+          <div class="rj-resume" id="rj-resume">
+            <div class="rj-resume-text">
+              Eine Aufzeichnung wurde unterbrochen — <strong>${km} km</strong> sind gesichert.
+            </div>
+            <div class="rj-resume-btns">
+              <button class="rj-resume-go" id="rj-resume-go">Fortsetzen</button>
+              <button class="rj-resume-drop" id="rj-resume-drop">Verwerfen</button>
+            </div>
+          </div>
+        `
+      })()}
+
+      <!-- Aufzeichnung: eigener Vollbild-Schirm, damit die Zahlen waehrend
+           der Fahrt aus Armlaenge lesbar sind -->
+      ${!AUFZEICHNEN_AKTIV ? '' : `
+      <div class="rj-rec" id="rj-rec" hidden>
+        <div class="rj-rec-top">
+          <div class="rj-rec-status">
+            <span class="rj-rec-dot" id="rj-rec-dot"></span>
+            <span id="rj-rec-state">Warte auf Satellitenempfang …</span>
+          </div>
+          <span class="rj-rec-gps" id="rj-rec-gps"></span>
+        </div>
+
+        <div class="rj-rec-haupt">
+          <span class="rj-rec-haupt-num" id="rj-rec-km">0,00</span>
+          <span class="rj-rec-haupt-lbl">Kilometer</span>
+        </div>
+
+        <div class="rj-rec-map">
+          <svg class="rj-rec-svg" id="rj-rec-svg" viewBox="0 0 320 190" preserveAspectRatio="xMidYMid meet" aria-hidden="true">
+            <path id="rj-rec-path" d="" fill="none" stroke="currentColor" stroke-width="3"
+                  stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+          <div class="rj-rec-empty" id="rj-rec-empty">Die Strecke erscheint, sobald der erste Punkt steht.</div>
+        </div>
+
+        <div class="rj-rec-nums">
+          <div class="rj-rec-num"><span id="rj-rec-time">0:00</span><small>Fahrzeit</small></div>
+          <div class="rj-rec-num"><span id="rj-rec-kmh">0</span><small>km/h</small></div>
+          <div class="rj-rec-num"><span id="rj-rec-avg">0</span><small>km/h ø</small></div>
+          <div class="rj-rec-num"><span id="rj-rec-hm">0</span><small>Höhenmeter</small></div>
+        </div>
+
+        <div class="rj-rec-btns">
+          <button type="button" class="rj-rec-pause" id="rj-rec-pause">Pause</button>
+          <button type="button" class="rj-rec-stop" id="rj-rec-stop">Fahrt beenden</button>
+        </div>
+        <button type="button" class="rj-rec-cancel" id="rj-rec-cancel">Aufzeichnung verwerfen</button>
+        <p class="rj-rec-hint">
+          Die Strecke bleibt auf diesem Gerät. Es wird keine Karte geladen und
+          keine Koordinate versendet.
+        </p>
+      </div>`}
 
       <!-- New ride sheet (hidden by default) -->
       <div class="rj-sheet" id="rj-sheet" hidden>
@@ -945,7 +968,7 @@ function renderJournal() {
           <div class="rj-sheet-tape"></div>
           <div class="rj-sheet-header">
             <span class="rj-sheet-label">Neue Seite</span>
-            <button class="rj-sheet-close" id="rj-close-form">✕</button>
+            <button class="rj-sheet-close" id="rj-close-form" aria-label="Schließen">✕</button>
           </div>
 
           <!-- Photo upload -->
@@ -956,7 +979,7 @@ function renderJournal() {
               <span>Foto hinzufügen</span>
             </div>
             <img class="rj-photo-preview" id="rj-photo-preview" hidden>
-            <button class="rj-photo-remove" id="rj-photo-remove" hidden>✕</button>
+            <button class="rj-photo-remove" id="rj-photo-remove" hidden aria-label="Foto entfernen">✕</button>
           </div>
 
           <form id="rj-form">
@@ -978,12 +1001,14 @@ function renderJournal() {
 
             <div class="rj-mood-row">
               <span class="rj-mood-label">Wetter</span>
-              ${RIDE_MOODS.map((m,i) => `
-                <label class="rj-mood-opt">
-                  <input type="radio" name="rj-mood" value="${m}" ${i===0?'checked':''}>
-                  <span>${m}</span>
-                </label>
-              `).join('')}
+              <div class="rj-mood-opts">
+                ${RIDE_WETTER.map((w,i) => `
+                  <label class="rj-mood-opt" title="${w.label}">
+                    <input type="radio" name="rj-mood" value="${w.id}" ${i===0?'checked':''}>
+                    <span aria-label="${w.label}">${wetterIcon(w.id)}</span>
+                  </label>
+                `).join('')}
+              </div>
             </div>
 
             <textarea class="rj-notes-input" id="rj-notes" rows="4" placeholder="Was war besonders? Strecke, Highlights, Gedanken …" maxlength="400"></textarea>
@@ -1003,6 +1028,27 @@ function renderJournal() {
         </div>
       </div>
 
+      ${(() => {
+        /* Bestwerte erst ab der zweiten Fahrt: bei einer einzigen waere jede
+           Zeile dieselbe Fahrt, das sagt nichts. */
+        if (rides.length < 2) return ''
+        const b = bestwerte(rides)
+        const zeile = (label, wert, zusatz) => wert ? `
+          <div class="rj-best">
+            <span class="rj-best-lbl">${label}</span>
+            <span class="rj-best-val">${wert}</span>
+            ${zusatz ? `<span class="rj-best-sub">${esc(zusatz)}</span>` : ''}
+          </div>` : ''
+        return `
+          <div class="rj-bests">
+            ${zeile('Diesen Monat', `${b.kmMonat.toLocaleString('de-DE')} km`)}
+            ${zeile('Längste Fahrt', b.laengste ? `${b.laengste.km} km` : '', b.laengste?.title)}
+            ${b.schnellste ? zeile('Schnellste ø', `${Math.round(b.schnellste.track.schnittKmh)} km/h`, b.schnellste.title) : ''}
+            ${b.hoehenMeter > 0 ? zeile('Höhenmeter', `${b.hoehenMeter.toLocaleString('de-DE')} hm`) : ''}
+          </div>
+        `
+      })()}
+
       <!-- Pinboard -->
       ${rides.length === 0 ? `
         <div class="rj-empty">
@@ -1021,18 +1067,27 @@ function renderJournal() {
             return `
               <div class="rj-card" style="--accent:${accent};--rot:${rot}" data-open-ride="${r.id}" role="button" tabindex="0">
                 <div class="rj-card-pin"></div>
-                ${r.photo ? `<img class="rj-card-photo" src="${r.photo}" alt="">` : `
-                  <div class="rj-card-photo-empty">
+                <button class="rj-card-share" data-share-ride="${r.id}" title="Fahrt teilen" aria-label="Fahrt teilen">
+                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8"/><path d="M16 6l-4-4-4 4"/><path d="M12 2v14"/></svg>
+                </button>
+                ${r.photo
+                  ? `<img class="rj-card-photo" src="${r.photo}" alt="">`
+                  : (spurSvg(r.track, 240, 120, 'rj-card-spur')
+                      ? `<div class="rj-card-spur-wrap">${spurSvg(r.track, 240, 120, 'rj-card-spur')}</div>`
+                      : `<div class="rj-card-photo-empty">
                     <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.3" opacity=".25"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="M21 15l-5-5L5 21"/></svg>
-                  </div>
-                `}
+                  </div>`)}
+                ${r.photo && r.track?.punkte?.length >= 2
+                  ? `<div class="rj-card-spur-strip">${spurSvg(r.track, 240, 34, 'rj-card-spur')}</div>` : ''}
                 <div class="rj-card-body">
                   <div class="rj-card-date">${dayStr} <span>${yearStr}</span></div>
                   <div class="rj-card-title">${esc(r.title)}</div>
                   <div class="rj-card-chips">
                     <span class="rj-chip">${r.km} km</span>
-                    ${r.hours ? `<span class="rj-chip">${r.hours} h</span>` : ''}
-                    ${r.mood ? `<span class="rj-chip rj-chip-mood">${esc(r.mood)}</span>` : ''}
+                    ${r.track?.fahrMs ? `<span class="rj-chip">${formatiereDauer(r.track.fahrMs)}</span>`
+                                      : (r.hours ? `<span class="rj-chip">${r.hours} h</span>` : '')}
+                    ${r.track?.schnittKmh ? `<span class="rj-chip">ø ${Math.round(r.track.schnittKmh)} km/h</span>` : ''}
+                    ${wetterEintrag(r.mood) ? `<span class="rj-chip rj-chip-mood" title="${wetterEintrag(r.mood).label}">${wetterIcon(r.mood, 14)}</span>` : ''}
                   </div>
                   ${r.notes ? `<div class="rj-card-notes">${esc(r.notes)}</div>` : ''}
                 </div>
@@ -1042,12 +1097,15 @@ function renderJournal() {
           }).join('')}
         </div>
       `}
+      <!-- Detailansicht einer aufgezeichneten Fahrt -->
+      <div class="rj-detail" id="rj-detail" hidden></div>
+
       <!-- Edit overlay -->
       <div class="rj-edit-overlay" id="rj-edit-overlay" hidden>
         <div class="rj-edit-modal">
           <div class="rj-edit-header">
             <span class="rj-sheet-label">Eintrag bearbeiten</span>
-            <button class="rj-sheet-close" id="rj-edit-close">✕</button>
+            <button class="rj-sheet-close" id="rj-edit-close" aria-label="Schließen">✕</button>
           </div>
           <div class="rj-photo-drop" id="rj-edit-photo-drop">
             <input type="file" id="rj-edit-photo-input" accept="image/*" hidden>
@@ -1056,7 +1114,7 @@ function renderJournal() {
               <span>Foto hinzufügen</span>
             </div>
             <img class="rj-photo-preview" id="rj-edit-photo-preview" hidden>
-            <button class="rj-photo-remove" id="rj-edit-photo-remove" hidden>✕</button>
+            <button class="rj-photo-remove" id="rj-edit-photo-remove" hidden aria-label="Foto entfernen">✕</button>
           </div>
           <form id="rj-edit-form">
             <input type="hidden" id="rj-edit-id">
@@ -1070,12 +1128,14 @@ function renderJournal() {
             </div>
             <div class="rj-mood-row">
               <span class="rj-mood-label">Wetter</span>
-              ${RIDE_MOODS.map(m => `
-                <label class="rj-mood-opt">
-                  <input type="radio" name="rj-edit-mood" value="${m}">
-                  <span>${m}</span>
-                </label>
-              `).join('')}
+              <div class="rj-mood-opts">
+                ${RIDE_WETTER.map(w => `
+                  <label class="rj-mood-opt" title="${w.label}">
+                    <input type="radio" name="rj-edit-mood" value="${w.id}">
+                    <span aria-label="${w.label}">${wetterIcon(w.id)}</span>
+                  </label>
+                `).join('')}
+              </div>
             </div>
             <textarea class="rj-notes-input" id="rj-edit-notes" rows="4" placeholder="Was war besonders? Strecke, Highlights, Gedanken …" maxlength="400"></textarea>
             <div class="rj-accent-row">
@@ -1100,6 +1160,152 @@ function renderJournal() {
 
 function wireJournal() {
   let pendingPhoto = null
+  let photoGen = 0 // Generation-Zaehler gegen Race: spaete compressPhoto()-Antwort darf neueren Stand nicht ueberschreiben
+  let pendingTrack = null   // Strecke der eben beendeten Aufzeichnung, wartet auf das Speichern
+  let aufnahme = null       // Steuerung der laufenden Aufzeichnung
+
+  // ── Fahrt aufzeichnen ──
+  if (AUFZEICHNEN_AKTIV) wireAufzeichnung()
+
+  function wireAufzeichnung() {
+  /* Rest aus einem frueheren Aufbau des Reiters: vollbildAn() haengt die
+     Ansicht an <body>, beim Neuzeichnen entstuende sonst ein zweites Element
+     mit derselben id. */
+  document.querySelectorAll('body > #rj-rec').forEach(el => el.remove())
+
+  const recPanel  = document.getElementById('rj-rec')
+  const recPath   = document.getElementById('rj-rec-path')
+  const recLeer   = document.getElementById('rj-rec-empty')
+  const recStatus = document.getElementById('rj-rec-state')
+  const recDot    = document.getElementById('rj-rec-dot')
+  const recPause  = document.getElementById('rj-rec-pause')
+
+  const recGps = document.getElementById('rj-rec-gps')
+
+  const zeigeStand = (stand) => {
+    document.getElementById('rj-rec-km').textContent = stand.km.toFixed(2).replace('.', ',')
+    document.getElementById('rj-rec-time').textContent = formatiereDauer(stand.fahrMs)
+    document.getElementById('rj-rec-kmh').textContent = Math.round(stand.tempoKmh)
+    document.getElementById('rj-rec-avg').textContent = Math.round(stand.schnittKmh)
+    document.getElementById('rj-rec-hm').textContent = Math.round(stand.hoehenMeter)
+    const d = spurPfad(stand.punkte, 320, 190, 14)
+    if (d) { recPath.setAttribute('d', d); recLeer.hidden = true }
+
+    /* Die automatische Pause muss man sehen. Sonst steht man an der Ampel,
+       die Uhr bewegt sich nicht, und man haelt die Aufzeichnung fuer kaputt. */
+    recStatus.textContent = stand.pausiert ? 'Pausiert'
+      : stand.autoPause ? 'Pause — Stillstand erkannt'
+      : 'Zeichnet auf'
+    recGps.textContent = `${stand.punktZahl} ${stand.punktZahl === 1 ? 'Punkt' : 'Punkte'}`
+    recDot.classList.toggle('is-paused', stand.ruht)
+    recPanel.classList.toggle('is-paused', stand.ruht)
+    recPause.textContent = stand.pausiert ? 'Weiter' : 'Pause'
+  }
+
+  /* .acc-panel traegt ein transform (Einblend-Animation). Ein Vorfahr mit
+     transform wird zum Bezugsrahmen fuer position: fixed — die Ansicht fuellte
+     dadurch nur das Konto-Feld statt des Bildschirms, am Telefon gemessen
+     367x796 statt 375x812, und die Seite darunter blieb sichtbar. Waehrend der
+     Aufzeichnung haengt sie deshalb direkt an <body> und kommt danach an ihren
+     Platz zurueck. */
+  const recHeimat = recPanel?.parentElement
+
+  const vollbildAn = (an) => {
+    if (!recPanel) return
+    if (an) document.body.appendChild(recPanel)
+    else recHeimat?.appendChild(recPanel)
+    recPanel.hidden = !an
+    document.body.classList.toggle('rj-rec-offen', an)
+  }
+
+  async function starte(fortsetzen = null) {
+    if (aufnahme) return
+    vollbildAn(true)
+    recStatus.textContent = 'Warte auf Satellitenempfang …'
+    try {
+      aufnahme = await starteAufzeichnung({
+        fortsetzen,
+        beiAenderung: zeigeStand,
+        beiFehler: (text) => { recStatus.textContent = text },
+      })
+      zeigeStand(aufnahme.stand())
+    } catch (err) {
+      vollbildAn(false)
+      aufnahme = null
+      showFlash(err.message)
+    }
+  }
+
+  document.getElementById('rj-start-rec')?.addEventListener('click', () => starte())
+  document.getElementById('rj-resume-go')?.addEventListener('click', () => {
+    const offen = unterbrocheneAufzeichnung()
+    document.getElementById('rj-resume')?.remove()
+    starte(offen)
+  })
+  document.getElementById('rj-resume-drop')?.addEventListener('click', () => {
+    verwerfeUnterbrochene()
+    document.getElementById('rj-resume')?.remove()
+  })
+
+  recPause?.addEventListener('click', () => {
+    if (!aufnahme) return
+    aufnahme.stand().pausiert ? aufnahme.weiter() : aufnahme.pause()
+  })
+
+  document.getElementById('rj-rec-cancel')?.addEventListener('click', () => {
+    if (!aufnahme) { vollbildAn(false); return }
+    if (!confirm('Aufzeichnung verwerfen? Die gefahrene Strecke geht verloren.')) return
+    aufnahme.abbrechen()
+    aufnahme = null
+    vollbildAn(false)
+  })
+
+  document.getElementById('rj-rec-stop')?.addEventListener('click', () => {
+    if (!aufnahme) return
+    const fahrt = aufnahme.beenden()
+    aufnahme = null
+    vollbildAn(false)
+    if (!fahrt) {
+      showFlash('Zu wenig Bewegung aufgezeichnet — es wurde nichts gespeichert.')
+      return
+    }
+    /* Die Aufzeichnung speichert nicht selbst: Titel, Wetter und Notiz fehlen
+       noch. Sie fuellt das Formular vor und ueberlaesst das Absenden dem
+       Nutzer — so bleibt eine Probefahrt ums Haus auch loeschbar, ohne dass
+       sie erst im Journal auftaucht. */
+    pendingTrack = fahrt
+    const sheet = document.getElementById('rj-sheet')
+    sheet.hidden = false
+    document.getElementById('rj-km').value = Math.round(fahrt.km)
+    document.getElementById('rj-hours').value = (fahrt.fahrMs / 3600000).toFixed(1)
+    document.getElementById('rj-date').value = new Date(fahrt.start).toISOString().slice(0, 10)
+    const titel = document.getElementById('rj-title')
+    titel.placeholder = 'Titel der Fahrt …'
+    sheet.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    titel.focus()
+    showFlash(`${fahrt.km.toFixed(1).replace('.', ',')} km aufgezeichnet — Titel eintragen und speichern.`)
+  })
+
+  } // Ende wireAufzeichnung
+
+  // ── Fahrt teilen ──
+  document.querySelectorAll('[data-share-ride]').forEach(btn => {
+    btn.addEventListener('click', async (e) => {
+      e.stopPropagation()   // sonst oeffnet zusaetzlich die Bearbeiten-Ansicht
+      const ride = getRides().find(r => r.id === btn.dataset.shareRide)
+      if (!ride) return
+      btn.disabled = true
+      try {
+        const wie = await teileFahrt(ride)
+        if (wie === 'geladen') showFlash('Bild gespeichert — du kannst es jetzt versenden.')
+        else if (wie === 'geteilt') showFlash('Geteilt \u2713')
+      } catch {
+        showFlash('Das Teilen hat nicht geklappt.')
+      } finally {
+        btn.disabled = false
+      }
+    })
+  })
 
   // Open / close form sheet
   document.getElementById('rj-open-form')?.addEventListener('click', () => {
@@ -1108,6 +1314,7 @@ function wireJournal() {
     sheet.scrollIntoView({ behavior: 'smooth', block: 'start' })
   })
   document.getElementById('rj-close-form')?.addEventListener('click', () => {
+    photoGen++
     document.getElementById('rj-sheet').hidden = true
   })
 
@@ -1125,7 +1332,10 @@ function wireJournal() {
   photoInput?.addEventListener('change', async () => {
     const file = photoInput.files?.[0]
     if (!file) return
-    pendingPhoto = await compressPhoto(file)
+    const gen = ++photoGen
+    const compressed = await compressPhoto(file)
+    if (gen !== photoGen) return // in der Zwischenzeit entfernt oder durch anderes Foto ersetzt
+    pendingPhoto = compressed
     photoPreview.src = pendingPhoto
     photoPreview.hidden = false
     photoPlaceholder.hidden = true
@@ -1133,6 +1343,7 @@ function wireJournal() {
   })
   photoRemove?.addEventListener('click', e => {
     e.stopPropagation()
+    photoGen++
     pendingPhoto = null
     photoPreview.hidden = true
     photoPlaceholder.hidden = false
@@ -1155,22 +1366,30 @@ function wireJournal() {
       mood,
       accent,
       photo: pendingPhoto || null,
+      track: pendingTrack || null,
     }
-    if (!ride.title || !ride.km) return
+    if (!ride.title || !Number.isFinite(ride.km) || ride.km < 0) {
+      showFlash('Bitte einen gültigen Kilometerstand angeben (0 oder mehr).')
+      return
+    }
     const rides = getRides()
     rides.push(ride)
     saveRides(rides)
     pendingPhoto = null
+    pendingTrack = null
+    photoGen++
     showFlash('Eintrag gespeichert ✓')
     renderTabContent('journal')
   })
 
   // ── Edit overlay ──
   let editPhoto = null // photo state for edit modal
+  let editPhotoGen = 0 // wie photoGen oben — schuetzt vor veralteter compressPhoto()-Antwort
 
   function openEditOverlay(ride) {
     const overlay = document.getElementById('rj-edit-overlay')
     if (!overlay) return
+    editPhotoGen++
     editPhoto = ride.photo || null
 
     // Pre-fill fields
@@ -1182,7 +1401,8 @@ function wireJournal() {
     document.getElementById('rj-edit-notes').value = ride.notes || ''
 
     // Mood
-    const moodRadio = document.querySelector(`input[name="rj-edit-mood"][value="${ride.mood || RIDE_MOODS[0]}"]`)
+    const moodId = wetterEintrag(ride.mood)?.id || RIDE_WETTER[0].id
+    const moodRadio = document.querySelector(`input[name="rj-edit-mood"][value="${moodId}"]`)
     if (moodRadio) moodRadio.checked = true
 
     // Accent
@@ -1205,16 +1425,61 @@ function wireJournal() {
     overlay.scrollIntoView({ behavior: 'smooth', block: 'start' })
   }
 
-  // Open on card click
+  /* Aufgezeichnete Fahrten oeffnen die Detailansicht, von Hand eingetragene
+     gehen direkt ins Bearbeiten — dort gaebe es sonst nichts zu sehen ausser
+     denselben drei Zahlen, die schon auf der Karte stehen. */
+  const detail = document.getElementById('rj-detail')
+  const board  = document.getElementById('rj-board')
+
+  function zeigeDetail(ride) {
+    detail.innerHTML = renderFahrtDetail(ride)
+    detail.hidden = false
+    document.querySelector('.rj-header')?.setAttribute('hidden', '')
+    document.querySelector('.rj-bests')?.setAttribute('hidden', '')
+    if (board) board.hidden = true
+    detail.scrollIntoView({ block: 'start' })
+    detail.querySelector('#rj-detail-zurueck')?.addEventListener('click', schliesseDetail)
+    detail.querySelector('[data-edit-ride]')?.addEventListener('click', (e) => {
+      const r = getRides().find(x => x.id === e.currentTarget.dataset.editRide)
+      if (r) openEditOverlay(r)
+    })
+    detail.querySelector('[data-share-ride]')?.addEventListener('click', async (e) => {
+      const r = getRides().find(x => x.id === e.currentTarget.dataset.shareRide)
+      if (!r) return
+      const wie = await teileFahrt(r)
+      if (wie === 'geladen') showFlash('Bild gespeichert — du kannst es jetzt versenden.')
+      else if (wie === 'geteilt') showFlash('Geteilt \u2713')
+    })
+  }
+
+  function schliesseDetail() {
+    detail.hidden = true
+    detail.innerHTML = ''
+    document.querySelector('.rj-header')?.removeAttribute('hidden')
+    document.querySelector('.rj-bests')?.removeAttribute('hidden')
+    if (board) board.hidden = false
+  }
+
+  // Open on card click (oder Enter/Leertaste, da role="button" tabindex="0")
   document.querySelectorAll('[data-open-ride]').forEach(card => {
-    card.addEventListener('click', () => {
+    const open = () => {
       const ride = getRides().find(r => r.id === card.dataset.openRide)
-      if (ride) openEditOverlay(ride)
+      if (!ride) return
+      if (ride.track?.punkte?.length >= 2) zeigeDetail(ride)
+      else openEditOverlay(ride)
+    }
+    card.addEventListener('click', open)
+    card.addEventListener('keydown', e => {
+      if (e.key === 'Enter' || e.key === ' ') {
+        e.preventDefault()
+        open()
+      }
     })
   })
 
   // Close overlay
   document.getElementById('rj-edit-close')?.addEventListener('click', () => {
+    editPhotoGen++
     document.getElementById('rj-edit-overlay').hidden = true
   })
 
@@ -1231,12 +1496,16 @@ function wireJournal() {
   editInput?.addEventListener('change', async () => {
     const file = editInput.files?.[0]
     if (!file) return
-    editPhoto = await compressPhoto(file)
+    const gen = ++editPhotoGen
+    const compressed = await compressPhoto(file)
+    if (gen !== editPhotoGen) return // in der Zwischenzeit entfernt oder durch anderes Foto ersetzt
+    editPhoto = compressed
     editPrev.src = editPhoto; editPrev.hidden = false
     editPh.hidden = true; editRm.hidden = false
   })
   editRm?.addEventListener('click', e => {
     e.stopPropagation()
+    editPhotoGen++
     editPhoto = null
     editPrev.hidden = true; editPh.hidden = false; editRm.hidden = true
     editInput.value = ''
@@ -1248,6 +1517,10 @@ function wireJournal() {
     const id = document.getElementById('rj-edit-id').value
     const mood = document.querySelector('input[name="rj-edit-mood"]:checked')?.value || ''
     const accent = document.querySelector('input[name="rj-edit-accent"]:checked')?.value || CARD_ACCENTS[0]
+    /* Das Formular baut den Eintrag neu auf. Die aufgezeichnete Strecke steht
+       in keinem Feld — ohne diese Zeile waere sie nach dem ersten Bearbeiten
+       eines Eintrags weg. */
+    const bisher = getRides().find(r => r.id === id)
     const updated = {
       id,
       date: new Date(document.getElementById('rj-edit-date').value).getTime(),
@@ -1257,8 +1530,12 @@ function wireJournal() {
       notes: document.getElementById('rj-edit-notes').value.trim(),
       mood, accent,
       photo: editPhoto || null,
+      track: bisher?.track || null,
     }
-    if (!updated.title || !updated.km) return
+    if (!updated.title || !Number.isFinite(updated.km) || updated.km < 0) {
+      showFlash('Bitte einen gültigen Kilometerstand angeben (0 oder mehr).')
+      return
+    }
     saveRides(getRides().map(r => r.id === id ? updated : r))
     showFlash('Eintrag aktualisiert ✓')
     renderTabContent('journal')
@@ -1274,56 +1551,142 @@ function wireJournal() {
   })
 }
 
+/* ─── Favoriten: Bikes, Ausruestung und Orte unter einem Dach ───
+   Der aktive Filter ueberlebt das Neuzeichnen (Eintrag entfernen, Karte
+   laden), steht aber bewusst nicht in localStorage: beim naechsten Oeffnen
+   des Kontos soll wieder alles zu sehen sein. */
+let favFilter = 'alle'
+
+const FAV_FILTER = [
+  ['alle',   'Alle'],
+  ['bikes',  'Bikes'],
+  ['gear',   'Ausrüstung'],
+  ['places', 'Orte'],
+]
+
+export function setFavFilter(f) {
+  favFilter = FAV_FILTER.some(([k]) => k === f) ? f : 'alle'
+}
+
+function renderFavoriten() {
+  const zahlen = {
+    bikes:  getOwnedBikes().length,
+    gear:   collectGearFavs().length,
+    places: collectMapFavs().length,
+  }
+  zahlen.alle = zahlen.bikes + zahlen.gear + zahlen.places
+
+  const zeige = (k) => favFilter === 'alle' || favFilter === k
+
+  return `
+    <!-- Bewusst ohne die tb-bar/tb-btn der Seite: die sind fuer helle Bereiche
+         gebaut (.tb-bar hat weissen Grund) und liessen die drei inaktiven
+         Knoepfe hier weiss auf weiss verschwinden. -->
+    <div class="fav-bar" role="tablist">
+      ${FAV_FILTER.map(([k, label]) => `
+        <button class="fav-btn${favFilter === k ? ' fav-btn--active' : ''}"
+                data-fav-filter="${k}" role="tab" aria-selected="${favFilter === k}">
+          ${label}<span class="fav-btn-count">${zahlen[k]}</span>
+        </button>
+      `).join('')}
+    </div>
+
+    ${zahlen.alle === 0 ? `
+      <div class="acc-empty">
+        <p>Noch nichts gemerkt.</p>
+        <p class="acc-empty-sub">Bikes, Ausrüstung und Orte, die du dir merkst, sammeln sich hier.</p>
+      </div>
+    ` : `
+      ${zeige('bikes')  ? `<div class="fav-sektion" data-fav-sektion="bikes">${renderBikes()}</div>` : ''}
+      ${zeige('gear')   ? `<div class="fav-sektion" data-fav-sektion="gear">${renderGear()}</div>` : ''}
+      ${zeige('places') ? `<div class="fav-sektion" data-fav-sektion="places">${renderPlaces()}</div>` : ''}
+    `}
+  `
+}
+
+/**
+ * Zeigt an einer seitlich scrollenden Zeile, dass es weitergeht.
+ *
+ * Die Bildlaufleiste ist ausgeblendet, und ein angeschnittener Eintrag allein
+ * kann auch nach einem Gestaltungsfehler aussehen. Deshalb wird der Inhalt an
+ * der Kante, hinter der noch etwas liegt, weich ausgeblendet — Text, der
+ * verschwindet, statt Text, der abgeschnitten ist. Die Seite ohne weiteren
+ * Inhalt bleibt scharf, damit die Blende nicht luegt.
+ */
+function scrollZeileMarkieren(el) {
+  if (!el) return
+  const pruefe = () => {
+    const rest = el.scrollWidth - el.clientWidth
+    const links = el.scrollLeft > 4
+    const rechts = rest > 4 && el.scrollLeft < rest - 4
+    el.classList.toggle('mm-schiebe--links', links)
+    el.classList.toggle('mm-schiebe--rechts', rechts)
+  }
+  el.classList.add('mm-schiebe')
+  el.addEventListener('scroll', pruefe, { passive: true })
+  /* Die Breite steht erst, wenn Schrift und Bilder da sind — einmal sofort
+     und einmal im naechsten Rahmen messen. */
+  pruefe()
+  requestAnimationFrame(pruefe)
+  if (typeof ResizeObserver === 'function') {
+    const ro = new ResizeObserver(pruefe)
+    ro.observe(el)
+  }
+}
+
+function wireFavoriten() {
+  document.querySelectorAll('[data-fav-filter]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      setFavFilter(btn.dataset.favFilter)
+      renderTabContent('favoriten')
+    })
+  })
+  scrollZeileMarkieren(document.querySelector('.fav-bar'))
+  if (favFilter === 'alle' || favFilter === 'bikes') wireBikeSearch()
+}
+
+/* Die erklaerende Zeile unter der Ueberschrift ist weg — sie stand in jedem
+   Aufruf da, egal wie oft man den Bereich schon gesehen hatte. Was sie sagte,
+   sagt jetzt der Platzhalter im Suchfeld. */
 function renderBikes() {
   const owned = getOwnedBikes()
   const recents = collectRecentBikes().filter(b => !owned.some(o => o.name === b.name))
 
+  const zeile = (name, meta, extra = '') => `
+    <div class="fav-zeile acc-bike-card" data-open-bike="${esc(name)}">
+      ${bikeKachel(name, 'fav-zeile-bild')}
+      <div class="fav-zeile-text">
+        <div class="fav-zeile-name">${esc(name)}</div>
+        <div class="fav-zeile-meta">${esc(meta)}</div>
+      </div>
+      ${extra}
+    </div>`
+
   return `
     <div class="acc-section">
-      <h3 class="acc-section-title">Meine Bikes <span class="acc-count">${owned.length}</span></h3>
-      <p class="acc-section-sub">Suche dein Bike und trage es hier ein — nur weil du Bikes ansiehst, heißt das nicht, dass du sie besitzt.</p>
-      <div class="acc-bike-search">
-        <input type="text" class="acc-input" id="acc-bike-search-input" placeholder="Bike suchen, z. B. Iron 883…" autocomplete="off">
-        <div class="acc-bike-search-results" id="acc-bike-search-results" hidden></div>
-      </div>
-      ${owned.length === 0 ? `
-        <div class="acc-empty-inline">Noch kein eigenes Bike markiert.</div>
-      ` : `
-        <div class="acc-bikes-list">
-          ${owned.map(b => `
-            <div class="acc-bike-card" data-open-bike="${b.name}">
-              <div class="acc-bike-icon" style="background:linear-gradient(135deg, ${stringColor(b.name)}, #1a1a1a)">🏍</div>
-              <div class="acc-bike-info">
-                <div class="acc-bike-name">${b.name}</div>
-                <div class="acc-bike-meta">${b.style} · seit ${fmtDate(b.addedAt)}</div>
-              </div>
-              <button class="acc-remove-btn" data-remove-owned-bike="${b.name}" aria-label="Entfernen">
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6L6 18M6 6l12 12"/></svg>
-              </button>
-            </div>
-          `).join('')}
-        </div>
-      `}
-    </div>
+      <h3 class="fav-h">Meine Bikes</h3>
+      <input type="text" class="acc-input fav-suche" id="acc-bike-search-input"
+             placeholder="Eigenes Bike eintragen — Modell suchen …" autocomplete="off">
+      <div class="acc-bike-search-results" id="acc-bike-search-results" hidden></div>
 
-    <div class="acc-section">
-      <h3 class="acc-section-title">Zuletzt angesehen <span class="acc-count">${recents.length}</span></h3>
-      ${recents.length === 0 ? `
-        <div class="acc-empty-inline">Noch keine weiteren Bikes angesehen.</div>
+      ${owned.length === 0 ? `
+        <p class="acc-leer-sub fav-hinweis">Noch kein eigenes Bike eingetragen.</p>
       ` : `
-        <div class="acc-bikes-list">
-          ${recents.map(b => `
-            <button class="acc-bike-card" data-open-bike="${b.name}">
-              <div class="acc-bike-icon" style="background:linear-gradient(135deg, ${stringColor(b.name)}, #1a1a1a)">🏍</div>
-              <div class="acc-bike-info">
-                <div class="acc-bike-name">${b.name}</div>
-                <div class="acc-bike-meta">${b.style} · ${fmtDate(b.ts)}</div>
-              </div>
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M9 18l6-6-6-6"/></svg>
-            </button>
-          `).join('')}
+        <div class="fav-liste">
+          ${owned.map(b => zeile(b.name, `${b.style} · seit ${fmtDate(b.addedAt)}`, `
+            <button class="acc-remove-btn" data-remove-owned-bike="${esc(b.name)}" aria-label="Entfernen">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6L6 18M6 6l12 12"/></svg>
+            </button>`)).join('')}
         </div>
       `}
+
+      ${recents.length ? `
+        <h3 class="fav-h fav-h--zweit">Zuletzt angesehen</h3>
+        <div class="fav-liste">
+          ${recents.slice(0, 6).map(b => zeile(b.name, `${b.style} · ${fmtDate(b.ts)}`, `
+            <svg class="fav-zeile-pfeil" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M9 18l6-6-6-6"/></svg>`)).join('')}
+        </div>
+      ` : ''}
     </div>
   `
 }
@@ -1371,90 +1734,34 @@ function wireBikeSearch() {
   })
 }
 
+/* Frueher standen hier: eine Budget-Summe, ein gelber Warnkasten mit fehlenden
+   Kategorien, Gruppenkoepfe je Kategorie mit Emoji und Zaehler, und fuenf
+   Punkte fuer eine aus dem Produktnamen geratene "Schutzstufe". Das war viel
+   Deutung fuer eine Merkliste. Geblieben ist die Liste selbst. */
 function renderGear() {
   const gear = collectGearFavs()
-  if (!gear.length) return `<div class="acc-empty">
-    <div class="acc-empty-icon-lg">🎒</div>
-    <p>Keine Ausrüstung gemerkt</p>
-    <p class="acc-empty-sub">Tippe auf das ♥ auf einer Karte im Ausrüstung-Tab.</p>
+  if (!gear.length) return `<div class="acc-leer">
+    <p>Keine Ausrüstung gemerkt.</p>
+    <p class="acc-leer-sub">Tippe auf das Herz an einer Karte im Bereich Ausrüstung.</p>
   </div>`
-
-  const CAT_META = {
-    helmet:         { label:'Helme',           icon:'⛑️',  protect: 5 },
-    jacket:         { label:'Jacken',           icon:'🥋',  protect: 4 },
-    gloves:         { label:'Handschuhe',       icon:'🧤',  protect: 3 },
-    boots:          { label:'Stiefel',          icon:'👢',  protect: 3 },
-    pants:          { label:'Hosen',            icon:'👖',  protect: 3 },
-    kidneybelt:     { label:'Nierengurte',      icon:'🩹',  protect: 2 },
-    balaclava:      { label:'Sturmhauben',      icon:'🪖',  protect: 1 },
-    backprotector:  { label:'Rückenprotektoren',icon:'🛡️',  protect: 5 },
-    other:          { label:'Sonstiges',        icon:'🔧',  protect: 0 },
-  }
-
-  function protectLevel(type, cat) {
-    const t = (type || '').toLowerCase()
-    if (t.includes('racing') || t.includes('carbon')) return 5
-    if (t.includes('integral') || t.includes('sport')) return 4
-    if (t.includes('flip') || t.includes('offroad') || t.includes('enduro')) return 3
-    return CAT_META[cat]?.protect ?? 2
-  }
-
-  function parsePriceMin(priceStr) {
-    const m = (priceStr || '').replace(/\./g, '').match(/(\d+)/)
-    return m ? parseInt(m[1]) : 0
-  }
-
-  const groups = {}
-  gear.forEach(g => { const k = g.gear || 'other'; (groups[k] = groups[k] || []).push(g) })
-
-  const totalMin = gear.reduce((s, g) => s + parsePriceMin(g.price), 0)
-  const covered = new Set(gear.map(g => g.gear || 'other'))
-  const missing = ['helmet','jacket','gloves','boots'].filter(k => !covered.has(k))
 
   return `
     <div class="acc-section">
-      <div class="acc-gear-header">
-        <div>
-          <h3 class="acc-section-title" style="margin:0">Meine Ausrüstung <span class="acc-count">${gear.length}</span></h3>
-          <div class="acc-gear-budget">ab ${totalMin.toLocaleString('de-DE')} € Gesamtinvestition</div>
-        </div>
-        ${missing.length ? `<div class="acc-gear-missing">⚠ Noch fehlend: ${missing.map(k => CAT_META[k].label).join(', ')}</div>` : `<div class="acc-gear-complete">✓ Vollständige Schutzausrüstung</div>`}
+      <h3 class="fav-h">Ausrüstung</h3>
+      <div class="fav-liste">
+        ${gear.map(g => `
+          <div class="fav-zeile">
+            <div class="fav-zeile-text">
+              <div class="fav-zeile-name">${esc(g.brand)} ${esc(g.name)}</div>
+              <div class="fav-zeile-meta">${esc(g.type || '')}</div>
+            </div>
+            <span class="fav-zeile-wert">${esc(g.price || '')}</span>
+            <button class="acc-remove-btn" data-remove-gear-fav="${g.id}" aria-label="Entfernen">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6L6 18M6 6l12 12"/></svg>
+            </button>
+          </div>
+        `).join('')}
       </div>
-
-      ${Object.entries(groups).map(([key, items]) => {
-        const meta = CAT_META[key] || CAT_META.other
-        return `
-        <div class="acc-gear-group">
-          <div class="acc-gear-group-header">
-            <span class="acc-gear-cat-icon">${meta.icon}</span>
-            <span class="acc-gear-group-label">${meta.label}</span>
-            <span class="acc-gear-group-count">${items.length}</span>
-          </div>
-          <div class="acc-gear-list">
-            ${items.map(g => {
-              const lvl = protectLevel(g.type, key)
-              const dots = Array.from({length:5}, (_,i) => `<span class="acc-gear-dot ${i < lvl ? 'acc-gear-dot--on' : ''}"></span>`).join('')
-              return `
-              <div class="acc-gear-card">
-                <div class="acc-gear-info">
-                  <div class="acc-gear-top-row">
-                    <span class="acc-gear-brand">${g.brand}</span>
-                    <span class="acc-gear-protect">${dots}</span>
-                  </div>
-                  <div class="acc-gear-name">${g.name}</div>
-                  <div class="acc-gear-type">${g.type}</div>
-                </div>
-                <div class="acc-gear-right">
-                  <div class="acc-gear-price">${g.price}</div>
-                  <button class="acc-remove-btn" data-remove-gear-fav="${g.id}" aria-label="Entfernen">
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6L6 18M6 6l12 12"/></svg>
-                  </button>
-                </div>
-              </div>`
-            }).join('')}
-          </div>
-        </div>`
-      }).join('')}
     </div>
   `
 }
@@ -1468,11 +1775,11 @@ function renderCommunity() {
         <div class="acc-posts-list">
           ${com.posts.map(p => `
             <div class="acc-post-card">
-              <div class="acc-post-cat">${p.category}</div>
+              <div class="acc-post-cat">${esc(p.category)}</div>
               <div class="acc-post-body">
-                <div class="acc-post-title">${p.title}</div>
-                <div class="acc-post-desc">${p.desc}</div>
-                <div class="acc-post-meta">${fmtDate(p.createdAt)} · ${p.meta} · ${p.extra}</div>
+                <div class="acc-post-title">${esc(p.title)}</div>
+                <div class="acc-post-desc">${esc(p.desc)}</div>
+                <div class="acc-post-meta">${fmtDate(p.createdAt)} · ${esc(p.meta)} · ${esc(p.extra)}</div>
               </div>
               <button class="acc-remove-btn" data-delete-post="${p.id}" aria-label="Löschen">
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M19 6l-2 14a2 2 0 0 1-2 2H9a2 2 0 0 1-2-2L5 6M10 11v6M14 11v6"/></svg>
@@ -1505,155 +1812,38 @@ function renderCommunity() {
 
 function renderPlaces() {
   const favs = collectMapFavs()
-  if (!favs.length) return `<div class="acc-empty">
-    <div class="acc-empty-icon-lg">📍</div>
-    <p>Keine gespeicherten Orte</p>
-    <p class="acc-empty-sub">Tippe auf „Merken" in der Karten-Ansicht.</p>
+  if (!favs.length) return `<div class="acc-leer">
+    <p>Keine Orte gemerkt.</p>
+    <p class="acc-leer-sub">Tippe auf „Merken" in der Karten-Ansicht.</p>
   </div>`
-  const hasCoords = favs.some(f => f.lat && f.lng)
+  /* Hier lag bis 2026-09-29 eine Kartenvorschau aus Kacheln von CARTO. Sie
+     ging aus drei Gruenden: der Dienst verlangt inzwischen einen Schluessel
+     und zeigte quer ueber den Kacheln "API KEY REQUIRED", jede Kachel schickte
+     die IP-Adresse des Nutzers und den betrachteten Ausschnitt an CARTO, und
+     der noetige Zustimmungs-Dialog davor machte die Liste unruhig. Zu jedem
+     Ort fuehrt weiterhin ein Knopf in die Karten-Ansicht der Seite. */
   return `
     <div class="acc-section">
-      <h3 class="acc-section-title">Gespeicherte Orte <span class="acc-count">${favs.length}</span></h3>
-      ${hasCoords ? `<div class="acc-places-map-wrap"></div>` : ''}
-      <div class="acc-places-list">
+      <h3 class="fav-h">Orte</h3>
+      <div class="fav-liste">
         ${favs.map(f => `
-          <div class="acc-place-card" data-place-id="${f.id}" data-lat="${f.lat || ''}" data-lng="${f.lng || ''}">
-            <div class="acc-place-pin">📍</div>
-            <div class="acc-place-body">
-              <div class="acc-place-name">${f.name}</div>
-              ${f.address ? `<div class="acc-place-addr">${f.address}</div>` : ''}
-              ${f.rating ? `<div class="acc-place-rating">★ ${f.rating.toFixed(1)}</div>` : ''}
+          <div class="acc-place-card fav-zeile" data-place-id="${f.id}" data-lat="${f.lat || ''}" data-lng="${f.lng || ''}">
+            <div class="fav-zeile-text">
+              <div class="fav-zeile-name">${esc(f.name)}</div>
+              <div class="fav-zeile-meta">${esc([f.address, f.rating ? `★ ${f.rating.toFixed(1)}` : ''].filter(Boolean).join(' · '))}</div>
             </div>
-            <div class="acc-place-actions">
-              ${f.lat && f.lng ? `
-                <button class="acc-place-route" data-open-place-map="${f.id}" data-lat="${f.lat}" data-lng="${f.lng}" aria-label="In Karte öffnen" title="In Karte öffnen">
-                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 6v16l7-4 8 4 7-4V2l-7 4-8-4-7 4z M8 2v16 M16 6v16"/></svg>
-                </button>
-                <a class="acc-place-route" href="https://www.google.com/maps/dir/?api=1&destination=${f.lat},${f.lng}" target="_blank" rel="noopener" aria-label="Route">
-                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 11l18-8-8 18-2-7-8-3z"/></svg>
-                </a>` : ''}
-              <button class="acc-remove-btn" data-remove-place-fav="${f.id}" aria-label="Entfernen">
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6L6 18M6 6l12 12"/></svg>
-              </button>
-            </div>
+            ${f.lat && f.lng ? `
+              <button class="fav-zeile-aktion" data-open-place-map="${f.id}" data-lat="${f.lat}" data-lng="${f.lng}" aria-label="In Karte öffnen" title="In Karte öffnen">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 6v16l7-4 8 4 7-4V2l-7 4-8-4-7 4z M8 2v16 M16 6v16"/></svg>
+              </button>` : ''}
+            <button class="acc-remove-btn" data-remove-place-fav="${f.id}" aria-label="Entfernen">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6L6 18M6 6l12 12"/></svg>
+            </button>
           </div>
         `).join('')}
       </div>
     </div>
   `
-}
-
-function wirePlaces() {
-  const mapWrap = document.querySelector('.acc-places-map-wrap')
-  if (!mapWrap) return
-  const favs = collectMapFavs().filter(f => f.lat && f.lng)
-  if (!favs.length) return
-
-  // Canvas-based tile map — avoids Leaflet sizing issues inside overflow:auto containers
-  const lats = favs.map(f => f.lat)
-  const lngs = favs.map(f => f.lng)
-
-  function lngToTileX(lng, z) { return (lng + 180) / 360 * Math.pow(2, z) }
-  function latToTileY(lat, z) {
-    const r = lat * Math.PI / 180
-    return (1 - Math.log(Math.tan(r) + 1 / Math.cos(r)) / Math.PI) / 2 * Math.pow(2, z)
-  }
-
-  const state = {
-    zoom: 14,
-    clat: lats.reduce((a, b) => a + b, 0) / lats.length,
-    clng: lngs.reduce((a, b) => a + b, 0) / lngs.length,
-  }
-
-  const W = mapWrap.offsetWidth || 470
-  const H = mapWrap.offsetHeight || 220
-  const dpr = devicePixelRatio || 1
-  const subs = ['a', 'b', 'c', 'd']
-
-  const canvas = document.createElement('canvas')
-  canvas.width = W * dpr
-  canvas.height = H * dpr
-  canvas.style.cssText = 'width:100%;height:100%;display:block'
-  mapWrap.appendChild(canvas)
-  const ctx = canvas.getContext('2d')
-  ctx.scale(dpr, dpr)
-
-  function render() {
-    const { zoom, clat, clng } = state
-    const txF = lngToTileX(clng, zoom)
-    const tyF = latToTileY(clat, zoom)
-    const tileX = Math.floor(txF)
-    const tileY = Math.floor(tyF)
-    const offX = W / 2 - (txF - tileX) * 256
-    const offY = H / 2 - (tyF - tileY) * 256
-
-    ctx.fillStyle = '#111'
-    ctx.fillRect(0, 0, W, H)
-
-    let pending = 9
-    const check = () => { if (--pending === 0) drawMarkers(zoom, tileX, tileY, offX, offY) }
-
-    for (let dy = -1; dy <= 1; dy++) {
-      for (let dx = -1; dx <= 1; dx++) {
-        const tx = tileX + dx, ty = tileY + dy
-        const sub = subs[Math.abs(tx + ty) % 4]
-        const img = new Image()
-        img.crossOrigin = 'anonymous'
-        img.onload = () => { ctx.drawImage(img, offX + dx * 256, offY + dy * 256, 256, 256); check() }
-        img.onerror = check
-        img.src = `https://${sub}.basemaps.cartocdn.com/dark_nolabels/${zoom}/${tx}/${ty}@2x.png`
-      }
-    }
-  }
-
-  function drawMarkers(zoom, tileX, tileY, offX, offY) {
-    favs.forEach(f => {
-      const fx = offX + (lngToTileX(f.lng, zoom) - tileX) * 256
-      const fy = offY + (latToTileY(f.lat, zoom) - tileY) * 256
-      ctx.beginPath()
-      ctx.arc(fx, fy, 6, 0, Math.PI * 2)
-      ctx.fillStyle = '#c9a84c'
-      ctx.fill()
-      ctx.strokeStyle = '#fff'
-      ctx.lineWidth = 2
-      ctx.stroke()
-    })
-  }
-
-  render()
-
-  // Zoom buttons
-  const zoomCtrl = document.createElement('div')
-  zoomCtrl.style.cssText = 'position:absolute;bottom:10px;right:10px;display:flex;flex-direction:column;gap:4px;z-index:10'
-  ;['+', '−'].forEach((label, i) => {
-    const btn = document.createElement('button')
-    btn.textContent = label
-    btn.style.cssText = 'width:28px;height:28px;border-radius:6px;border:1px solid rgba(255,255,255,0.15);background:rgba(20,20,20,0.85);color:#fff;font-size:16px;line-height:1;cursor:pointer;display:flex;align-items:center;justify-content:center'
-    btn.addEventListener('click', () => {
-      state.zoom = Math.max(10, Math.min(18, state.zoom + (i === 0 ? 1 : -1)))
-      render()
-    })
-    zoomCtrl.appendChild(btn)
-  })
-  mapWrap.style.position = 'relative'
-  mapWrap.appendChild(zoomCtrl)
-
-  // Hover or click on place card → center map on that location
-  document.querySelectorAll('.acc-place-card[data-lat]').forEach(card => {
-    const focus = () => {
-      const lat = parseFloat(card.dataset.lat)
-      const lng = parseFloat(card.dataset.lng)
-      if (!lat || !lng) return
-      state.clat = lat
-      state.clng = lng
-      state.zoom = 16
-      render()
-      document.querySelectorAll('.acc-place-card').forEach(c => c.classList.remove('acc-place-card--active'))
-      card.classList.add('acc-place-card--active')
-    }
-    card.addEventListener('mouseenter', focus)
-    card.addEventListener('click', e => { if (!e.target.closest('a, button')) focus() })
-  })
 }
 
 const SETTINGS_CATS = [
@@ -1740,7 +1930,7 @@ function renderSettings() {
               <div class="acc-inline-error" data-fb-error hidden></div>
             </div>
 
-            ${realUser && u.password !== null ? `
+            ${realUser && !u.provider ? `
             <div class="acc-fieldbox" data-fieldbox="password">
               <div class="acc-fieldbox-label">Passwort</div>
               <div class="acc-fieldbox-row">
@@ -1748,8 +1938,8 @@ function renderSettings() {
                 <button type="button" class="acc-fieldbox-btn" data-fb-edit>Bearbeiten</button>
               </div>
               <div class="acc-fieldbox-pwform" data-fb-pwform hidden>
-                <input class="acc-input" data-fb-curpass type="password" minlength="4" placeholder="Aktuelles Passwort">
-                <input class="acc-input" data-fb-newpass type="password" minlength="4" placeholder="Neues Passwort">
+                <input class="acc-input" data-fb-curpass type="password" placeholder="Aktuelles Passwort">
+                <input class="acc-input" data-fb-newpass type="password" minlength="${auth.MIN_PASSWORD_LENGTH}" placeholder="Neues Passwort">
               </div>
               <div class="acc-inline-error" data-fb-error hidden></div>
             </div>` : ''}
@@ -1799,19 +1989,20 @@ function renderSettings() {
 
         <div class="acc-set-panel" data-set-panel="verbindungen">
           <div class="acc-section">
-            <h3 class="acc-section-title">Verknüpfte Konten</h3>
-            <div class="acc-connection-row">
-              <div class="acc-connection-info">
-                <svg width="20" height="20" viewBox="0 0 48 48"><path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/><path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/><path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"/><path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/></svg>
-                <div>
-                  <div class="acc-connection-name">Google</div>
-                  <div class="acc-connection-status">${provider === 'google' ? 'Verknüpft' : 'Nicht verknüpft'}</div>
+            <h3 class="acc-section-title">Anmeldung über andere Dienste</h3>
+            <p class="acc-section-sub">Zeigt, womit dieses Konto angemeldet ist. Die Auswahl selbst steht im Anmeldefenster.</p>
+            ${aktiveAnbieter().map(a => `
+              <div class="acc-connection-row">
+                <div class="acc-connection-info">
+                  ${a.icon}
+                  <div>
+                    <div class="acc-connection-name">${esc(a.name)}</div>
+                    <div class="acc-connection-status">${provider === a.id ? 'Verknüpft' : 'Nicht verknüpft'}</div>
+                  </div>
                 </div>
+                ${provider === a.id ? '<span class="acc-connection-badge">Aktiv</span>' : ''}
               </div>
-              ${provider === 'google'
-                ? '<span class="acc-connection-badge">Aktiv</span>'
-                : '<button type="button" class="acc-btn-ghost-sm" id="acc-connect-google">Verknüpfen</button>'}
-            </div>
+            `).join('')}
           </div>
         </div>
 
@@ -1838,7 +2029,7 @@ function renderSettings() {
             <p class="acc-danger-note">Löscht Favoriten, Kommentare, Posts und Einstellungen.</p>
             ${realUser ? `
             <button class="acc-danger-btn" id="acc-delete-account" style="margin-top:10px">Konto endgültig löschen</button>
-            <p class="acc-danger-note">Löscht dein Konto unwiderruflich — du wirst automatisch abgemeldet.</p>` : ''}
+            <p class="acc-danger-note">Löscht unwiderruflich: Konto und Anmeldedaten, Profil, alle deine Nachrichten in Gruppen und DMs, deine Gruppenmitgliedschaften und Freundschaften, alle von dir hochgeladenen Anhänge sowie Gruppen, die du selbst erstellt hast. Nicht rückgängig zu machen.</p>` : ''}
           </div>
         </div>
       </div>
@@ -1847,6 +2038,8 @@ function renderSettings() {
 }
 
 function wireSettings() {
+
+  scrollZeileMarkieren(document.querySelector('.acc-set-nav'))
 
   // Kategorien-Sidebar umschalten
   document.querySelectorAll('.acc-set-navitem').forEach(btn => {
@@ -1859,23 +2052,30 @@ function wireSettings() {
   document.getElementById('acc-set-login-link')?.addEventListener('click', () => {
     auth.openAuthModal(() => reopenAccount())
   })
-  document.getElementById('acc-connect-google')?.addEventListener('click', () => {
-    showFlash('Google-Verknüpfung für bestehende Konten kommt bald')
-  })
 
-  // Profilbild hochladen (als Data-URL lokal gespeichert)
-  document.getElementById('acc-avatar-file')?.addEventListener('change', e => {
-    const file = e.target.files?.[0]
+  // Profilbild hochladen (als Data-URL in profiles.avatar)
+  document.getElementById('acc-avatar-file')?.addEventListener('change', async e => {
+    const eingabe = e.target
+    const file = eingabe.files?.[0]
+    /* Zuruecksetzen, sonst meldet das Feld dieselbe Datei kein zweites Mal —
+       wer abbricht und es noch einmal versucht, klickt sonst ins Leere. */
+    const zuruecksetzen = () => { eingabe.value = '' }
     if (!file) return
-    if (file.size > 2 * 1024 * 1024) { showFlash('Bild ist zu groß (max. 2 MB)'); return }
-    const reader = new FileReader()
-    reader.onload = () => {
-      saveAccount({ avatar: reader.result })
-      renderTabContent('settings')
-      refreshAccountHeader()
-      showFlash('Profilbild aktualisiert ✓')
-    }
-    reader.readAsDataURL(file)
+    /* Die Grenze lag bei 2 MB und hat damit fast jedes Handyfoto abgewiesen.
+       Was gespeichert wird, bestimmt ohnehin der Zuschnitt (512 px, JPEG);
+       die Grenze schuetzt nur noch davor, dass ein riesiges Bild den Browser
+       beim Dekodieren wuergt. */
+    if (file.size > 12 * 1024 * 1024) { showFlash('Bild ist zu groß (max. 12 MB)'); return }
+
+    // Ausschnitt waehlen lassen — davor landete immer die Bildmitte im Kreis.
+    const { bild, lesbar } = await avatarZuschneiden(file)
+    zuruecksetzen()
+    if (!lesbar) { showFlash('Bild konnte nicht gelesen werden'); return }
+    if (!bild) return   // abgebrochen
+    saveAccount({ avatar: bild })
+    renderTabContent('settings')
+    refreshAccountHeader()
+    showFlash('Profilbild aktualisiert ✓')
   })
   document.getElementById('acc-avatar-remove')?.addEventListener('click', () => {
     saveAccount({ avatar: null })
@@ -1930,10 +2130,19 @@ function wireSettings() {
         curInput.value = ''; newInput.value = ''
         showFlash('Passwort geändert ✓')
       } else if (field === 'email') {
-        saveAccount({ email: inputEl.value.trim() })
-        valueEl.textContent = inputEl.value.trim() || '—'
+        const email = inputEl.value.trim()
+        // gleiche Regel wie auth.js register() — nur Format, kein Duplikat-Check (kein Backend-Aufruf hier)
+        if (email && !/^\S+@\S+\.\S+$/.test(email)) {
+          if (errEl) { errEl.textContent = 'Bitte eine gültige E-Mail-Adresse angeben.'; errEl.hidden = false }
+          return
+        }
+        saveAccount({ email })
+        valueEl.textContent = email || '—'
       } else if (field === 'age') {
-        const v = inputEl.value ? parseInt(inputEl.value) : null
+        let v = inputEl.value ? parseInt(inputEl.value) : null
+        if (v != null && !Number.isNaN(v)) v = Math.min(99, Math.max(14, v))
+        else v = null
+        inputEl.value = v ?? ''
         saveAccount({ age: v })
         valueEl.textContent = v ?? '—'
       } else if (field === 'license') {
@@ -1944,10 +2153,60 @@ function wireSettings() {
     })
   })
 
-  document.getElementById('acc-delete-account')?.addEventListener('click', async () => {
-    if (!confirm('Konto wirklich endgültig löschen? Diese Aktion kann nicht rückgängig gemacht werden.')) return
-    const res = await auth.deleteAccount()
-    if (!res.ok) { showFlash(res.error); setTimeout(() => location.reload(), 1200); return }
+  /* Die destruktivste Aktion der App — und seit sie tatsaechlich loescht
+     (api/delete-account.js) auch wirklich endgueltig. Deshalb zwei Stufen:
+     erst der vollstaendige Umfang zum Lesen, dann der eigene Benutzername zum
+     Abtippen. Ein einzelnes confirm() klickt man versehentlich weg, den
+     eigenen Namen tippt man nicht aus Versehen.
+     Der Umfang stammt aus den ON-DELETE-CASCADE-Ketten in schema.sql — inkl.
+     groups.created_by: selbst erstellte Gruppen verschwinden mit. */
+  document.getElementById('acc-delete-account')?.addEventListener('click', async (ev) => {
+    const btn = ev.currentTarget
+    const username = auth.currentUser()?.username || ''
+
+    const scope = [
+      'Konto endgültig löschen?',
+      '',
+      'Unwiderruflich gelöscht werden:',
+      '· dein Konto und deine Anmeldedaten',
+      '· dein Profil (Name, Bio, Profilbild)',
+      '· alle deine Nachrichten in Gruppen und Direktnachrichten',
+      '· deine Gruppenmitgliedschaften, Zusagen und Freundschaften',
+      '· alle Dateien, die du in Chats hochgeladen hast',
+      '· Gruppen, die du selbst erstellt hast — mit allen Kanälen und Nachrichten darin',
+      '',
+      'Das lässt sich nicht rückgängig machen. Es gibt keine Wiederherstellung.',
+      'Wenn du deine Daten vorher sichern willst: Abbrechen und zuerst "Daten exportieren".',
+    ].join('\n')
+    if (!confirm(scope)) return
+
+    const typed = prompt(`Letzter Schritt: Tippe zur Bestätigung deinen Benutzernamen ein.\n\n${username}`)
+    if (typed === null) return
+    if (typed.trim() !== username) {
+      showFlash('Benutzername stimmt nicht — Konto wurde NICHT gelöscht.')
+      return
+    }
+
+    btn.disabled = true
+    btn.textContent = 'Wird gelöscht …'
+    /* Wirft deleteAccount() unerwartet (Supabase-Client nicht erreichbar),
+       bliebe der Knopf sonst dauerhaft auf "Wird gelöscht …" stehen — ohne
+       Meldung und ohne Moeglichkeit, es erneut zu versuchen. */
+    let res
+    try {
+      res = await auth.deleteAccount()
+    } catch (err) {
+      res = { ok: false, error: 'Konto konnte nicht gelöscht werden: ' + (err?.message || 'unbekannter Fehler') }
+    }
+    if (!res.ok) {
+      /* Kein reload mehr im Fehlerfall: die Session besteht jetzt weiter
+         (auth.js meldet nur noch bei Erfolg ab), der Versuch ist also
+         wiederholbar — ein Neuladen wuerde die Meldung nur wegwerfen. */
+      btn.disabled = false
+      btn.textContent = 'Konto endgültig löschen'
+      showFlash(res.error || 'Konto konnte nicht gelöscht werden.')
+      return
+    }
     showFlash('Konto gelöscht')
     setTimeout(() => location.reload(), 600)
   })
@@ -1960,31 +2219,83 @@ function wireSettings() {
   })
   document.getElementById('acc-clear-data')?.addEventListener('click', () => {
     if (!confirm('Wirklich alle Daten löschen? Diese Aktion kann nicht rückgängig gemacht werden.')) return
-    const keys = []
-    for (let i = 0; i < localStorage.length; i++) {
-      const k = localStorage.key(i)
-      if (k?.startsWith('mm_')) keys.push(k)
+    /* Schon der Zugriff auf localStorage wirft, wenn der Browser Speicher fuer
+       die Seite sperrt (Safari mit blockierten Cookies, privater Modus mancher
+       Builds). Ungeschuetzt starb der Handler dann mitten im Loeschen: ein Teil
+       der Schluessel war weg, die Rueckmeldung und der Neuladen kamen nie —
+       der Nutzer sah nach einer bestaetigten, unumkehrbaren Aktion gar nichts.
+       Jetzt entweder vollstaendig durch oder mit ehrlicher Meldung. */
+    try {
+      const keys = []
+      for (let i = 0; i < localStorage.length; i++) {
+        const k = localStorage.key(i)
+        if (k?.startsWith('mm_')) keys.push(k)
+      }
+      keys.forEach(k => localStorage.removeItem(k))
+    } catch {
+      showFlash('Daten konnten nicht gelöscht werden — Browser-Speicher gesperrt.')
+      return
     }
-    keys.forEach(k => localStorage.removeItem(k))
     showFlash('Daten gelöscht')
     setTimeout(() => location.reload(), 600)
   })
 
-  // Export → download all mm_* keys as JSON
-  document.getElementById('acc-export-data')?.addEventListener('click', () => {
-    const data = { exportedAt: new Date().toISOString(), version: 1, keys: {} }
-    for (let i = 0; i < localStorage.length; i++) {
-      const k = localStorage.key(i)
-      if (k?.startsWith('mm_')) data.keys[k] = localStorage.getItem(k)
+  /* Export = Auskunft nach Art. 15 DSGVO, nicht nur ein Browser-Backup.
+     Vorher wurden ausschliesslich die mm_*-Schluessel aus dem localStorage
+     eingesammelt — Nachrichten, Gruppen, Freundschaften, Meldungen und
+     Feedback liegen aber in Supabase und fehlten damit vollstaendig.
+     Jetzt: erst die Serverdaten (RPC export_my_data(), gibt nur eigene Zeilen
+     zurueck), dann die lokalen Schluessel dazu, alles in eine Datei.
+     Faellt die RPC aus (offline, Endpoint nicht deployt), wird wie bisher nur
+     der lokale Teil exportiert — dann aber mit einem Hinweis IN der Datei,
+     damit niemand die unvollstaendige Datei fuer die ganze Auskunft haelt.
+     `keys` behaelt Name und Form, damit der Import-Pfad unten weiter passt. */
+  document.getElementById('acc-export-data')?.addEventListener('click', async (ev) => {
+    const btn = ev.currentTarget
+    btn.disabled = true
+
+    const data = {
+      exportedAt: new Date().toISOString(),
+      version: 2,
+      hinweis: null,
+      server: null,
+      keys: {},
     }
+
+    let localOk = true
+    try {
+      for (let i = 0; i < localStorage.length; i++) {
+        const k = localStorage.key(i)
+        if (k?.startsWith('mm_')) data.keys[k] = localStorage.getItem(k)
+      }
+    } catch {
+      localOk = false
+    }
+
+    let res
+    try {
+      res = await auth.exportMyData()
+    } catch (err) {
+      res = { ok: false, error: err?.message || 'unbekannter Fehler' }
+    }
+    if (res.ok) {
+      data.server = res.data
+    } else {
+      data.hinweis = `UNVOLLSTÄNDIG: Die Serverdaten (Nachrichten, Gruppen, Freundschaften, Meldungen, Feedback) konnten nicht abgerufen werden — ${res.error}. Diese Datei enthält nur die lokal in diesem Browser gespeicherten Daten.`
+    }
+
     const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' })
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
     a.href = url
-    a.download = `motomatch-backup-${new Date().toISOString().slice(0,10)}.json`
+    a.download = `motomatch-daten-${new Date().toISOString().slice(0,10)}.json`
     a.click()
     URL.revokeObjectURL(url)
-    showFlash('Daten heruntergeladen ✓')
+
+    btn.disabled = false
+    if (!res.ok) showFlash('Nur lokale Daten — Serverdaten nicht abrufbar (Hinweis steht in der Datei)')
+    else if (!localOk) showFlash('Serverdaten heruntergeladen — Browser-Speicher war gesperrt')
+    else showFlash('Daten heruntergeladen ✓')
   })
 
   // Import → read JSON file and restore keys
@@ -2021,12 +2332,127 @@ function showFlash(text) {
 }
 
 // ─── Public API ───
-export function openAccount() {
-  if (document.getElementById('acc-overlay')) return
+/**
+ * Spiegelt die Taskleiste der aufrufenden Seite ueber das Overlay. Das Panel
+ * ist deckend (inset: 0, z-index 1200) — die originale Leiste liegt darunter
+ * und waere sonst weg. Geklont statt neu gebaut, damit die Klicks auf den
+ * Original-Buttons landen und deren Handler gelten.
+ */
+function mountAccountTabbar(sourceBar) {
+  const overlay = document.getElementById('acc-overlay')
+  if (!overlay || !sourceBar || overlay.querySelector('.acc-tabbar')) return
+
+  const originals = [...sourceBar.querySelectorAll('.tb-btn')]
+  // Der Profil-Reiter fuehrt hierher zurueck — merken, bevor die IDs im Klon
+  // entfernt werden (doppelte IDs im Dokument).
+  const isProfil = originals.map((b) => /profil/i.test(b.id))
+
+  const clone = sourceBar.cloneNode(true)
+  clone.removeAttribute('id')
+  clone.querySelectorAll('[id]').forEach((el) => el.removeAttribute('id'))
+
+  const wrap = document.createElement('div')
+  // Die Konfigurator-Leiste bleibt am Desktop in der Grundgroesse, die
+  // Garage-Leiste ist groesser — der Klon markiert seine Herkunft, damit er
+  // dieselben Masse traegt wie das Original darunter.
+  const fromKonf = !!sourceBar.closest('.konf-tb-wrap')
+  wrap.className = `tb-wrap scrolled acc-tabbar${fromKonf ? ' acc-tabbar--konf' : ''}`
+  wrap.appendChild(clone)
+  overlay.appendChild(wrap)
+  // Schliessen-Button und Inhalt muessen unter der Leiste anfangen
+  overlay.classList.add('acc-overlay--tabbar')
+
+  clone.querySelectorAll('.tb-btn').forEach((btn, i) => {
+    btn.classList.toggle('tb-btn-active', isProfil[i])
+    btn.addEventListener('click', () => {
+      // Profil ist der Reiter, auf dem man schon steht — nur schliessen.
+      if (isProfil[i]) { closeAccount(); return }
+      /* Reihenfolge ist hier der ganze Punkt.
+         Vorher lief es: Overlay ausblenden → 300 ms warten → navigieren.
+         In der Luecke dazwischen lag die Seite, von der man gerade kam, gut
+         sichtbar auf dem Schirm — es sah aus, als ginge es erst zurueck und
+         dann erst vorwaerts.
+         Jetzt startet der Wechsel zuerst und laeuft hinter dem noch
+         stehenden Overlay ab; aufgeloest wird es erst, wenn der neue
+         Bildschirm da ist. Zu sehen ist damit nur noch ein Uebergang. */
+      const original = originals[i]
+      /* Der Reiter, auf dem man ohnehin schon steht — der uebliche Weg
+         zurueck aus dem Konto. Sein Original-Handler tut dann nichts
+         ("if (tab !== activeKonfTab)"), es gibt also nichts, worauf sich
+         warten liesse. Ohne diesen Zweig lief der Waechter bis zur Notbremse
+         und das Konto blieb ueber eine Sekunde stehen. */
+      if (original?.classList.contains('tb-btn-active')) { closeAccount({ fast: true }); return }
+      original?.click()
+      closeAccountWhenTargetReady()
+    })
+  })
+}
+
+/**
+ * Schliesst das Konto-Overlay, sobald das Ziel wirklich steht.
+ *
+ * Zwei Arten von Zielen, beide muessen erkannt werden:
+ *   1. ein anderer Bildschirm (Garage -> Konfigurator): einer der
+ *      `display`-geschalteten Container auf oberster Ebene wechselt.
+ *   2. ein anderer Reiter im selben Konfigurator: dort bleibt alles
+ *      sichtbar, ausgetauscht wird nur der Inhalt von #konf-right — und
+ *      zwar erst nach dessen Ausblenden. Deshalb NICHT auf die aktive
+ *      Schaltflaeche schauen: die springt sofort um, der Inhalt darunter
+ *      aber erst 200 ms spaeter. Wer darauf schliesst, zeigt fuer einen
+ *      Moment den alten Reiter.
+ * Erkannt wird der Tausch am neuen ersten Kindknoten — billig zu pruefen,
+ * anders als der serialisierte innerHTML jedes Einzelbild.
+ *
+ * Der Wecker ist die Notbremse fuer echte Aussetzer (Modul laedt nicht o. Ae.).
+ * Der haeufige Fall "es passiert nichts, weil man den Reiter anklickt, auf dem
+ * man schon steht" wird oben abgefangen und laeuft gar nicht erst hier durch.
+ */
+const SCREEN_IDS = ['landing', 'bike-detail', 'quiz-screen', 'garage-container', 'drop-container']
+
+function closeAccountWhenTargetReady() {
+  /* Der Waechter gehoert zu genau diesem Overlay. Ohne diese Bindung konnte
+     ein Lauf aus einer frueheren Runde ein inzwischen neu geoeffnetes
+     Overlay wegschliessen. */
+  const meins = document.getElementById('acc-overlay')
+  if (!meins) return
+  const screens = SCREEN_IDS.map((id) => document.getElementById(id)).filter(Boolean)
+  const displaysBefore = screens.map((el) => getComputedStyle(el).display)
+  const rightPane = document.getElementById('konf-right')
+  const paneChildBefore = rightPane?.firstElementChild || null
+  const start = performance.now()
+
+  const tick = () => {
+    if (document.getElementById('acc-overlay') !== meins) return // fremdes Overlay, nicht anfassen
+    const screenChanged = screens.some((el, i) => getComputedStyle(el).display !== displaysBefore[i])
+    const paneChanged = !!rightPane && rightPane.firstElementChild !== paneChildBefore
+    if (screenChanged || paneChanged || performance.now() - start > 600) { closeAccount({ fast: true }); return }
+    requestAnimationFrame(tick)
+  }
+  requestAnimationFrame(tick)
+}
+
+/**
+ * @param {Element} [sourceBar] Taskleiste der aufrufenden Seite; wird ueber
+ *   dem Overlay gespiegelt, damit man von hier direkt weiternavigieren kann.
+ */
+export function openAccount(sourceBar) {
+  const bestehend = document.getElementById('acc-overlay')
+  if (bestehend) {
+    /* Steht schon offen: nichts zu tun.
+       Ist es dagegen noch im Ausblenden (Reiterwechsel, 130 ms), dann lag hier
+       bisher ein totes Zeitfenster: der Klick auf "Profil" lief ins Leere,
+       weil das Element noch im Dokument haengt. Wer zuegig hin und her
+       wechselt, traf es regelmaessig — es sah aus, als reagiere der Reiter
+       nicht. Also: Rest wegraeumen und frisch aufbauen. */
+    if (bestehend.classList.contains('acc-overlay--open')) return
+    bestehend.remove()
+  }
   const wrapper = document.createElement('div')
   wrapper.innerHTML = buildAccountHTML()
   document.body.appendChild(wrapper.firstElementChild)
   document.body.style.overflow = 'hidden'
+  _lastSourceBar = sourceBar || null
+  mountAccountTabbar(_lastSourceBar)
   requestAnimationFrame(() => {
     document.getElementById('acc-overlay')?.classList.add('acc-overlay--open')
   })
@@ -2068,20 +2494,36 @@ export function openAccount() {
     })
   }
 }
+let _lastSourceBar = null
+
 function reopenAccount() {
   const ov = document.getElementById('acc-overlay')
   if (ov) ov.remove()
   document.removeEventListener('keydown', escHandler)
   document.body.style.overflow = ''
-  openAccount()
+  openAccount(_lastSourceBar)
 }
 function escHandler(e) {
   if (e.key === 'Escape') closeAccount()
 }
-export function closeAccount() {
+/**
+ * @param {{fast?: boolean}} [opts] `fast` beim Reiterwechsel: der neue
+ *   Bildschirm steht schon darunter, das Overlay soll ihn zuegig freigeben.
+ *   Wird die Funktion direkt als Ereignis-Empfaenger benutzt (Kreuz, Backdrop),
+ *   kommt hier das Event an — es hat kein `fast`, also der ruhige Weg.
+ */
+export function closeAccount(opts) {
   const overlay = document.getElementById('acc-overlay')
   if (!overlay) return
+  const fast = opts?.fast === true
+  if (fast) overlay.classList.add('acc-overlay--switching')
   overlay.classList.remove('acc-overlay--open')
   document.removeEventListener('keydown', escHandler)
-  setTimeout(() => { overlay.remove(); document.body.style.overflow = '' }, 280)
+  setTimeout(() => {
+    overlay.remove()
+    /* Nur freigeben, wenn inzwischen nicht schon wieder eines steht: bei
+       schnellem Hin und Her kann in diesen 130 ms ein neues Overlay geoeffnet
+       haben, dem die Scroll-Sperre gehoert. */
+    if (!document.getElementById('acc-overlay')) document.body.style.overflow = ''
+  }, fast ? 130 : 280)
 }

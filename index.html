@@ -2,23 +2,39 @@
 <html lang="de">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <title>MotoMatch — Finde dein perfektes Bike</title>
 
     <meta name="description" content="MotoMatch findet per Quiz das passende Motorrad für dich — mit Modellvergleich, Ausrüstungsguide, interaktiver Händlerkarte und Community." />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
 
+    <!-- Vollbild auf Mobilgeraeten: als installierte Web-App laeuft MotoMatch
+         ohne Adress- und Reiterleiste. Chromium (Android) liest dafuer das
+         Manifest, WebKit (iPhone — betrifft Safari, Chrome, Edge und Firefox
+         gleichermassen) die apple-Metatags darunter; beide zusammen ergeben
+         auf beiden Plattformen dasselbe Ergebnis. -->
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <meta name="theme-color" content="#0a0a0a" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <!-- black-translucent zieht den Inhalt unter die Statusleiste, statt einen
+         schwarzen Balken stehen zu lassen — zusammen mit viewport-fit=cover
+         oben und den env(safe-area-inset-*)-Abstaenden in main.css. -->
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="MotoMatch" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+
     <!-- Open Graph -->
     <meta property="og:type" content="website" />
     <meta property="og:title" content="MotoMatch — Finde dein perfektes Bike" />
     <meta property="og:description" content="MotoMatch findet per Quiz das passende Motorrad für dich — mit Modellvergleich, Ausrüstungsguide, interaktiver Händlerkarte und Community." />
-    <meta property="og:image" content="/bikes/sportbikes_trio.jpg" />
+    <meta property="og:image" content="/bikes/sportbikes_trio.webp" />
 
     <!-- Twitter Card -->
     <meta name="twitter:card" content="summary_large_image" />
     <meta name="twitter:title" content="MotoMatch — Finde dein perfektes Bike" />
     <meta name="twitter:description" content="MotoMatch findet per Quiz das passende Motorrad für dich — mit Modellvergleich, Ausrüstungsguide, interaktiver Händlerkarte und Community." />
-    <meta name="twitter:image" content="/bikes/sportbikes_trio.jpg" />
+    <meta name="twitter:image" content="/bikes/sportbikes_trio.webp" />
 
     <!-- Fonts: self-hosted via public/fonts/ + @font-face in main.css (kein Google-Request) -->
   </head>

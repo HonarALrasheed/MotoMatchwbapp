@@ -1,0 +1,278 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Bildnachweis – MotoMatch</title>
+  <style>
+    @font-face { font-family: 'Barlow'; font-style: normal; font-weight: 300; font-display: swap; src: url('/fonts/barlow-400.woff2') format('woff2'); }
+    @font-face { font-family: 'Barlow'; font-style: normal; font-weight: 400; font-display: swap; src: url('/fonts/barlow-400.woff2') format('woff2'); }
+    @font-face { font-family: 'Barlow'; font-style: normal; font-weight: 600; font-display: swap; src: url('/fonts/barlow-600.woff2') format('woff2'); }
+
+    :root {
+      --bg: #0a0a0a;
+      --border: rgba(255,255,255,0.08);
+      --akzent: rgba(255,255,255,0.75);
+      --text: #ffffff;
+      --text-dim: rgba(255,255,255,0.45);
+      --font: "Barlow", "Arial Narrow", Arial, sans-serif;
+    }
+
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: var(--font);
+      font-size: 15px;
+      line-height: 1.7;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    /* ── Nav: gleiche Sprache wie die Landingpage ── */
+    .nav {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      padding: 20px clamp(24px, 5vw, 80px);
+      border-bottom: 1px solid var(--border);
+      background: rgba(10,10,10,0.92);
+      position: sticky;
+      top: 0;
+      z-index: 10;
+      backdrop-filter: blur(20px);
+    }
+    .nav-logo {
+      font-size: 13px;
+      font-weight: 600;
+      letter-spacing: 0.28em;
+      text-transform: uppercase;
+      color: #fff;
+      text-decoration: none;
+    }
+    /* Outline-Knopf wie .p-hero-btn auf der Startseite */
+    .nav-back {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 9px 20px;
+      border: 1px solid rgba(255,255,255,0.35);
+      font-size: 12px;
+      font-weight: 500;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      color: rgba(255,255,255,0.8);
+      text-decoration: none;
+      transition: border-color .25s, color .25s, background-color .25s;
+    }
+    .nav-back:hover { border-color: #fff; color: #fff; background: rgba(255,255,255,0.05); }
+
+    main {
+      flex: 1;
+      max-width: 760px;
+      width: 100%;
+      margin: 0 auto;
+      padding: clamp(48px, 8vw, 104px) clamp(24px, 5vw, 48px);
+    }
+
+
+    /* Duenn und weit — wie .p-discover-title / .p-finder-title */
+    h1 {
+      font-size: clamp(44px, 9vw, 92px);
+      font-weight: 300;
+      letter-spacing: -0.02em;
+      line-height: 1.02;
+      text-align: center;
+      margin: clamp(24px, 5vw, 56px) 0 clamp(56px, 8vw, 104px);
+    }
+
+    section {
+      margin-bottom: 44px;
+      padding-bottom: 44px;
+      border-bottom: 1px solid rgba(255,255,255,0.06);
+    }
+    section:last-child { border-bottom: none; padding-bottom: 0; }
+
+    h2 {
+      font-size: 17px;
+      font-weight: 600;
+      letter-spacing: 0.01em;
+      color: #fff;
+      margin-bottom: 14px;
+    }
+    h3 {
+      font-size: 14px;
+      font-weight: 600;
+      letter-spacing: 0.02em;
+      color: rgba(255,255,255,0.85);
+      margin: 22px 0 8px;
+    }
+
+    p { color: rgba(255,255,255,0.7); margin-bottom: 12px; }
+    p:last-child { margin-bottom: 0; }
+    strong { font-weight: 600; color: rgba(255,255,255,0.9); }
+
+    ul { color: rgba(255,255,255,0.7); padding-left: 20px; margin-bottom: 12px; }
+    li { margin-bottom: 7px; }
+
+    a {
+      color: #fff;
+      text-decoration: underline;
+      text-underline-offset: 3px;
+      text-decoration-color: rgba(255,255,255,0.3);
+      transition: text-decoration-color .2s;
+    }
+    a:hover { text-decoration-color: #fff; }
+
+    /* ── Footer: bricht um statt ueberzulaufen ── */
+    footer {
+      background: #0f0f0f;
+      padding: 28px clamp(24px, 5vw, 80px);
+      border-top: 1px solid var(--border);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 14px 28px;
+      flex-wrap: wrap;
+    }
+    .footer-copy { font-size: 12px; color: rgba(255,255,255,0.22); }
+    .footer-links {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 12px 24px;
+    }
+    .footer-links a {
+      font-size: 12px;
+      letter-spacing: 0.04em;
+      color: rgba(255,255,255,0.4);
+      transition: color .2s;
+    }
+    .footer-links a:hover { color: #fff; }
+    .footer-links a[aria-current="page"] { color: rgba(255,255,255,0.75); }
+
+    @media (max-width: 560px) {
+      footer { flex-direction: column-reverse; align-items: flex-start; }
+      .footer-links { gap: 10px 20px; }
+    }
+    ul.marken { columns: 2; column-gap: 40px; list-style: none; margin: 4px 0 0; padding: 0; }
+    ul.marken li { color: rgba(255,255,255,0.7); margin-bottom: 7px; break-inside: avoid; }
+    .anzahl { color: rgba(255,255,255,0.3); font-size: 12px; margin-left: 6px; }
+    @media (max-width: 560px) { ul.marken { columns: 1; } }
+  </style>
+</head><body>
+
+  <nav class="nav">
+    <a href="/" class="nav-logo">MotoMatch</a>
+    <a href="/" class="nav-back">Zurück</a>
+  </nav>
+
+  <main>
+    <h1>Bildnachweis</h1>
+
+    <section>
+      <h2>Fahrzeugabbildungen</h2>
+      <p>
+        Die Fahrzeugabbildungen im Katalog sind bearbeitete Darstellungen auf Grundlage von
+        Pressefotos der jeweiligen Hersteller. Bearbeitet wurde die Umgebung: Das Fahrzeug steht
+        auf einer einheitlichen Studiofläche, damit sich die Modelle untereinander vergleichen
+        lassen. Es handelt sich also nicht um Originalfotos der Hersteller und nicht um
+        Aufnahmen des Betreibers.
+      </p>
+      <p>
+        Die Urheberrechte an den zugrunde liegenden Fotografien liegen bei den jeweiligen
+        Herstellern und den von ihnen beauftragten Fotografinnen und Fotografen. Eine Übernahme
+        der Abbildungen von dieser Seite ist nicht gestattet.
+      </p>
+      <p>
+        Abbildungen dienen der Veranschaulichung. Lackierung, Ausstattung und Details können vom
+        tatsächlich angebotenen Fahrzeug abweichen; verbindlich sind allein die Angaben des
+        jeweiligen Herstellers oder Händlers.
+      </p>
+    </section>
+
+    <section>
+      <h2>Hersteller der zugrunde liegenden Pressefotos</h2>
+      <p>Insgesamt 411 Modelle, verteilt auf 36 Hersteller:</p>
+      <ul class="marken">
+        <li>Honda <span class="anzahl">65</span></li>
+        <li>Yamaha <span class="anzahl">50</span></li>
+        <li>BMW Motorrad <span class="anzahl">32</span></li>
+        <li>Ducati <span class="anzahl">28</span></li>
+        <li>Harley-Davidson <span class="anzahl">27</span></li>
+        <li>KTM <span class="anzahl">26</span></li>
+        <li>Kawasaki <span class="anzahl">26</span></li>
+        <li>Triumph <span class="anzahl">26</span></li>
+        <li>Suzuki <span class="anzahl">21</span></li>
+        <li>Aprilia <span class="anzahl">16</span></li>
+        <li>Brixton Motorcycles <span class="anzahl">11</span></li>
+        <li>Moto Guzzi <span class="anzahl">10</span></li>
+        <li>Benelli <span class="anzahl">9</span></li>
+        <li>Husqvarna Motorcycles <span class="anzahl">8</span></li>
+        <li>Fantic <span class="anzahl">6</span></li>
+        <li>CFMOTO <span class="anzahl">5</span></li>
+        <li>Indian Motorcycle <span class="anzahl">5</span></li>
+        <li>Piaggio <span class="anzahl">5</span></li>
+        <li>Royal Enfield <span class="anzahl">5</span></li>
+        <li>Vespa <span class="anzahl">5</span></li>
+        <li>Zero Motorcycles <span class="anzahl">5</span></li>
+        <li>KYMCO <span class="anzahl">3</span></li>
+        <li>Beta Motor <span class="anzahl">2</span></li>
+        <li>Lambretta <span class="anzahl">2</span></li>
+        <li>Malaguti <span class="anzahl">2</span></li>
+        <li>Daelim <span class="anzahl">1</span></li>
+        <li>GASGAS <span class="anzahl">1</span></li>
+        <li>Gilera <span class="anzahl">1</span></li>
+        <li>Hyosung <span class="anzahl">1</span></li>
+        <li>MV Agusta <span class="anzahl">1</span></li>
+        <li>Mash <span class="anzahl">1</span></li>
+        <li>Peugeot <span class="anzahl">1</span></li>
+        <li>Rieju <span class="anzahl">1</span></li>
+        <li>SWM <span class="anzahl">1</span></li>
+        <li>SYM <span class="anzahl">1</span></li>
+        <li>Sherco <span class="anzahl">1</span></li>
+
+      </ul>
+    </section>
+
+    <section>
+      <h2>Hinweis für Rechteinhaber</h2>
+      <p>
+        MotoMatch ist ein privat betriebenes Projekt ohne kommerzielle Verwertung der
+        Abbildungen. Sollte eine Rechteinhaberin oder ein Rechteinhaber mit der Verwendung einer
+        Abbildung nicht einverstanden sein, genügt eine formlose Nachricht an
+        <a href="mailto:kontakt@motomatch.studio">kontakt@motomatch.studio</a> mit Angabe des
+        Modells. Die betreffende Abbildung wird dann unverzüglich und ohne weitere Voraussetzungen
+        entfernt und durch eine schematische Darstellung ersetzt.
+      </p>
+      <p>
+        Dasselbe gilt für eine gewünschte Ergänzung oder Korrektur der Quellenangabe.
+      </p>
+    </section>
+
+    <section>
+      <h2>Weitere Inhalte</h2>
+      <p>
+        Schriftarten: „Barlow" und „Bebas Neue", beide unter der SIL Open Font License, lokal
+        eingebunden. Produktabbildungen im Ausrüstungsbereich stammen von den jeweils verlinkten
+        Händlern. Kartendarstellungen: Google Maps. Sticker und animierte Bilder im
+        Community-Bereich werden über KLIPY eingebunden und liegen nicht auf unseren Servern.
+      </p>
+    </section>
+  </main>
+
+  <footer>
+    <span class="footer-copy">© 2026 MotoMatch</span>
+    <div class="footer-links">
+      <a href="/impressum.html">Impressum</a>
+      <a href="/datenschutz.html">Datenschutz</a>
+      <a href="/agb.html">AGB</a>
+      <a href="/bildnachweis.html" aria-current="page">Bildnachweis</a>
+    </div>
+  </footer>
+
+</body>
+</html>

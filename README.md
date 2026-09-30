@@ -42,7 +42,6 @@ Alle optional (Features degradieren ohne Keys gracefully):
 | Variable            | Zweck |
 |---------------------|-------|
 | `VITE_OPENAI_KEY`   | KI-Funktionen (z. B. Empfehlungen) |
-| `VITE_TAVILY_KEY`   | Web-Suche für KI-Kontext |
 | `VITE_GMAPS_KEY`    | Google-Maps / Places in der Karten-Ansicht |
 
 ---
@@ -85,7 +84,6 @@ moto-match/
 │     ├─ map-view.js       # Karten-Ansicht (Händler/Werkstätten/Fahrschulen)
 │     ├─ dealers.js        # Händlerdaten
 │     ├─ marketplace.js    # Gebrauchtmarkt
-│     ├─ ai.js             # KI-Anbindung (OpenAI/Tavily)
 │     └─ drop-animation.js # visuelle Effekte
 ├─ public/                 # statische Assets (Bilder, Icons, Karten-Icons …)
 └─ Modell-CSV / Bilder …   # Rohdaten der Motorräder (im übergeordneten Ordner)

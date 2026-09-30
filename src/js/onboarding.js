@@ -39,6 +39,8 @@ function showOnboarding() {
   const overlay = document.createElement('div')
   overlay.id = 'ob-overlay'
   overlay.className = 'ob-overlay'
+  overlay.setAttribute('role', 'dialog')
+  overlay.setAttribute('aria-modal', 'true')
   overlay.innerHTML = `
     <div class="ob-backdrop"></div>
     <div class="ob-card">
@@ -77,9 +79,12 @@ function showOnboarding() {
   }
   const finish = () => {
     overlay.classList.remove('ob-overlay--open')
+    document.removeEventListener('keydown', onKeydown)
     setTimeout(() => overlay.remove(), 280)
     try { localStorage.setItem(ONBOARDING_KEY, '1') } catch {}
   }
+  const onKeydown = e => { if (e.key === 'Escape') finish() }
+  document.addEventListener('keydown', onKeydown)
   document.getElementById('ob-skip')?.addEventListener('click', finish)
   render()
 }

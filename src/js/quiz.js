@@ -3,6 +3,8 @@ import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 import { DRACOLoader } from "three/addons/loaders/DRACOLoader.js";
 import { MeshoptDecoder } from "three/addons/libs/meshopt_decoder.module.js";
 import { startDropAnimation } from "./drop-animation.js";
+import { ladeVollkatalog } from "./matching.js";
+import { LS_QUIZ_ANSWERS } from "./util.js";
 
 /* ═══ Questions ═══ */
 const questions = [
@@ -28,32 +30,68 @@ const questions = [
   {
     id: 3,
     question: "Welcher Stil spricht dich an?",
+    /* Alle acht Gattungen, die es im Katalog gibt (2026-09-19). Vorher standen hier vier — Roller,
+       Klassiker, Touring und Supermoto waren damit unwählbar, und die 400 Bikes dieser Gattungen
+       konnten die volle Stil-Punktzahl nie erreichen, egal wie gut sie sonst passten. */
     options: [
       { value: "Sportbike", label: "Sportbike" },
       { value: "Naked", label: "Naked Bike" },
       { value: "Cruiser", label: "Cruiser" },
       { value: "Enduro", label: "Enduro / Offroad" },
+      { value: "Touring", label: "Tourer / Reise" },
+      { value: "Klassiker", label: "Klassiker / Retro" },
+      { value: "Supermoto", label: "Supermoto" },
+      { value: "Roller", label: "Roller" },
+      { value: "Egal", label: "Ist mir egal" },
     ],
   },
   {
     id: 4,
     question: "Wofür nutzt du das Motorrad?",
+    /* Die Antwort-Werte (Pendeln/Urlaub/Gelände/Rennstrecke/Cruisen) bleiben unverändert — sie
+       füttern USE_ALIASES in matching.js. Nur die Beschriftung wurde entschärft (2026-09-26): sie
+       klang wortgleich zur Stil-Frage direkt davor (Cruiser/Cruisen, Enduro-Offroad/Gelände-Offroad,
+       Tourer-Reise/Touren-Urlaub) und wirkte dadurch wie dieselbe Frage zweimal (Nutzer-Screenshot). */
     options: [
       { value: "Pendeln", label: "Pendeln / Kurzstrecke" },
-      { value: "Urlaub", label: "Touren / Urlaub" },
-      { value: "Gelände", label: "Gelände / Offroad" },
+      { value: "Urlaub", label: "Lange Strecken am Stück" },
+      { value: "Gelände", label: "Auch abseits der Straße" },
       { value: "Rennstrecke", label: "Rennstrecke / Performance" },
+      { value: "Cruisen", label: "Wochenendausflüge" },
+    ],
+  },
+  {
+    /* Charakter statt Zahlen (2026-09-20). Nach kW zu fragen hilft niemandem — die Antwort
+       bedeutet je nach Führerschein etwas anderes. Gefragt wird deshalb nach dem Gefühl,
+       gerechnet wird mit dem Anteil an dem, was die Klasse hergibt. Hinter Stil und Nutzung
+       verschoben (2026-09-26): „wie viel Maschine" wirkte direkt nach der Fahrerfahrung kontextlos,
+       bevor überhaupt klar war, welche Art Bike es werden soll (Nutzer-Screenshot, „etwas verwirrend"). */
+    id: 9,
+    question: "Wie viel Maschine soll es sein?",
+    hinweis: "Gemeint ist das Temperament innerhalb deiner Führerscheinklasse — nicht die reine Leistung.",
+    options: [
+      { value: "ruhig", label: "Ruhig und handlich" },
+      { value: "mittel", label: "Ausgewogen" },
+      { value: "voll", label: "So viel wie erlaubt" },
     ],
   },
   {
     id: 5,
     question: "Dein Budget?",
+    /* Der Satz behauptete, unter 2.000 € gebe es „fast nur Roller". Am Katalog nachgezaehlt (2026-09-27)
+       stimmt das nicht: von 40 Bikes unter 2.000 € sind 14 Roller (35 %), der Rest sind Naked, Sportbikes,
+       Tourer und Enduros — meist aelteren Baujahrs. Der Hinweis redete damit genau den Leuten die Auswahl
+       aus, die sie am noetigsten haben. */
+    hinweis: "Gemeint ist der Kaufpreis gebraucht. Unter 2.000 € findest du vor allem ältere Maschinen und Roller, ab 3.000 € wird die Auswahl deutlich breiter.",
     type: "slider",
     unit: "€",
-    min: 1000,
+    min: 500,
     max: 30000,
     step: 500,
-    default: 10000,
+    /* Vorschlag war 10.000 € — der Median aller Katalogpreise liegt bei 6.591 €, und die meisten
+       suchen deutlich darunter (Nutzer 2026-09-20). Ein zu hoher Vorschlag zieht das Ergebnis nach
+       oben, weil das Budget-Kriterium teurere Maschinen bevorzugt. */
+    default: 4000,
     openEnded: true,
   },
   {
@@ -88,6 +126,7 @@ let chaosNeedle = 0;
 let digitalDisplay = "0";
 let idleTimer = 0;
 let rpmSpikeTimer = null;
+let navLock = false;
 
 /* Three.js */
 let scene, camera, renderer, mixer, bike, clock;
@@ -98,7 +137,6 @@ const DASH_COUNT = 40;
 let speedStreaks = [];
 let groundMesh;
 let wheels = [];
-let sideView = false;
 let handAction = null;
 
 /* ═══ Bike Interaction State ═══ */
@@ -170,9 +208,7 @@ let preloadedBikeGLTF = null;
 function createLoader() {
   const loader = new GLTFLoader();
   const draco = new DRACOLoader();
-  draco.setDecoderPath(
-    "https://www.gstatic.com/draco/versioned/decoders/1.5.7/",
-  );
+  draco.setDecoderPath("/draco/");
   loader.setDRACOLoader(draco);
   loader.setMeshoptDecoder(MeshoptDecoder);
   return loader;
@@ -189,7 +225,7 @@ export function preloadQuizAssets() {
 }
 
 /* ═══ Persistence helpers ═══ */
-const LS_KEY = 'motoMatchAnswers';
+const LS_KEY = LS_QUIZ_ANSWERS;
 
 function saveAnswers() {
   try { localStorage.setItem(LS_KEY, JSON.stringify(answers)); } catch (e) { /* ignore */ }
@@ -204,7 +240,6 @@ export function initQuiz() {
   exiting = false;
   exitPhase = 0;
   phase2Active = false;
-  sideView = false;
   worldTargetRotY = 0;
   worldCurRotY = 0;
   roadScrollDir = 1;
@@ -710,7 +745,6 @@ function updateTransition(dt) {
     worldTargetRotY = Math.PI / 2;
     worldCurRotY = Math.PI / 2;
     phase2Active = true;
-    sideView = true;
     // Restore to proper question speed (not relative)
     targetSpeed = preTransitionSpeed;
     bikeTargetX = 0;
@@ -1072,6 +1106,15 @@ async function triggerExit() {
 
   await sleep(1800);
   exitPhase = 2;
+
+  /* Den Abschluss löst sonst nur das wegfahrende Motorrad in loop() aus. Kam das Modell nie an
+     (Download gescheitert, schlechtes Netz), blieb man nach "Match finden" für immer auf der
+     leeren Straße stehen. Mit Modell ist es nach unter einer Sekunde weg — dieser Rückfall greift
+     also nur, wenn es fehlt. finishExit() schützt sich selbst gegen den zweiten Aufruf. */
+  const myGeneration = loadGeneration;
+  setTimeout(() => {
+    if (myGeneration === loadGeneration) finishExit();
+  }, 2500);
 }
 
 function createExitBlurStreaks() {
@@ -1094,9 +1137,11 @@ function createExitBlurStreaks() {
 }
 
 let handTimeout = null;
+let innerHandTimeout = null;
 function playHandRaise() {
   if (!handAction || !mixer) return;
   if (handTimeout) clearTimeout(handTimeout);
+  if (innerHandTimeout) clearTimeout(innerHandTimeout);
 
   handAction.reset();
   handAction.setEffectiveWeight(1);
@@ -1108,13 +1153,14 @@ function playHandRaise() {
     if (!handAction || !mixer) return;
     handAction.paused = false;
     handAction.setEffectiveTimeScale(-1);
-    setTimeout(() => {
+    innerHandTimeout = setTimeout(() => {
       if (!handAction || !mixer) return;
       handAction.paused = true;
       handAction.time = 0;
       handAction.setEffectiveTimeScale(1);
       mixer.update(0);
       handTimeout = null;
+      innerHandTimeout = null;
     }, 1500);
   }, 2500);
 }
@@ -1178,12 +1224,21 @@ function finishExit() {
       wheels = [];
       clock = null;
       if (handTimeout) { clearTimeout(handTimeout); handTimeout = null; }
+      if (innerHandTimeout) { clearTimeout(innerHandTimeout); innerHandTimeout = null; }
 
       document.getElementById("quiz-screen").style.display = "none";
       flash.remove();
       exiting = false;
       exitPhase = 0;
-      startDropAnimation(answers);
+      /* Der Vollkatalog läuft seit dem Start im Hintergrund; falls er noch unterwegs ist,
+         warten wir höchstens zwei Sekunden — danach entscheidet der eingebaute Katalog,
+         statt den Nutzer vor einem leeren Bildschirm warten zu lassen. */
+      Promise.race([ladeVollkatalog(), sleep(2000)])
+        .then(() => startDropAnimation(answers))
+        .catch((err) => {
+          console.error("[quiz] Katalog-Race fehlgeschlagen, starte trotzdem:", err);
+          startDropAnimation(answers);
+        });
     }, 400);
   });
 }
@@ -1215,9 +1270,9 @@ function showQuestion(i) {
     ? `
       <div class="quiz-slider">
         <div class="quiz-slider-row">
-          <input type="range" id="q-slider" class="q-slider" min="${q.min}" max="${q.max}" step="${q.step}">
+          <input type="range" id="q-slider" class="q-slider" min="${q.min}" max="${q.max}" step="${q.step}" aria-label="${q.question}">
           <div class="quiz-slider-input-wrap">
-            <input type="number" id="q-slider-input" class="q-slider-input" min="0" step="${q.step}" inputmode="numeric" aria-label="${q.question} — Wert eintippen">
+            <input type="number" id="q-slider-input" class="q-slider-input" min="${q.min}" max="${q.max}" step="${q.step}" inputmode="numeric" aria-label="${q.question} — Wert eintippen">
             <span class="quiz-slider-input-suffix">${q.unit}</span>
           </div>
         </div>
@@ -1232,7 +1287,7 @@ function showQuestion(i) {
         ${q.options
           .map(
             (o) => `
-          <button class="opt-btn" data-value="${o.value}">${o.label}</button>
+          <button class="opt-btn" type="button" role="button" aria-pressed="false" data-value="${o.value}">${o.label}</button>
         `,
           )
           .join("")}
@@ -1246,6 +1301,7 @@ function showQuestion(i) {
       </div>
       <p class="quiz-step">Schritt ${i + 1} von ${questions.length}</p>
       <h2 class="quiz-question">${q.question}</h2>
+      ${q.hinweis ? `<p class="quiz-hinweis">${q.hinweis}</p>` : ""}
       ${optionsHtml}
       <div class="quiz-nav">
         ${i > 0 ? '<button class="btn-back" id="prev-btn">Zurück</button>' : ""}
@@ -1273,13 +1329,28 @@ function showQuestion(i) {
     const numberInput = document.getElementById("q-slider-input");
     const nextBtn = document.getElementById("next-btn");
 
-    const initial = Number(answers[`q${i + 1}`]) || q.default;
+    const stored = answers[`q${q.id}`];
+    /* Fragen mit ableiten() sollen ihren Vorschlag live
+       aus der Quellantwort neu berechnen — sonst zeigt ein gespeicherter Wert nach einer
+       Korrektur der Quellfrage (z.B. Groesse geaendert) weiterhin den alten, unpassenden
+       Vorschlag an. */
+    const initial = q.ableiten ? q.ableiten(answers) : Number(stored) || q.default;
     slider.value = Math.min(q.max, Math.max(q.min, initial));
     numberInput.value = initial;
-    nextBtn.disabled = !answers[`q${i + 1}`];
+
+    /* Der Vorschlagswert steht sichtbar im Feld — dann darf "Weiter" nicht
+       gesperrt sein. Vorher blieb der Knopf grau, bis jemand den Regler
+       bewegte: wer 10.000 EUR oder 175 cm einfach uebernehmen wollte, kam
+       ohne erkennbaren Grund nicht weiter. Der gezeigte Wert gilt jetzt als
+       gegebene Antwort und wird auch so gespeichert. */
+    if (!stored || q.ableiten) {
+      answers[`q${q.id}`] = String(initial);
+      saveAnswers();
+    }
+    nextBtn.disabled = false;
 
     const commitValue = (value) => {
-      answers[`q${i + 1}`] = String(value);
+      answers[`q${q.id}`] = String(value);
       saveAnswers();
       nextBtn.disabled = false;
       pulseRpm();
@@ -1294,25 +1365,50 @@ function showQuestion(i) {
     numberInput.addEventListener("input", () => {
       const value = Number(numberInput.value);
       if (!numberInput.value || Number.isNaN(value) || value < 0) return;
-      slider.value = Math.min(q.max, Math.max(q.min, value));
-      commitValue(value);
+      const clamped = Math.min(q.max, Math.max(q.min, value));
+      slider.value = clamped;
+      commitValue(clamped);
     });
+
+    /* Waehrend des Tippens darf nicht geklemmt werden — aus einer getippten "5" wuerde sofort "500",
+       und die 8.000 waeren nicht mehr erreichbar. Beim Verlassen des Feldes muss die Anzeige aber den
+       Wert zeigen, mit dem wirklich gerechnet wird: vorher blieb "50000" stehen, waehrend das Matching
+       mit 30.000 lief, und "300" stand ueber einer Suche mit 500 (2026-09-27). */
+    const anzeigeAngleichen = () => {
+      const value = Number(numberInput.value);
+      const gueltig = numberInput.value !== "" && !Number.isNaN(value);
+      const clamped = gueltig
+        ? Math.min(q.max, Math.max(q.min, value))
+        : Number(slider.value);
+      numberInput.value = clamped;
+      slider.value = clamped;
+      commitValue(clamped);
+    };
+    numberInput.addEventListener("change", anzeigeAngleichen);
+    numberInput.addEventListener("blur", anzeigeAngleichen);
   } else {
-    if (answers[`q${i + 1}`]) {
+    if (answers[`q${q.id}`]) {
       const pre = container.querySelector(
-        `[data-value="${answers[`q${i + 1}`]}"]`,
+        `[data-value="${answers[`q${q.id}`]}"]`,
       );
-      if (pre) pre.classList.add("selected");
+      if (pre) {
+        pre.classList.add("selected");
+        pre.setAttribute("aria-pressed", "true");
+      }
       document.getElementById("next-btn").disabled = false;
     }
 
     container.querySelectorAll(".opt-btn").forEach((btn) => {
       btn.addEventListener("click", () => {
-        container
-          .querySelectorAll(".opt-btn")
-          .forEach((b) => b.classList.remove("selected"));
+        container.querySelectorAll(".opt-btn").forEach((b) => {
+          b.classList.remove("selected");
+          b.setAttribute("aria-pressed", "false");
+        });
         btn.classList.add("selected");
-        answers[`q${i + 1}`] = btn.dataset.value;
+        /* Ohne aria-pressed sagt die Schaltflaeche einem Screenreader nur ihren Text — welche
+           Fuehrerscheinklasse gewaehlt ist, stand bisher allein in der CSS-Klasse (2026-09-27). */
+        btn.setAttribute("aria-pressed", "true");
+        answers[`q${q.id}`] = btn.dataset.value;
         saveAnswers();
         document.getElementById("next-btn").disabled = false;
         pulseRpm();
@@ -1321,6 +1417,8 @@ function showQuestion(i) {
   }
 
   document.getElementById("next-btn").addEventListener("click", () => {
+    if (navLock) return;
+    navLock = true;
     idleTimer = 0;
     if (rpmSpikeTimer) {
       clearTimeout(rpmSpikeTimer);
@@ -1336,21 +1434,30 @@ function showQuestion(i) {
     playHandRaise();
     if (i < questions.length - 1) showQuestion(i + 1);
     else triggerExit();
+    requestAnimationFrame(() => { navLock = false; });
   });
 
   const prev = document.getElementById("prev-btn");
   if (prev)
     prev.addEventListener("click", () => {
+      if (navLock) return;
+      navLock = true;
       idleTimer = 0;
+      if (rpmSpikeTimer) {
+        clearTimeout(rpmSpikeTimer);
+        rpmSpikeTimer = null;
+      }
       targetSpeed = Math.max(20, 20 + (i - 1) * 18);
       if (i - 1 < 3) {
         phase2Active = false;
-        sideView = false;
         transitionActive = false;
         worldTargetRotY = 0;
         roadScrollDir = 1;
         wheelieTarget = 0;
+        wheelieAmount = 0;
+        if (bikePivotGroup) bikePivotGroup.rotation.x = 0;
       }
       showQuestion(i - 1);
+      requestAnimationFrame(() => { navLock = false; });
     });
 }

@@ -1,26 +1,36 @@
 /**
  * ══════════════════════════════════════════════════════════════════
- *  MotoMatch — Community (Discord-Stil, lokale Version)
- *  - Lokale Anmeldung (localStorage, kein Backend)
- *  - Server/Kanäle in einer Sidebar, Chat pro Kanal
- *  - Nutzer können eigene Kanäle erstellen und löschen
+ *  MotoMatch — Community (Discord-Stil)
+ *  - Server/Kanäle in einer Sidebar, Chat pro Kanal, DMs und Sprach-Talks
+ *  - Nutzer können eigene Gruppen und Kanäle erstellen und löschen
  *
- *  HINWEIS: Rein lokaler Prototyp. Konten/Nachrichten liegen nur im
- *  Browser (localStorage), Passwörter werden NICHT sicher gespeichert.
- *  Ein echtes Backend (z.B. Supabase) kommt später.
+ *  BACKEND: Supabase (Auth, Postgres, Realtime). Konten, Profile,
+ *  Gruppen, Mitgliedschaften und Nachrichten liegen serverseitig;
+ *  Änderungen kommen per Realtime-Subscriptions (inkl. Presence für
+ *  "Jetzt aktiv") live an — der gesamte Datenzugriff läuft über
+ *  ./community-api.js. In localStorage bleiben nur lokale
+ *  UI-Präferenzen (Lese-Status, Mute-Einstellungen o.Ä.).
+ *
+ *  OFFLINE_MODE (aus ./supabase.js) ist der explizite Fallback für die
+ *  Entwicklung ohne Supabase-Keys: Anmeldung und Daten laufen dann
+ *  gegen lokale Demo-/Seed-Daten statt gegen das Backend.
  * ══════════════════════════════════════════════════════════════════
  */
 
 import commBg from '../assets/community-bg.webp'
-import { esc } from './util.js'
+import { esc, safeUrl } from './util.js'
+import { HAS_STICKER_API, searchStickerApi, trendingStickerApi } from './stickers.js'
 import {
   joinVoiceRoom, leaveVoiceRoom, toggleVoiceMute, toggleVoiceDeafen,
-  inVoiceRoom, currentRoomId, listAudioDevices, switchMicrophone, switchSpeaker,
+  inVoiceRoom, currentRoomId, listAudioDevices, switchMicrophone, switchSpeaker, setOutputVolume,
+  watchVoiceRoom, unwatchAllVoiceRooms, toggleScreenShare, getScreenShareEl,
 } from './voice.js'
+import { enablePushNotifications, disablePushNotifications } from './push.js'
 // Zentrale, plattformweite Authentifizierung (geteilt mit der Haupt-Website)
-import { getSession, login, register, loginGuest, logout, ensureDemoUsers, renderGoogleButton, initSupabaseAuth } from './auth.js'
+import { getSession, login, register, logout, ensureDemoUsers, renderSocialButtons, initSupabaseAuth, requestPasswordReset, resendConfirmation, sendeAnmeldeCode, pruefeAnmeldeCode, MIN_PASSWORD_LENGTH } from './auth.js'
 import { openAccount } from './account.js'
-import { OFFLINE_MODE } from './supabase.js'
+import { supabase, OFFLINE_MODE } from './supabase.js'
+import { report } from './monitoring.js'
 import {
   // Profil
   getProfile, getMyProfile, setMyProfile,
@@ -37,13 +47,14 @@ import {
   // Gruppen
   getGroups, setGroups, createGroup, deleteGroup, updateGroup, toggleRsvp,
   joinGroup, leaveGroup, kickMember, banMember, unbanMember, toggleMod, isGroupBanned,
-  createChannel, deleteChannel,
+  createChannel, deleteChannel, createVoiceRoom, deleteVoiceRoom,
   // Gruppen-Anfragen
   getGroupRequests, groupRequestsFor, myGroupRequest,
   sendJoinRequest, acceptGroupRequest, declineGroupRequest,
   // Einladungen
   getInvites, createInvite, revokeInvite, redeemInvite, activeInvitesForGroup,
   // Nachrichten (Gruppen)
+  ATTACH_MAX, ATTACH_MAX_LOCAL,
   sendGroupMessage, editMessageInGroup, deleteGroupMessage, toggleReactionInGroup,
   // Nachrichten (DMs)
   getDMs, sendDM, editMessageInDM, deleteDMMessage, toggleReactionInDM,
@@ -56,7 +67,19 @@ import {
   // Seed (Offline)
   seedGroupsIfEmpty, seedFriendPairs,
   // Realtime
-  subscribeToChannel, unsubscribeAll, onNewMessage, onFriendRequest,
+  subscribeToChannel, unsubscribeAll, onNewMessage, onMessageChanged, onFriendRequest, onNewGroup,
+  // Presence ("Jetzt aktiv")
+  subscribeToPresence, updatePresenceStatus, onPresenceChange, getOnlinePresence, unsubscribePresence,
+  // Kanal-/Talk-Liste einer Gruppe live halten (wer hat was erstellt/gelöscht)
+  subscribeGroupLiveUpdates, unsubscribeGroupLiveUpdates,
+  // Typing-Indikatoren
+  sendChannelTyping, subscribeDMTyping, unsubscribeDMTyping, sendDMTyping,
+  // Direktanrufe (Signalisierung)
+  dmCallRoomId, subscribeToUserEvents, sendUserEvent,
+  // Profilbilder (werden nicht mehr pauschal geladen)
+  ensureAvatars,
+  signedAttachmentUrls,
+  attachmentPath,
 } from './community-api.js'
 
 /* ── Avatar-Farbpalette (wählbare Profilfarben) ──────────────────── */
@@ -66,6 +89,22 @@ const AVATAR_PALETTE = [
   'hsl(240 45% 42%)', 'hsl(270 45% 42%)', 'hsl(300 45% 42%)',
   'hsl(330 45% 42%)',
 ]
+
+/* Zulaessige Farbwerte fuer profiles.avatar_color.
+
+   Die Spalte ist `text` ohne CHECK und die RLS-Policy profiles_update laesst
+   jeden seine eigene Zeile schreiben — ueber die REST-API direkt, das UI mit
+   seinen Farbfeldern ist keine Grenze. Der Wert landet an gut zwei Dutzend
+   Stellen unmaskiert in einem style-Attribut; `red" onmouseover="…` bricht
+   dort aus dem Attribut aus.
+
+   esc() darueberzulegen wuerde den Ausbruch zwar verhindern, aber &quot; im
+   style stehen lassen und damit jede Farbe zerstoeren. Darum eine Whitelist
+   genau der Formate, die die App selbst schreibt: das Leerzeichen-hsl() aus
+   AVATAR_PALETTE und colorFor() — plus Hex, falls je ein Farbwaehler dazukommt.
+   Beide Alternativen sind verankert und lassen kein " < > & ' durch; was hier
+   herauskommt, ist im Attribut ohne weiteres Escaping sicher. */
+const AVATAR_COLOR_RE = /^(?:#(?:[0-9a-f]{3,4}|[0-9a-f]{6}|[0-9a-f]{8})|hsl\(\d{1,3}(?:\.\d+)?\s+\d{1,3}(?:\.\d+)?%\s+\d{1,3}(?:\.\d+)?%\))$/i
 
 /* ── UI-Preference keys (bleiben in localStorage) ───────────────── */
 const LS_READSTATE = 'mm_comm_readstate_v1'
@@ -85,15 +124,59 @@ function me() { return getSession()?.username || '' }
 /* ── Profil-Helfer (liest aus API-Cache) ────────────────────────── */
 function avatarColor(username) {
   const p = getProfile(username)
-  return p.avatarColor || colorFor(username)
+  const c = typeof p.avatarColor === 'string' ? p.avatarColor.trim() : ''
+  // Alles, was nicht wie eine von der App geschriebene Farbe aussieht, wird
+  // verworfen — nicht maskiert. Der Fallback ist die aus dem Namen abgeleitete
+  // Farbe, das Avatar bleibt also immer eingefaerbt.
+  return AVATAR_COLOR_RE.test(c) ? c : colorFor(username)
 }
 function displayName(username) {
   return getProfile(username).displayName || username
 }
 /** Innerer Avatar-Inhalt: echtes Profilbild, falls vorhanden, sonst Initialen des Anzeigenamens. */
 function avatarInner(username) {
-  const img = getProfile(username).avatarImg
-  return img ? `<img class="mmc-avatar-img" src="${esc(img)}" alt="">` : initials(displayName(username))
+  // profiles.avatar ist wie avatar_color frei beschreibbar — dieselbe Vorsicht:
+  // esc() maskiert nur Zeichen, das Schema kaeme unbeschadet durch. Ohne
+  // gueltige URL zeigen wir die Initialen statt eines toten <img>.
+  const img = safeUrl(getProfile(username).avatarImg)
+  if (img) return `<img class="mmc-avatar-img" src="${esc(img)}" alt="">`
+  // Noch kein Bild im Cache: Initialen zeigen und das Bild im Hintergrund
+  // anfordern. Der Platzhalter traegt den Namen, damit requestAvatar() ihn
+  // danach gezielt ersetzen kann, ohne die Ansicht neu zu rendern.
+  requestAvatar(username)
+  return `<span class="mmc-avatar-ini" data-mmc-av="${esc(username)}">${initials(displayName(username))}</span>`
+}
+
+/*
+ * Profilbilder werden nicht mehr beim Start fuer alle Nutzer geladen (das waren
+ * base64-Data-URLs ohne Groessenbegrenzung), sondern nur fuer die, die gerade
+ * gezeichnet werden. Die Anforderungen eines Renderdurchlaufs werden gesammelt
+ * und als ein Request abgeschickt.
+ */
+const _avatarWanted = new Set()
+let _avatarTimer = null
+
+function requestAvatar(username) {
+  if (!username || _avatarWanted.has(username)) return
+  _avatarWanted.add(username)
+  if (_avatarTimer) return
+  _avatarTimer = setTimeout(flushAvatarRequests, 60)
+}
+
+async function flushAvatarRequests() {
+  _avatarTimer = null
+  const batch = [..._avatarWanted]
+  _avatarWanted.clear()
+  if (!batch.length) return
+  let loaded = []
+  try { loaded = await ensureAvatars(batch) } catch { return }
+  for (const name of loaded) {
+    const img = safeUrl(getProfile(name).avatarImg)
+    if (!img) continue
+    document.querySelectorAll(`[data-mmc-av="${CSS.escape(name)}"]`).forEach(ph => {
+      ph.outerHTML = `<img class="mmc-avatar-img" src="${esc(img)}" alt="">`
+    })
+  }
 }
 
 /* ── Demo-Accounts (nur Offline-Modus) ──────────────────────────── */
@@ -179,11 +262,34 @@ function setMute(key, untilTs) {
   const mutes = getMutes()
   mutes[key] = untilTs
   setMutes(mutes)
+  _syncMuteToServer(key, untilTs)
 }
 function removeMute(key) {
   const mutes = getMutes()
   delete mutes[key]
   setMutes(mutes)
+  _unsyncMuteFromServer(key)
+}
+
+/**
+ * Mute-Zustand zusätzlich serverseitig spiegeln (notification_mutes), damit
+ * api/push-trigger.js gemutete DMs/Gruppen nicht anstößt — der lokale
+ * localStorage-Lesepfad für die UI bleibt unverändert, das hier ist nur ein
+ * Nebenher-Schreiben (fire-and-forget, blockiert die UI nicht).
+ */
+function _syncMuteToServer(key, untilTs) {
+  if (OFFLINE_MODE || !supabase) return
+  const session = getSession(); if (!session?.uid) return
+  supabase.from('notification_mutes').upsert({
+    user_id: session.uid,
+    mute_key: key,
+    until: untilTs === 'forever' ? null : new Date(untilTs).toISOString(),
+  }, { onConflict: 'user_id,mute_key' }).then(() => {}).catch(err => report(err, { where: 'community._syncMuteToServer' }))
+}
+function _unsyncMuteFromServer(key) {
+  if (OFFLINE_MODE || !supabase) return
+  const session = getSession(); if (!session?.uid) return
+  supabase.from('notification_mutes').delete().eq('user_id', session.uid).eq('mute_key', key).then(() => {}).catch(err => report(err, { where: 'community._unsyncMuteFromServer' }))
 }
 
 /* ── Reaktionen — jetzt in community-api.js; UI-Helfer bleiben ──── */
@@ -194,8 +300,29 @@ function reactionPillsHtml(reactions, myName) {
   if (!entries.length) return ''
   return `<div class="mmc-reactions">${entries.map(([emoji, users]) => {
     const mine = users.includes(myName)
-    return `<button class="mmc-reaction-pill${mine ? ' is-mine' : ''}" data-react-emoji="${esc(emoji)}" title="${esc(users.join(', '))}">${emoji} <span>${users.length}</span></button>`
+    return `<button class="mmc-reaction-pill${mine ? ' is-mine' : ''}" data-react-emoji="${esc(emoji)}" title="${esc(users.join(', '))}">${esc(emoji)} <span>${users.length}</span></button>`
   }).join('')}</div>`
+}
+
+/**
+ * Reaktion umschalten und danach neu zeichnen. Bewusst NACH dem Await:
+ * schlaegt der Schreibvorgang fehl, hat community-api den lokalen Zustand
+ * zurueckgerollt — ohne diesen zweiten Durchgang bliebe ein Emoji stehen, das
+ * es in der Datenbank nicht gibt (genau das Muster, das der Audit gefunden hat).
+ */
+async function applyReaction(root, box, msgId, emoji, empty, groupCtx) {
+  let res = null
+  if (groupCtx) res = await toggleReactionInGroup(groupCtx.id, msgId, emoji)
+  else if (activeDM) res = await toggleReactionInDM(activeDM, msgId, emoji)
+  else return
+
+  if (groupCtx) {
+    const updated = getGroups().find(g => g.id === groupCtx.id)
+    if (updated) { groupDefaults(updated); renderMessagesInto(root, box, channelMsgs(updated, activeChannel), empty, updated) }
+  } else {
+    renderMessagesInto(root, box, getDMs()[activeDM] || [], empty, null)
+  }
+  if (res && !res.ok) toast(root, 'Reaktion konnte nicht gespeichert werden.')
 }
 
 function openReactPicker(root, box, anchorBtn, msgId, msgs, empty, groupCtx) {
@@ -211,14 +338,7 @@ function openReactPicker(root, box, anchorBtn, msgId, msgs, empty, groupCtx) {
   })
   pop.querySelectorAll('[data-re]').forEach(b => b.addEventListener('click', async e => {
     e.stopPropagation(); pop.remove()
-    if (groupCtx) {
-      await toggleReactionInGroup(groupCtx.id, msgId, b.dataset.re)
-      const updated = getGroups().find(g => g.id === groupCtx.id)
-      if (updated) { groupDefaults(updated); renderMessagesInto(root, box, channelMsgs(updated, activeChannel), empty, updated) }
-    } else if (activeDM) {
-      await toggleReactionInDM(activeDM, msgId, b.dataset.re)
-      renderMessagesInto(root, box, getDMs()[activeDM] || [], empty, null)
-    }
+    await applyReaction(root, box, msgId, b.dataset.re, empty, groupCtx)
   }))
   const onDoc = ev => { if (!pop.contains(ev.target) && ev.target !== anchorBtn) { pop.remove(); document.removeEventListener('click', onDoc) } }
   setTimeout(() => document.addEventListener('click', onDoc), 0)
@@ -240,9 +360,11 @@ function fmtExpiry(expiresAt) {
   if (!expiresAt) return 'Unbegrenzt'
   const ms = expiresAt - Date.now()
   if (ms <= 0) return 'Abgelaufen'
-  const h = Math.floor(ms / 3600_000)
+  // Aufrunden: 6 Tage 23:59 sind noch "7 Tage" Restlaufzeit, nicht 6.
+  const h = Math.ceil(ms / 3600_000)
   if (h < 24) return `${h} Std.`
-  return `${Math.floor(h / 24)} Tag(e)`
+  const d = Math.ceil(h / 24)
+  return d === 1 ? '1 Tag' : `${d} Tage`
 }
 
 /* ── Rollen-Helfer ─────────────────────────────────────────────── */
@@ -270,15 +392,25 @@ function canManage(g) { return isOwner(g) || isMod(g) }
 
 /* ── Kategorien (fest) ─────────────────────────────────────────── */
 const CATEGORIES = [
-  { id: 'touren',      name: 'Touren',         icon: 'route',   noun: 'Tour',        verbNew: 'Tour erstellen' },
-  { id: 'events',      name: 'Events',         icon: 'flag',    noun: 'Event',       verbNew: 'Event erstellen' },
-  { id: 'gruppen',     name: 'Gruppen',        icon: 'people',  noun: 'Gruppe',      verbNew: 'Gruppe erstellen' },
-  { id: 'stammtische', name: 'Stammtische',    icon: 'cup',     noun: 'Stammtisch',  verbNew: 'Stammtisch erstellen' },
-  { id: 'rennstrecke', name: 'Rennstrecke',    icon: 'flag',    noun: 'Track-Day',   verbNew: 'Track-Day erstellen' },
-  { id: 'schrauber',   name: 'Schrauber-Treff',icon: 'wrench',  noun: 'Treffen',     verbNew: 'Treffen erstellen' },
-  { id: 'forum',       name: 'Forum',          icon: 'chat',    noun: 'Thema',       verbNew: 'Thema erstellen' },
+  { id: 'touren',      name: 'Touren',         icon: 'route',   noun: 'Tour',        gender: 'f', verbNew: 'Tour erstellen' },
+  { id: 'events',      name: 'Events',         icon: 'flag',    noun: 'Event',       gender: 'n', verbNew: 'Event erstellen' },
+  { id: 'gruppen',     name: 'Gruppen',        icon: 'people',  noun: 'Gruppe',      gender: 'f', verbNew: 'Gruppe erstellen' },
+  { id: 'stammtische', name: 'Stammtische',    icon: 'cup',     noun: 'Stammtisch',  gender: 'm', verbNew: 'Stammtisch erstellen' },
+  { id: 'rennstrecke', name: 'Rennstrecke',    icon: 'flag',    noun: 'Track-Day',   gender: 'm', verbNew: 'Track-Day erstellen' },
+  { id: 'schrauber',   name: 'Schrauber-Treff',icon: 'wrench',  noun: 'Treffen',     gender: 'n', verbNew: 'Treffen erstellen' },
+  { id: 'forum',       name: 'Forum',          icon: 'chat',    noun: 'Thema',       gender: 'n', verbNew: 'Thema erstellen' },
 ]
 const catById = id => CATEGORIES.find(c => c.id === id) || CATEGORIES[0]
+
+/* Artikel-Lookup nach Genus (m/f/n) für Kategorie-Sätze */
+const ARTICLE_DAT_INDEF = { m: 'einem', f: 'einer', n: 'einem' }
+const datIndef = gender => ARTICLE_DAT_INDEF[gender] || 'einem'
+const OWN_PHRASE_AKK = { m: 'deinen eigenen', f: 'deine eigene', n: 'dein eigenes' }
+const ownPhrase = gender => OWN_PHRASE_AKK[gender] || 'dein eigenes'
+// "erstelle ___ Tour/Stammtisch/Thema!" ist Akkusativ, nicht Nominativ — bei
+// Maskulinum weichen die Formen voneinander ab ("den ersten", nicht "der erste").
+const FIRST_AKK = { m: 'den ersten', f: 'die erste', n: 'das erste' }
+const firstAkk = gender => FIRST_AKK[gender] || 'das erste'
 
 /* Kategorien, die Termin + Treffpunkt unterstützen */
 const EVENT_CATS = new Set(['touren', 'events', 'stammtische', 'rennstrecke'])
@@ -330,8 +462,14 @@ function seedDefaults() {
 
 /* ── Utils ─────────────────────────────────────────────────────── */
 function initials(name = '') {
+  // Führende Zierzeichen abschneiden statt das Wort zu verwerfen: sonst wird
+  // aus "QA-Testtour (wird gelöscht)" das Badge "Q(" (Klammer als Initiale)
+  // bzw. "QG" (Wort übersprungen) — richtig sind die ersten beiden Wörter.
   const p = name.trim().split(/\s+/)
-  return ((p[0]?.[0] || '') + (p[1]?.[0] || '')).toUpperCase() || name.slice(0, 2).toUpperCase()
+    .map(w => w.replace(/^[^\p{L}\p{N}]+/u, ''))
+    .filter(Boolean)
+  const ini = ((p[0]?.[0] || '') + (p[1]?.[0] || '')).toUpperCase()
+  return ini || name.replace(/[^\p{L}\p{N}]/gu, '').slice(0, 2).toUpperCase() || '?'
 }
 function colorFor(str = '') {
   let h = 0
@@ -362,55 +500,40 @@ function fmtDateSep(ts) {
 function fmtTimeShort(ts) {
   return new Date(ts).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' })
 }
-function renderText(text) {
-  const urlRe = /https?:\/\/[^\s<>"']+/g
+/**
+ * `mentionNames` (optional): Set aus lowercase-Usernamen, die im aktuellen
+ * Kontext gültige @Mentions sind (nur Gruppenkanäle — DM-Aufrufe lassen das
+ * weg, dann verhält sich die Funktion exakt wie vorher). Nur echte Treffer
+ * gegen diese Liste werden hervorgehoben, kein blindes Highlighten von "@x".
+ */
+function renderText(text, mentionNames = null) {
+  // Kein Lookbehind (?<!…): WebKit kennt es erst ab iOS/Safari 16.4, davor
+  // ist schon das Regex-Literal ein SyntaxError — und der reisst beim Parsen
+  // das komplette Modul mit, die Community bliebe auf aelteren iPhones leer.
+  // Ersatz: das Zeichen vor dem @ wird als Gruppe 1 mitgematcht (leer am
+  // Textanfang) und beim Zusammensetzen wieder uebersprungen.
+  const re = /(https?:\/\/[^\s<>"']+)|(^|[^\p{L}\p{N}_@-])@([\p{L}\p{N}_-]{1,32})/gu
   let result = '', last = 0, match
-  while ((match = urlRe.exec(text)) !== null) {
-    result += esc(text.slice(last, match.index)).replace(/\n/g, '<br>')
-    const url = match[0]
-    result += `<a href="${esc(url)}" target="_blank" rel="noopener noreferrer" class="mmc-link">${esc(url)}</a>`
-    last = match.index + url.length
+  while ((match = re.exec(text)) !== null) {
+    // Bei einem Mention-Treffer gehoert das erste Zeichen noch zum Text davor.
+    const lead = match[1] ? '' : (match[2] || '')
+    result += esc(text.slice(last, match.index + lead.length)).replace(/\n/g, '<br>')
+    if (match[1]) {
+      const url = match[1]
+      result += `<a href="${esc(url)}" target="_blank" rel="noopener noreferrer" class="mmc-link">${esc(url)}</a>`
+    } else if (mentionNames?.has(match[3].toLowerCase())) {
+      const isMe = match[3].toLowerCase() === me().toLowerCase()
+      // Gespeichert/erkannt wird der rohe Username (eindeutig, s. _resolveMentions
+      // in community-api.js), angezeigt wird der ggf. abweichende Anzeigename —
+      // sonst würde z. B. "@lil_wold2021" statt "@Max" im Chat auftauchen.
+      result += `<span class="mmc-mention${isMe ? ' mmc-mention--me' : ''}">@${esc(displayName(match[3]))}</span>`
+    } else {
+      result += esc(match[0].slice(lead.length))
+    }
+    last = match.index + match[0].length
   }
   result += esc(text.slice(last)).replace(/\n/g, '<br>')
   return result
-}
-
-/* Decorative QR-style graphic (not a scannable code — placeholder for app login) */
-function qrSvg() {
-  const N = 25, cell = 6, pad = 8, size = N * cell + pad * 2
-  const rects = []
-  const isFinder = (r, c) => {
-    const inBox = (br, bc) => r >= br && r < br + 7 && c >= bc && c < bc + 7
-    return inBox(0, 0) || inBox(0, N - 7) || inBox(N - 7, 0)
-  }
-  // deterministic pseudo-random modules
-  let seed = 1337
-  const rnd = () => (seed = (seed * 1103515245 + 12345) & 0x7fffffff) / 0x7fffffff
-  for (let r = 0; r < N; r++) {
-    for (let c = 0; c < N; c++) {
-      if (isFinder(r, c)) continue
-      // keep a clear center square for the logo
-      if (r >= 10 && r <= 14 && c >= 10 && c <= 14) continue
-      if (rnd() > 0.52) {
-        rects.push(`<rect x="${pad + c * cell}" y="${pad + r * cell}" width="${cell}" height="${cell}"/>`)
-      }
-    }
-  }
-  // three finder patterns
-  const finder = (x, y) => `
-    <rect x="${pad + x * cell}" y="${pad + y * cell}" width="${cell * 7}" height="${cell * 7}" rx="3"/>
-    <rect x="${pad + (x + 1) * cell}" y="${pad + (y + 1) * cell}" width="${cell * 5}" height="${cell * 5}" rx="2" fill="#fff"/>
-    <rect x="${pad + (x + 2) * cell}" y="${pad + (y + 2) * cell}" width="${cell * 3}" height="${cell * 3}" rx="1.5"/>`
-  return `
-    <div class="mmc-qr-box">
-      <svg width="150" height="150" viewBox="0 0 ${size} ${size}" fill="#111">
-        <g>${rects.join('')}</g>
-        ${finder(0, 0)}${finder(N - 7, 0)}${finder(0, N - 7)}
-        <circle cx="${size / 2}" cy="${size / 2}" r="${cell * 3}" fill="#111"/>
-        <circle cx="${size / 2}" cy="${size / 2}" r="${cell * 2.2}" fill="#fff"/>
-        <text x="${size / 2}" y="${size / 2 + 5}" text-anchor="middle" font-size="${cell * 3}" font-weight="900" fill="#111" font-family="Arial, sans-serif">◆</text>
-      </svg>
-    </div>`
 }
 
 /* ══════════════════════════════════════════════════════════════════
@@ -419,24 +542,103 @@ function qrSvg() {
 export async function mountCommunity(root) {
   if (!root) return
 
+  startAttachmentHydration()
+
   // Supabase-Auth initialisieren (setzt Session-Cache + lädt Community-Daten)
   const session = await initSupabaseAuth()
 
   seedDefaults()  // Offline: Demo-Daten wenn leer; Online: no-op
 
+  // Jeder Einstieg in den Community-Tab startet auf "Freunde" — egal ob man
+  // vorher auf einer Kategorie oder in einem Gruppen-/DM-Chat war. friendsMode
+  // & Co. sind Modul-State und ueberleben den Tab-Wechsel sonst, mountCommunity
+  // laeuft aber bei jedem Klick auf den Tab neu (siehe bike-detail.js). Push-
+  // Deep-Links (?dm=/?group=&channel=) weiter unten ueberschreiben das bei
+  // Bedarf wieder — die sollen weiter direkt in die passende Unterhaltung
+  // springen statt auf Freunde zu landen.
+  friendsMode = true; homeSection = 'friends'; discoverOpen = false
+  activeGroup = null; activeChannel = null; activeDM = null
+
   // Realtime-Callbacks für community.js anmelden
-  onNewMessage((msg, channelId, dmThread) => {
+  onNewMessage((msg, channelId, dmUsers) => {
+    // Neue Nachricht direkt anhängen, wenn der betreffende Chat gerade offen ist
     if (channelId && activeGroup && activeChannel === channelId) {
-      const g = getGroups().find(x => x.id === activeGroup)
-      if (g) { groupDefaults(g); _refreshGroupChat(root) }
-    } else if (dmThread && activeDM) {
-      _refreshDMChat(root)
+      _appendMessageToGroupChat(root, msg)
+    } else if (dmUsers && activeDM) {
+      // Prüfe ob dieser DM aktiv ist: activeDM muss einer der beiden Benutzer sein
+      const isThisDM = (activeDM.toLowerCase() === dmUsers.user1.toLowerCase()) ||
+                       (activeDM.toLowerCase() === dmUsers.user2.toLowerCase())
+      if (isThisDM) {
+        _appendMessageToDMChat(root, msg)
+      }
     }
     // Ungelesen-Badges aktualisieren
     if (typeof refreshFriendsChrome === 'function') refreshFriendsChrome(root)
   })
 
+  // Bearbeitung/Löschung/Reaktion einer Nachricht: nur den offenen Chat neu zeichnen
+  // (nicht den ganzen Header/Compose neu bauen — das würde "gelesen"-Markierungen
+  // unnötig erneut auslösen).
+  onMessageChanged((channelId, dmUsers) => {
+    const main = root.querySelector('#mmc-main'); if (!main) return
+    const box = main.querySelector('#mmc-messages'); if (!box) return
+    if (channelId && activeGroup && activeChannel === channelId) {
+      const g = getGroups().find(x => x.id === activeGroup); if (!g) return
+      groupDefaults(g)
+      const ch = g.channels.find(c => c.id === channelId); if (!ch) return
+      const emptyCtx = { title: ch.name, text: `Das ist der Anfang von #${ch.name}. Sag Hallo 👋`, avatar: g.name, hash: true }
+      renderMessagesInto(root, box, ch.messages, emptyCtx, g)
+    } else if (dmUsers && activeDM) {
+      const isThisDM = (activeDM.toLowerCase() === dmUsers.user1.toLowerCase()) ||
+                       (activeDM.toLowerCase() === dmUsers.user2.toLowerCase())
+      if (isThisDM) {
+        renderMessagesInto(root, box, getDMs()[activeDM] || [], { title: displayName(activeDM), text: '', avatar: activeDM }, null)
+      }
+    }
+  })
+
   onFriendRequest(() => refreshFriendsChrome(root))
+
+  // Neue Gruppe (von mir oder jemand anderem erstellt): Übersicht sofort aktualisieren
+  onNewGroup(() => {
+    // fillRail statt fillCol2: die Uebersicht baut ihre linke Spalte seit dem
+    // Zusammenlegen aus .mmc-catrail — und nur dort sitzen die
+    // Ungelesen-Punkte, die eine neue Gruppe ausloesen kann.
+    if (!activeGroup && !friendsMode) { fillRail(root); fillMain(root) }
+  })
+
+  // "Jetzt aktiv": Presence-Channel abonnieren (Gäste tracken sich nicht)
+  onPresenceChange(() => { if (typeof refreshFriendsChrome === 'function') refreshFriendsChrome(root) })
+  if (session && !session.guest) {
+    subscribeToPresence(getPrefs().status || 'online')
+    // Anruf-Signale gelten app-weit, nicht nur im offenen Chat.
+    subscribeToUserEvents((type, payload) => _handleCallEvent(root, type, payload))
+  }
+
+  // Deep-Link aus einer Push-Benachrichtigung (?dm=<username>): die richtige
+  // Unterhaltung direkt öffnen, statt nur auf der Übersicht zu landen.
+  if (session) {
+    const dmParam = new URLSearchParams(window.location.search).get('dm')
+    if (dmParam) {
+      friendsMode = true; homeSection = 'friends'; activeGroup = null
+      activeDM = dmParam
+      clearUnread(activeDM)
+      subscribeToChannel(null, activeDM)
+      const url = new URL(window.location.href)
+      url.searchParams.delete('dm')
+      window.history.replaceState(window.history.state, '', url)
+    }
+    // Deep-Link aus einer @Mention-Push (?group=<id>&channel=<id>)
+    const groupParam = new URLSearchParams(window.location.search).get('group')
+    const channelParam = new URLSearchParams(window.location.search).get('channel')
+    if (groupParam && channelParam) {
+      friendsMode = false; activeGroup = groupParam; activeChannel = channelParam
+      subscribeToChannel(activeChannel, null)
+      const url = new URL(window.location.href)
+      url.searchParams.delete('group'); url.searchParams.delete('channel')
+      window.history.replaceState(window.history.state, '', url)
+    }
+  }
 
   if (session) renderApp(root)
   else renderAuth(root)
@@ -445,13 +647,12 @@ export async function mountCommunity(root) {
 /* ══════════════════════════════════════════════════════════════════
    AUTH SCREEN
    ══════════════════════════════════════════════════════════════════ */
-function renderAuth(root, mode = 'login', error = '') {
+function renderAuth(root, mode = 'login', error = '', info = '', pendingEmail = '') {
   const isLogin = mode === 'login'
   root.innerHTML = `
     <div class="mmc-auth" style="background-image:url('${commBg}')">
       <div class="mmc-auth-overlay"></div>
       <div class="mmc-auth-card">
-        <!-- Left: form -->
         <div class="mmc-auth-main">
           <h2 class="mmc-auth-title">${isLogin ? 'Willkommen zurück!' : 'Konto erstellen'}</h2>
           <p class="mmc-auth-sub">${isLogin ? 'Schön, dich in der MotoMatch-Community zu sehen!' : 'Wähle einen Namen und ein Passwort.'}</p>
@@ -473,12 +674,12 @@ function renderAuth(root, mode = 'login', error = '') {
             </label>`}
             <label class="mmc-field">
               <span class="mmc-field-label">Passwort <span class="mmc-req">*</span></span>
-              <input class="mmc-input" id="mmc-password" type="password" minlength="4" placeholder="••••••••" required>
+              <input class="mmc-input" id="mmc-password" type="password" ${isLogin ? '' : `minlength="${MIN_PASSWORD_LENGTH}"`} placeholder="••••••••" required>
             </label>
             ${isLogin ? '' : `
             <label class="mmc-field">
               <span class="mmc-field-label">Passwort bestätigen <span class="mmc-req">*</span></span>
-              <input class="mmc-input" id="mmc-password2" type="password" minlength="4" placeholder="••••••••" required>
+              <input class="mmc-input" id="mmc-password2" type="password" minlength="${MIN_PASSWORD_LENGTH}" placeholder="••••••••" required>
             </label>
             <div class="mmc-field-row">
               <label class="mmc-field">
@@ -496,9 +697,21 @@ function renderAuth(root, mode = 'login', error = '') {
                 </select>
               </label>
             </div>`}
-            ${isLogin ? '<button type="button" class="mmc-forgot" id="mmc-forgot">Passwort vergessen?</button>' : ''}
+            ${isLogin ? `
+            <div class="mmc-helprow">
+              <button type="button" class="mmc-forgot" id="mmc-ohnepass">Ohne Passwort anmelden</button>
+              <button type="button" class="mmc-forgot" id="mmc-forgot">Passwort vergessen?</button>
+            </div>` : ''}
             <div class="mmc-auth-error" id="mmc-auth-error" ${error ? '' : 'hidden'}>${esc(error)}</div>
+            ${info ? `<div class="mmc-auth-info" style="color:#2e7d32;margin:4px 0 8px;font-size:14px">${esc(info)}</div>` : ''}
+            ${pendingEmail ? '<button type="button" class="mmc-forgot" id="mmc-resend">Mail nicht angekommen? Erneut senden</button>' : ''}
             <button class="mmc-auth-submit" type="submit">${isLogin ? 'Anmelden' : 'Registrieren'}</button>
+            ${isLogin ? '' : `
+            <p class="mmc-auth-legal">
+              Wie wir deine Daten verarbeiten, steht in der
+              <a href="/datenschutz.html" target="_blank" rel="noopener">Datenschutzerkl\u00e4rung</a>.
+              Betreiberangaben im <a href="/impressum.html" target="_blank" rel="noopener">Impressum</a>.
+            </p>`}
           </form>
 
           <p class="mmc-auth-switch">
@@ -507,39 +720,74 @@ function renderAuth(root, mode = 'login', error = '') {
           </p>
         </div>
 
-        <!-- Right: QR panel -->
-        <div class="mmc-auth-qr">
-          <button type="button" class="mmc-skip" id="mmc-skip" title="Login überspringen (nur Entwicklung)">Überspringen →</button>
-          ${qrSvg()}
-          <h3 class="mmc-qr-title">Mit QR-Code einloggen</h3>
-          <p class="mmc-qr-text">App-Login kommt bald. Bis dahin: melde dich links mit deinem Benutzernamen an.</p>
-        </div>
       </div>
       <div class="mmc-auth-brand"><span class="mmc-auth-logo">◆</span> MotoMatch Community</div>
     </div>
   `
 
+  /* Anmelden ohne Passwort — derselbe Weg wie im Anmeldefenster der
+     Hauptseite, hier in zwei kurzen Dialogen statt in einer eigenen Ansicht:
+     Adresse, dann Code. Wer sich auf der Seite ohne Passwort anmelden kann,
+     soll das in der Community auch koennen. */
+  root.querySelector('#mmc-ohnepass')?.addEventListener('click', () => {
+    openConfirmModal(root, {
+      title: 'Ohne Passwort anmelden',
+      text: 'Wir schicken dir einen Anmelde-Code an deine E-Mail-Adresse.',
+      confirmLabel: 'Code senden',
+      inputPlaceholder: 'du@mail.de',
+      onConfirm: async email => {
+        const res = await sendeAnmeldeCode(email)
+        if (!res.ok) { openInfoModal(root, 'Ohne Passwort anmelden', res.error); return }
+        openConfirmModal(root, {
+          title: 'Code eintippen',
+          text: `Wir haben dir einen Code an ${res.email} geschickt. Er gilt eine Stunde.`,
+          confirmLabel: 'Anmelden',
+          inputPlaceholder: 'Code aus der Mail',
+          onConfirm: async code => {
+            const pruefung = await pruefeAnmeldeCode(res.email, code)
+            if (!pruefung.ok) { openInfoModal(root, 'Ohne Passwort anmelden', pruefung.error); return }
+            resetNavState(); seedDemoFriends(); renderApp(root)
+          },
+        })
+      },
+    })
+  })
+
   root.querySelector('#mmc-forgot')?.addEventListener('click', () => {
-    renderAuth(root, mode, 'Lokaler Prototyp — Passwort-Zurücksetzen kommt mit dem echten Login.')
+    openConfirmModal(root, {
+      title: 'Passwort zurücksetzen',
+      text: 'Wir schicken dir einen Link an deine E-Mail-Adresse.',
+      confirmLabel: 'Link senden',
+      inputPlaceholder: 'du@mail.de',
+      onConfirm: async email => {
+        const res = await requestPasswordReset(email)
+        // Kein Konto-Leak: außer beim Formatfehler immer dieselbe Antwort —
+        // gleiche Linie wie der Reset-Dialog der Hauptseite in auth.js.
+        if (!res.ok && /gültige E-Mail/.test(res.error)) {
+          openInfoModal(root, 'Passwort zurücksetzen', res.error)
+          return
+        }
+        openInfoModal(root, 'Passwort zurücksetzen',
+          'Falls diese E-Mail registriert ist, hast du eine Mail mit dem Link bekommen.')
+      },
+    })
   })
 
-  renderGoogleButton(root.querySelector('#mmc-google-btn'), () => {
+  renderSocialButtons(root.querySelector('#mmc-google-btn'), () => {
     resetNavState(); seedDemoFriends(); renderApp(root)
-  })
-
-  // Gast-Login (Offline-Lese-Modus)
-  root.querySelector('#mmc-skip')?.addEventListener('click', async () => {
-    if (!OFFLINE_MODE) {
-      toast(root, 'Gast-Modus: Nur Lesen möglich. Bitte melde dich an, um zu schreiben.')
-    }
-    await loginGuest()
-    resetNavState()
-    seedDemoFriends()
-    renderApp(root)
   })
 
   root.querySelector('#mmc-auth-toggle')?.addEventListener('click', () => {
     renderAuth(root, isLogin ? 'register' : 'login')
+  })
+
+  root.querySelector('#mmc-resend')?.addEventListener('click', async ev => {
+    ev.target.disabled = true
+    ev.target.textContent = 'Senden…'
+    const res = await resendConfirmation(pendingEmail)
+    renderAuth(root, 'login', res.ok ? '' : res.error,
+      res.ok ? `Neue Bestätigungsmail an ${pendingEmail} unterwegs.` : '',
+      pendingEmail)
   })
 
   root.querySelector('#mmc-auth-form')?.addEventListener('submit', async e => {
@@ -550,7 +798,12 @@ function renderAuth(root, mode = 'login', error = '') {
 
     if (isLogin) {
       const res = await login(username, password)
-      if (!res.ok) return showErr(res.error)
+      if (!res.ok) {
+        // "Bitte bestätige zuerst deine E-Mail" ohne Ausweg wäre eine Sackgasse.
+        if (/bestätige/i.test(res.error) && username.includes('@'))
+          return renderAuth(root, 'login', res.error, '', username.trim())
+        return showErr(res.error)
+      }
       resetNavState(); seedDemoFriends(); renderApp(root)
     } else {
       const res = await register({
@@ -561,6 +814,13 @@ function renderAuth(root, mode = 'login', error = '') {
         license:   root.querySelector('#mmc-license')?.value,
       })
       if (!res.ok) return showErr(res.error)
+      if (res.needsEmailConfirmation) {
+        // Konto angelegt, aber noch keine Session — erst den Link in der
+        // Bestätigungsmail klicken. Kein Fehler, ein Hinweis.
+        return renderAuth(root, 'login', '',
+          `Fast geschafft! Wir haben dir eine Mail an ${res.email} geschickt — bitte bestätige darin deine Adresse und melde dich dann an.`,
+          res.email)
+      }
       resetNavState(); seedDemoFriends(); renderApp(root)
     }
   })
@@ -579,15 +839,55 @@ let serverCategory = 'touren'// active category in the MotoMatch server
 let activeGroup = null       // group id when a group chat is open
 let activeChannel = null     // channel id within activeGroup
 let friendsMode = false      // true → Freunde-Seite statt Kategorie-Übersicht
+let discoverOpen = false     // true → "Server entdecken"-Ansicht statt normalem Freunde-Inhalt (nur relevant bei friendsMode)
 let replyingTo = null        // { id, author, text } der Nachricht, auf die geantwortet wird
+let _voiceWatchers = {}      // { [roomId]: cleanupFn } — live "wer ist im Talk"-Beobachtung
+/* Wie die Presence-Änderung angezeigt wird, hängt an der GERADE sichtbaren
+   Ansicht (Gruppenkarten vs. Kanal-Sidebar), nicht am Watcher: Watcher
+   überleben einen Ansichtswechsel, damit sie nicht bei jedem Klick neu
+   aufgebaut werden. Der Callback wird deshalb hier zentral gehalten und beim
+   Wechsel überschrieben — sonst schriebe ein Watcher aus der Übersicht
+   weiterhin in längst ersetztes DOM. */
+let _onVoiceWatchUpdate = () => {}
+const _vcPrevMembers = new Map() // roomId -> zuletzt gerenderte Mitgliederliste, für Join/Leave-Animation in voiceChannelHtml()
+let _typingUsers = {}        // { username: timeoutId } — wer gerade im aktuell offenen Chat tippt
+let _lastTypingSentAt = 0    // Throttle fürs Senden eigener Typing-Pings
 
 /** Navigations-Zustand auf Standard zurücksetzen — wichtig beim Konto-Wechsel
  *  (Login/Logout) im selben Tab, damit der neue Nutzer nicht in der Navigation
- *  landet, wo der vorherige Nutzer aufgehört hat. */
+ *  landet, wo der vorherige Nutzer aufgehört hat. Standard ist die Freunde-
+ *  Seite (friendsMode = true), aus der man dann in die Kategorien wechselt —
+ *  dieselbe Landing-Regel wie beim Tab-Wechsel oben in mountCommunity(). */
 function resetNavState() {
   homeSection = 'friends'; friendsTab = 'all'; activeDM = null
-  serverCategory = 'touren'; activeGroup = null; activeChannel = null; friendsMode = false
+  serverCategory = 'touren'; activeGroup = null; activeChannel = null; friendsMode = true
+  discoverOpen = false
   replyingTo = null
+}
+
+/* ── Mobile-Navigations-Stack (<768px) ────────────────────────────
+ * Unter der Breakpoint-Schwelle zeigt der Grid immer nur eine Spalte
+ * auf voller Breite (siehe main.css). Welche, steuert die Klasse
+ * "mmc--detail" auf dem .mmc-Root: ohne Klasse = Liste (Kategorien/
+ * Kanäle/Freunde), mit Klasse = Hauptinhalt (Chat/Kartenliste). Auf
+ * Desktop (≥768px) bleiben beide Spalten unabhängig von der Klasse
+ * sichtbar — sie wirkt nur innerhalb der Media Query. */
+function mobileShowDetail(root) { root.querySelector('.mmc')?.classList.add('mmc--detail') }
+function mobileShowList(root) { root.querySelector('.mmc')?.classList.remove('mmc--detail') }
+/** Zurück-Pfeil fürs Hauptpanel — nur unterhalb der Mobile-Breakpoint sichtbar (siehe .mmc-mback in main.css). */
+function mobileBackHtml() { return `<button type="button" class="mmc-back mmc-mback" id="mmc-list-back" title="Zurück">${ICON.back}</button>` }
+function bindMobileBack(main, root) { main.querySelector('#mmc-list-back')?.addEventListener('click', () => mobileShowList(root)) }
+
+/**
+ * Zur Community-Anmeldung wechseln: beendet die aktuelle Sitzung (auch eine
+ * Gast-Sitzung, die sonst weiter als „angemeldet" gilt) und zeigt den
+ * Anmeldebildschirm. Genutzt vom Abmelden-Weg und dort, wo eine Aktion ein
+ * echtes Konto braucht (z. B. Sprach-Talks).
+ */
+async function goToAuth(root) {
+  await logout()
+  resetNavState()
+  renderAuth(root)
 }
 
 /* ── SVG icon shorthands ───────────────────────────────────────── */
@@ -609,7 +909,10 @@ const ICON = {
   back:    '<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 12H5M12 19l-7-7 7-7"/></svg>',
   users:   '<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/></svg>',
   speaker: '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14M15.54 8.46a5 5 0 0 1 0 7.07"/></svg>',
+  screen:  '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>',
   attach:  '<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg>',
+  download: '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3"/></svg>',
+  doc:      '<svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg>',
   smiley:  '<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M8 14s1.5 2 4 2 4-2 4-2"/><line x1="9" y1="9" x2="9.01" y2="9"/><line x1="15" y1="9" x2="15.01" y2="9"/></svg>',
   mail:    '<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="m22 6-10 7L2 6"/></svg>',
   chevdn:  '<svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg>',
@@ -623,6 +926,7 @@ const ICON = {
   link:    '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>',
   door:    '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>',
   belloff: '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M13.73 21a2 2 0 0 1-3.46 0"/><path d="M18.63 13A17.89 17.89 0 0 1 18 8"/><path d="M6.26 6.26A5.86 5.86 0 0 0 6 8c0 7-3 9-3 9h14"/><path d="M18 8a6 6 0 0 0-9.33-5"/><line x1="1" y1="1" x2="23" y2="23"/></svg>',
+  phone:   '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6A19.79 19.79 0 0 1 2.12 4.18 2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.13.96.36 1.9.7 2.81a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.9.34 1.85.57 2.81.7A2 2 0 0 1 22 16.92z"/></svg>',
   bell:    '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>',
   reply:   '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 14 4 9 9 4"/><path d="M20 20v-7a4 4 0 0 0-4-4H4"/></svg>',
   pencil:  '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4z"/></svg>',
@@ -636,58 +940,616 @@ const ICON = {
 
 /* ── Realtime-Re-Render-Helfer ──────────────────────────────────── */
 let _rootRef = null  // wird in renderApp gesetzt
-function _refreshGroupChat(root) {
-  const box  = (root || _rootRef)?.querySelector('#mmc-chat-box')
-  const empt = (root || _rootRef)?.querySelector('#mmc-chat-empty')
-  if (!box || !activeGroup) return
-  const g = getGroups().find(x => x.id === activeGroup)
-  if (g) { groupDefaults(g); renderMessagesInto(root || _rootRef, box, channelMsgs(g, activeChannel), empt, g) }
+
+/** Entfernt den "Noch keine Nachrichten"-Platzhalter, falls vorhanden (vor dem Anhängen der ersten Live-Nachricht) */
+function _clearEmptyState(box) {
+  box.querySelector('.mmc-empty')?.remove()
 }
-function _refreshDMChat(root) {
-  const box  = (root || _rootRef)?.querySelector('#mmc-chat-box')
-  const empt = (root || _rootRef)?.querySelector('#mmc-chat-empty')
+
+/** Neue Nachricht direkt an den Gruppen-Chat anhängen (ohne komplette Neurendition) */
+function _appendMessageToGroupChat(root, msg) {
+  const box = (root || _rootRef)?.querySelector('#mmc-messages')
+  if (!box || !activeGroup) return
+  // Eigene Nachrichten werden schon optimistisch per renderMessagesInto() gezeigt;
+  // das Realtime-Echo des eigenen INSERTs würde sie sonst ein zweites Mal anhängen.
+  if (box.querySelector(`[data-msg-id="${msg.id}"]`)) return
+  _clearEmptyState(box)
+  const g = getGroups().find(x => x.id === activeGroup)
+  if (!g) return
+  groupDefaults(g)
+  const mentionNames = new Set((g.members || []).map(u => u.toLowerCase()))
+
+  const myName = me()
+  const clickable = !msg.system && msg.author.toLowerCase() !== myName.toLowerCase()
+  const isOwn = !msg.system && msg.author.toLowerCase() === myName.toLowerCase()
+  const del = !msg.system && (msg.author.toLowerCase() === myName.toLowerCase() || canManage(g))
+
+  const actions = !msg.system ? `
+    <div class="mmc-msg-actions">
+      <button class="mmc-msg-act mmc-msg-act--react" data-react-open="${esc(msg.id)}" title="Reaktion hinzufügen">${ICON.react}</button>
+      ${!isOwn ? `<button class="mmc-msg-act mmc-msg-act--reply" data-reply-msg="${esc(msg.id)}" data-reply-author="${esc(msg.author)}" data-reply-text="${esc(msg.text)}" title="Antworten">${ICON.reply}</button>` : ''}
+      ${isOwn ? `<button class="mmc-msg-act mmc-msg-act--edit" data-edit-msg="${esc(msg.id)}" title="Bearbeiten">${ICON.pencil}</button>` : ''}
+      ${del ? `<button class="mmc-msg-act mmc-msg-act--del" data-del-msg="${esc(msg.id)}" title="Nachricht löschen">${ICON.trash}</button>` : ''}
+    </div>` : ''
+
+  const pills = reactionPillsHtml(msg.reactions, myName)
+  const imgHtml = attachmentHtml(msg)
+  const replyQuote = msg.replyTo ? `
+    <div class="mmc-reply-quote" data-reply-to="${esc(msg.replyTo.id)}">
+      <span class="mmc-reply-quote-author">${esc(displayName(msg.replyTo.author))}</span>
+      <span class="mmc-reply-quote-text">${esc((msg.replyTo.text || '').slice(0, 80))}${(msg.replyTo.text || '').length > 80 ? '…' : ''}</span>
+    </div>` : ''
+
+  const msgHtml = `
+    <div class="mmc-msg mmc-msg--enter${msg.system ? ' mmc-msg--system' : ''}" data-msg-id="${esc(msg.id)}">
+      <div class="mmc-avatar mmc-avatar--sm ${clickable ? 'mmc-avatar--clickable' : ''}" ${clickable ? `data-user="${esc(msg.author)}"` : ''} style="background:${avatarColor(msg.author)}">${avatarInner(msg.author)}</div>
+      <div class="mmc-msg-body">
+        <div class="mmc-msg-head">
+          <span class="mmc-msg-author${clickable ? ' mmc-msg-author--clickable' : ''}" ${clickable ? `data-user="${esc(msg.author)}"` : ''}>${esc(displayName(msg.author))}</span>
+          <span class="mmc-msg-time">${fmtTime(msg.ts)}</span>
+        </div>
+        ${replyQuote}
+        <div class="mmc-msg-text">${renderText(msg.text, mentionNames)}</div>
+        ${imgHtml}
+        ${pills}
+      </div>
+      ${actions}
+    </div>`
+
+  box.insertAdjacentHTML('beforeend', msgHtml)
+
+  // Event-Listener für die neue Nachricht binden
+  const newMsgEl = box.querySelector(`[data-msg-id="${msg.id}"]`)
+  if (newMsgEl) {
+    const emptyCtx = { title: g.channels?.find(c => c.id === activeChannel)?.name || '', text: '', avatar: g.name, hash: true }
+    newMsgEl.querySelector('[data-user]')?.addEventListener('click', e => {
+      e.stopPropagation(); openUserProfile(root || _rootRef, e.currentTarget.dataset.user, e.currentTarget)
+    })
+    newMsgEl.querySelector('[data-img-src]')?.addEventListener('click', function() {
+      const ov = document.createElement('div')
+      ov.className = 'mmc-img-lightbox'
+      ov.innerHTML = `<div class="mmc-img-lightbox-backdrop"></div><img class="mmc-img-lightbox-img" src="${esc(this.dataset.imgSrc)}" alt="">`
+      document.body.appendChild(ov)
+      requestAnimationFrame(() => ov.classList.add('is-open'))
+      const close = () => { ov.classList.remove('is-open'); setTimeout(() => ov.remove(), 200) }
+      ov.querySelector('.mmc-img-lightbox-backdrop').addEventListener('click', close)
+      ov.querySelector('.mmc-img-lightbox-img').addEventListener('click', e => e.stopPropagation())
+      document.addEventListener('keydown', function onKey(e) { if (e.key === 'Escape') { close(); document.removeEventListener('keydown', onKey) } })
+    })
+    newMsgEl.querySelector('[data-react-open]')?.addEventListener('click', e => {
+      e.stopPropagation()
+      const msgs = channelMsgs(g, activeChannel)
+      openReactPicker(root || _rootRef, box, e.currentTarget, e.currentTarget.dataset.reactOpen, msgs, emptyCtx, g)
+    })
+    newMsgEl.querySelector('[data-del-msg]')?.addEventListener('click', e => {
+      e.stopPropagation()
+      openConfirmModal(root || _rootRef, {
+        title: 'Nachricht löschen?',
+        text: 'Diese Aktion kann nicht rückgängig gemacht werden.',
+        confirmLabel: 'Löschen',
+        isDanger: true,
+        onConfirm: async () => {
+          const res = await deleteGroupMessage(g.id, msg.id)
+          const updated = getGroups().find(x => x.id === g.id)
+          if (updated) { groupDefaults(updated); renderMessagesInto(root || _rootRef, box, channelMsgs(updated, activeChannel), emptyCtx, updated) }
+          if (!res.ok) toast(root || _rootRef, 'Nachricht konnte nicht gelöscht werden.')
+        },
+      })
+    })
+    newMsgEl.querySelector('[data-edit-msg]')?.addEventListener('click', e => {
+      e.stopPropagation()
+      const textEl = newMsgEl.querySelector('.mmc-msg-text')
+      const actionsEl = newMsgEl.querySelector('.mmc-msg-actions')
+      if (!textEl) return
+      if (actionsEl) actionsEl.style.display = 'none'
+      const ta = document.createElement('textarea')
+      ta.className = 'mmc-edit-input'; ta.value = msg.text
+      textEl.replaceWith(ta); ta.focus(); ta.select()
+      const cancel = () => {
+        const div = document.createElement('div')
+        div.className = 'mmc-msg-text'; div.innerHTML = renderText(msg.text, mentionNames)
+        ta.replaceWith(div)
+        if (actionsEl) actionsEl.style.removeProperty('display')
+      }
+      const save = async () => {
+        const newText = ta.value.trim()
+        if (!newText || newText === msg.text) { cancel(); return }
+        const res = await editMessageInGroup(g.id, msg.id, newText)
+        const updated = getGroups().find(x => x.id === g.id)
+        if (updated) { groupDefaults(updated); renderMessagesInto(root || _rootRef, box, channelMsgs(updated, activeChannel), emptyCtx, updated) }
+        if (!res.ok) toast(root || _rootRef, 'Änderung konnte nicht gespeichert werden.')
+      }
+      ta.addEventListener('keydown', ev => {
+        if (ev.key === 'Enter' && !ev.shiftKey) { ev.preventDefault(); save() }
+        if (ev.key === 'Escape') { ev.preventDefault(); cancel() }
+      })
+    })
+    newMsgEl.querySelector('[data-reply-msg]')?.addEventListener('click', e => {
+      e.stopPropagation()
+      replyingTo = { id: msg.id, author: msg.author, text: msg.text }
+      const replyBar = box.parentElement?.querySelector('#mmc-reply-bar')
+      if (replyBar) {
+        replyBar.hidden = false
+        replyBar.innerHTML = `
+          <div class="mmc-reply-bar-inner">
+            <span class="mmc-reply-bar-icon">↩</span>
+            <div class="mmc-reply-bar-text">Antwort an <strong>${esc(displayName(msg.author))}</strong>: <em>${esc(msg.text.slice(0, 60))}${msg.text.length > 60 ? '…' : ''}</em></div>
+            <button class="mmc-reply-bar-close" id="mmc-reply-cancel" title="Abbrechen">✕</button>
+          </div>`
+        replyBar.querySelector('#mmc-reply-cancel')?.addEventListener('click', () => {
+          replyingTo = null; replyBar.hidden = true; replyBar.innerHTML = ''
+        })
+      }
+      box.parentElement?.querySelector('#mmc-compose-input')?.focus()
+    })
+  }
+
+  // Automatisch nach unten scrollen
+  box.scrollTop = box.scrollHeight
+}
+
+/** Neue Nachricht direkt an den DM-Chat anhängen (ohne komplette Neurendition) */
+function _appendMessageToDMChat(root, msg) {
+  const box = (root || _rootRef)?.querySelector('#mmc-messages')
   if (!box || !activeDM) return
-  renderMessagesInto(root || _rootRef, box, getDMs()[activeDM] || [], empt, null)
+  // Eigene Nachrichten werden schon optimistisch per renderMessagesInto() gezeigt;
+  // das Realtime-Echo des eigenen INSERTs würde sie sonst ein zweites Mal anhängen.
+  if (box.querySelector(`[data-msg-id="${msg.id}"]`)) return
+  _clearEmptyState(box)
+
+  const myName = me()
+  const clickable = !msg.system && msg.author.toLowerCase() !== myName.toLowerCase()
+  const isOwn = !msg.system && msg.author.toLowerCase() === myName.toLowerCase()
+
+  const actions = !msg.system ? `
+    <div class="mmc-msg-actions">
+      <button class="mmc-msg-act mmc-msg-act--react" data-react-open="${esc(msg.id)}" title="Reaktion hinzufügen">${ICON.react}</button>
+      ${!isOwn ? `<button class="mmc-msg-act mmc-msg-act--reply" data-reply-msg="${esc(msg.id)}" data-reply-author="${esc(msg.author)}" data-reply-text="${esc(msg.text)}" title="Antworten">${ICON.reply}</button>` : ''}
+      ${isOwn ? `<button class="mmc-msg-act mmc-msg-act--edit" data-edit-msg="${esc(msg.id)}" title="Bearbeiten">${ICON.pencil}</button>` : ''}
+      ${isOwn ? `<button class="mmc-msg-act mmc-msg-act--del" data-del-msg="${esc(msg.id)}" title="Nachricht löschen">${ICON.trash}</button>` : ''}
+    </div>` : ''
+
+  const pills = reactionPillsHtml(msg.reactions, myName)
+  const imgHtml = attachmentHtml(msg)
+
+  const msgHtml = `
+    <div class="mmc-msg mmc-msg--enter${msg.system ? ' mmc-msg--system' : ''}" data-msg-id="${esc(msg.id)}">
+      <div class="mmc-avatar mmc-avatar--sm ${clickable ? 'mmc-avatar--clickable' : ''}" ${clickable ? `data-user="${esc(msg.author)}"` : ''} style="background:${avatarColor(msg.author)}">${avatarInner(msg.author)}</div>
+      <div class="mmc-msg-body">
+        <div class="mmc-msg-head">
+          <span class="mmc-msg-author${clickable ? ' mmc-msg-author--clickable' : ''}" ${clickable ? `data-user="${esc(msg.author)}"` : ''}>${esc(displayName(msg.author))}</span>
+          <span class="mmc-msg-time">${fmtTime(msg.ts)}</span>
+        </div>
+        <div class="mmc-msg-text">${renderText(msg.text)}</div>
+        ${imgHtml}
+        ${pills}
+      </div>
+      ${actions}
+    </div>`
+
+  box.insertAdjacentHTML('beforeend', msgHtml)
+
+  // Event-Listener für die neue Nachricht binden
+  const newMsgEl = box.querySelector(`[data-msg-id="${msg.id}"]`)
+  if (newMsgEl) {
+    newMsgEl.querySelector('[data-user]')?.addEventListener('click', e => {
+      e.stopPropagation(); openUserProfile(root || _rootRef, e.currentTarget.dataset.user, e.currentTarget)
+    })
+    newMsgEl.querySelector('[data-img-src]')?.addEventListener('click', function() {
+      const ov = document.createElement('div')
+      ov.className = 'mmc-img-lightbox'
+      ov.innerHTML = `<div class="mmc-img-lightbox-backdrop"></div><img class="mmc-img-lightbox-img" src="${esc(this.dataset.imgSrc)}" alt="">`
+      document.body.appendChild(ov)
+      requestAnimationFrame(() => ov.classList.add('is-open'))
+      const close = () => { ov.classList.remove('is-open'); setTimeout(() => ov.remove(), 200) }
+      ov.querySelector('.mmc-img-lightbox-backdrop').addEventListener('click', close)
+      ov.querySelector('.mmc-img-lightbox-img').addEventListener('click', e => e.stopPropagation())
+      document.addEventListener('keydown', function onKey(e) { if (e.key === 'Escape') { close(); document.removeEventListener('keydown', onKey) } })
+    })
+    newMsgEl.querySelector('[data-del-msg]')?.addEventListener('click', e => {
+      e.stopPropagation()
+      const msgId = msg.id
+      openConfirmModal(root || _rootRef, {
+        title: 'Nachricht löschen?',
+        text: 'Diese Aktion kann nicht rückgängig gemacht werden.',
+        confirmLabel: 'Löschen',
+        isDanger: true,
+        onConfirm: async () => {
+          const res = await deleteDMMessage(activeDM, msgId)
+          renderMessagesInto(root || _rootRef, box, getDMs()[activeDM] || [], { title: displayName(activeDM), text: '', avatar: activeDM }, null)
+          if (!res.ok) toast(root || _rootRef, 'Nachricht konnte nicht gelöscht werden.')
+        },
+      })
+    })
+    newMsgEl.querySelector('[data-edit-msg]')?.addEventListener('click', e => {
+      e.stopPropagation()
+      const textEl = newMsgEl.querySelector('.mmc-msg-text')
+      const actionsEl = newMsgEl.querySelector('.mmc-msg-actions')
+      if (!textEl) return
+      if (actionsEl) actionsEl.style.display = 'none'
+      const ta = document.createElement('textarea')
+      ta.className = 'mmc-edit-input'; ta.value = msg.text
+      textEl.replaceWith(ta); ta.focus(); ta.select()
+      const cancel = () => {
+        const div = document.createElement('div')
+        div.className = 'mmc-msg-text'; div.innerHTML = renderText(msg.text)
+        ta.replaceWith(div)
+        if (actionsEl) actionsEl.style.removeProperty('display')
+      }
+      const save = async () => {
+        const newText = ta.value.trim()
+        if (!newText || newText === msg.text) { cancel(); return }
+        const res = await editMessageInDM(activeDM, msg.id, newText)
+        renderMessagesInto(root || _rootRef, box, getDMs()[activeDM] || [], { title: displayName(activeDM), text: '', avatar: activeDM }, null)
+        if (!res.ok) toast(root || _rootRef, 'Änderung konnte nicht gespeichert werden.')
+      }
+      ta.addEventListener('keydown', ev => {
+        if (ev.key === 'Enter' && !ev.shiftKey) { ev.preventDefault(); save() }
+        if (ev.key === 'Escape') { ev.preventDefault(); cancel() }
+      })
+    })
+  }
+
+  // Automatisch nach unten scrollen
+  box.scrollTop = box.scrollHeight
+}
+
+/* ── Typing-Indikator ─────────────────────────────────────────────
+   Rein transient (Broadcast, kein Schema) — verschwindet automatisch
+   ~3s nach dem letzten Ping der jeweiligen Person, kein explizites
+   "hat aufgehört zu tippen"-Event nötig. */
+function _clearTyping(root) {
+  for (const t of Object.values(_typingUsers)) clearTimeout(t)
+  _typingUsers = {}
+  _renderTypingIndicator(root)
+}
+function _onTypingReceived(root, username) {
+  if (!username || username.toLowerCase() === me().toLowerCase()) return
+  clearTimeout(_typingUsers[username])
+  _typingUsers[username] = setTimeout(() => {
+    delete _typingUsers[username]
+    _renderTypingIndicator(root)
+  }, 3000)
+  _renderTypingIndicator(root)
+}
+function _renderTypingIndicator(root) {
+  const el = (root || _rootRef)?.querySelector('#mmc-typing')
+  if (!el) return
+  const shown = Object.keys(_typingUsers).map(displayName)
+  if (!shown.length) { el.textContent = ''; el.classList.remove('is-visible'); return }
+  const text = shown.length === 1 ? `${shown[0]} schreibt gerade…`
+    : shown.length === 2 ? `${shown[0]} und ${shown[1]} schreiben gerade…`
+    : `${shown[0]}, ${shown[1]} und ${shown.length - 2} weitere schreiben gerade…`
+  el.textContent = text
+  el.classList.add('is-visible')
+}
+/** Throttled eigenen Typing-Ping senden (max. alle 2,5s), fürs `input`-Event der Compose-Box. */
+function _pingTyping(sendFn) {
+  const now = Date.now()
+  if (now - _lastTypingSentAt < 2500) return
+  _lastTypingSentAt = now
+  sendFn()
+}
+
+/** Lesbare Groessenangabe fuer Anhaenge, deutsches Dezimalkomma. */
+function fileSizeLabel(bytes) {
+  if (!bytes && bytes !== 0) return ''
+  return bytes >= 1024 * 1024
+    ? (bytes / 1024 / 1024).toLocaleString('de-DE', { minimumFractionDigits: 1, maximumFractionDigits: 1 }) + ' MB'
+    : Math.max(1, Math.round(bytes / 1024)) + ' KB'
+}
+
+/** Kuerzel fuer die Meta-Zeile: bevorzugt die Dateiendung, sonst der MIME-Subtyp. */
+function fileExtLabel(name = '', type = '') {
+  const fromName = /\.([a-z0-9]{1,6})$/i.exec(name)?.[1]
+  if (fromName) return fromName.toUpperCase()
+  const sub = (type.split('/')[1] || '').split(/[+;]/)[0]
+  return sub ? sub.toUpperCase() : 'DATEI'
+}
+
+/* Farbakzent nach Dateityp — macht die Karte auf einen Blick unterscheidbar. */
+const FILE_TONE = {
+  PDF: 'pdf', ZIP: 'zip', RAR: 'zip', '7Z': 'zip',
+  DOC: 'doc', DOCX: 'doc', TXT: 'doc', RTF: 'doc',
+  XLS: 'sheet', XLSX: 'sheet', CSV: 'sheet',
+  MP3: 'media', WAV: 'media', M4A: 'media', MP4: 'media', MOV: 'media',
+}
+
+/**
+ * Anhang einer Nachricht. Bilder bleiben inline (mit Lightbox), alles andere
+ * wird zu einer Datei-Karte mit Download. Aeltere Nachrichten tragen nur
+ * msg.image (data-URL, immer ein Bild) — die werden hier mit uebersetzt.
+ */
+function attachmentHtml(msg) {
+  const att = msg.attachment || (msg.image ? { url: msg.image, type: 'image/*', name: 'Anhang' } : null)
+  if (!att) return ''
+
+  // Zwei Herkuenfte: Dateien im privaten Bucket (haben einen Pfad, die Adresse
+  // entsteht erst beim Hydrieren) und alles andere — Sticker vom KLIPY-CDN und
+  // Offline-Anhaenge als data:-URL. Letztere behalten ihre direkte Adresse.
+  const path   = attachmentPath(att)
+  const direkt = path ? '' : safeUrl(att.url)
+  if (!path && !direkt) return ''
+
+  // messages.attachment ist eine jsonb-Spalte, deren Inhalt keine Policy prueft —
+  // der Absender bestimmt sie frei. esc() maskiert nur Zeichen: bei
+  // {"url":"javascript:…","name":"Rechnung.pdf"} bleibt das Schema heil und die
+  // Datei-Karte sieht harmlos aus. Haelt die URL der Pruefung nicht stand, wird
+  // der Anhang gar nicht gerendert — lieber keine Karte als eine gefaehrliche.
+  const ziel = path ? `data-att-path="${esc(path)}"` : `src="${esc(direkt)}"`
+  const href = path ? `data-att-path="${esc(path)}"` : `href="${esc(direkt)}"`
+
+  if (att.sticker) {
+    // Freigestellte Grafik — ohne Rahmen und ohne Lightbox, wie im Messenger
+    return `<img class="mmc-msg-sticker" ${ziel} alt="${esc(att.name || 'Sticker')}" loading="lazy">`
+  }
+  if ((att.type || '').startsWith('image/')) {
+    const lightbox = path ? '' : ` data-img-src="${esc(direkt)}"`
+    return `<img class="mmc-msg-image" ${ziel} alt="${esc(att.name || 'Anhang')}" loading="lazy"${lightbox}>`
+  }
+  const name = att.name || 'Datei'
+  const ext  = fileExtLabel(name, att.type || '')
+  const size = fileSizeLabel(att.size)
+  const tone = FILE_TONE[ext] || 'plain'
+  return `
+    <a class="mmc-msg-file" ${href} download="${esc(name)}" title="${esc(name)} herunterladen">
+      <span class="mmc-msg-file-ic mmc-msg-file-ic--${tone}">${ICON.doc}</span>
+      <span class="mmc-msg-file-meta">
+        <span class="mmc-msg-file-name">${esc(name)}</span>
+        <span class="mmc-msg-file-sub">${esc(ext)}${size ? ' · ' + esc(size) : ''}</span>
+      </span>
+      <span class="mmc-msg-file-dl">${ICON.download}</span>
+    </a>`
+}
+
+/**
+ * Anhaenge aus dem privaten Bucket bekommen ihre Adresse erst hier: das Markup
+ * traegt nur `data-att-path`, die signierte Adresse holt signedAttachmentUrls().
+ *
+ * Warum ein MutationObserver und kein Aufruf an den Renderstellen: Nachrichten
+ * landen aus vier Richtungen im DOM (Verlauf laden, eigene Nachricht anhaengen,
+ * Realtime-Zustellung, Suchtreffer). Ein Beobachter faengt alle vier, ohne dass
+ * jede kuenftige Renderstelle daran denken muss.
+ *
+ * Bleibt eine Datei ohne Adresse, war es die Policy — dann wird bewusst nichts
+ * angezeigt statt eines kaputten Bildes.
+ */
+async function hydrateAttachments(root = document) {
+  const els = Array.from(root.querySelectorAll('[data-att-path]:not([data-att-ready])'))
+  if (!els.length) return
+  const map = await signedAttachmentUrls(els.map(el => el.dataset.attPath))
+  for (const el of els) {
+    const url = map.get(el.dataset.attPath)
+    if (!url) continue
+    el.setAttribute('data-att-ready', '1')
+    if (el.tagName === 'IMG') {
+      el.src = url
+      if (!el.classList.contains('mmc-msg-sticker')) el.dataset.imgSrc = url
+    } else {
+      el.setAttribute('href', url)
+    }
+  }
+}
+
+let _attObserver = null
+function startAttachmentHydration() {
+  if (_attObserver) return
+  hydrateAttachments()
+  let geplant = false
+  _attObserver = new MutationObserver(() => {
+    if (geplant) return
+    geplant = true
+    requestAnimationFrame(() => { geplant = false; hydrateAttachments() })
+  })
+  _attObserver.observe(document.body, { childList: true, subtree: true })
+}
+
+/**
+ * Sperrt die Eingabezeile waehrend des Sendens (Upload kann dauern) und gibt
+ * eine Funktion zum Entsperren zurueck.
+ */
+function _composeBusy(form) {
+  if (!form) return () => {}
+  const send = form.querySelector('.mmc-send')
+  form.classList.add('is-busy')
+  if (send) send.disabled = true
+  return () => {
+    form.classList.remove('is-busy')
+    if (send) send.disabled = false
+  }
 }
 
 /* Shared compose bar: attachment (left) + input + emoji (right of input) + send */
-const COMPOSE_EMOJIS   = ['🏍️', '🔥', '😂', '👍', '❤️', '🎉', '😎', '🙌', '🛠️', '🏁', '☕', '🌄']
 const REACTION_EMOJIS  = ['👍', '❤️', '😂', '😮', '😢', '🔥', '🏍️', '👋']
+
+/* ── Sticker ──────────────────────────────────────────────────────
+   Keine Bilddateien, sondern grosse Emoji — das haelt das Bundle klein und
+   funktioniert offline. Jeder Eintrag traegt Stichworte, ueber die beim
+   Tippen vorgeschlagen und im Picker gesucht wird.
+   ────────────────────────────────────────────────────────────────── */
+const STICKERS = [
+  { s: '🏍️', k: ['motorrad', 'bike', 'maschine', 'fahren', 'ride', 'moped'] },
+  { s: '🛵', k: ['roller', 'scooter', 'vespa'] },
+  { s: '🏁', k: ['ziel', 'rennen', 'race', 'start', 'finish', 'strecke'] },
+  { s: '🪖', k: ['helm', 'schutz', 'kopf'] },
+  { s: '🧤', k: ['handschuhe', 'schutz'] },
+  { s: '🥾', k: ['stiefel', 'boots', 'schuhe'] },
+  { s: '🧰', k: ['werkzeug', 'schrauben', 'werkstatt', 'reparatur'] },
+  { s: '🛠️', k: ['werkzeug', 'schrauben', 'basteln', 'wartung', 'reparatur'] },
+  { s: '🔧', k: ['schluessel', 'schrauben', 'werkstatt', 'wartung'] },
+  { s: '⛽', k: ['tanken', 'sprit', 'benzin', 'tankstelle'] },
+  { s: '🛞', k: ['reifen', 'rad', 'gummi'] },
+  { s: '🔋', k: ['batterie', 'akku', 'strom', 'elektro'] },
+  { s: '🗺️', k: ['karte', 'route', 'tour', 'navigation', 'planen'] },
+  { s: '🧭', k: ['kompass', 'richtung', 'navigation', 'orientierung'] },
+  { s: '📍', k: ['treffpunkt', 'ort', 'standort', 'hier'] },
+  { s: '🛣️', k: ['strasse', 'autobahn', 'route', 'weg'] },
+  { s: '🌄', k: ['berge', 'alpen', 'aussicht', 'sonnenaufgang', 'tour'] },
+  { s: '🏔️', k: ['berge', 'alpen', 'pass', 'gipfel'] },
+  { s: '🌲', k: ['wald', 'natur', 'schwarzwald', 'baum'] },
+  { s: '🌊', k: ['meer', 'kueste', 'wasser', 'see'] },
+  { s: '☀️', k: ['sonne', 'wetter', 'schoen', 'sommer'] },
+  { s: '🌧️', k: ['regen', 'wetter', 'nass', 'schlecht'] },
+  { s: '❄️', k: ['schnee', 'kalt', 'winter', 'eis'] },
+  { s: '🌬️', k: ['wind', 'wetter', 'kalt'] },
+  { s: '🌡️', k: ['temperatur', 'warm', 'kalt', 'wetter'] },
+  { s: '⚡', k: ['blitz', 'schnell', 'power', 'strom'] },
+  { s: '🔥', k: ['feuer', 'geil', 'stark', 'hot', 'krass', 'top'] },
+  { s: '💨', k: ['schnell', 'gas', 'speed', 'weg'] },
+  { s: '🚀', k: ['schnell', 'rakete', 'abgehen', 'speed'] },
+  { s: '🏆', k: ['sieg', 'pokal', 'gewonnen', 'erster', 'best'] },
+  { s: '🥇', k: ['erster', 'gold', 'sieg', 'best'] },
+  { s: '🎉', k: ['party', 'feiern', 'glueckwunsch', 'juhu', 'hurra'] },
+  { s: '🎊', k: ['party', 'feiern', 'konfetti'] },
+  { s: '🥳', k: ['party', 'feiern', 'geburtstag', 'juhu'] },
+  { s: '🍻', k: ['prost', 'bier', 'stammtisch', 'treffen', 'feierabend'] },
+  { s: '☕', k: ['kaffee', 'pause', 'stammtisch', 'morgen', 'treffen'] },
+  { s: '🍕', k: ['pizza', 'essen', 'hunger', 'pause'] },
+  { s: '🍔', k: ['burger', 'essen', 'hunger', 'pause'] },
+  { s: '😂', k: ['lachen', 'lustig', 'witzig', 'haha', 'lol'] },
+  { s: '🤣', k: ['lachen', 'lustig', 'haha', 'lol', 'rofl'] },
+  { s: '😅', k: ['schwitzen', 'knapp', 'ups', 'haha'] },
+  { s: '😎', k: ['cool', 'sonnenbrille', 'lassig', 'chill'] },
+  { s: '🤙', k: ['cool', 'passt', 'shaka', 'gruss'] },
+  { s: '👍', k: ['daumen', 'ok', 'gut', 'passt', 'ja', 'top'] },
+  { s: '👎', k: ['daumen', 'schlecht', 'nein', 'nope'] },
+  { s: '🙌', k: ['jubel', 'super', 'endlich', 'yeah'] },
+  { s: '👏', k: ['applaus', 'klatschen', 'respekt', 'bravo'] },
+  { s: '🤝', k: ['deal', 'abgemacht', 'hand', 'einig'] },
+  { s: '✌️', k: ['peace', 'gruss', 'zwei', 'tschuess'] },
+  { s: '👋', k: ['hallo', 'winken', 'tschuess', 'servus', 'moin'] },
+  { s: '❤️', k: ['herz', 'liebe', 'love', 'toll'] },
+  { s: '💯', k: ['hundert', 'volle', 'top', 'genau', 'stark'] },
+  { s: '🤔', k: ['denken', 'hmm', 'ueberlegen', 'frage', 'unsicher'] },
+  { s: '😮', k: ['wow', 'ueberrascht', 'oha', 'krass'] },
+  { s: '😱', k: ['schock', 'oh nein', 'krass', 'panik'] },
+  { s: '😴', k: ['muede', 'schlafen', 'gute nacht', 'nacht'] },
+  { s: '🥶', k: ['kalt', 'frieren', 'winter', 'eisig'] },
+  { s: '🥵', k: ['heiss', 'schwitzen', 'sommer', 'warm'] },
+  { s: '🤦', k: ['facepalm', 'oh mann', 'peinlich', 'ups'] },
+  { s: '😭', k: ['weinen', 'traurig', 'schade', 'heul'] },
+  { s: '😤', k: ['sauer', 'genervt', 'wut', 'aergern'] },
+  { s: '🫡', k: ['salut', 'jawohl', 'verstanden', 'ok'] },
+  { s: '🙏', k: ['danke', 'bitte', 'daumen druecken', 'hoffen'] },
+  { s: '⏰', k: ['zeit', 'uhr', 'wecker', 'spaet', 'puenktlich'] },
+  { s: '📅', k: ['termin', 'datum', 'kalender', 'planen', 'wann'] },
+  { s: '✅', k: ['fertig', 'erledigt', 'haken', 'ja', 'passt'] },
+  { s: '❌', k: ['nein', 'falsch', 'abgesagt', 'nope'] },
+  { s: '⚠️', k: ['achtung', 'warnung', 'vorsicht', 'gefahr'] },
+  { s: '🚧', k: ['baustelle', 'sperrung', 'achtung', 'umleitung'] },
+  { s: '📸', k: ['foto', 'bild', 'kamera', 'knipsen'] },
+  { s: '🎥', k: ['video', 'film', 'kamera', 'aufnahme'] },
+  { s: '🎵', k: ['musik', 'song', 'lied', 'hoeren'] },
+  { s: '💰', k: ['geld', 'preis', 'kosten', 'teuer', 'kaufen'] },
+  { s: '🧊', k: ['eis', 'kalt', 'chill', 'cool'] },
+  { s: '💪', k: ['stark', 'kraft', 'power', 'geschafft'] },
+]
+
+/* Favoriten halten beide Sorten: Emoji-Sticker als { emoji } und Bild-Sticker
+   als { id, url, preview, desc }. Schluessel ist emoji ?? id. */
+const LS_STICKER_FAV = 'mm_comm_sticker_favs_v2'
+
+function stickerFavs() {
+  try {
+    const raw = JSON.parse(localStorage.getItem(LS_STICKER_FAV) || '[]')
+    return Array.isArray(raw) ? raw.filter(x => x && (x.emoji || x.url)) : []
+  } catch { return [] }
+}
+function stickerKey(item) { return item.emoji || item.id || item.url }
+function isFav(item, favs = stickerFavs()) {
+  const k = stickerKey(item)
+  return favs.some(f => stickerKey(f) === k)
+}
+function toggleStickerFav(item) {
+  const favs = stickerFavs()
+  const k = stickerKey(item)
+  const next = favs.some(f => stickerKey(f) === k)
+    ? favs.filter(f => stickerKey(f) !== k)
+    : [item, ...favs]
+  try { localStorage.setItem(LS_STICKER_FAV, JSON.stringify(next.slice(0, 40))) } catch {}
+  return next
+}
+
+/** Sticker nach Suchbegriff filtern (Stichworte, Prefix reicht). */
+function searchStickers(q) {
+  const needle = q.trim().toLowerCase()
+  if (!needle) return STICKERS
+  return STICKERS.filter(e => e.s === needle || e.k.some(k => k.includes(needle)))
+}
+
+/**
+ * Vorschlaege zum getippten Text — wie bei TikTok, wo waehrend des Schreibens
+ * passende Sticker auftauchen. Gewichtet: exakte Stichworte vor Teiltreffern,
+ * Favoriten zuerst.
+ */
+function suggestStickers(text, limit = 8) {
+  const words = text.toLowerCase().match(/[\p{L}]{3,}/gu) || []
+  if (!words.length) return []
+  const favs = stickerFavs()
+  const scored = []
+  for (const e of STICKERS) {
+    let score = 0
+    for (const w of words) {
+      for (const k of e.k) {
+        if (k === w) score += 3
+        else if (k.startsWith(w) || w.startsWith(k)) score += 2
+        else if (k.includes(w)) score += 1
+      }
+    }
+    if (score) scored.push({ ...e, score: score + (isFav({ emoji: e.s }, favs) ? 1 : 0) })
+  }
+  return scored.sort((a, b) => b.score - a.score).slice(0, limit)
+}
 function composeHtml(placeholder) {
   return `
     <div class="mmc-compose">
+      <div class="mmc-typing" id="mmc-typing"></div>
       <div class="mmc-reply-bar" id="mmc-reply-bar" hidden></div>
       <div class="mmc-attach-preview" id="mmc-attach-preview" hidden>
-        <img class="mmc-attach-thumb" id="mmc-attach-thumb" src="" alt="">
+        <img class="mmc-attach-thumb" id="mmc-attach-thumb" src="" alt="" hidden>
+        <span class="mmc-attach-fileic" id="mmc-attach-fileic" hidden>${ICON.attach}</span>
         <div class="mmc-attach-info">
           <div class="mmc-attach-name" id="mmc-attach-name"></div>
           <div class="mmc-attach-size" id="mmc-attach-size"></div>
         </div>
         <button type="button" class="mmc-attach-rm" id="mmc-attach-rm" title="Anhang entfernen" aria-label="Anhang entfernen">✕</button>
       </div>
+      <div class="mmc-sticker-suggest" id="mmc-sticker-suggest" hidden></div>
       <form class="mmc-compose-form" id="mmc-compose-form">
-        <input type="file" id="mmc-file-input" accept="image/*" style="display:none" aria-hidden="true" tabindex="-1">
-        <button type="button" class="mmc-compose-ic" id="mmc-attach" title="Bild anhängen" aria-label="Bild anhängen">${ICON.attach}</button>
-        <textarea class="mmc-compose-input" id="mmc-compose-input" rows="1" placeholder="${placeholder}" autocomplete="off"></textarea>
-        <button type="button" class="mmc-compose-ic mmc-emoji" id="mmc-emoji" title="Emoji" aria-label="Emoji">${ICON.smiley}</button>
+        <input type="file" id="mmc-file-input" style="display:none" aria-hidden="true" tabindex="-1">
+        <button type="button" class="mmc-compose-ic" id="mmc-attach" title="Datei anhängen" aria-label="Datei anhängen">${ICON.attach}</button>
+        <textarea class="mmc-compose-input" id="mmc-compose-input" rows="1" maxlength="4000" placeholder="${placeholder}" autocomplete="off"></textarea>
+        <button type="button" class="mmc-compose-ic mmc-emoji" id="mmc-emoji" title="Sticker" aria-label="Sticker">${ICON.smiley}</button>
         <button class="mmc-send" type="submit" aria-label="Senden">${ICON.send}</button>
       </form>
     </div>`
 }
-function bindComposeExtras(scope, root) {
+// Der aktuell registrierte document-Click-Listener zum Schließen des
+// @Mention-Popovers — bindComposeExtras() läuft bei jedem Öffnen eines Kanals/
+// einer DM neu, sonst würde sich hier pro Wechsel ein weiterer Listener anhäufen.
+let _mentionPopDocClickHandler = null
+function bindComposeExtras(scope, root, sendTypingFn, mentionableUsers = []) {
   const fileInput  = scope.querySelector('#mmc-file-input')
   const preview    = scope.querySelector('#mmc-attach-preview')
   const thumb      = scope.querySelector('#mmc-attach-thumb')
+  const fileIc     = scope.querySelector('#mmc-attach-fileic')
   const nameEl     = scope.querySelector('#mmc-attach-name')
   const sizeEl     = scope.querySelector('#mmc-attach-size')
   const form       = scope.querySelector('#mmc-compose-form')
-  const MAX_BYTES  = 2 * 1024 * 1024
+  // Online geht die Datei in Supabase Storage (25 MB), offline als data-URL
+  // in localStorage — dort ist bei 2 MB Schluss. Grenzen kommen aus der API,
+  // damit Pruefung und Upload nicht auseinanderlaufen.
+  const MAX_BYTES  = OFFLINE_MODE ? ATTACH_MAX_LOCAL : ATTACH_MAX
 
   const clearAttach = () => {
     if (form) form._pendingAttachment = null
     if (fileInput) fileInput.value = ''
     if (preview) preview.hidden = true
-    if (thumb) thumb.src = ''
+    if (thumb) {
+      if (thumb.dataset.objurl) { URL.revokeObjectURL(thumb.dataset.objurl); delete thumb.dataset.objurl }
+      thumb.src = ''; thumb.hidden = true
+    }
+    if (fileIc) fileIc.hidden = true
   }
   if (form) form._clearAttach = clearAttach
 
@@ -696,16 +1558,34 @@ function bindComposeExtras(scope, root) {
 
   fileInput?.addEventListener('change', () => {
     const file = fileInput.files?.[0]; if (!file) return
-    if (file.size > MAX_BYTES) { toast(root, 'Bild zu groß (max. 2 MB).'); fileInput.value = ''; return }
-    const reader = new FileReader()
-    reader.onload = e => {
-      if (form) form._pendingAttachment = e.target.result
-      if (thumb) thumb.src = e.target.result
-      if (nameEl) nameEl.textContent = file.name
-      if (sizeEl) sizeEl.textContent = (file.size / 1024).toFixed(0) + ' KB'
-      if (preview) preview.hidden = false
+    if (file.size > MAX_BYTES) {
+      toast(root, `Datei zu groß (max. ${fileSizeLabel(MAX_BYTES)}).`)
+      fileInput.value = ''
+      return
     }
-    reader.readAsDataURL(file)
+    const isImage = (file.type || '').startsWith('image/')
+    // Die Datei selbst weiterreichen — erst beim Senden wird hochgeladen
+    // bzw. (offline) in eine data-URL gewandelt.
+    if (form) form._pendingAttachment = {
+      file,
+      name: file.name,
+      // Ohne Typ (manche Dateien liefern keinen) faellt die Anzeige auf die
+      // Datei-Karte zurueck — das ist der unschaedlichere Fall.
+      type: file.type || 'application/octet-stream',
+      size: file.size,
+    }
+    if (nameEl) nameEl.textContent = file.name
+    if (sizeEl) sizeEl.textContent = fileSizeLabel(file.size)
+    if (fileIc) fileIc.hidden = isImage
+    if (preview) preview.hidden = false
+    // Vorschau nur fuer Bilder — als Objekt-URL, damit auch 20-MB-Fotos nicht
+    // erst komplett in Base64 durch den Speicher muessen.
+    if (thumb) {
+      if (thumb.dataset.objurl) { URL.revokeObjectURL(thumb.dataset.objurl); delete thumb.dataset.objurl }
+      thumb.hidden = !isImage
+      if (isImage) { const u = URL.createObjectURL(file); thumb.dataset.objurl = u; thumb.src = u }
+      else thumb.src = ''
+    }
   })
 
   // Auto-resize textarea
@@ -716,9 +1596,88 @@ function bindComposeExtras(scope, root) {
       textarea.style.height = Math.min(textarea.scrollHeight, 130) + 'px'
     }
     textarea.addEventListener('input', resize)
+    if (sendTypingFn) {
+      textarea.addEventListener('input', () => { if (textarea.value.trim()) _pingTyping(sendTypingFn) })
+    }
 
-    // Enter = senden, Shift+Enter = Zeilenumbruch
+    // @Mention-Autocomplete-Zustand. Bleibt bei tokenStart -1 hängen, wenn
+    // mentionableUsers leer ist (DM-Compose) — der keydown-Handler unten
+    // bleibt dadurch für beide Fälle identisch, ohne DMs extra abzweigen zu müssen.
+    let mentionMatches = [], mentionActive = 0, tokenStart = -1, tokenEnd = -1
+    let renderMentionPop = () => {}, selectMention = () => {}
+    const compose = scope.querySelector('.mmc-compose')
+    const closeMentionPop = () => {
+      compose?.querySelector('.mmc-mention-pop')?.remove()
+      tokenStart = -1; tokenEnd = -1; mentionMatches = []
+    }
+
+    if (mentionableUsers.length) {
+      // Nur Usernamen aus einem tokenisierbaren Zeichensatz sind mentionable —
+      // register() erlaubt Leerzeichen/Sonderzeichen, die sich in "@wort" nicht
+      // sauber abgrenzen ließen. Betrifft bei den bisherigen Namen niemanden.
+      const validUsers = mentionableUsers.filter(u => /^[\p{L}\p{N}_-]+$/u.test(u))
+
+      renderMentionPop = () => {
+        compose.querySelector('.mmc-mention-pop')?.remove()
+        const pop = document.createElement('div')
+        pop.className = 'mmc-mention-pop'
+        pop.innerHTML = mentionMatches.length
+          ? mentionMatches.map((u, i) => `
+            <button type="button" class="mmc-mention-item${i === mentionActive ? ' is-active' : ''}" data-user="${esc(u)}">
+              <span class="mmc-avatar mmc-avatar--dm" style="background:${avatarColor(u)}">${avatarInner(u)}</span>
+              <span>${esc(displayName(u))}</span>
+            </button>`).join('')
+          : `<div class="mmc-mention-empty">Kein passendes Mitglied.</div>`
+        compose.appendChild(pop)
+        pop.querySelectorAll('[data-user]').forEach(btn => btn.addEventListener('click', () => selectMention(btn.dataset.user)))
+      }
+      selectMention = username => {
+        textarea.value = textarea.value.slice(0, tokenStart) + '@' + username + ' ' + textarea.value.slice(tokenEnd)
+        const caret = tokenStart + username.length + 2
+        closeMentionPop()
+        textarea.focus()
+        textarea.selectionStart = textarea.selectionEnd = caret
+        textarea.dispatchEvent(new Event('input'))
+      }
+      const updateMentionMatches = () => {
+        const caret = textarea.selectionStart
+        const before = textarea.value.slice(0, caret)
+        // Ohne Lookbehind, s. renderText(): Gruppe 1 ist das Zeichen vor dem @,
+        // Gruppe 2 der angefangene Name — das Token selbst ist '@' + Gruppe 2.
+        const m = before.match(/(^|[^\p{L}\p{N}_@-])@([\p{L}\p{N}_-]{0,32})$/u)
+        if (!m) { closeMentionPop(); return }
+        tokenStart = caret - (m[2].length + 1)
+        tokenEnd = caret
+        const partial = m[2].toLowerCase()
+        // Sowohl gegen den rohen Usernamen als auch den (evtl. abweichenden)
+        // Anzeigenamen matchen — eingefügt wird trotzdem der Username (s.
+        // selectMention), damit _resolveMentions() in community-api.js ihn
+        // wiederfindet; renderText() zeigt dafür beim Highlighten den
+        // Anzeigenamen an, damit der gesendete Text nicht kryptisch aussieht.
+        mentionMatches = validUsers.filter(u =>
+          u.toLowerCase().startsWith(partial) || displayName(u).toLowerCase().startsWith(partial)
+        ).slice(0, 8)
+        mentionActive = 0
+        renderMentionPop()
+      }
+      textarea.addEventListener('input', updateMentionMatches)
+      // Caret per Maus/Pfeiltasten bewegt, ohne dass 'input' feuert — Popover ggf. neu bewerten/schließen
+      textarea.addEventListener('click', () => { if (tokenStart !== -1) updateMentionMatches() })
+      if (_mentionPopDocClickHandler) document.removeEventListener('click', _mentionPopDocClickHandler)
+      _mentionPopDocClickHandler = ev => {
+        if (tokenStart !== -1 && !ev.target.closest('.mmc-mention-pop') && ev.target !== textarea) closeMentionPop()
+      }
+      document.addEventListener('click', _mentionPopDocClickHandler)
+    }
+
+    // Enter = senden, Shift+Enter = Zeilenumbruch — @Mention-Popover hat Vorrang, wenn offen
     textarea.addEventListener('keydown', e => {
+      if (tokenStart !== -1 && mentionMatches.length) {
+        if (e.key === 'ArrowDown') { e.preventDefault(); mentionActive = (mentionActive + 1) % mentionMatches.length; renderMentionPop(); return }
+        if (e.key === 'ArrowUp')   { e.preventDefault(); mentionActive = (mentionActive - 1 + mentionMatches.length) % mentionMatches.length; renderMentionPop(); return }
+        if (e.key === 'Enter' || e.key === 'Tab') { e.preventDefault(); selectMention(mentionMatches[mentionActive]); return }
+        if (e.key === 'Escape') { e.preventDefault(); closeMentionPop(); return }
+      }
       if (e.key === 'Enter' && !e.shiftKey) {
         e.preventDefault()
         scope.querySelector('#mmc-compose-form')?.requestSubmit()
@@ -727,25 +1686,204 @@ function bindComposeExtras(scope, root) {
     })
   }
 
+  /* ── Sticker: Vorschlaege beim Tippen ─────────────────────────
+     Mit Sticker-API echte Bild-Sticker zum getippten Text, sonst die
+     eingebauten Emoji-Sticker. */
+  const suggestBox = scope.querySelector('#mmc-sticker-suggest')
+  if (suggestBox && textarea) {
+    let suggestSeq = 0
+    let suggestTimer = null
+
+    const showSuggest = html => {
+      if (!html) { suggestBox.hidden = true; suggestBox.innerHTML = ''; return }
+      suggestBox.innerHTML = html
+      suggestBox.hidden = false
+    }
+
+    const renderSuggest = async () => {
+      const text = textarea.value
+      if (!HAS_STICKER_API) {
+        const hits = suggestStickers(text)
+        showSuggest(hits.map(e => stickerSugHtml({ emoji: e.s, desc: e.k[0] })).join(''))
+        return
+      }
+      const q = stickerQueryFrom(text)
+      if (!q) { showSuggest(''); return }
+      const seq = ++suggestSeq
+      const hits = await searchStickerApi(q, 8)
+      // Antworten koennen sich ueberholen — nur die zur letzten Eingabe zaehlt
+      if (seq !== suggestSeq) return
+      showSuggest(hits.map(stickerSugHtml).join(''))
+    }
+
+    textarea.addEventListener('input', () => {
+      clearTimeout(suggestTimer)
+      // Ohne Verzoegerung fragt jeder Tastendruck die API an
+      suggestTimer = setTimeout(renderSuggest, HAS_STICKER_API ? 350 : 0)
+    })
+    suggestBox.addEventListener('click', ev => {
+      const btn = ev.target.closest('[data-sticker]'); if (!btn) return
+      pickSticker(scope, JSON.parse(btn.dataset.sticker))
+      showSuggest('')
+    })
+  }
+
+  /* ── Sticker-Picker: Suche + Favoriten + Trending ────────────── */
   scope.querySelector('#mmc-emoji')?.addEventListener('click', e => {
     e.stopPropagation()
     const compose = scope.querySelector('.mmc-compose')
     const existing = compose.querySelector('.mmc-emoji-pop')
     if (existing) { existing.remove(); return }
+
     const pop = document.createElement('div')
     pop.className = 'mmc-emoji-pop'
-    pop.innerHTML = COMPOSE_EMOJIS.map(em => `<button type="button" class="mmc-emoji-item">${em}</button>`).join('')
+    pop.innerHTML = `
+      <input class="mmc-sticker-search" id="mmc-sticker-search" type="search"
+             placeholder="Sticker suchen …" autocomplete="off" spellcheck="false">
+      <div class="mmc-sticker-body" id="mmc-sticker-body"></div>`
     compose.appendChild(pop)
-    pop.querySelectorAll('.mmc-emoji-item').forEach(b => b.addEventListener('click', () => {
-      const ta = scope.querySelector('#mmc-compose-input')
-      const start = ta.selectionStart, end = ta.selectionEnd
-      ta.value = ta.value.slice(0, start) + b.textContent + ta.value.slice(end)
-      ta.selectionStart = ta.selectionEnd = start + b.textContent.length
-      ta.focus(); ta.dispatchEvent(new Event('input')); pop.remove()
-    }))
+
+    const body   = pop.querySelector('#mmc-sticker-body')
+    const search = pop.querySelector('#mmc-sticker-search')
+    let seq = 0, timer = null
+
+    const section = (title, items, favs) => !items.length ? '' : `
+      <div class="mmc-sticker-head">${esc(title)}</div>
+      <div class="mmc-sticker-grid${items[0].emoji ? '' : ' mmc-sticker-grid--img'}">
+        ${items.map(it => stickerTileHtml(it, isFav(it, favs))).join('')}
+      </div>`
+
+    const renderPicker = async () => {
+      const favs = stickerFavs()
+      const q = search.value.trim()
+
+      if (!HAS_STICKER_API) {
+        const hits = searchStickers(q).map(e => ({ emoji: e.s, desc: e.k[0] }))
+        body.innerHTML = [
+          section('Favoriten', favs.filter(f => hits.some(h => stickerKey(h) === stickerKey(f))), favs),
+          section(q ? 'Treffer' : 'Alle', hits.filter(h => !isFav(h, favs)), favs),
+          hits.length ? '' : '<div class="mmc-sticker-empty">Nichts gefunden.</div>',
+        ].join('')
+        return
+      }
+
+      const mySeq = ++seq
+      body.innerHTML = `${section('Favoriten', q ? [] : favs, favs)}<div class="mmc-sticker-empty">Lädt …</div>`
+      const hits = await (q ? searchStickerApi(q) : trendingStickerApi())
+      if (mySeq !== seq) return
+      body.innerHTML = [
+        section('Favoriten', q ? [] : favs, favs),
+        section(q ? 'Treffer' : 'Trending', hits, favs),
+        hits.length || (!q && favs.length) ? '' : '<div class="mmc-sticker-empty">Nichts gefunden.</div>',
+      ].join('')
+    }
+    renderPicker()
+
+    search.addEventListener('input', () => {
+      clearTimeout(timer)
+      timer = setTimeout(renderPicker, HAS_STICKER_API ? 300 : 0)
+    })
+    // Enter im Suchfeld darf die Nachricht nicht abschicken
+    search.addEventListener('keydown', ev => { if (ev.key === 'Enter') ev.preventDefault() })
+
+    body.addEventListener('click', ev => {
+      const favBtn = ev.target.closest('[data-fav]')
+      if (favBtn) {
+        // Favorit umschalten, Picker offen lassen
+        ev.stopPropagation()
+        toggleStickerFav(JSON.parse(favBtn.dataset.fav))
+        renderPicker()
+        return
+      }
+      const btn = ev.target.closest('[data-sticker]'); if (!btn) return
+      pickSticker(scope, JSON.parse(btn.dataset.sticker))
+      pop.remove()
+    })
+
     const onDoc = ev => { if (!pop.contains(ev.target) && ev.target.id !== 'mmc-emoji') { pop.remove(); document.removeEventListener('click', onDoc) } }
-    setTimeout(() => document.addEventListener('click', onDoc), 0)
+    setTimeout(() => { document.addEventListener('click', onDoc); search.focus() }, 0)
   })
+}
+
+/* ── Sticker-Darstellung ─────────────────────────────────────────── */
+
+/** Kachel in der Vorschlagsleiste. */
+function stickerSugHtml(it) {
+  const data = esc(JSON.stringify(it))
+  if (it.emoji) return `<button type="button" class="mmc-sticker-sug" data-sticker="${data}" title="${esc(it.desc || '')}">${it.emoji}</button>`
+  // preview/url stammen aus der KLIPY-Antwort — fremder Dienst, also dieselbe
+  // Schema-Pruefung wie bei Anhaengen. Ohne brauchbare URL faellt die Kachel weg.
+  const prev = safeUrl(it.preview)
+  if (!prev) return ''
+  return `<button type="button" class="mmc-sticker-sug mmc-sticker-sug--img" data-sticker="${data}" title="${esc(it.desc || '')}">
+         <img src="${esc(prev)}" alt="${esc(it.desc || 'Sticker')}" loading="lazy"></button>`
+}
+
+/** Kachel im Picker, inkl. Favoriten-Stern. */
+function stickerTileHtml(it, fav) {
+  const data = esc(JSON.stringify(it))
+  const label = fav ? 'Aus Favoriten entfernen' : 'Zu Favoriten hinzufügen'
+  const prev = it.emoji ? null : safeUrl(it.preview)   // s. stickerSugHtml
+  if (!it.emoji && !prev) return ''
+  const inner = it.emoji
+    ? `<button type="button" class="mmc-emoji-item" data-sticker="${data}" title="${esc(it.desc || '')}">${it.emoji}</button>`
+    : `<button type="button" class="mmc-emoji-item mmc-emoji-item--img" data-sticker="${data}" title="${esc(it.desc || 'Sticker')}">
+         <img src="${esc(prev)}" alt="${esc(it.desc || 'Sticker')}" loading="lazy"></button>`
+  return `
+    <span class="mmc-sticker-cell">
+      ${inner}
+      <button type="button" class="mmc-sticker-fav${fav ? ' is-on' : ''}" data-fav="${data}"
+              title="${label}" aria-label="${label}">★</button>
+    </span>`
+}
+
+/**
+ * Auswahl eines Stickers. Bild-Sticker gehen wie bei TikTok sofort als eigene
+ * Nachricht raus (ueber das Formular, damit Gast-Pruefung und Fehlerbehandlung
+ * greifen); Emoji-Sticker landen im Text.
+ */
+function pickSticker(scope, it) {
+  const textarea = scope.querySelector('#mmc-compose-input')
+  if (it.emoji) { insertSticker(textarea, it.emoji); return }
+
+  const form = scope.querySelector('#mmc-compose-form')
+  if (!form) return
+  const ext = /\.(webp|gif|png)(\?|$)/i.exec(it.url)?.[1]?.toLowerCase() || 'webp'
+  form._pendingAttachment = {
+    url: it.url,
+    name: (it.desc || 'sticker') + '.' + ext,
+    type: 'image/' + ext,
+    size: 0,
+    sticker: true,
+  }
+  form.requestSubmit()
+}
+
+/**
+ * Suchbegriff fuer die Sticker-Vorschlaege: die letzten sinntragenden Woerter.
+ * Ganze Saetze liefern kaum Treffer, einzelne Stichworte schon.
+ */
+function stickerQueryFrom(text) {
+  const words = (text.toLowerCase().match(/[\p{L}]{3,}/gu) || [])
+    .filter(w => !STOPWORDS.has(w))
+  return words.slice(-2).join(' ')
+}
+const STOPWORDS = new Set([
+  'und', 'oder', 'aber', 'der', 'die', 'das', 'den', 'dem', 'ein', 'eine', 'einen',
+  'ich', 'du', 'er', 'sie', 'es', 'wir', 'ihr', 'mir', 'mich', 'dir', 'dich',
+  'ist', 'sind', 'war', 'hat', 'habe', 'haben', 'wird', 'werden', 'kann', 'noch',
+  'nicht', 'auch', 'schon', 'mal', 'was', 'wie', 'wer', 'wo', 'wann', 'warum',
+  'mit', 'ohne', 'fuer', 'für', 'von', 'zum', 'zur', 'auf', 'aus', 'bei', 'nach',
+])
+
+/** Sticker an der Cursorposition einfuegen. */
+function insertSticker(textarea, sticker) {
+  if (!textarea) return
+  const start = textarea.selectionStart, end = textarea.selectionEnd
+  textarea.value = textarea.value.slice(0, start) + sticker + textarea.value.slice(end)
+  textarea.selectionStart = textarea.selectionEnd = start + sticker.length
+  textarea.focus()
+  textarea.dispatchEvent(new Event('input'))
 }
 
 function userbarHtml(session, prefs) {
@@ -783,6 +1921,14 @@ function renderApp(root) {
   const prefs = getPrefs()
   if (activeGroup && !getGroups().find(g => g.id === activeGroup)) activeGroup = null
 
+  // Voice-Room-Watcher gehören nur zur "In-Gruppe"-Ansicht — überall sonst aufräumen
+  if (!activeGroup) {
+    if (Object.keys(_voiceWatchers).length) { unwatchAllVoiceRooms(); _voiceWatchers = {}; _cancelAllEmptyTalkCleanups() }
+    unsubscribeGroupLiveUpdates()
+  }
+  // DM-Typing-Abo gehört nur zur offenen DM-Ansicht
+  if (!activeDM) { unsubscribeDMTyping(); _clearTyping(root) }
+
   if (activeGroup) {
     // In einer Gruppe: 3 Spalten (Kategorie-Icons | Talks+Kanal | Chat)
     root.innerHTML = `
@@ -790,11 +1936,12 @@ function renderApp(root) {
         <nav class="mmc-catrail" id="mmc-catrail"></nav>
         <div class="mmc-col2">
           <div class="mmc-col2-body" id="mmc-col2-body"></div>
+          <!-- Userbar nur hier: erst in einer Gruppe, wo man die Kanaele sieht -->
           ${userbarHtml(session, prefs)}
         </div>
         <main class="mmc-main" id="mmc-main"></main>
       </div>`
-    fillCatRail(root)
+    fillRail(root)
     fillGroupChannels(root)
     renderGroupChatMain(root)
   } else if (friendsMode) {
@@ -804,35 +1951,168 @@ function renderApp(root) {
         <nav class="mmc-catrail" id="mmc-friends-rail"></nav>
         <div class="mmc-col2">
           <div class="mmc-col2-body" id="mmc-home-body"></div>
-          ${userbarHtml(session, prefs)}
         </div>
         <main class="mmc-main" id="mmc-main"></main>
         <aside class="mmc-active" id="mmc-active"></aside>
       </div>`
-    fillFriendsRail(root)
+    fillRail(root)
     fillHomeColumn(root)
     fillMain(root)
     fillActive(root)
   } else {
-    // Übersicht: 2 Spalten (volle Kategorien-Leiste | Gruppen-Karten)
+    // Übersicht: Kategorie-Leiste | Gruppen-Karten.
+    // Die Leiste war hier frueher aus Spalte 2 nachgebaut (col2ServerHtml mit
+    // .mmc-nav-item/.mmc-cat). Sie sah anders aus als die echte Leiste der
+    // anderen beiden Ansichten und kannte keine Ungelesen-Punkte — beim
+    // Kategoriewechsel sprang deshalb die ganze linke Spalte um. Jetzt
+    // ueberall dieselbe .mmc-catrail.
     root.innerHTML = `
       <div class="mmc mmc--overview">
-        <div class="mmc-col2">
-          <div class="mmc-col2-body" id="mmc-col2-body"></div>
-          ${userbarHtml(session, prefs)}
-        </div>
+        <nav class="mmc-catrail" id="mmc-catrail"></nav>
         <main class="mmc-main" id="mmc-main"></main>
       </div>`
-    fillCol2(root)
+    fillRail(root)
     fillMain(root)
   }
   bindApp(root)
 }
 
+/**
+ * Kleines Label neben Icon-Buttons (Kategorie-Leiste und Kategorien-Liste).
+ * Als eigenes, fix positioniertes Element statt ::after, weil beide Listen
+ * overflow-y:auto haben — ein Pseudo-Element neben dem Icon waere dort
+ * abgeschnitten. Delegiert am Root, ueberlebt also das Neuzeichnen innen.
+ */
+function bindIconTooltips(root) {
+  if (root._mmcTipBound) return
+  root._mmcTipBound = true
+
+  // Die Ansichten setzen root.innerHTML neu — das raeumt das Tooltip-Element
+  // mit weg. Die Listener am Root ueberleben, also wird es bei Bedarf einfach
+  // wieder eingehaengt.
+  const tipEl = document.createElement('div')
+  tipEl.className = 'mmc-tip'
+  const tip = () => {
+    if (!tipEl.isConnected) root.appendChild(tipEl)
+    return tipEl
+  }
+
+  const show = el => {
+    const label = el.dataset.label
+    if (!label) return
+    tip().textContent = label
+    const r = el.getBoundingClientRect()
+    tipEl.style.left = `${Math.round(r.right + 10)}px`
+    tipEl.style.top = `${Math.round(r.top + r.height / 2)}px`
+    tipEl.classList.add('is-visible')
+  }
+  const hide = () => tipEl.classList.remove('is-visible')
+
+  root.addEventListener('pointerover', e => {
+    const el = e.target.closest?.('[data-label]')
+    if (el && root.contains(el)) show(el); else hide()
+  })
+  root.addEventListener('pointerout', e => {
+    if (e.target.closest?.('[data-label]')) hide()
+  })
+  root.addEventListener('focusin', e => {
+    const el = e.target.closest?.('[data-label]')
+    if (el) show(el)
+  })
+  root.addEventListener('focusout', hide)
+  root.addEventListener('click', hide)
+}
+
+/**
+ * Touch-Ersatz fuer .mmc-msg:hover .mmc-msg-actions: Long-Press auf eine
+ * Nachricht oeffnet die Aktionsleiste (react/reply/edit/loeschen/melden).
+ * Delegiert am Root wie bindIconTooltips, weil #mmc-messages bei jedem
+ * Kanal-/DM-Wechsel neu erzeugt wird (ein Listener direkt am Element wuerde
+ * den naechsten Wechsel nicht ueberleben).
+ */
+function bindMsgLongPress(root) {
+  if (root._mmcLongPressBound) return
+  root._mmcLongPressBound = true
+
+  const HOLD_MS = 450
+  const MOVE_TOLERANCE = 10
+  let timer = null
+  let pressEl = null
+  let pointerId = null
+  let startX = 0, startY = 0
+  let firedByLongPress = false
+
+  const closeOpen = except => {
+    root.querySelectorAll('.mmc-msg--actions-open').forEach(el => {
+      if (el !== except) el.classList.remove('mmc-msg--actions-open')
+    })
+  }
+  const endPress = () => {
+    if (timer) { clearTimeout(timer); timer = null }
+    pressEl?.classList.remove('mmc-msg--pressing')
+    pressEl = null
+    pointerId = null
+  }
+
+  // Nur Touch/Pen: Maus hat schon :hover, dafuer braucht es keinen Long-Press.
+  root.addEventListener('pointerdown', e => {
+    if (e.pointerType === 'mouse') return
+    const msgEl = e.target.closest('.mmc-msg')
+    if (!msgEl || !root.contains(msgEl)) return
+    if (!msgEl.querySelector('.mmc-msg-actions')) return  // Systemnachricht ohne Aktionen
+    if (e.target.closest('.mmc-msg-actions')) return      // schon offene Buttons nicht kapern
+
+    endPress()             // falls ein zweiter Finger einen laufenden Press abbricht
+    firedByLongPress = false
+    pointerId = e.pointerId
+    pressEl = msgEl
+    startX = e.clientX; startY = e.clientY
+    msgEl.classList.add('mmc-msg--pressing')
+    timer = setTimeout(() => {
+      timer = null
+      firedByLongPress = true
+      closeOpen(msgEl)
+      msgEl.classList.add('mmc-msg--actions-open')
+      msgEl.classList.remove('mmc-msg--pressing')
+      navigator.vibrate?.(8)
+    }, HOLD_MS)
+  })
+
+  // Abbruch bei Bewegung, damit Scrollen nie vom Long-Press blockiert wird.
+  root.addEventListener('pointermove', e => {
+    if (e.pointerId !== pointerId || !pressEl) return
+    if (Math.abs(e.clientX - startX) > MOVE_TOLERANCE || Math.abs(e.clientY - startY) > MOVE_TOLERANCE) {
+      endPress()
+    }
+  })
+  root.addEventListener('pointerup', e => { if (e.pointerId === pointerId) endPress() })
+  root.addEventListener('pointercancel', e => { if (e.pointerId === pointerId) endPress() })
+
+  // Android schickt bei Long-Press sonst zusaetzlich ein natives Kontextmenue.
+  root.addEventListener('contextmenu', e => {
+    if (e.target.closest('.mmc-msg')) e.preventDefault()
+  })
+
+  // Faengt den Ghost-Click ab, den Touch nach dem Long-Press noch nachschickt
+  // (sonst wuerde z. B. der Avatar-Klick direkt hinter dem Oeffnen feuern),
+  // und schliesst eine offene Aktionsleiste beim Antippen woanders.
+  root.addEventListener('click', e => {
+    if (firedByLongPress) {
+      firedByLongPress = false
+      e.preventDefault()
+      e.stopPropagation()
+      return
+    }
+    if (!e.target.closest('.mmc-msg-actions')) closeOpen()
+  }, true)
+}
+
 /* ── Userbar events ────────────────────────────────────────────── */
 function bindApp(root) {
+  bindIconTooltips(root)
+  bindMsgLongPress(root)
   root.querySelector('#mmc-user-id')?.addEventListener('click', e => { e.stopPropagation(); openUserMenu(root) })
-  root.querySelector('#mmc-logout')?.addEventListener('click', async () => { await logout(); resetNavState(); renderAuth(root) })
+  root.querySelector('#mmc-logout')?.addEventListener('click', () => goToAuth(root))
 
   // Icon-Klick = stummschalten/Ton umschalten
   root.querySelector('#mmc-mic')?.addEventListener('click', e => {
@@ -871,8 +2151,20 @@ function openAudioMenu(root, type) {
 
   const prefs = getPrefs()
   const isIn = type === 'input'
-  const vol = isIn ? (prefs.inVol ?? 80) : (prefs.outVol ?? 60)
   const selectedDevId = isIn ? (prefs.micDeviceId || '') : (prefs.sinkDeviceId || '')
+
+  // Nur die Ausgabelautstärke ist im Browser tatsächlich regelbar (Lautstärke
+  // der Wiedergabe-Elemente). Für die Eingabe gibt es keine entsprechende
+  // Stellschraube — ein Regler dafür schrieb bisher nur einen Wert in die
+  // Einstellungen, ohne das Mikrofon zu beeinflussen, und wird deshalb nicht
+  // mehr angeboten (echte Mikrofon-Verstärkung bräuchte einen WebAudio-Gain
+  // in der Publish-Kette).
+  const volSection = isIn ? '' : `
+    <div class="mmc-am-sep"></div>
+    <div class="mmc-am-vol">
+      <div class="mmc-am-title">Ausgabelautstärke</div>
+      <input type="range" class="mmc-am-slider" min="0" max="100" value="${prefs.outVol ?? 100}">
+    </div>`
 
   const pop = document.createElement('div')
   pop.className = 'mmc-audiomenu'; pop.dataset.type = type
@@ -881,11 +2173,7 @@ function openAudioMenu(root, type) {
     <div class="mmc-am-device-list" id="mmc-am-devlist">
       <div class="mmc-am-sub">Geräte werden geladen …</div>
     </div>
-    <div class="mmc-am-sep"></div>
-    <div class="mmc-am-vol">
-      <div class="mmc-am-title">${isIn ? 'Eingabelautstärke' : 'Ausgabelautstärke'}</div>
-      <input type="range" class="mmc-am-slider" min="0" max="100" value="${vol}">
-    </div>`
+    ${volSection}`
   anchor.appendChild(pop)
   requestAnimationFrame(() => pop.classList.add('is-open'))
 
@@ -894,22 +2182,41 @@ function openAudioMenu(root, type) {
   setTimeout(() => document.addEventListener('click', onDoc), 0)
 
   pop.querySelector('.mmc-am-slider')?.addEventListener('input', e => {
-    const p = getPrefs(); if (isIn) p.inVol = +e.target.value; else p.outVol = +e.target.value; setPrefs(p)
+    const p = getPrefs(); p.outVol = +e.target.value; setPrefs(p)
+    setOutputVolume(p.outVol)   // sofort hörbar, nicht erst beim nächsten Beitritt
   })
 
-  // Geräteliste laden
-  listAudioDevices().then(({ inputs, outputs }) => {
-    const devices = isIn ? inputs : outputs
+  /**
+   * Geräteliste in das Popover zeichnen. `prompt` nur auf ausdrücklichen Klick:
+   * ohne erteilte Mikrofon-Freigabe liefert der Browser Geräte ohne Namen, und
+   * das Nachfordern der Freigabe öffnet einen Systemdialog — den soll ein
+   * Menü-Öffnen nicht auslösen.
+   */
+  const renderDevices = async ({ prompt = false } = {}) => {
     const devList = pop.querySelector('#mmc-am-devlist')
     if (!devList) return
+    if (prompt) devList.innerHTML = '<div class="mmc-am-sub">Geräte werden geladen …</div>'
+
+    const { inputs, outputs } = await listAudioDevices({ prompt })
+    if (!pop.isConnected) return
+    const devices = isIn ? inputs : outputs
     if (!devices.length) {
       devList.innerHTML = '<div class="mmc-am-sub">Keine Geräte gefunden.</div>'
       return
     }
+
+    // Ohne Freigabe sind alle Namen leer — dann ist die Liste nicht
+    // unterscheidbar, also lieber ehrlich benennen und die Freigabe anbieten.
+    const unnamed = devices.every(d => !d.label)
     devList.innerHTML = devices.map(d => `
       <button class="mmc-am-device${d.deviceId === selectedDevId ? ' is-selected' : ''}" data-dev="${esc(d.deviceId)}">
-        ${d.deviceId === selectedDevId ? '✓ ' : ''}${esc(d.label || (isIn ? 'Mikrofon' : 'Lautsprecher'))}
+        ${d.deviceId === selectedDevId ? '✓ ' : ''}${esc(d.label || (isIn ? 'Standard-Mikrofon' : 'Standard-Ausgabe'))}
       </button>`).join('')
+      + (unnamed
+        ? `<button class="mmc-am-device mmc-am-grant" id="mmc-am-grant">Gerätenamen anzeigen …</button>`
+        : '')
+
+    devList.querySelector('#mmc-am-grant')?.addEventListener('click', () => renderDevices({ prompt: true }))
 
     devList.querySelectorAll('[data-dev]').forEach(btn => btn.addEventListener('click', async () => {
       const devId = btn.dataset.dev
@@ -924,7 +2231,8 @@ function openAudioMenu(root, type) {
       }
       close()
     }))
-  })
+  }
+  renderDevices()
 }
 
 /* ── Benutzer-Popover (Klick auf Avatar/Name) ──────────────────── */
@@ -1003,6 +2311,7 @@ function openUserMenu(root) {
     requestAnimationFrame(() => flyout.classList.add('is-open'))
     flyout.querySelectorAll('[data-status]').forEach(b => b.addEventListener('click', () => {
       const p = getPrefs(); p.status = b.dataset.status; setPrefs(p)
+      updatePresenceStatus(p.status)
       close()
       const bar = root.querySelector('.mmc-userbar')
       if (bar) bar.outerHTML = userbarHtml(getSession(), getPrefs())
@@ -1019,13 +2328,13 @@ function openUserMenu(root) {
 
   pop.querySelector('#mmc-status-toggle')?.addEventListener('click', e => { e.stopPropagation(); openFlyout() })
   pop.querySelector('[data-act="profile"]')?.addEventListener('click', () => { close(); openAccount() })
-  pop.querySelector('[data-act="logout"]')?.addEventListener('click', async () => { close(); await logout(); resetNavState(); renderAuth(root) })
+  pop.querySelector('[data-act="logout"]')?.addEventListener('click', () => { close(); goToAuth(root) })
 }
 
 /* ── Fremdes Nutzerprofil-Popover (Klick auf einen Namen im Chat/Talk) ──
    Discord-Stil: Banner, Avatar, gemeinsame Gruppen, Freundschaftsanfrage/
    Annehmen/Ablehnen je nach Beziehungsstatus, „…"-Menü mit Blockieren/Melden. */
-function openUserProfile(root, username) {
+function openUserProfile(root, username, anchorEl) {
   if (username.toLowerCase() === me().toLowerCase()) return // eigenes Profil hat eigenen Weg (Avatar unten links)
   document.querySelectorAll('.mmc-userprofile, .mmc-up-menu').forEach(x => x.remove())
 
@@ -1075,7 +2384,7 @@ function openUserProfile(root, username) {
       </div>`
     document.body.appendChild(pop)
 
-    const anchor = document.activeElement?.closest('[data-user]') || document.querySelector(`[data-user="${CSS.escape(username)}"]`)
+    const anchor = anchorEl || document.activeElement?.closest('[data-user]') || document.querySelector(`[data-user="${CSS.escape(username)}"]`)
     const r = anchor?.getBoundingClientRect()
     if (r) {
       const top = Math.min(r.top, window.innerHeight - 380)
@@ -1096,12 +2405,24 @@ function openUserProfile(root, username) {
       close(); render(); refreshFriendsChrome(root)
     })
     pop.querySelector('[data-act="accept"]')?.addEventListener('click', async () => {
-      await acceptRequest(inReq.id); toast(root, 'Freundschaftsanfrage angenommen.'); close(); render(); refreshFriendsChrome(root)
+      const res = await acceptRequest(inReq.id)
+      toast(root, res.ok ? 'Freundschaftsanfrage angenommen.' : res.error)
+      close(); render(); refreshFriendsChrome(root)
     })
-    pop.querySelector('[data-act="decline"]')?.addEventListener('click', async () => { await declineRequest(inReq.id); close(); render(); refreshFriendsChrome(root) })
-    pop.querySelector('[data-act="cancel"]')?.addEventListener('click', async () => { await cancelRequest(outReq.id); close(); render(); refreshFriendsChrome(root) })
+    pop.querySelector('[data-act="decline"]')?.addEventListener('click', async () => {
+      const res = await declineRequest(inReq.id)
+      close(); render(); refreshFriendsChrome(root)
+      if (!res.ok) toast(root, 'Anfrage konnte nicht abgelehnt werden.')
+    })
+    pop.querySelector('[data-act="cancel"]')?.addEventListener('click', async () => {
+      const res = await cancelRequest(outReq.id)
+      close(); render(); refreshFriendsChrome(root)
+      if (!res.ok) toast(root, 'Anfrage konnte nicht zurückgezogen werden.')
+    })
     pop.querySelector('[data-act="unblock"]')?.addEventListener('click', async () => {
-      await toggleBlock(username); toast(root, `${username} entblockt.`); close()
+      const res = await toggleBlock(username)
+      toast(root, res.ok ? `${username} entblockt.` : res.error)
+      close()
       refreshFriendsChrome(root)
       if (activeGroup) renderGroupChatMain(root)
       else render()
@@ -1127,8 +2448,8 @@ function openUserProfile(root, username) {
 
       menu.querySelector('[data-mact="ignore"]')?.addEventListener('click', async () => {
         menu.remove()
-        const nowIgnored = await toggleIgnore(username)
-        toast(root, nowIgnored ? `${username} wird ignoriert.` : `${username} wird nicht mehr ignoriert.`)
+        const res = await toggleIgnore(username)
+        toast(root, res.ok ? (res.ignored ? `${username} wird ignoriert.` : `${username} wird nicht mehr ignoriert.`) : res.error)
         close(); refreshFriendsChrome(root)
       })
 
@@ -1138,8 +2459,9 @@ function openUserProfile(root, username) {
       })
 
       menu.querySelector('[data-mact="block"]')?.addEventListener('click', async () => {
-        const nowBlocked = await toggleBlock(username)
-        menu.remove(); toast(root, nowBlocked ? `${username} blockiert.` : `${username} entblockt.`)
+        const res = await toggleBlock(username)
+        menu.remove()
+        toast(root, res.ok ? (res.blocked ? `${username} blockiert.` : `${username} entblockt.`) : res.error)
         close()
         refreshFriendsChrome(root)
         if (activeGroup) renderGroupChatMain(root)
@@ -1200,40 +2522,50 @@ function openUserReportModal(root, username) {
   requestAnimationFrame(() => overlay.querySelector('#mmc-report-reason')?.focus())
 }
 
-/* ══════════════════════════════════════════════════════════════════
-   SECOND COLUMN
-   ══════════════════════════════════════════════════════════════════ */
-function fillCol2(root) {
-  const box = root.querySelector('#mmc-col2-body')
-  if (!box) return
-  box.innerHTML = col2ServerHtml()
-
-  box.querySelector('#mmc-friends-tab')?.addEventListener('click', () => {
-    friendsMode = true; homeSection = 'friends'; friendsTab = 'all'; activeGroup = null; activeDM = null; renderApp(root)
-  })
-  box.querySelectorAll('.mmc-cat[data-cat]').forEach(el => {
-    el.addEventListener('click', () => {
-      serverCategory = el.dataset.cat; activeGroup = null
-      if (friendsMode) { friendsMode = false; renderApp(root) }
-      else { fillCol2(root); fillMain(root) }
-    })
-  })
-}
 
 function groupsIn(catId) { return getGroups().filter(g => g.category === catId) }
 
-/* ── Freunde-Modus: Icon-Leiste (links) ────────────────────────── */
-function fillFriendsRail(root) {
-  const rail = root.querySelector('#mmc-friends-rail'); if (!rail) return
+/**
+ * Die Kategorie-Leiste links — fuer **alle** Ansichten dieselbe.
+ *
+ * Vorher gab es sie dreimal: fillFriendsRail() fuer die Freunde-Seite,
+ * fillCatRail() fuer die Gruppenansicht und in der Uebersicht einen Nachbau
+ * aus Spalte 2 (.mmc-nav-item/.mmc-cat, 46px, Radius 14 statt .mmc-crb).
+ * Beim Wechsel zwischen Kategorien tauschte damit nicht nur der aktive
+ * Eintrag, sondern die ganze Leiste — samt Ungelesen-Punkten, die es nur in
+ * einer der drei Fassungen gab.
+ *
+ * Eine Fassung, ein Aussehen: Startknopf oben (aktiv im Freunde-Modus),
+ * Trennlinie, Kategorien mit Ungelesen-Punkt. Welche aktiv ist, ergibt sich
+ * aus dem Zustand, nicht aus der Ansicht.
+ */
+function fillRail(root) {
+  const rail = root.querySelector('.mmc-catrail'); if (!rail) return
+  const g = getGroups().find(x => x.id === activeGroup)
+  const activeCat = g ? g.category : (friendsMode ? null : serverCategory)
+  const myName = me()
+  const catHasUnread = id => groupsIn(id).some(gr => {
+    if (!gr.members.includes(myName)) return false
+    if (isMuted(gr.id)) return false
+    groupDefaults(gr)
+    return unreadCountGroup(gr) > 0
+  })
   rail.innerHTML = `
-    <button class="mmc-crb is-active" id="mmc-rail-home" title="Freunde / Startseite">${ICON.people}</button>
+    <button class="mmc-crb ${friendsMode ? 'is-active' : ''}" data-rail-home
+            aria-label="Freunde / Startseite" data-label="Freunde / Startseite">${ICON.people}</button>
     <div class="mmc-rail-sep"></div>
-    ${CATEGORIES.map(c => `<button class="mmc-crb" data-cat="${c.id}" title="${esc(c.name)}">${ICON[c.icon]}</button>`).join('')}`
-  rail.querySelector('#mmc-rail-home')?.addEventListener('click', () => {
-    homeSection = 'friends'; activeDM = null; fillHomeColumn(root); fillMain(root); fillActive(root)
+    ${CATEGORIES.map(c => `
+      <button class="mmc-crb ${c.id === activeCat ? 'is-active' : ''}" data-cat="${c.id}"
+              aria-label="${esc(c.name)}" data-label="${esc(c.name)}">
+        ${ICON[c.icon]}
+        ${catHasUnread(c.id) ? '<span class="mmc-rail-dot"></span>' : ''}
+      </button>
+    `).join('')}`
+  rail.querySelector('[data-rail-home]')?.addEventListener('click', () => {
+    friendsMode = true; homeSection = 'friends'; activeGroup = null; activeDM = null; discoverOpen = false; renderApp(root)
   })
   rail.querySelectorAll('.mmc-crb[data-cat]').forEach(b => b.addEventListener('click', () => {
-    friendsMode = false; serverCategory = b.dataset.cat; activeGroup = null; activeDM = null; renderApp(root)
+    friendsMode = false; serverCategory = b.dataset.cat; activeGroup = null; activeDM = null; discoverOpen = false; renderApp(root)
   }))
 }
 
@@ -1252,6 +2584,7 @@ function fillHomeColumn(root, searchQuery = '') {
   ]
 
   box.innerHTML = `
+    <button type="button" class="mmc-back mmc-mback" id="mmc-home-back" title="Zurück zur Übersicht">${ICON.back}</button>
     <div class="mmc-search"><input type="text" id="mmc-dm-search" placeholder="Finde oder starte eine Unterhaltung" value="${esc(searchQuery)}"></div>
     <div class="mmc-nav">
       <div class="mmc-nav-item ${homeSection === 'friends' && !activeDM ? 'is-active' : ''}" data-section="friends">${ICON.people}<span>Freunde</span>${reqCount ? `<span class="mmc-navbadge">${reqCount}</span>` : ''}</div>
@@ -1272,16 +2605,17 @@ function fillHomeColumn(root, searchQuery = '') {
         </div>`}).join('')
         : `<div class="mmc-dm-empty">${q ? 'Keine Treffer.' : 'Noch keine Unterhaltungen — füge oben Freunde hinzu'}</div>`}
     </div>`
+  box.querySelector('#mmc-home-back')?.addEventListener('click', () => { friendsMode = false; renderApp(root) })
   box.querySelectorAll('.mmc-nav-item[data-section]').forEach(el => el.addEventListener('click', () => {
-    homeSection = el.dataset.section; activeDM = null; fillHomeColumn(root); fillMain(root); fillActive(root)
+    homeSection = el.dataset.section; activeDM = null; discoverOpen = false; fillHomeColumn(root); fillMain(root); fillActive(root); mobileShowDetail(root)
   }))
   box.querySelectorAll('.mmc-dm[data-dm]').forEach(el => el.addEventListener('click', () => {
     activeDM = el.dataset.dm; clearUnread(activeDM)
     subscribeToChannel(null, activeDM)
-    fillHomeColumn(root, box.querySelector('#mmc-dm-search')?.value || ''); fillMain(root); fillActive(root)
+    fillHomeColumn(root, box.querySelector('#mmc-dm-search')?.value || ''); fillMain(root); fillActive(root); mobileShowDetail(root)
   }))
   box.querySelector('#mmc-dm-add')?.addEventListener('click', () => {
-    homeSection = 'friends'; friendsTab = 'add'; activeDM = null; fillHomeColumn(root); fillMain(root); fillActive(root)
+    homeSection = 'friends'; friendsTab = 'add'; activeDM = null; discoverOpen = false; fillHomeColumn(root); fillMain(root); fillActive(root); mobileShowDetail(root)
   })
   const searchInput = box.querySelector('#mmc-dm-search')
   searchInput?.addEventListener('input', e => fillHomeColumn(root, e.target.value))
@@ -1292,6 +2626,7 @@ function fillHomeColumn(root, searchQuery = '') {
 function renderRequests(main, root) {
   main.innerHTML = `
     <header class="mmc-main-head">
+      ${mobileBackHtml()}
       ${ICON.mail}<span class="mmc-main-title">Nachrichten</span>
       <div class="mmc-tabs">
         <button class="mmc-tab is-active" data-rtab="anfragen">Anfragen</button>
@@ -1299,8 +2634,9 @@ function renderRequests(main, root) {
       </div>
     </header>
     <div class="mmc-main-body" id="mmc-req-body"></div>`
+  bindMobileBack(main, root)
   const body = main.querySelector('#mmc-req-body')
-  const renderTab = t => { body.innerHTML = `<div class="mmc-friends-empty"><p>${t === 'spam' ? 'Kein Spam vorhanden.' : 'Nachrichtenanfragen kommen mit dem echten Backend.'}</p></div>` }
+  const renderTab = t => { body.innerHTML = `<div class="mmc-friends-empty"><p>${t === 'spam' ? 'Kein Spam vorhanden.' : 'Nachrichtenanfragen sind noch nicht aktiv — Direktnachrichten erreichen dich vorerst direkt.'}</p></div>` }
   renderTab('anfragen')
   main.querySelectorAll('[data-rtab]').forEach(b => b.addEventListener('click', () => {
     main.querySelectorAll('[data-rtab]').forEach(x => x.classList.remove('is-active'))
@@ -1308,27 +2644,6 @@ function renderRequests(main, root) {
   }))
 }
 
-function col2ServerHtml() {
-  const inReqCount = incomingRequests().length
-  const friendsBadge = inReqCount > 0 ? `<span class="mmc-notif-badge">${inReqCount}</span>` : ''
-  return `
-    <div class="mmc-server-head">
-      <div class="mmc-server-name">MotoMatch</div>
-      <div class="mmc-server-tag">Community-Server</div>
-    </div>
-    <div class="mmc-nav">
-      <div class="mmc-nav-item ${friendsMode ? 'is-active' : ''}" id="mmc-friends-tab" style="position:relative">${ICON.people}<span>Freunde</span>${friendsBadge}</div>
-    </div>
-    <div class="mmc-chan-head"><span>Kategorien</span></div>
-    <div class="mmc-chan-list">
-      ${CATEGORIES.map(c => `
-        <div class="mmc-cat ${!friendsMode && c.id === serverCategory ? 'mmc-chan--active' : ''}" data-cat="${c.id}">
-          <span class="mmc-cat-ic">${ICON[c.icon]}</span>
-          <span class="mmc-chan-name">${esc(c.name)}</span>
-          <span class="mmc-cat-count">${groupsIn(c.id).length}</span>
-        </div>`).join('')}
-    </div>`
-}
 
 /* ══════════════════════════════════════════════════════════════════
    MAIN CONTENT
@@ -1339,6 +2654,7 @@ function fillMain(root) {
 
   if (friendsMode) {
     if (activeDM) renderDMView(main, root)
+    else if (discoverOpen) renderDiscoverView(main, root)
     else if (homeSection === 'requests') renderRequests(main, root)
     else renderFriendsView(main, root)
     return
@@ -1355,6 +2671,7 @@ function renderFriendsView(main, root) {
   ]
   main.innerHTML = `
     <header class="mmc-main-head">
+      ${mobileBackHtml()}
       ${ICON.people}<span class="mmc-main-title">Freunde</span>
       <div class="mmc-tabs">
         ${tabs.map(([k, l]) => `<button class="mmc-tab ${friendsTab === k ? 'is-active' : ''} ${k === 'add' ? 'mmc-tab-add' : ''}" data-tab="${k}">${l}${k === 'pending' && pendingCount ? ` <span class="mmc-tab-count">${pendingCount}</span>` : ''}</button>`).join('')}
@@ -1362,6 +2679,7 @@ function renderFriendsView(main, root) {
     </header>
     <div class="mmc-main-body" id="mmc-friends-body"></div>
   `
+  bindMobileBack(main, root)
   const body = main.querySelector('#mmc-friends-body')
 
   if (friendsTab === 'add') {
@@ -1412,7 +2730,7 @@ function renderFriendsView(main, root) {
       suggestBox.querySelectorAll('[data-user]').forEach(b => b.addEventListener('click', () => doSend(b.dataset.user)))
     })
     body.querySelector('#mmc-explore-card')?.addEventListener('click', () => {
-      friendsMode = false; activeDM = null; activeGroup = null; renderApp(root)
+      discoverOpen = true; fillMain(root)
     })
     requestAnimationFrame(() => input?.focus())
     bindFriendsTabs(main, root)
@@ -1439,10 +2757,20 @@ function renderFriendsView(main, root) {
         ${out.length ? `<div class="mmc-friends-count">Ausgehende Anfragen — ${out.length}</div><div class="mmc-friends-list">${out.map(r => row(r, 'out')).join('')}</div>` : ''}`
       : `<div class="mmc-friends-empty"><p>Keine ausstehenden Anfragen.</p></div>`
     body.querySelectorAll('[data-accept]').forEach(b => b.addEventListener('click', async () => {
-      await acceptRequest(b.dataset.accept); toast(root, 'Freundschaftsanfrage angenommen.'); fillMain(root); refreshFriendsChrome(root)
+      const res = await acceptRequest(b.dataset.accept)
+      toast(root, res.ok ? 'Freundschaftsanfrage angenommen.' : res.error)
+      fillMain(root); refreshFriendsChrome(root)
     }))
-    body.querySelectorAll('[data-decline]').forEach(b => b.addEventListener('click', async () => { await declineRequest(b.dataset.decline); fillMain(root); refreshFriendsChrome(root) }))
-    body.querySelectorAll('[data-cancel]').forEach(b => b.addEventListener('click', async () => { await cancelRequest(b.dataset.cancel); fillMain(root); refreshFriendsChrome(root) }))
+    body.querySelectorAll('[data-decline]').forEach(b => b.addEventListener('click', async () => {
+      const res = await declineRequest(b.dataset.decline)
+      fillMain(root); refreshFriendsChrome(root)
+      if (!res.ok) toast(root, 'Anfrage konnte nicht abgelehnt werden.')
+    }))
+    body.querySelectorAll('[data-cancel]').forEach(b => b.addEventListener('click', async () => {
+      const res = await cancelRequest(b.dataset.cancel)
+      fillMain(root); refreshFriendsChrome(root)
+      if (!res.ok) toast(root, 'Anfrage konnte nicht zurückgezogen werden.')
+    }))
     bindFriendsTabs(main, root)
     return
   }
@@ -1457,6 +2785,8 @@ function renderFriendsView(main, root) {
     ...friends.filter(f => !isIgnored(f)),
     ...friends.filter(f => isIgnored(f)),
   ]
+  const presence = getOnlinePresence()
+  const friendStatusLabel = f => (presence[f] && presence[f] !== 'invisible') ? statusMeta(presence[f]).label : 'Offline'
   body.innerHTML = `
     <div class="mmc-friends-count">Alle Freunde — ${friends.length}</div>
     <div class="mmc-friends-list">
@@ -1465,12 +2795,12 @@ function renderFriendsView(main, root) {
         return `
         <div class="mmc-friend-row${ign ? ' mmc-friend-row--ignored' : ''}" data-dm="${esc(f)}">
           <div class="mmc-avatar mmc-avatar--dm" style="background:${avatarColor(f)};${ign ? 'opacity:.4' : ''}">${avatarInner(f)}<span class="mmc-presence"></span></div>
-          <div class="mmc-friend-meta"><div class="mmc-friend-name"${ign ? ' style="opacity:.5"' : ''}>${esc(displayName(f))}</div><div class="mmc-friend-status">${ign ? 'ignoriert' : 'online'}</div></div>
+          <div class="mmc-friend-meta"><div class="mmc-friend-name"${ign ? ' style="opacity:.5"' : ''}>${esc(displayName(f))}</div><div class="mmc-friend-status">${ign ? 'ignoriert' : esc(friendStatusLabel(f))}</div></div>
           <button class="mmc-friend-msg-btn" data-dm="${esc(f)}" title="Nachricht">${ICON.send}</button>
         </div>`}).join('')}
     </div>`
   body.querySelectorAll('[data-dm]').forEach(el => {
-    el.addEventListener('click', () => { activeDM = el.dataset.dm; clearUnread(activeDM); subscribeToChannel(null, activeDM); fillHomeColumn(root); fillMain(root); fillActive(root) })
+    el.addEventListener('click', e => { e.stopPropagation(); activeDM = el.dataset.dm; clearUnread(activeDM); subscribeToChannel(null, activeDM); fillHomeColumn(root); fillMain(root); fillActive(root) })
   })
   bindFriendsTabs(main, root)
 }
@@ -1481,9 +2811,83 @@ function bindFriendsTabs(main, root) {
   })
 }
 
+/* ── Server entdecken (Discovery) ──────────────────────────────────
+ * Zeigt öffentlich sichtbare Server (joinMode "open"/"request") über
+ * alle Kategorien, denen der Nutzer noch nicht beigetreten ist. Nur
+ * auf Einladung zugängliche Server werden hier bewusst nicht gelistet. */
+function discoverableGroups() {
+  const myName = me()
+  return getGroups()
+    .filter(g => !g.members.includes(myName))
+    .filter(g => !isGroupBanned(g, myName))
+    .filter(g => (g.joinMode || 'open') !== 'invite')
+}
+
+function lastActivityAt(g) {
+  groupDefaults(g)
+  let last = g.createdAt || 0
+  for (const ch of g.channels) {
+    const m = ch.messages[ch.messages.length - 1]
+    if (m && m.ts > last) last = m.ts
+  }
+  return last
+}
+
+function renderDiscoverView(main, root) {
+  const myName = me()
+  const pool = discoverableGroups()
+  main.innerHTML = `
+    <header class="mmc-main-head">
+      ${mobileBackHtml()}
+      ${ICON.compass}<span class="mmc-main-title">Server entdecken</span>
+    </header>
+    <div class="mmc-main-body" id="mmc-discover-body"></div>`
+  bindMobileBack(main, root)
+  const body = main.querySelector('#mmc-discover-body')
+
+  const sections = CATEGORIES
+    .map(cat => ({ cat, list: pool.filter(g => g.category === cat.id).sort((a, b) => lastActivityAt(b) - lastActivityAt(a)) }))
+    .filter(({ list }) => list.length)
+
+  body.innerHTML = sections.length
+    ? `<p class="mmc-cat-intro">Entdecke offene Server über alle Kategorien, denen du noch nicht beigetreten bist.</p>
+       ${sections.map(({ cat, list }) => `
+         <div class="mmc-friends-count">${esc(cat.name)} — ${list.length}</div>
+         <div class="mmc-group-grid">${list.map(g => groupCardHtml(g, myName)).join('')}</div>
+       `).join('')}`
+    : `<div class="mmc-friends-empty"><p>Aktuell gibt es nichts Neues zu entdecken — du bist bereits überall dabei!</p></div>`
+
+  body.querySelectorAll('[data-join]').forEach(b => b.addEventListener('click', async e => { e.stopPropagation(); await _joinGroupUI(root, b.dataset.join) }))
+  body.querySelectorAll('[data-open]').forEach(b => b.addEventListener('click', () => { activeGroup = b.dataset.open; renderApp(root) }))
+  body.querySelectorAll('[data-cancel-req]').forEach(b => b.addEventListener('click', async e => {
+    e.stopPropagation()
+    const groupId = b.dataset.cancelReq
+    const req = myGroupRequest(groupId)
+    if (req) {
+      const res = await declineGroupRequest(req.id)
+      if (!res.ok) toast(root, 'Anfrage konnte nicht zurückgezogen werden.')
+    }
+    renderDiscoverView(main, root)
+  }))
+  body.querySelectorAll('[data-rsvp]').forEach(b => b.addEventListener('click', async e => {
+    e.stopPropagation()
+    const res = await toggleRsvp(b.dataset.rsvp)
+    renderDiscoverView(main, root)
+    if (!res.ok) toast(root, 'Zusage konnte nicht gespeichert werden.')
+  }))
+  body.querySelectorAll('[data-mappoint]').forEach(b => b.addEventListener('click', e => {
+    e.stopPropagation()
+    _openMapForPoint(b.dataset.mappoint)
+  }))
+
+  _watchTalksForCards(body, pool)
+}
+
 /* ── DM chat ───────────────────────────────────────────────────── */
 function renderDMView(main, root) {
   const name = activeDM
+  _clearTyping(root)
+  subscribeDMTyping(name, username => _onTypingReceived(root, username))
   clearUnread(name)
   const prevReadTs = lastReadDMTs(name)
   markDMRead(name)
@@ -1494,27 +2898,34 @@ function renderDMView(main, root) {
     : `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>`
   main.innerHTML = `
     <header class="mmc-chat-head">
+      ${mobileBackHtml()}
       <div class="mmc-avatar mmc-avatar--dm" style="background:${avatarColor(name)}">${avatarInner(name)}<span class="mmc-presence"></span></div>
       <span class="mmc-chat-title">${esc(displayName(name))}</span>
+      <button class="mmc-bell-btn" id="mmc-dm-call" title="${esc(displayName(name))} anrufen">${ICON.phone}</button>
       <button class="mmc-bell-btn${dmMuted ? ' is-muted' : ''}" id="mmc-dm-bell" title="${dmMuted ? 'Stummschaltung aufheben' : 'Chat stummschalten'}">${bellIcon}</button>
     </header>
     <div class="mmc-messages" id="mmc-messages"></div>
     ${composeHtml('Nachricht an @' + esc(name))}`
+  bindMobileBack(main, root)
   main.querySelector('#mmc-dm-bell')?.addEventListener('click', e => { e.stopPropagation(); openMuteMenu(root, dmKey, true) })
+  main.querySelector('#mmc-dm-call')?.addEventListener('click', e => { e.stopPropagation(); _startCall(root, name) })
   renderMessagesInto(root, main.querySelector('#mmc-messages'), (getDMs()[name]) || [], {
     title: displayName(name), text: `Das ist der Anfang deiner Unterhaltung mit ${displayName(name)}.`, avatar: name,
   }, null, prevReadTs)
-  bindComposeExtras(main, root)
+  bindComposeExtras(main, root, () => sendDMTyping(name))
   main.querySelector('#mmc-compose-form')?.addEventListener('submit', async e => {
     e.preventDefault()
     const input = main.querySelector('#mmc-compose-input')
     const form  = main.querySelector('#mmc-compose-form')
     const text  = input.value.trim()
-    const image = form?._pendingAttachment || null
-    if (!text && !image) return
+    const attachment = form?._pendingAttachment || null
+    if (!text && !attachment) return
     // Gäste dürfen nicht schreiben (Online-Modus)
     if (!OFFLINE_MODE && getSession()?.guest) { toast(root, 'Bitte melde dich an, um Nachrichten zu senden.'); return }
-    await sendDM(name, text, replyingTo, image)
+    const done = _composeBusy(form, true)
+    const res = await sendDM(name, text, replyingTo, attachment)
+    done()
+    if (res && res.ok === false) { toast(root, res.error || 'Senden fehlgeschlagen.'); return }
     input.value = ''; input.style.height = 'auto'
     form?._clearAttach?.()
     const rb = main.querySelector('#mmc-reply-bar')
@@ -1533,6 +2944,7 @@ function renderGroupList(main, root) {
   const groups = groupsIn(serverCategory)
   main.innerHTML = `
     <header class="mmc-main-head">
+      ${mobileBackHtml()}
       ${ICON[cat.icon]}<span class="mmc-main-title">${esc(cat.name)}</span>
       <div class="mmc-tabs" style="margin-left:auto">
         <button class="mmc-tab mmc-tab-add" id="mmc-group-create">+ ${esc(cat.verbNew)}</button>
@@ -1541,36 +2953,104 @@ function renderGroupList(main, root) {
     <div class="mmc-main-body">
       <div class="mmc-invite-redeem" id="mmc-invite-redeem-box">
         <form class="mmc-invite-redeem-form" id="mmc-invite-redeem-form" autocomplete="off">
-          <input class="mmc-input mmc-invite-redeem-input" id="mmc-invite-code-input" type="text" maxlength="10" placeholder="Einladungscode einlösen …" autocomplete="off" spellcheck="false">
+          <input class="mmc-input mmc-invite-redeem-input" id="mmc-invite-code-input" type="text" maxlength="48" placeholder="Einladungscode oder Name suchen …" autocomplete="off" spellcheck="false">
           <button type="submit" class="mmc-auth-submit mmc-auth-submit--sm">Einlösen</button>
         </form>
+        <div class="mmc-invite-suggest" id="mmc-invite-suggest"></div>
         <div class="mmc-invite-redeem-msg" id="mmc-invite-redeem-msg" hidden></div>
       </div>
-      <p class="mmc-cat-intro">Tritt einer bestehenden ${esc(cat.noun)} bei oder erstelle deine eigene.</p>
+      <p class="mmc-cat-intro">Tritt ${datIndef(cat.gender)} bestehenden ${esc(cat.noun)} bei oder erstelle ${ownPhrase(cat.gender)}.</p>
       ${groups.length
         ? `<div class="mmc-group-grid">${groups.map(g => groupCardHtml(g, myName)).join('')}</div>`
-        : `<div class="mmc-friends-empty"><p>Noch nichts in ${esc(cat.name)} — erstelle die erste ${esc(cat.noun)}!</p></div>`}
+        : `<div class="mmc-friends-empty"><p>Noch nichts in ${esc(cat.name)} — erstelle ${firstAkk(cat.gender)} ${esc(cat.noun)}!</p></div>`}
     </div>`
+  bindMobileBack(main, root)
+
+  /* ── Einladungscode einlösen ODER nach Gruppennamen suchen ──────────
+   * Dasselbe Feld für beides: Wer einen Code hat, tippt ihn ein und drückt
+   * Einlösen; wer nur den Namen kennt, bekommt schon beim Tippen Treffer
+   * angeboten — über alle Kategorien hinweg, nicht nur die gerade offene,
+   * denn welche Kategorie eine Gruppe hat, weiß man beim Suchen selten. */
+  const inviteInput   = main.querySelector('#mmc-invite-code-input')
+  const inviteMsgEl   = main.querySelector('#mmc-invite-redeem-msg')
+  const inviteSuggest = main.querySelector('#mmc-invite-suggest')
+
+  const showInviteMsg = (text, ok) => {
+    inviteMsgEl.hidden = false
+    inviteMsgEl.className = `mmc-invite-redeem-msg mmc-invite-redeem-msg--${ok ? 'ok' : 'err'}`
+    inviteMsgEl.textContent = text
+  }
+
+  const findGroupsByName = term => {
+    const q = term.trim().toLowerCase()
+    if (q.length < 2) return []
+    return getGroups()
+      .filter(g => g.name.toLowerCase().includes(q))
+      .filter(g => !isGroupBanned(g, myName))
+      .slice(0, 8)
+  }
+
+  const renderInviteSuggestions = matches => {
+    if (!matches.length) { inviteSuggest.innerHTML = ''; return }
+    inviteSuggest.innerHTML = matches.map(g => {
+      const joined = g.members.includes(myName)
+      const gCat = catById(g.category)
+      const action = joined ? 'Öffnen'
+        : g.joinMode === 'invite'  ? 'Nur Einladung'
+        : g.joinMode === 'request' ? 'Anfragen'
+        : 'Beitreten'
+      return `
+        <button type="button" class="mmc-suggest-item" data-found-group="${esc(g.id)}">
+          <span class="mmc-suggest-badge" style="background:${colorFor(g.name)}">${initials(g.name)}</span>
+          <span class="mmc-suggest-main">
+            <span class="mmc-suggest-name">${esc(g.name)}</span>
+            <span class="mmc-suggest-sub">${esc(gCat.name)} · ${g.members.length} ${g.members.length === 1 ? 'Mitglied' : 'Mitglieder'}</span>
+          </span>
+          <span class="mmc-suggest-action">${action}</span>
+        </button>`
+    }).join('')
+
+    inviteSuggest.querySelectorAll('[data-found-group]').forEach(btn => btn.addEventListener('click', async () => {
+      const g = getGroups().find(x => x.id === btn.dataset.foundGroup); if (!g) return
+      // Treffer kann aus einer anderen Kategorie stammen — dorthin mitwechseln,
+      // sonst landet man nach dem Beitritt in einer Liste ohne die Gruppe.
+      serverCategory = g.category
+      if (g.members.includes(myName)) { activeGroup = g.id; renderApp(root) }
+      else await _joinGroupUI(root, g.id)
+    }))
+  }
+
+  inviteInput?.addEventListener('input', () => {
+    inviteMsgEl.hidden = true
+    renderInviteSuggestions(findGroupsByName(inviteInput.value))
+  })
 
   main.querySelector('#mmc-invite-redeem-form')?.addEventListener('submit', async e => {
     e.preventDefault()
-    const input = main.querySelector('#mmc-invite-code-input')
-    const msgEl = main.querySelector('#mmc-invite-redeem-msg')
-    const code = input.value.trim()
-    if (!code) return
-    const res = await redeemInvite(code)
-    msgEl.hidden = false
+    const entry = inviteInput.value.trim()
+    if (!entry) return
+    const res = await redeemInvite(entry)
     if (res.ok) {
-      msgEl.className = 'mmc-invite-redeem-msg mmc-invite-redeem-msg--ok'
-      msgEl.textContent = `Du bist „${res.group.name}" beigetreten.`
-      input.value = ''
+      showInviteMsg(`Du bist „${res.group.name}" beigetreten.`, true)
+      inviteInput.value = ''
+      inviteSuggest.innerHTML = ''
       toast(root, `Du bist „${res.group.name}" beigetreten.`)
       activeGroup = res.group.id
       renderApp(root)
-    } else {
-      msgEl.className = 'mmc-invite-redeem-msg mmc-invite-redeem-msg--err'
-      msgEl.textContent = res.error
+      return
     }
+    // Nur wenn der Code schlicht unbekannt ist, war die Eingabe womöglich ein
+    // Name. Bei abgelaufenen, aufgebrauchten oder gesperrten Codes den genauen
+    // Grund zeigen — sonst hieße es fälschlich „nicht gefunden".
+    if (res.reason !== 'unknown_code') { showInviteMsg(res.error, false); return }
+
+    const matches = findGroupsByName(entry)
+    if (matches.length) {
+      inviteMsgEl.hidden = true
+      renderInviteSuggestions(matches)
+      return
+    }
+    showInviteMsg(`Kein Einladungscode und keine Gruppe zu „${entry}" gefunden.`, false)
   })
 
   main.querySelector('#mmc-group-create')?.addEventListener('click', () => openCreateGroup(root))
@@ -1580,18 +3060,24 @@ function renderGroupList(main, root) {
     e.stopPropagation()
     const groupId = b.dataset.cancelReq
     const req = myGroupRequest(groupId)
-    if (req) await declineGroupRequest(req.id)
+    if (req) {
+      const res = await declineGroupRequest(req.id)
+      if (!res.ok) toast(root, 'Anfrage konnte nicht zurückgezogen werden.')
+    }
     renderGroupList(main, root)
   }))
   main.querySelectorAll('[data-rsvp]').forEach(b => b.addEventListener('click', async e => {
     e.stopPropagation()
-    await toggleRsvp(b.dataset.rsvp)
+    const res = await toggleRsvp(b.dataset.rsvp)
     renderGroupList(main, root)
+    if (!res.ok) toast(root, 'Zusage konnte nicht gespeichert werden.')
   }))
   main.querySelectorAll('[data-mappoint]').forEach(b => b.addEventListener('click', e => {
     e.stopPropagation()
     _openMapForPoint(b.dataset.mappoint)
   }))
+
+  _watchTalksForCards(main, groups)
 }
 
 const JOIN_MODE_META = {
@@ -1636,13 +3122,20 @@ function groupCardHtml(g, myName) {
     ? `<button class="mmc-map-btn" data-mappoint="${esc(g.meetingPoint)}">${ICON.mappin} Auf Karte</button>`
     : ''
 
+  // "Gerade im Talk": Das Element steht immer im Markup (ggf. hidden), damit
+  // _refreshGroupLiveBadges() es bei Presence-Änderungen nur noch ein-/ausblenden
+  // muss, statt die ganze Karte neu zu bauen.
+  const liveCount = talkHeadcount(g)
+  const liveTalk = `<div class="mmc-group-live" data-live-group="${esc(g.id)}"${liveCount ? '' : ' hidden'}>` +
+    `${ICON.speaker}<span>${liveCount === 1 ? '1 Person im Talk' : `${liveCount} Personen im Talk`}</span></div>`
+
   return `
     <div class="mmc-group-card">
       <div class="mmc-group-top">
         <div class="mmc-group-badge" style="background:${colorFor(g.name)}">${initials(g.name)}</div>
         <div class="mmc-group-info">
           <div class="mmc-group-name${!muted && unreadCount > 0 ? ' mmc-group-name--unread' : ''}">${esc(g.name)}</div>
-          <div class="mmc-group-meta">${ICON.users}<span>${g.members.length} Mitglieder · von ${esc(displayName(g.createdBy))}</span></div>
+          <div class="mmc-group-meta">${ICON.users}<span>${g.members.length} ${g.members.length === 1 ? 'Mitglied' : 'Mitglieder'} · von ${esc(displayName(g.createdBy))}</span></div>
         </div>
         <span class="mmc-mode-badge" title="${mode.label}">${mode.icon}</span>
         ${canManage(g) && reqCount > 0 ? `<span class="mmc-req-badge">${reqCount}</span>` : ''}
@@ -1650,6 +3143,7 @@ function groupCardHtml(g, myName) {
         ${muted ? `<span class="mmc-mute-icon" title="Stummgeschaltet">${ICON.belloff}</span>` : ''}
       </div>
       <div class="mmc-group-desc">${esc(g.desc || (last ? last.text : ''))}</div>
+      ${liveTalk}
       ${evt ? `<div class="mmc-group-evt${evt.past ? ' mmc-group-evt--past' : ''}">${ICON.calendar} <span>${esc(evt.text)}</span>${evt.past ? ' <span class="mmc-evt-past-tag">vorbei</span>' : ''}</div>` : ''}
       ${rsvpList.length > 0 ? `<div class="mmc-rsvp-count">${rsvpList.length} ${rsvpList.length === 1 ? 'fährt' : 'fahren'} mit</div>` : ''}
       <div class="mmc-group-actions">${actionBtn}${rsvpBtn}${mapBtn}</div>
@@ -1702,49 +3196,195 @@ function openJoinRequestModal(root, g) {
     if (!res.ok) { const err = overlay.querySelector('#mmc-modal-error'); err.hidden = false; err.textContent = res.error; return }
     close()
     toast(root, 'Anfrage gesendet! Der Host wird sie prüfen.')
-    renderGroupList(root.querySelector('#mmc-main'), root)
+    fillMain(root)
   })
   requestAnimationFrame(() => overlay.querySelector('#mmc-req-text')?.focus())
 }
 
 /* ── Server: group chat ────────────────────────────────────────── */
-/* ── In-Gruppe: Kategorie-Icon-Leiste (ganz links) ─────────────── */
-function fillCatRail(root) {
-  const rail = root.querySelector('#mmc-catrail'); if (!rail) return
-  const g = getGroups().find(x => x.id === activeGroup)
-  const activeCat = g ? g.category : serverCategory
-  const myName = me()
-  // Map category → has unread (non-muted) groups where I'm a member
-  const catHasUnread = id => groupsIn(id).some(gr => {
-    if (!gr.members.includes(myName)) return false
-    if (isMuted(gr.id)) return false
-    groupDefaults(gr)
-    return unreadCountGroup(gr) > 0
-  })
-  rail.innerHTML = `
-    <button class="mmc-crb" id="mmc-catrail-home" title="Freunde / Startseite">${ICON.people}</button>
-    <div class="mmc-rail-sep"></div>
-    ${CATEGORIES.map(c => `
-      <button class="mmc-crb ${c.id === activeCat ? 'is-active' : ''}" data-cat="${c.id}" title="${esc(c.name)}">
-        ${ICON[c.icon]}
-        ${catHasUnread(c.id) ? '<span class="mmc-rail-dot"></span>' : ''}
-      </button>
-    `).join('')}`
-  rail.querySelector('#mmc-catrail-home')?.addEventListener('click', () => {
-    friendsMode = true; homeSection = 'friends'; activeGroup = null; activeDM = null; renderApp(root)
-  })
-  rail.querySelectorAll('.mmc-crb[data-cat]').forEach(b => b.addEventListener('click', () => {
-    serverCategory = b.dataset.cat; activeGroup = null; renderApp(root)
-  }))
-}
 
 /* ── In-Gruppe: Kanal-/Talk-Spalte (Mitte) ─────────────────────── */
 async function _leaveGroupUI(root) {
   const g = getGroups().find(x => x.id === activeGroup); if (!g) return
   if (isOwner(g)) return
-  await leaveGroup(activeGroup)
+  const res = await leaveGroup(activeGroup)
+  if (!res.ok) { toast(root, `Gruppe konnte nicht verlassen werden: ${res.error}`); return }
   activeGroup = null
   renderApp(root)
+}
+
+/**
+ * Hält die Live-Beobachtung ("wer ist gerade im Talk") synchron mit den
+ * gerade sichtbaren Talks: startet Watcher für neu sichtbare Räume, stoppt
+ * sie für verschwundene und für den Raum, dem man selbst beigetreten ist
+ * (dessen Mitgliederliste kommt dann direkt aus dem joinVoiceRoom()-Callback
+ * in toggleVoiceRoom).
+ *
+ * `entries` ist bewusst nicht an eine einzelne Gruppe gebunden: In der
+ * Kategorie-Übersicht werden die Talks mehrerer Gruppen gleichzeitig
+ * beobachtet, damit ein laufender Talk schon auf der Karte sichtbar ist und
+ * nicht erst, nachdem man die Gruppe geöffnet hat.
+ *
+ * @param {{groupId: string, roomId: string}[]} entries - sichtbare Talks
+ * @param {Function} onUpdate - nach jeder Presence-Änderung aufgerufen
+ */
+function _syncVoiceWatchers(entries, onUpdate) {
+  _onVoiceWatchUpdate = onUpdate
+  const wanted = new Map(entries.map(e => [e.roomId, e.groupId]))
+
+  for (const id of Object.keys(_voiceWatchers)) {
+    if (!wanted.has(id) || currentRoomId() === id) {
+      _voiceWatchers[id](); delete _voiceWatchers[id]
+      // Ohne Watcher wüsste der Timer nicht mehr, ob der Talk noch leer ist.
+      _cancelEmptyTalkCleanup(id)
+    }
+  }
+
+  for (const [roomId, groupId] of wanted) {
+    if (currentRoomId() === roomId || _voiceWatchers[roomId]) continue
+    _voiceWatchers[roomId] = watchVoiceRoom(roomId, participants => {
+      const gCur = getGroups().find(x => x.id === groupId); if (!gCur) return
+      const rCur = (gCur.voiceRooms || []).find(x => x.id === roomId); if (!rCur) return
+      rCur.members = participants.map(p => p.username)
+      rCur.voiceParticipants = {}
+      for (const p of participants) rCur.voiceParticipants[p.username] = { muted: p.muted, speaking: false }
+      if (rCur.members.length) _cancelEmptyTalkCleanup(roomId)
+      else _scheduleEmptyTalkCleanup(groupId, roomId)
+      _onVoiceWatchUpdate()
+    })
+  }
+}
+
+/* ── Leere Talks räumen sich selbst auf ───────────────────────────
+ * Sonst sammeln sich ungenutzte Sprachkanäle an, die niemand wieder
+ * wegräumt. Gelöscht wird erst nach einer Schonfrist: ein gerade geöffneter
+ * Talk soll nicht verschwinden, bevor überhaupt jemand beitreten konnte, und
+ * ein kurzer Verbindungsabbruch soll ihn nicht kosten. */
+const EMPTY_TALK_TTL_MS = 2 * 60 * 1000
+const _emptyTalkTimers = new Map()   // roomId -> timeoutId
+
+function _cancelEmptyTalkCleanup(roomId) {
+  const t = _emptyTalkTimers.get(roomId)
+  if (t !== undefined) { clearTimeout(t); _emptyTalkTimers.delete(roomId) }
+}
+
+function _cancelAllEmptyTalkCleanups() {
+  for (const t of _emptyTalkTimers.values()) clearTimeout(t)
+  _emptyTalkTimers.clear()
+}
+
+/**
+ * Darf dieser Client den Talk wirklich löschen? Die RLS-Policy `vr_delete`
+ * (supabase/schema.sql) erlaubt es nur Ersteller, Host oder Mod. Jeder andere
+ * würde den Talk zwar lokal entfernen und das auch an alle broadcasten, die
+ * Zeile bliebe aber in der Datenbank — der Talk wäre nach dem nächsten Laden
+ * wieder da. Deshalb hier dieselbe Bedingung wie in der Policy prüfen.
+ */
+function _mayDeleteTalk(g, room) {
+  if (OFFLINE_MODE) return true          // rein lokale Daten, keine RLS im Spiel
+  if (canManage(g)) return true          // Host/Mod
+  return !!room.createdBy && room.createdBy === getSession()?.id
+}
+
+function _scheduleEmptyTalkCleanup(groupId, roomId) {
+  if (_emptyTalkTimers.has(roomId)) return
+  _emptyTalkTimers.set(roomId, setTimeout(async () => {
+    _emptyTalkTimers.delete(roomId)
+    const g = getGroups().find(x => x.id === groupId); if (!g) return
+    const r = (g.voiceRooms || []).find(x => x.id === roomId); if (!r) return
+    // Inzwischen doch wieder jemand drin (oder ich selbst)? Dann bleibt er.
+    if (r.members?.length || currentRoomId() === roomId) return
+    if (!_mayDeleteTalk(g, r)) return
+    // Automatisches Aufräumen im Hintergrund — bewusst ohne Toast: der Nutzer
+    // hat nichts angestoßen, eine Fehlermeldung wäre hier nur Rauschen. Der
+    // Fehler steht in Konsole und Sentry (write() in community-api.js), und
+    // der Talk bleibt einfach stehen.
+    await deleteVoiceRoom(groupId, roomId)
+    _onVoiceWatchUpdate()
+  }, EMPTY_TALK_TTL_MS))
+}
+
+/** Wie viele Leute sitzen gerade in den Talks dieser Gruppe? */
+function talkHeadcount(g) {
+  return (g.voiceRooms || []).reduce((n, r) => n + (r.members?.length || 0), 0)
+}
+
+/**
+ * Aktualisiert nur die "X im Talk"-Anzeigen der Gruppenkarten, statt die
+ * Liste neu zu zeichnen — ein Neuaufbau bei jeder Presence-Änderung würde
+ * Scrollposition und offene Menüs verlieren und sichtbar ruckeln.
+ */
+function _refreshGroupLiveBadges(scope) {
+  for (const el of scope.querySelectorAll('[data-live-group]')) {
+    const g = getGroups().find(x => x.id === el.dataset.liveGroup)
+    const n = g ? talkHeadcount(g) : 0
+    el.hidden = !n
+    const label = el.querySelector('span')
+    if (label) label.textContent = n === 1 ? '1 Person im Talk' : `${n} Personen im Talk`
+  }
+}
+
+/** Talks aller sichtbaren Gruppen beobachten und deren Karten live halten. */
+function _watchTalksForCards(scope, groups) {
+  _syncVoiceWatchers(
+    groups.flatMap(g => (g.voiceRooms || []).map(r => ({ groupId: g.id, roomId: r.id }))),
+    () => _refreshGroupLiveBadges(scope),
+  )
+}
+
+/**
+ * Hält Kanal-/Talk-LISTE einer Gruppe live: wenn ein anderes Mitglied einen
+ * Text- oder Sprachkanal erstellt oder löscht, poppt er auch bei mir sofort
+ * auf/weg, statt erst nach einem Reload sichtbar zu werden (siehe
+ * subscribeGroupLiveUpdates in community-api.js — weder channels noch
+ * voice_rooms haben postgres_changes-Replikation). Ohne das würden Nachrichten
+ * in einem frisch erstellten, mir noch unbekannten Kanal auch stillschweigend
+ * verworfen (_handleNewMessage findet keinen passenden Kanal).
+ */
+function _syncGroupLiveUpdates(root, g) {
+  subscribeGroupLiveUpdates(g.id, (type, payload) => {
+    const gCur = getGroups().find(x => x.id === g.id); if (!gCur) return
+    switch (type) {
+      case 'room_created': {
+        gCur.voiceRooms ||= []
+        if (gCur.voiceRooms.some(r => r.id === payload.room.id)) return
+        gCur.voiceRooms.push({ ...payload.room, members: [] })
+        break
+      }
+      case 'room_deleted': {
+        const before = (gCur.voiceRooms || []).length
+        gCur.voiceRooms = (gCur.voiceRooms || []).filter(r => r.id !== payload.roomId)
+        _vcPrevMembers.delete(payload.roomId)
+        // Falls ich selbst gerade drin war (Talk von Host/Mod gelöscht): Mikro/Peers aufräumen.
+        if (currentRoomId() === payload.roomId) leaveVoiceRoom()
+        if (gCur.voiceRooms.length === before) return
+        break
+      }
+      case 'channel_created': {
+        gCur.channels ||= []
+        if (gCur.channels.some(c => c.id === payload.channel.id)) return
+        gCur.channels.push({ ...payload.channel, messages: [] })
+        break
+      }
+      case 'channel_deleted': {
+        const before = (gCur.channels || []).length
+        gCur.channels = (gCur.channels || []).filter(c => c.id !== payload.channelId)
+        if (gCur.channels.length === before) return
+        if (activeGroup === gCur.id && activeChannel === payload.channelId) {
+          activeChannel = gCur.channels[0]?.id || null
+          if (activeChannel) renderGroupChatMain(root)
+        }
+        break
+      }
+      case 'typing': {
+        // Kein fillGroupChannels() — nur die Indikator-Zeile aktualisieren, kein Re-Render der Sidebar
+        if (activeGroup === gCur.id && activeChannel === payload.channelId) _onTypingReceived(root, payload.username)
+        return
+      }
+      default: return
+    }
+    if (activeGroup === gCur.id) fillGroupChannels(root)
+  })
 }
 
 function fillGroupChannels(root) {
@@ -1755,6 +3395,11 @@ function fillGroupChannels(root) {
   if (!activeChannel || !g.channels.find(c => c.id === activeChannel)) {
     activeChannel = g.channels[0]?.id || null
   }
+  _syncVoiceWatchers(
+    (g.voiceRooms || []).map(r => ({ groupId: g.id, roomId: r.id })),
+    () => { if (activeGroup === g.id) fillGroupChannels(root) },
+  )
+  _syncGroupLiveUpdates(root, g)
   const myName = getSession().username
   const cat = catById(g.category)
   const rooms = g.voiceRooms || []
@@ -1798,7 +3443,7 @@ function fillGroupChannels(root) {
       <button class="mmc-back" id="mmc-group-back" title="Zurück zur Übersicht">${ICON.back}</button>
       <div class="mmc-gh2-info">
         <div class="mmc-server-name">${esc(g.name)}</div>
-        <div class="mmc-server-tag">${esc(cat.name)} · ${g.members.length} Mitglieder</div>
+        <div class="mmc-server-tag">${esc(cat.name)} · ${g.members.length} ${g.members.length === 1 ? 'Mitglied' : 'Mitglieder'}</div>
         ${evtHead ? `<div class="mmc-gh2-evt${evtHead.past ? ' mmc-group-evt--past' : ''}">${ICON.calendar} <span>${esc(evtHead.text)}</span>${evtHead.past ? ' <span class="mmc-evt-past-tag">vorbei</span>' : ''}</div>` : ''}
         ${rsvpListHead.length > 0 ? `<div class="mmc-rsvp-count">${rsvpListHead.length} ${rsvpListHead.length === 1 ? 'fährt' : 'fahren'} mit</div>` : ''}
         ${rolePill}
@@ -1828,15 +3473,42 @@ function fillGroupChannels(root) {
     </div>
     <div class="mmc-chan-head"><span>Sprachkanäle</span><button class="mmc-chan-add" id="mmc-voice-open" title="Talk öffnen">+</button></div>
     <div class="mmc-vc-list">
-      ${rooms.length ? rooms.map(r => voiceChannelHtml(r, myName)).join('')
+      ${rooms.length ? rooms.map(r => voiceChannelHtml(r, myName, managing)).join('')
         : '<div class="mmc-dm-empty">Noch kein Talk offen — mit + starten</div>'}
     </div>
     ${roleActions}`
 
+  // Verlassende Talk-Teilnehmer erst nach ihrer Austritts-Animation entfernen
+  box.querySelectorAll('.mmc-vc-member--leave').forEach(el => el.addEventListener('animationend', () => el.remove(), { once: true }))
+
+  // Screen-Share-Video-Elemente (leben in voice.js) in ihre Kacheln einhängen —
+  // außer eins hängt gerade in einer offenen Lightbox, die bleibt Besitzerin,
+  // bis sie selbst schließt (sonst würde ein Re-Render sie mitten im
+  // Vollbild zurück in die kleine Kachel reißen).
+  box.querySelectorAll('[data-screenshare]').forEach(el => {
+    const videoEl = getScreenShareEl(el.dataset.screenshare)
+    if (videoEl && !videoEl.closest('.mmc-share-lightbox')) el.appendChild(videoEl)
+  })
+  box.querySelectorAll('[data-screenshare]').forEach(el => el.addEventListener('click', () => {
+    openScreenShareLightbox(el.dataset.screenshare, el.dataset.screenshareName)
+  }))
+  box.querySelectorAll('[data-vc-share]').forEach(btn => btn.addEventListener('click', async e => {
+    e.stopPropagation()
+    const roomId = btn.dataset.vcShare
+    const nowSharing = btn.classList.contains('is-active')
+    const res = await toggleScreenShare(!nowSharing)
+    if (!res.ok && !res.cancelled) {
+      openInfoModal(root, 'Bildschirm teilen fehlgeschlagen', res.error || 'Bitte erneut versuchen.')
+    }
+    if (res.ok) fillGroupChannels(root)
+  }))
+
   box.querySelector('#mmc-group-back')?.addEventListener('click', () => { activeGroup = null; activeChannel = null; renderApp(root) })
   box.querySelector('#mmc-group-bell')?.addEventListener('click', e => { e.stopPropagation(); openMuteMenu(root, g.id, false) })
   box.querySelector('#mmc-head-rsvp')?.addEventListener('click', async () => {
-    await toggleRsvp(activeGroup); fillGroupChannels(root)
+    const res = await toggleRsvp(activeGroup)
+    fillGroupChannels(root)
+    if (!res.ok) toast(root, 'Zusage konnte nicht gespeichert werden.')
   })
   box.querySelector('#mmc-head-map')?.addEventListener('click', () => {
     const gCur = getGroups().find(x => x.id === activeGroup)
@@ -1847,9 +3519,10 @@ function fillGroupChannels(root) {
   box.querySelector('#mmc-ra-leave')?.addEventListener('click', () => _leaveGroupUI(root))
   box.querySelector('#mmc-ra-invite')?.addEventListener('click', async () => {
     const gCur = getGroups().find(x => x.id === activeGroup); if (!gCur) return
-    const inv = await createInvite(activeGroup, { validityDays: 7, maxUses: 0 })
-    navigator.clipboard?.writeText(inv.code).catch(() => {})
-    toast(root, `Code „${inv.code}" erstellt und kopiert (7 Tage, unbegrenzte Nutzungen).`)
+    const res = await createInvite(activeGroup, { validityDays: 7, maxUses: 0 })
+    if (!res.ok) { toast(root, `Code konnte nicht erstellt werden: ${res.error}`); return }
+    navigator.clipboard?.writeText(res.invite.code).catch(() => {})
+    toast(root, `Code „${res.invite.code}" erstellt und kopiert (7 Tage, unbegrenzte Nutzungen).`)
   })
   box.querySelector('#mmc-text-chan-add')?.addEventListener('click', () => openCreateChannel(root))
   box.querySelector('#mmc-voice-open')?.addEventListener('click', () => openVoiceRoom(root))
@@ -1860,6 +3533,7 @@ function fillGroupChannels(root) {
     subscribeToChannel(activeChannel, null)
     fillGroupChannels(root)
     renderGroupChatMain(root)
+    mobileShowDetail(root)
   }))
 
   box.querySelectorAll('[data-tc-more]').forEach(btn => btn.addEventListener('click', e => {
@@ -1927,36 +3601,112 @@ function fillGroupChannels(root) {
     })
   }))
 
-  box.querySelectorAll('.mmc-vc-row[data-vc]').forEach(row => row.addEventListener('click', () => toggleVoiceRoom(root, row.dataset.vc)))
+  box.querySelectorAll('.mmc-vc-row[data-vc]').forEach(row => row.addEventListener('click', e => {
+    if (e.target.closest('[data-vc-more]')) return
+    toggleVoiceRoom(root, row.dataset.vc)
+  }))
   box.querySelectorAll('.mmc-vc-member[data-user]').forEach(el => el.addEventListener('click', e => {
-    e.stopPropagation(); openUserProfile(root, el.dataset.user)
+    e.stopPropagation(); openUserProfile(root, el.dataset.user, el)
+  }))
+  box.querySelectorAll('[data-vc-more]').forEach(btn => btn.addEventListener('click', e => {
+    e.stopPropagation()
+    const roomId = btn.dataset.vcMore
+    const gCur = getGroups().find(x => x.id === activeGroup); if (!gCur) return
+    const r = (gCur.voiceRooms || []).find(x => x.id === roomId); if (!r) return
+    openConfirmModal(root, {
+      title: `Talk „${r.title}" löschen?`,
+      text: r.members.length ? 'Aktive Teilnehmer werden aus dem Talk geworfen.' : undefined,
+      confirmLabel: 'Löschen',
+      isDanger: true,
+      onConfirm: async () => {
+        if (currentRoomId() === roomId) await leaveVoiceRoom()
+        const res = await deleteVoiceRoom(activeGroup, roomId)
+        fillGroupChannels(root)
+        if (!res.ok) toast(root, `Talk konnte nicht gelöscht werden: ${res.error}`)
+      },
+    })
   }))
 }
 
 const MIC_OFF_ICON = `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="1" y1="1" x2="23" y2="23"/><path d="M9 9v3a3 3 0 0 0 5.12 2.12M15 9.34V4a3 3 0 0 0-5.94-.6"/><path d="M17 16.95A7 7 0 0 1 5 12v-2m14 0v2a7 7 0 0 1-.11 1.23M12 19v4M8 23h8"/></svg>`
 
-function voiceChannelHtml(r, myName) {
+// 3-Balken-Signalanzeige; `lit` = wie viele Balken (0-3) aktiv eingefärbt sind, Rest gedimmt
+function signalIcon(lit) {
+  const op = n => n <= lit ? '1' : '0.3'
+  return `<svg width="11" height="11" viewBox="0 0 16 16" fill="currentColor"><rect x="0.5" y="9.5" width="3" height="5" rx="0.5" opacity="${op(1)}"/><rect x="6.5" y="6" width="3" height="8.5" rx="0.5" opacity="${op(2)}"/><rect x="12.5" y="2" width="3" height="12.5" rx="0.5" opacity="${op(3)}"/></svg>`
+}
+
+function voiceChannelHtml(r, myName, managing) {
   const full = r.members.length >= r.capacity
   const mine = r.members.includes(myName)
   const activeRoom = currentRoomId() === r.id
+  // Gäste können Talks nicht betreten (das Token braucht ein echtes Konto,
+  // s. toggleVoiceRoom) — das gehört an den Button, nicht in einen Dialog nach
+  // dem Klick.
+  const needsAccount = !OFFLINE_MODE && !!getSession()?.guest
+  const joinLabel = needsAccount ? 'Anmelden' : (mine ? 'Verlassen' : (full ? 'Voll' : 'Beitreten'))
+  const rowTitle = needsAccount ? 'Für Talks brauchst du ein MotoMatch-Konto'
+    : (mine ? 'Talk verlassen' : (full ? 'Talk ist voll' : 'Talk beitreten — Mikrofonzugriff wird benötigt'))
+
+  // Vorherige Mitgliederliste dieses Raums, um Beitritte/Austritte zu erkennen
+  // und gezielt nur die betroffene Zeile zu animieren (nicht die ganze Liste).
+  const prevMembers = _vcPrevMembers.get(r.id) || []
+  const prevSet = new Set(prevMembers)
+  const curSet = new Set(r.members)
+  const leaving = prevMembers.filter(m => !curSet.has(m))
+  _vcPrevMembers.set(r.id, r.members.slice())
+
+  const memberRow = (m, isGhost) => {
+    const vp = r.voiceParticipants?.[m] || {}
+    const speaking = !isGhost && !!vp.speaking
+    const muted = !!vp.muted
+    const quality = vp.quality
+    const isNew = !isGhost && !prevSet.has(m)
+    const qualityBadge = (!isGhost && (quality === 'poor' || quality === 'lost'))
+      ? `<span class="mmc-vc-quality mmc-vc-quality--${quality}" title="${quality === 'lost' ? 'Verbindung unterbrochen' : 'Schwache Verbindung'}">${signalIcon(quality === 'poor' ? 1 : 0)}</span>`
+      : ''
+    const rowClass = isGhost ? 'mmc-vc-member--leave' : (m === myName ? '' : 'mmc-vc-member--clickable')
+    return `
+        <div class="mmc-vc-member ${rowClass}${speaking ? ' is-speaking' : ''}${isNew ? ' mmc-vc-member--enter' : ''}" ${(!isGhost && m !== myName) ? `data-user="${esc(m)}"` : ''}>
+          <div class="mmc-avatar mmc-avatar--xs${speaking ? ' mmc-avatar--speaking' : ''}" style="background:${avatarColor(m)}">${avatarInner(m)}</div>
+          <span>${esc(displayName(m))}${(!isGhost && m === myName) ? ' (du)' : ''}</span>
+          ${qualityBadge}
+          ${muted ? `<span class="mmc-vc-muted" title="Stummgeschaltet">${MIC_OFF_ICON}</span>` : ''}
+        </div>`
+  }
+
+  // Screen-Share-Sektion nur, wenn ich über dieses Client tatsächlich per
+  // LiveKit verbunden bin (nicht nur per Presence als "Mitglied" gelistet —
+  // z. B. wenn derselbe Account auf einem anderen Gerät im Talk ist).
+  const iAmSharing = !!r.voiceParticipants?.[myName]?.screenSharing
+  const sharingMembers = activeRoom ? r.members.filter(m => !!r.voiceParticipants?.[m]?.screenSharing) : []
+  const shareSection = activeRoom ? `
+    <div class="mmc-vc-share">
+      <button class="mmc-vc-share-btn${iAmSharing ? ' is-active' : ''}" data-vc-share="${r.id}">
+        ${ICON.screen}<span>${iAmSharing ? 'Teilen beenden' : 'Bildschirm teilen'}</span>
+      </button>
+      ${sharingMembers.map(m => {
+        const vp = r.voiceParticipants[m]
+        const label = `${displayName(m)}${m === myName ? ' (du)' : ''} teilt den Bildschirm`
+        return `
+        <div class="mmc-vc-share-tile" data-screenshare="${esc(vp.id)}" data-screenshare-name="${esc(label)}" title="Vollbild ansehen">
+          <span class="mmc-vc-share-label">${esc(label)}</span>
+        </div>`
+      }).join('')}
+    </div>` : ''
+
   return `
     <div class="mmc-vc ${mine ? 'is-in' : ''}" data-vc-room="${r.id}">
-      <div class="mmc-vc-row ${full && !mine ? 'is-full' : ''}" data-vc="${r.id}" title="${mine ? 'Talk verlassen' : (full ? 'Talk ist voll' : 'Talk beitreten')}">
+      <div class="mmc-vc-row ${full && !mine ? 'is-full' : ''}" data-vc="${r.id}" title="${esc(rowTitle)}">
         <span class="mmc-vc-ic">${ICON.speaker}</span>
         <span class="mmc-vc-name">${esc(r.title)}</span>
         <span class="mmc-vc-count">${r.members.length}/${r.capacity}</span>
+        <span class="mmc-vc-joinlabel${mine ? ' mmc-vc-joinlabel--in' : ''}">${joinLabel}</span>
+        ${managing ? `<button class="mmc-tc-more" data-vc-more="${esc(r.id)}" title="Talk löschen">⋯</button>` : ''}
       </div>
-      ${r.members.map(m => {
-        const vp = r.voiceParticipants?.[m] || {}
-        const speaking = !!vp.speaking
-        const muted = !!vp.muted
-        return `
-        <div class="mmc-vc-member ${m === myName ? '' : 'mmc-vc-member--clickable'}${speaking ? ' is-speaking' : ''}" ${m === myName ? '' : `data-user="${esc(m)}"`}>
-          <div class="mmc-avatar mmc-avatar--xs${speaking ? ' mmc-avatar--speaking' : ''}" style="background:${avatarColor(m)}">${avatarInner(m)}</div>
-          <span>${esc(displayName(m))}${m === myName ? ' (du)' : ''}</span>
-          ${muted ? `<span class="mmc-vc-muted" title="Stummgeschaltet">${MIC_OFF_ICON}</span>` : ''}
-        </div>`
-      }).join('')}
+      ${r.members.map(m => memberRow(m, false)).join('')}
+      ${leaving.map(m => memberRow(m, true)).join('')}
+      ${shareSection}
     </div>`
 }
 
@@ -1978,6 +3728,17 @@ async function toggleVoiceRoom(root, roomId) {
 
   if (r.members.length >= r.capacity && !r.members.includes(myName)) return
 
+  // Talks brauchen ein echtes Konto: das Token für den Sprachserver wird
+  // serverseitig gegen die Supabase-Session ausgestellt, die eine Gast-Sitzung
+  // nicht hat. Hier abfangen, statt Gäste erst durch Mikrofon-Abfrage und
+  // Verbindungsversuch laufen zu lassen, um dann abzubrechen.
+  if (!OFFLINE_MODE && session.guest) {
+    openInfoModal(root, 'Für Talks brauchst du ein Konto',
+      'Sprach-Talks laufen über deinen MotoMatch-Account — als Gast lässt sich kein Talk betreten.',
+      { label: 'Anmelden', onClick: () => goToAuth(root) })
+    return
+  }
+
   // Anderen Raum ggf. verlassen
   if (inVoiceRoom()) await leaveVoiceRoom()
 
@@ -1988,7 +3749,7 @@ async function toggleVoiceRoom(root, roomId) {
     const rCur = (gCur.voiceRooms || []).find(x => x.id === roomId); if (!rCur) return
     rCur.voiceParticipants = {}
     for (const p of participants) {
-      rCur.voiceParticipants[p.username] = { muted: p.muted, speaking: p.speaking }
+      rCur.voiceParticipants[p.username] = { id: p.id, muted: p.muted, speaking: p.speaking, quality: p.quality, screenSharing: p.screenSharing }
     }
     // Mitgliederliste aus Presence ableiten
     rCur.members = participants.map(p => p.username)
@@ -1997,13 +3758,50 @@ async function toggleVoiceRoom(root, roomId) {
   })
 
   if (!res.ok) {
-    toast(root, res.error || 'Mikrofon-Zugriff fehlgeschlagen.')
+    // code 'auth' = keine gültige Sitzung mehr (z. B. abgelaufen) — dann direkt
+    // zur Anmeldung anbieten, statt nur zu melden, dass sie fehlt.
+    openInfoModal(root, 'Talk beitreten fehlgeschlagen',
+      res.error || 'Mikrofon-Zugriff fehlgeschlagen. Bitte erlaube den Mikrofonzugriff für diese Seite in deinen Browser-Einstellungen und versuche es erneut.',
+      res.code === 'auth' ? { label: 'Anmelden', onClick: () => goToAuth(root) } : null)
     return
   }
+
+  // Gespeicherte Wiedergabelautstärke auf den frischen Talk anwenden.
+  setOutputVolume(prefs.outVol ?? 100)
 
   if (!r.members.includes(myName)) r.members.push(myName)
   setGroups(groups)
   fillGroupChannels(root)
+}
+
+/** Screen-Share einer Person im Vollbild-Overlay zeigen (analog zur Bild-Lightbox). */
+function openScreenShareLightbox(participantId, label) {
+  const videoEl = getScreenShareEl(participantId)
+  if (!videoEl) return
+  const ov = document.createElement('div')
+  ov.className = 'mmc-share-lightbox'
+  ov.innerHTML = `
+    <div class="mmc-share-lightbox-backdrop"></div>
+    <div class="mmc-share-lightbox-body">
+      <div class="mmc-share-lightbox-label">${esc(label)}</div>
+    </div>`
+  document.body.appendChild(ov)
+  ov.querySelector('.mmc-share-lightbox-body').prepend(videoEl)
+  requestAnimationFrame(() => ov.classList.add('is-open'))
+  function onKey(e) { if (e.key === 'Escape') close() }
+  const close = () => {
+    document.removeEventListener('keydown', onKey)
+    ov.classList.remove('is-open')
+    setTimeout(() => {
+      // Video zurück in seine Kachel hängen, falls die noch existiert (Person teilt evtl. nicht mehr)
+      const freshTile = document.querySelector(`[data-screenshare="${CSS.escape(participantId)}"]`)
+      if (freshTile) freshTile.appendChild(videoEl)
+      ov.remove()
+    }, 200)
+  }
+  ov.querySelector('.mmc-share-lightbox-backdrop').addEventListener('click', close)
+  ov.querySelector('.mmc-share-lightbox-body').addEventListener('click', e => e.stopPropagation())
+  document.addEventListener('keydown', onKey)
 }
 
 /* ── In-Gruppe: Chat (rechter Hauptbereich) ────────────────────── */
@@ -2019,6 +3817,7 @@ function renderGroupChatMain(root) {
   const msgs = ch?.messages || []
   const chName = ch?.name || 'allgemein'
   subscribeToChannel(activeChannel, null)
+  _clearTyping(root)
   // Remember last-read timestamp BEFORE marking as read (for NEU line)
   const prevReadTs = lastReadTs(g.id, activeChannel)
   markChannelRead(g.id, activeChannel)
@@ -2026,27 +3825,31 @@ function renderGroupChatMain(root) {
   fillGroupChannels(root)
   main.innerHTML = `
     <header class="mmc-chat-head">
+      ${mobileBackHtml()}
       <span class="mmc-chat-title">#${esc(chName)}</span>
       <span class="mmc-chat-desc">${esc(g.name)} · Chat</span>
     </header>
     <div class="mmc-messages" id="mmc-messages"></div>
     ${composeHtml('Nachricht an #' + esc(chName))}`
+  bindMobileBack(main, root)
   const box = main.querySelector('#mmc-messages')
-  box.style.backgroundImage = `linear-gradient(rgba(10,10,10,0.80), rgba(10,10,10,0.84)), url('${commBg}')`
-  box.style.backgroundRepeat = 'no-repeat, repeat'
-  box.style.backgroundSize = 'cover, 480px auto'
   const emptyCtx = { title: chName, text: `Das ist der Anfang von #${chName}. Sag Hallo 👋`, avatar: g.name, hash: true }
   renderMessagesInto(root, box, msgs, emptyCtx, g, prevReadTs)
-  bindComposeExtras(main, root)
+  bindComposeExtras(main, root, () => sendChannelTyping(activeGroup, activeChannel), g.members || [])
   main.querySelector('#mmc-compose-form')?.addEventListener('submit', async e => {
     e.preventDefault()
     const input = main.querySelector('#mmc-compose-input')
     const form  = main.querySelector('#mmc-compose-form')
     const text  = input.value.trim()
-    const image = form?._pendingAttachment || null
-    if (!text && !image) return
+    const attachment = form?._pendingAttachment || null
+    if (!text && !attachment) return
     if (!OFFLINE_MODE && getSession()?.guest) { toast(root, 'Bitte melde dich an, um Nachrichten zu senden.'); return }
-    await sendGroupMessage(activeGroup, activeChannel, text, replyingTo, image)
+    // Grosse Anhaenge brauchen einen Moment — Formular solange sperren,
+    // sonst schickt ein zweiter Klick dieselbe Datei nochmal hoch.
+    const done = _composeBusy(form, true)
+    const res = await sendGroupMessage(activeGroup, activeChannel, text, replyingTo, attachment)
+    done()
+    if (res && res.ok === false) { toast(root, res.error || 'Senden fehlgeschlagen.'); return }
     input.value = ''; input.style.height = 'auto'
     form?._clearAttach?.()
     const rb = main.querySelector('#mmc-reply-bar')
@@ -2076,7 +3879,6 @@ function openSettingsPanel(root) {
     try {
       const primary = localStorage.getItem('mm_primary_bike')
       if (primary) bikes.push(primary)
-      const answers = JSON.parse(localStorage.getItem('motoMatchAnswers') || 'null')
     } catch {}
     return [...new Set(bikes)].filter(Boolean)
   }
@@ -2205,12 +4007,12 @@ function openSettingsPanel(root) {
           <input type="checkbox" class="mmc-sp-toggle" id="mmc-sp-sounds" disabled${prefs.notifySounds !== false ? ' checked' : ''}>
         </label>
         <div class="mmc-sp-section-label" style="margin-top:16px">Desktop-Benachrichtigungen</div>
-        <label class="mmc-sp-toggle-row" style="opacity:.5;pointer-events:none" title="Kommt bald">
+        <label class="mmc-sp-toggle-row">
           <div>
             <span>Desktop-Benachrichtigungen</span>
-            <div style="font-size:12px;opacity:.7;margin-top:2px">kommt bald</div>
+            <div style="font-size:12px;opacity:.7;margin-top:2px">Für neue DMs und Freundschaftsanfragen, auch wenn der Tab zu ist</div>
           </div>
-          <input type="checkbox" class="mmc-sp-toggle" id="mmc-sp-desktop" disabled${prefs.notifyDesktop !== false ? ' checked' : ''}>
+          <input type="checkbox" class="mmc-sp-toggle" id="mmc-sp-desktop"${prefs.notifyDesktop !== false ? ' checked' : ''}>
         </label>
         ${hasMutes ? `
         <div class="mmc-sp-section-label" style="margin-top:20px">Stummgeschaltete Chats</div>
@@ -2269,7 +4071,16 @@ function openSettingsPanel(root) {
 
     overlay.querySelector('#mmc-sp-close')?.addEventListener('click', close)
     overlay.querySelector('.mmc-sp-backdrop')?.addEventListener('click', close)
-    overlay.querySelector('#mmc-sp-logout')?.addEventListener('click', async () => { close(); await logout(); resetNavState(); renderAuth(root) })
+    overlay.querySelector('#mmc-sp-logout')?.addEventListener('click', () => {
+      close()
+      openConfirmModal(root, {
+        title: 'Abmelden?',
+        text: 'Du musst dich danach neu anmelden.',
+        confirmLabel: 'Abmelden',
+        isDanger: true,
+        onConfirm: () => goToAuth(root),
+      })
+    })
 
     // Profil tab
     if (activeSettingsTab === 'profil') {
@@ -2300,7 +4111,7 @@ function openSettingsPanel(root) {
         e.preventDefault()
         navLocked = true; setTimeout(() => { navLocked = false }, 300)
         const selectedSwatch = overlay.querySelector('.mmc-sp-swatch.is-selected')
-        await setMyProfile({
+        const res = await setMyProfile({
           displayName: overlay.querySelector('#mmc-sp-displayname')?.value.trim() || '',
           bio: overlay.querySelector('#mmc-sp-bio')?.value.trim() || '',
           statusText: overlay.querySelector('#mmc-sp-statustext')?.value.trim() || '',
@@ -2308,7 +4119,7 @@ function openSettingsPanel(root) {
           showBike: overlay.querySelector('#mmc-sp-showbike')?.checked || false,
           bikeText: overlay.querySelector('#mmc-sp-biketext')?.value.trim() || '',
         })
-        toast(root, 'Profil gespeichert.')
+        toast(root, res.ok ? 'Profil gespeichert.' : `Nicht gespeichert: ${res.error}`)
         // Refresh userbar to reflect display name / color
         const bar = root.querySelector('.mmc-userbar')
         if (bar) { bar.outerHTML = userbarHtml(getSession(), getPrefs()); bindApp(root) }
@@ -2319,14 +4130,20 @@ function openSettingsPanel(root) {
     // Datenschutz tab
     if (activeSettingsTab === 'datenschutz') {
       overlay.querySelectorAll('[data-unblock]').forEach(btn => {
-        btn.addEventListener('click', async () => { await toggleBlock(btn.dataset.unblock); toast(root, `${btn.dataset.unblock} entblockt.`); renderPanel() })
+        btn.addEventListener('click', async () => {
+          const res = await toggleBlock(btn.dataset.unblock)
+          toast(root, res.ok ? `${btn.dataset.unblock} entblockt.` : res.error)
+          renderPanel()
+        })
       })
       overlay.querySelector('#mmc-sp-privacy-save')?.addEventListener('click', async () => {
-        await setMyProfile({
+        const res = await setMyProfile({
           dmPolicy: overlay.querySelector('#mmc-sp-dmpolicy')?.value || 'all',
           showOnline: overlay.querySelector('#mmc-sp-showonline')?.checked !== false,
         })
-        toast(root, 'Datenschutzeinstellungen gespeichert.')
+        // dmPolicy entscheidet, wer einem schreiben darf — eine Einstellung,
+        // die nur lokal ankommt, ist hier besonders unangenehm.
+        toast(root, res.ok ? 'Datenschutzeinstellungen gespeichert.' : `Nicht gespeichert: ${res.error}`)
       })
     }
 
@@ -2335,11 +4152,20 @@ function openSettingsPanel(root) {
       overlay.querySelectorAll('[data-unmute]').forEach(btn => {
         btn.addEventListener('click', () => { removeMute(btn.dataset.unmute); toast(root, 'Stummschaltung aufgehoben.'); renderPanel() })
       })
-      overlay.querySelector('#mmc-sp-notif-save')?.addEventListener('click', () => {
+      overlay.querySelector('#mmc-sp-notif-save')?.addEventListener('click', async () => {
         const p = getPrefs()
         p.notifySounds = overlay.querySelector('#mmc-sp-sounds')?.checked !== false
-        p.notifyDesktop = overlay.querySelector('#mmc-sp-desktop')?.checked !== false
+        const wantsDesktop = overlay.querySelector('#mmc-sp-desktop')?.checked !== false
+        p.notifyDesktop = wantsDesktop
         setPrefs(p)
+
+        if (wantsDesktop) {
+          const res = await enablePushNotifications()
+          if (!res.ok) { toast(root, res.error || 'Desktop-Benachrichtigungen konnten nicht aktiviert werden.'); return }
+        } else {
+          const res = await disablePushNotifications()
+          if (!res.ok) { toast(root, res.error || 'Desktop-Benachrichtigungen konnten nicht deaktiviert werden.'); return }
+        }
         toast(root, 'Benachrichtigungseinstellungen gespeichert.')
       })
     }
@@ -2437,7 +4263,7 @@ function openManagePanel(root, initialTab = null) {
               <div class="mmc-manage-actions">
                 ${ownerAccess ? `<button class="mmc-manage-ic ${mIsMod ? 'is-active' : ''}" data-toggle-mod="${esc(m)}" title="${mIsMod ? 'Mod entfernen' : 'Zum Mod machen'}">${ICON.shield}</button>` : ''}
                 <button class="mmc-manage-ic" data-kick="${esc(m)}" title="Kicken">✕</button>
-                <button class="mmc-manage-ic mmc-manage-ic--danger" data-ban="${esc(m)}" title="${ICON.ban} Sperren">${ICON.ban}</button>
+                <button class="mmc-manage-ic mmc-manage-ic--danger" data-ban="${esc(m)}" title="Sperren">${ICON.ban}</button>
               </div>` : ''}
           </div>`
       }).join('')
@@ -2542,7 +4368,7 @@ function openManagePanel(root, initialTab = null) {
       <div class="mmc-modal-card mmc-manage-card">
         <div class="mmc-manage-header">
           <h3 class="mmc-modal-title">${ICON.manage} ${esc(gCurrent.name)} verwalten</h3>
-          <button class="mmc-manage-close" id="mmc-manage-close">✕</button>
+          <button class="mmc-manage-close" id="mmc-manage-close" aria-label="Schließen">✕</button>
         </div>
         <div class="mmc-tabs mmc-manage-tabs">
           ${tabs.map(t => `<button class="mmc-tab ${activeTab === t.id ? 'is-active' : ''}" data-mtab="${t.id}">${t.label}</button>`).join('')}
@@ -2557,8 +4383,16 @@ function openManagePanel(root, initialTab = null) {
     overlay.querySelectorAll('[data-mtab]').forEach(b => b.addEventListener('click', () => { activeTab = b.dataset.mtab; renderPanel() }))
 
     // Anfragen
-    overlay.querySelectorAll('[data-accept]').forEach(b => b.addEventListener('click', async () => { await acceptGroupRequest(b.dataset.accept); renderPanel(); fillGroupChannels(root) }))
-    overlay.querySelectorAll('[data-decline]').forEach(b => b.addEventListener('click', async () => { await declineGroupRequest(b.dataset.decline); renderPanel() }))
+    overlay.querySelectorAll('[data-accept]').forEach(b => b.addEventListener('click', async () => {
+      const res = await acceptGroupRequest(b.dataset.accept)
+      renderPanel(); fillGroupChannels(root)
+      if (!res.ok) toast(root, res.error)
+    }))
+    overlay.querySelectorAll('[data-decline]').forEach(b => b.addEventListener('click', async () => {
+      const res = await declineGroupRequest(b.dataset.decline)
+      renderPanel()
+      if (!res.ok) toast(root, 'Anfrage konnte nicht abgelehnt werden.')
+    }))
 
     // Mitglieder
     overlay.querySelectorAll('[data-kick]').forEach(b => b.addEventListener('click', () => {
@@ -2568,7 +4402,11 @@ function openManagePanel(root, initialTab = null) {
         text: 'Die Person kann der Gruppe danach wieder beitreten.',
         confirmLabel: 'Entfernen',
         isDanger: true,
-        onConfirm: async () => { await kickMember(activeGroup, member); renderPanel(); fillGroupChannels(root) },
+        onConfirm: async () => {
+          const res = await kickMember(activeGroup, member)
+          renderPanel(); fillGroupChannels(root)
+          if (!res.ok) toast(root, `${member} konnte nicht entfernt werden: ${res.error}`)
+        },
       })
     }))
     overlay.querySelectorAll('[data-ban]').forEach(b => b.addEventListener('click', () => {
@@ -2578,21 +4416,31 @@ function openManagePanel(root, initialTab = null) {
         text: 'Die Person kann dieser Gruppe nicht mehr beitreten.',
         confirmLabel: 'Sperren',
         isDanger: true,
-        onConfirm: async () => { await banMember(activeGroup, member); renderPanel(); fillGroupChannels(root) },
+        onConfirm: async () => {
+          const res = await banMember(activeGroup, member)
+          renderPanel(); fillGroupChannels(root)
+          if (!res.ok) toast(root, res.error)
+        },
       })
     }))
     overlay.querySelectorAll('[data-unban]').forEach(b => b.addEventListener('click', async () => {
-      await unbanMember(activeGroup, b.dataset.unban)
+      const res = await unbanMember(activeGroup, b.dataset.unban)
       renderPanel()
+      if (!res.ok) toast(root, `Sperre konnte nicht aufgehoben werden: ${res.error}`)
     }))
     overlay.querySelectorAll('[data-toggle-mod]').forEach(b => b.addEventListener('click', async () => {
-      await toggleMod(activeGroup, b.dataset.toggleMod); renderPanel(); fillGroupChannels(root)
+      const res = await toggleMod(activeGroup, b.dataset.toggleMod)
+      renderPanel(); fillGroupChannels(root)
+      if (!res.ok) toast(root, `Rolle konnte nicht geändert werden: ${res.error}`)
     }))
 
     // Meldungen: Nachricht löschen
     overlay.querySelectorAll('[data-rep-delete]').forEach(b => b.addEventListener('click', async () => {
-      await deleteGroupMessage(activeGroup, b.dataset.repMsg)
-      await dismissReport(b.dataset.repDelete)
+      const delRes = await deleteGroupMessage(activeGroup, b.dataset.repMsg)
+      // Die Meldung nur wegräumen, wenn die Nachricht wirklich weg ist — sonst
+      // verschwindet der Hinweis und der Inhalt bleibt stehen.
+      if (delRes.ok) await dismissReport(b.dataset.repDelete)
+      else toast(root, `Nachricht konnte nicht gelöscht werden: ${delRes.error}`)
       const main = root.querySelector('#mmc-main')
       const msgBox = main?.querySelector('#mmc-messages')
       if (msgBox) {
@@ -2604,7 +4452,9 @@ function openManagePanel(root, initialTab = null) {
 
     // Meldungen: Nur Meldung verwerfen (Nachricht bleibt)
     overlay.querySelectorAll('[data-rep-dismiss]').forEach(b => b.addEventListener('click', async () => {
-      await dismissReport(b.dataset.repDismiss); renderPanel()
+      const res = await dismissReport(b.dataset.repDismiss)
+      renderPanel()
+      if (!res.ok) toast(root, 'Meldung konnte nicht verworfen werden.')
     }))
 
     // Einladen-Tab
@@ -2612,9 +4462,10 @@ function openManagePanel(root, initialTab = null) {
       e.preventDefault()
       const validityDays = parseInt(overlay.querySelector('#mmc-inv-validity').value, 10)
       const maxUses = parseInt(overlay.querySelector('#mmc-inv-maxuses').value, 10)
-      const inv = await createInvite(activeGroup, { validityDays, maxUses })
-      navigator.clipboard?.writeText(inv.code).catch(() => {})
-      toast(root, `Code „${inv.code}" erstellt und kopiert.`)
+      const res = await createInvite(activeGroup, { validityDays, maxUses })
+      if (!res.ok) { toast(root, `Code konnte nicht erstellt werden: ${res.error}`); return }
+      navigator.clipboard?.writeText(res.invite.code).catch(() => {})
+      toast(root, `Code „${res.invite.code}" erstellt und kopiert.`)
       renderPanel()
     })
     overlay.querySelectorAll('[data-copy-code]').forEach(b => b.addEventListener('click', () => {
@@ -2623,7 +4474,9 @@ function openManagePanel(root, initialTab = null) {
       toast(root, `Code „${code}" kopiert.`)
     }))
     overlay.querySelectorAll('[data-revoke-code]').forEach(b => b.addEventListener('click', async () => {
-      await revokeInvite(b.dataset.revokeCode); renderPanel()
+      const res = await revokeInvite(b.dataset.revokeCode)
+      renderPanel()
+      if (!res.ok) toast(root, 'Code konnte nicht zurückgezogen werden.')
     }))
 
     // Einstellungen speichern
@@ -2641,8 +4494,9 @@ function openManagePanel(root, initialTab = null) {
         patch.eventAt = dtVal ? new Date(dtVal).getTime() : null
         patch.meetingPoint = overlay.querySelector('#mmc-set-meetingpoint')?.value.trim() || ''
       }
-      await updateGroup(activeGroup, patch)
-      toast(root, 'Einstellungen gespeichert.'); fillGroupChannels(root); renderPanel()
+      const res = await updateGroup(activeGroup, patch)
+      toast(root, res.ok ? 'Einstellungen gespeichert.' : `Nicht gespeichert: ${res.error}`)
+      fillGroupChannels(root); renderPanel()
     })
 
     // Gruppe löschen
@@ -2653,7 +4507,8 @@ function openManagePanel(root, initialTab = null) {
         confirmLabel: 'Gruppe löschen',
         isDanger: true,
         onConfirm: async () => {
-          await deleteGroup(activeGroup)
+          const res = await deleteGroup(activeGroup)
+          if (!res.ok) { toast(root, `Gruppe konnte nicht gelöscht werden: ${res.error}`); return }
           activeGroup = null; close(); renderApp(root)
         },
       })
@@ -2698,15 +4553,14 @@ function openVoiceRoom(root) {
   const close = () => { overlay.classList.remove('mmc-modal--open'); setTimeout(() => overlay.remove(), 200) }
   overlay.querySelector('#mmc-modal-backdrop')?.addEventListener('click', close)
   overlay.querySelector('#mmc-modal-cancel')?.addEventListener('click', close)
-  overlay.querySelector('#mmc-modal-form')?.addEventListener('submit', e => {
+  overlay.querySelector('#mmc-modal-form')?.addEventListener('submit', async e => {
     e.preventDefault()
     const title = overlay.querySelector('#mmc-vr-name').value.trim()
     const capacity = parseInt(overlay.querySelector('#mmc-vr-cap').value, 10) || 4
     const errEl = overlay.querySelector('#mmc-modal-error')
     if (title.length < 2) { errEl.hidden = false; errEl.textContent = 'Bitte gib einen Namen ein.'; return }
-    const groups = getGroups(); const g = groups.find(x => x.id === activeGroup); if (!g) return
-    ;(g.voiceRooms ||= []).push({ id: 'vr-' + Date.now(), title, capacity, members: [getSession().username] })
-    setGroups(groups)
+    const res = await createVoiceRoom(activeGroup, title, capacity)
+    if (!res.ok) { errEl.hidden = false; errEl.textContent = res.error || 'Fehler beim Erstellen.'; return }
     close()
     fillGroupChannels(root)
   })
@@ -2758,6 +4612,37 @@ function openConfirmModal(root, opts) {
   }
 }
 
+/* ── Info-Hinweis (bleibt bis zum Wegklicken sichtbar) ── */
+/**
+ * Hinweis-Dialog. `action` (optional, `{ label, onClick }`) ergänzt eine
+ * Schaltfläche, die den Hinweis auflöst statt ihn nur zu bestätigen — ohne sie
+ * wäre z. B. „melde dich an" eine Sackgasse, in der der Anmelde-Weg erst
+ * gesucht werden muss.
+ */
+function openInfoModal(root, title, text, action = null) {
+  document.querySelectorAll('#mmc-info-modal').forEach(x => x.remove())
+  const overlay = document.createElement('div')
+  overlay.className = 'mmc-modal'; overlay.id = 'mmc-info-modal'
+  overlay.innerHTML = `
+    <div class="mmc-modal-backdrop" id="mmc-info-backdrop"></div>
+    <div class="mmc-modal-card">
+      <h3 class="mmc-modal-title">${esc(title)}</h3>
+      <p class="mmc-modal-sub">${esc(text)}</p>
+      <div class="mmc-modal-actions">
+        ${action
+          ? `<button type="button" class="mmc-btn-ghost" id="mmc-info-ok">Abbrechen</button>
+             <button type="button" class="mmc-auth-submit mmc-auth-submit--sm" id="mmc-info-action">${esc(action.label)}</button>`
+          : `<button type="button" class="mmc-auth-submit mmc-auth-submit--sm" id="mmc-info-ok">Verstanden</button>`}
+      </div>
+    </div>`
+  root.appendChild(overlay)
+  requestAnimationFrame(() => overlay.classList.add('mmc-modal--open'))
+  const close = () => { overlay.classList.remove('mmc-modal--open'); setTimeout(() => overlay.remove(), 200) }
+  overlay.querySelector('#mmc-info-backdrop')?.addEventListener('click', close)
+  overlay.querySelector('#mmc-info-ok')?.addEventListener('click', close)
+  overlay.querySelector('#mmc-info-action')?.addEventListener('click', () => { close(); action.onClick() })
+}
+
 /* ── Textkanal erstellen ────────────────────────────────────────── */
 function openCreateChannel(root) {
   if (root.querySelector('#mmc-modal')) return
@@ -2785,7 +4670,7 @@ function openCreateChannel(root) {
   const close = () => { overlay.classList.remove('mmc-modal--open'); setTimeout(() => overlay.remove(), 200) }
   overlay.querySelector('#mmc-modal-backdrop')?.addEventListener('click', close)
   overlay.querySelector('#mmc-modal-cancel')?.addEventListener('click', close)
-  overlay.querySelector('#mmc-modal-form')?.addEventListener('submit', e => {
+  overlay.querySelector('#mmc-modal-form')?.addEventListener('submit', async e => {
     e.preventDefault()
     const nameRaw = overlay.querySelector('#mmc-ch-name').value.trim()
     const name = slug(nameRaw)
@@ -2794,10 +4679,9 @@ function openCreateChannel(root) {
     const groups = getGroups(); const g = groups.find(x => x.id === activeGroup); if (!g) return
     groupDefaults(g)
     if (g.channels.some(c => c.name === name)) { errEl.hidden = false; errEl.textContent = 'Ein Kanal mit diesem Namen existiert bereits.'; return }
-    const newCh = { id: 'c-' + Date.now(), name, messages: [] }
-    g.channels.push(newCh)
-    setGroups(groups)
-    activeChannel = newCh.id
+    const result = await createChannel(activeGroup, name)
+    if (!result.ok) { errEl.hidden = false; errEl.textContent = result.error || 'Fehler beim Erstellen.'; return }
+    activeChannel = result.channel.id
     close()
     fillGroupChannels(root)
     renderGroupChatMain(root)
@@ -2819,6 +4703,7 @@ function renderMessagesInto(root, box, msgs, empty, groupCtx = null, prevReadTs 
   }
   const myName = me()
   const clickable = m => !m.system && m.author.toLowerCase() !== myName.toLowerCase()
+  const mentionNames = groupCtx ? new Set((groupCtx.members || []).map(u => u.toLowerCase())) : null
 
   const canDeleteMsg = m => {
     if (m.system) return false
@@ -2886,7 +4771,7 @@ function renderMessagesInto(root, box, msgs, empty, groupCtx = null, prevReadTs 
 
     const pills = reactionPillsHtml(m.reactions, myName)
     const editLabel = m.editedTs ? ` <span class="mmc-edited">(bearbeitet)</span>` : ''
-    const imgHtml = m.image ? `<img class="mmc-msg-image" src="${esc(m.image)}" alt="Anhang" loading="lazy" data-img-src="${esc(m.image)}">` : ''
+    const imgHtml = attachmentHtml(m)
     const replyQuote = m.replyTo ? `
       <div class="mmc-reply-quote" data-reply-to="${esc(m.replyTo.id)}">
         <span class="mmc-reply-quote-author">${esc(displayName(m.replyTo.author))}</span>
@@ -2899,7 +4784,7 @@ function renderMessagesInto(root, box, msgs, empty, groupCtx = null, prevReadTs 
           <div class="mmc-msg-avatar-ph" aria-hidden="true"><span class="mmc-msg-cont-time">${fmtTimeShort(m.ts)}${editLabel}</span></div>
           <div class="mmc-msg-body">
             ${replyQuote}
-            <div class="mmc-msg-text">${renderText(m.text)}</div>
+            <div class="mmc-msg-text">${renderText(m.text, mentionNames)}</div>
             ${imgHtml}
             ${pills}
           </div>
@@ -2915,7 +4800,7 @@ function renderMessagesInto(root, box, msgs, empty, groupCtx = null, prevReadTs 
               <span class="mmc-msg-time">${fmtTime(m.ts)}${editLabel}</span>
             </div>
             ${replyQuote}
-            <div class="mmc-msg-text">${renderText(m.text)}</div>
+            <div class="mmc-msg-text">${renderText(m.text, mentionNames)}</div>
             ${imgHtml}
             ${pills}
           </div>
@@ -2936,7 +4821,7 @@ function renderMessagesInto(root, box, msgs, empty, groupCtx = null, prevReadTs 
   }
 
   box.querySelectorAll('[data-user]').forEach(el => el.addEventListener('click', e => {
-    e.stopPropagation(); openUserProfile(root, el.dataset.user)
+    e.stopPropagation(); openUserProfile(root, el.dataset.user, el)
   }))
 
   // Bild-Vollansicht beim Klick
@@ -2946,10 +4831,11 @@ function renderMessagesInto(root, box, msgs, empty, groupCtx = null, prevReadTs 
     ov.innerHTML = `<div class="mmc-img-lightbox-backdrop"></div><img class="mmc-img-lightbox-img" src="${esc(img.dataset.imgSrc)}" alt="">`
     document.body.appendChild(ov)
     requestAnimationFrame(() => ov.classList.add('is-open'))
-    const close = () => { ov.classList.remove('is-open'); setTimeout(() => ov.remove(), 200) }
+    function onKey(e) { if (e.key === 'Escape') close() }
+    const close = () => { document.removeEventListener('keydown', onKey); ov.classList.remove('is-open'); setTimeout(() => ov.remove(), 200) }
     ov.querySelector('.mmc-img-lightbox-backdrop').addEventListener('click', close)
     ov.querySelector('.mmc-img-lightbox-img').addEventListener('click', e => e.stopPropagation())
-    document.addEventListener('keydown', function onKey(e) { if (e.key === 'Escape') { close(); document.removeEventListener('keydown', onKey) } })
+    document.addEventListener('keydown', onKey)
   }))
 
   // Reaktions-Picker öffnen
@@ -2963,16 +4849,9 @@ function renderMessagesInto(root, box, msgs, empty, groupCtx = null, prevReadTs 
     const msgEl = pill.closest('[data-msg-id]')
     const msgId = msgEl?.dataset.msgId
     if (!msgId) return
-    pill.addEventListener('click', e => {
+    pill.addEventListener('click', async e => {
       e.stopPropagation()
-      if (groupCtx) {
-        toggleReactionInGroup(groupCtx.id, msgId, pill.dataset.reactEmoji)
-        const updated = getGroups().find(g => g.id === groupCtx.id)
-        if (updated) { groupDefaults(updated); renderMessagesInto(root, box, channelMsgs(updated, activeChannel), empty, updated) }
-      } else if (activeDM) {
-        toggleReactionInDM(activeDM, msgId, pill.dataset.reactEmoji)
-        renderMessagesInto(root, box, getDMs()[activeDM] || [], empty, null)
-      }
+      await applyReaction(root, box, msgId, pill.dataset.reactEmoji, empty, groupCtx)
     })
   })
 
@@ -3022,7 +4901,7 @@ function renderMessagesInto(root, box, msgs, empty, groupCtx = null, prevReadTs 
     textEl.replaceWith(ta); ta.focus(); ta.select()
     const cancel = () => {
       const div = document.createElement('div')
-      div.className = 'mmc-msg-text'; div.innerHTML = renderText(origMsg.text)
+      div.className = 'mmc-msg-text'; div.innerHTML = renderText(origMsg.text, mentionNames)
       ta.replaceWith(div)
       if (actionsEl) actionsEl.style.removeProperty('display')
     }
@@ -3030,12 +4909,14 @@ function renderMessagesInto(root, box, msgs, empty, groupCtx = null, prevReadTs 
       const newText = ta.value.trim()
       if (!newText || newText === origMsg.text) { cancel(); return }
       if (groupCtx) {
-        await editMessageInGroup(groupCtx.id, msgId, newText)
+        const res = await editMessageInGroup(groupCtx.id, msgId, newText)
         const updated = getGroups().find(g => g.id === groupCtx.id)
         if (updated) { groupDefaults(updated); renderMessagesInto(root, box, channelMsgs(updated, activeChannel), empty, updated) }
+        if (!res.ok) toast(root, 'Änderung konnte nicht gespeichert werden.')
       } else if (activeDM) {
-        await editMessageInDM(activeDM, msgId, newText)
+        const res = await editMessageInDM(activeDM, msgId, newText)
         renderMessagesInto(root, box, getDMs()[activeDM] || [], empty, null)
+        if (!res.ok) toast(root, 'Änderung konnte nicht gespeichert werden.')
       }
     }
     ta.addEventListener('keydown', ev => {
@@ -3045,11 +4926,21 @@ function renderMessagesInto(root, box, msgs, empty, groupCtx = null, prevReadTs 
   }))
 
   if (groupCtx) {
-    box.querySelectorAll('[data-del-msg]').forEach(btn => btn.addEventListener('click', async e => {
+    box.querySelectorAll('[data-del-msg]').forEach(btn => btn.addEventListener('click', e => {
       e.stopPropagation()
-      await deleteGroupMessage(groupCtx.id, btn.dataset.delMsg)
-      const updated = getGroups().find(g => g.id === groupCtx.id)
-      if (updated) { groupDefaults(updated); renderMessagesInto(root, box, channelMsgs(updated, activeChannel), empty, updated) }
+      const msgId = btn.dataset.delMsg
+      openConfirmModal(root, {
+        title: 'Nachricht löschen?',
+        text: 'Diese Aktion kann nicht rückgängig gemacht werden.',
+        confirmLabel: 'Löschen',
+        isDanger: true,
+        onConfirm: async () => {
+          const res = await deleteGroupMessage(groupCtx.id, msgId)
+          const updated = getGroups().find(g => g.id === groupCtx.id)
+          if (updated) { groupDefaults(updated); renderMessagesInto(root, box, channelMsgs(updated, activeChannel), empty, updated) }
+          if (!res.ok) toast(root, 'Nachricht konnte nicht gelöscht werden.')
+        },
+      })
     }))
 
     box.querySelectorAll('[data-rep-msg]').forEach(btn => btn.addEventListener('click', async e => {
@@ -3070,8 +4961,9 @@ function renderMessagesInto(root, box, msgs, empty, groupCtx = null, prevReadTs 
         confirmLabel: 'Löschen',
         isDanger: true,
         onConfirm: async () => {
-          await deleteDMMessage(activeDM, msgId)
+          const res = await deleteDMMessage(activeDM, msgId)
           renderMessagesInto(root, box, getDMs()[activeDM] || [], empty, null)
+          if (!res.ok) toast(root, 'Nachricht konnte nicht gelöscht werden.')
         },
       })
     }))
@@ -3097,11 +4989,11 @@ function renderMessagesInto(root, box, msgs, empty, groupCtx = null, prevReadTs 
           <span class="mmc-msg-author">${esc(displayName(m.author))}</span>
           <span class="mmc-msg-time">${fmtTime(m.ts)}</span>
         </div>
-        <div class="mmc-msg-text">${renderText(m.text)}</div>
+        <div class="mmc-msg-text">${renderText(m.text, mentionNames)}</div>
         ${pills}
       </div>`
     expanded.querySelectorAll('[data-user]').forEach(el => el.addEventListener('click', ev => {
-      ev.stopPropagation(); openUserProfile(root, el.dataset.user)
+      ev.stopPropagation(); openUserProfile(root, el.dataset.user, el)
     }))
     wrapper.replaceWith(expanded)
   }))
@@ -3127,12 +5019,42 @@ function fillActive(root) {
     return
   }
   mmc?.classList.remove('mmc--noactive')
+
+  const presence = getOnlinePresence()
+  const onlineFriends = getFriends().filter(f => presence[f] && presence[f] !== 'invisible')
+
+  if (!onlineFriends.length) {
+    el.innerHTML = `
+      <h3 class="mmc-active-title">Jetzt aktiv</h3>
+      <div class="mmc-active-empty">
+        <h4>Bisher ist alles ruhig …</h4>
+        <p>Wenn ein Freund aktiv wird, siehst du es hier.</p>
+      </div>`
+    return
+  }
+
   el.innerHTML = `
     <h3 class="mmc-active-title">Jetzt aktiv</h3>
-    <div class="mmc-active-empty">
-      <h4>Bisher ist alles ruhig …</h4>
-      <p>Wenn ein Freund aktiv wird, siehst du es hier.</p>
+    <div class="mmc-active-list">
+      ${onlineFriends.map(f => {
+        const st = statusMeta(presence[f])
+        return `
+        <button class="mmc-active-item" data-active-friend="${esc(f)}">
+          <div class="mmc-avatar mmc-avatar--sm" style="background:${avatarColor(f)}">${avatarInner(f)}<span class="mmc-presence" style="background:${st.color}"></span></div>
+          <div class="mmc-active-item-meta">
+            <div class="mmc-active-item-name">${esc(displayName(f))}</div>
+            <div class="mmc-active-item-status">${esc(st.label)}</div>
+          </div>
+        </button>`
+      }).join('')}
     </div>`
+
+  el.querySelectorAll('[data-active-friend]').forEach(btn => btn.addEventListener('click', () => {
+    activeDM = btn.dataset.activeFriend
+    clearUnread(activeDM)
+    subscribeToChannel(null, activeDM)
+    fillHomeColumn(root); fillMain(root); fillActive(root)
+  }))
 }
 
 /* ── Mute-Popover ───────────────────────────────────────────────── */
@@ -3190,7 +5112,7 @@ function openMuteMenu(root, key, isDM) {
       if (main && activeDM) renderDMView(main, root)
     } else {
       fillGroupChannels(root)
-      fillCatRail(root)
+      fillRail(root)
     }
   }))
 }
@@ -3208,6 +5130,181 @@ function _openMapForPoint(point) {
       }
     }
     setTimeout(fill, 350)
+  }
+}
+
+/* ══════════════════════════════════════════════════════════════════
+   DIREKTANRUFE ZWISCHEN FREUNDEN
+   Der Anruf läuft über denselben LiveKit-Weg wie ein Gruppen-Talk, nur ohne
+   Raum in der Datenbank: die Raum-ID leitet sich aus beiden Nutzer-IDs ab und
+   wird serverseitig gegen die Freundschaft geprüft (api/livekit-token.js).
+   Das Klingeln selbst läuft über `user:<uid>`-Broadcasts, damit ein Anruf auch
+   ankommt, wenn der Chat gerade nicht offen ist.
+   ══════════════════════════════════════════════════════════════════ */
+/** null | { peer, roomId, state: 'outgoing'|'incoming'|'active', since } */
+let _call = null
+let _callBarEl = null
+let _callTickTimer = null
+
+function _callPeerName(peer) { return displayName(peer) }
+
+/** Anrufleiste liegt an document.body, damit sie Ansichtswechsel überlebt. */
+function _renderCallBar(root) {
+  if (!_call) {
+    _callBarEl?.remove(); _callBarEl = null
+    if (_callTickTimer) { clearInterval(_callTickTimer); _callTickTimer = null }
+    return
+  }
+  if (!_callBarEl) {
+    _callBarEl = document.createElement('div')
+    _callBarEl.className = 'mmc-callbar'
+    document.body.appendChild(_callBarEl)
+    requestAnimationFrame(() => _callBarEl?.classList.add('is-open'))
+  }
+
+  const name = esc(_callPeerName(_call.peer))
+  const prefs = getPrefs()
+  let statusText, actions
+  if (_call.state === 'incoming') {
+    statusText = 'Eingehender Anruf'
+    actions = `
+      <button class="mmc-call-btn mmc-call-btn--accept" id="mmc-call-accept">Annehmen</button>
+      <button class="mmc-call-btn mmc-call-btn--decline" id="mmc-call-decline">Ablehnen</button>`
+  } else if (_call.state === 'outgoing') {
+    statusText = 'Klingelt …'
+    actions = `<button class="mmc-call-btn mmc-call-btn--decline" id="mmc-call-hangup">Abbrechen</button>`
+  } else {
+    const secs = Math.max(0, Math.floor((Date.now() - _call.since) / 1000))
+    statusText = `Im Gespräch · ${String(Math.floor(secs / 60)).padStart(2, '0')}:${String(secs % 60).padStart(2, '0')}`
+    actions = `
+      <button class="mmc-call-btn${prefs.muted ? ' is-active' : ''}" id="mmc-call-mute">${prefs.muted ? 'Stumm aus' : 'Stumm'}</button>
+      <button class="mmc-call-btn mmc-call-btn--decline" id="mmc-call-hangup">Auflegen</button>`
+  }
+
+  _callBarEl.innerHTML = `
+    <div class="mmc-avatar mmc-avatar--dm" style="background:${avatarColor(_call.peer)}">${avatarInner(_call.peer)}</div>
+    <div class="mmc-call-meta">
+      <div class="mmc-call-name">${name}</div>
+      <div class="mmc-call-status">${esc(statusText)}</div>
+    </div>
+    <div class="mmc-call-actions">${actions}</div>`
+
+  _callBarEl.querySelector('#mmc-call-accept')?.addEventListener('click', () => _acceptCall(root))
+  _callBarEl.querySelector('#mmc-call-decline')?.addEventListener('click', () => _declineCall(root))
+  _callBarEl.querySelector('#mmc-call-hangup')?.addEventListener('click', () => _endCall(root, true))
+  _callBarEl.querySelector('#mmc-call-mute')?.addEventListener('click', () => {
+    const p = getPrefs(); p.muted = !p.muted; setPrefs(p)
+    toggleVoiceMute(p.muted)
+    _renderCallBar(root)
+  })
+
+  // Gesprächsdauer sekündlich nachziehen, aber nur während eines Gesprächs.
+  if (_call.state === 'active' && !_callTickTimer) {
+    _callTickTimer = setInterval(() => _renderCallBar(root), 1000)
+  } else if (_call.state !== 'active' && _callTickTimer) {
+    clearInterval(_callTickTimer); _callTickTimer = null
+  }
+}
+
+/** Anruf starten (aus dem DM-Kopf). */
+async function _startCall(root, peer) {
+  if (_call) { toast(root, 'Du bist bereits in einem Anruf.'); return }
+  if (!OFFLINE_MODE && getSession()?.guest) {
+    openInfoModal(root, 'Für Anrufe brauchst du ein Konto',
+      'Anrufe laufen über deinen MotoMatch-Account — als Gast lässt sich nicht telefonieren.',
+      { label: 'Anmelden', onClick: () => goToAuth(root) })
+    return
+  }
+  const roomId = dmCallRoomId(peer)
+  if (!roomId) { toast(root, 'Anruf nicht möglich — Konto der Person nicht gefunden.'); return }
+
+  _call = { peer, roomId, state: 'outgoing', since: Date.now() }
+  _renderCallBar(root)
+
+  const res = await joinVoiceRoom(roomId, getSession().id || getSession().username, me(), getPrefs(),
+    participants => _onCallParticipants(root, participants))
+  if (!res.ok) {
+    _call = null; _renderCallBar(root)
+    openInfoModal(root, 'Anruf fehlgeschlagen', res.error || 'Bitte erneut versuchen.',
+      res.code === 'auth' ? { label: 'Anmelden', onClick: () => goToAuth(root) } : null)
+    return
+  }
+  if (!_call) { if (inVoiceRoom()) await leaveVoiceRoom(); return } // Anruf wurde waehrend des Verbindens abgebrochen
+  setOutputVolume(getPrefs().outVol ?? 100)
+  await sendUserEvent(peer, 'call_invite', { roomId })
+}
+
+/** Teilnehmerliste des Anrufs — sobald die Gegenseite da ist, läuft das Gespräch. */
+function _onCallParticipants(root, participants) {
+  if (!_call) return
+  const others = participants.filter(p => p.username?.toLowerCase() !== me().toLowerCase())
+  if (others.length && _call.state !== 'active') {
+    _call.state = 'active'; _call.since = Date.now()
+    _renderCallBar(root)
+  } else if (!others.length && _call.state === 'active') {
+    // Gegenseite hat aufgelegt.
+    toast(root, `${_callPeerName(_call.peer)} hat aufgelegt.`)
+    _endCall(root, false)
+  }
+}
+
+async function _acceptCall(root) {
+  if (!_call || _call.state !== 'incoming') return
+  const peer = _call.peer
+  _call.state = 'outgoing'   // verbinden…
+  _renderCallBar(root)
+  const res = await joinVoiceRoom(_call.roomId, getSession().id || getSession().username, me(), getPrefs(),
+    participants => _onCallParticipants(root, participants))
+  if (!res.ok) {
+    _call = null; _renderCallBar(root)
+    openInfoModal(root, 'Anruf fehlgeschlagen', res.error || 'Bitte erneut versuchen.')
+    await sendUserEvent(peer, 'call_decline', {})
+    return
+  }
+  if (!_call) { if (inVoiceRoom()) await leaveVoiceRoom(); return } // Anruf wurde waehrend des Verbindens abgebrochen
+  setOutputVolume(getPrefs().outVol ?? 100)
+  _call.state = 'active'; _call.since = Date.now()
+  _renderCallBar(root)
+}
+
+async function _declineCall(root) {
+  if (!_call) return
+  const peer = _call.peer
+  _call = null; _renderCallBar(root)
+  await sendUserEvent(peer, 'call_decline', {})
+}
+
+/** Auflegen. `notify` = der Gegenseite Bescheid geben (bei eigenem Auflegen). */
+async function _endCall(root, notify) {
+  if (!_call) return
+  const { peer, state } = _call
+  _call = null
+  _renderCallBar(root)
+  if (inVoiceRoom()) await leaveVoiceRoom()
+  if (notify) await sendUserEvent(peer, state === 'outgoing' ? 'call_cancel' : 'call_end', {})
+  fillGroupChannels?.(root)
+}
+
+/** Signale der Gegenseite verarbeiten. */
+function _handleCallEvent(root, type, payload) {
+  const from = payload?.from
+  if (!from) return
+  if (type === 'call_invite') {
+    // Schon im Gespräch? Dann besetzt melden, statt den laufenden Anruf zu stören.
+    if (_call) { sendUserEvent(from, 'call_decline', {}); return }
+    _call = { peer: from, roomId: payload.roomId, state: 'incoming', since: Date.now() }
+    _renderCallBar(root)
+    return
+  }
+  if (!_call || _call.peer?.toLowerCase() !== from.toLowerCase()) return
+  if (type === 'call_cancel') {
+    toast(root, `Verpasster Anruf von ${_callPeerName(from)}.`)
+    _call = null; _renderCallBar(root)
+  } else if (type === 'call_decline') {
+    toast(root, `${_callPeerName(from)} hat abgelehnt.`)
+    _endCall(root, false)
+  } else if (type === 'call_end') {
+    _endCall(root, false)
   }
 }
 
@@ -3292,7 +5389,7 @@ function openCreateGroup(root) {
     if (!res.ok) { errEl.hidden = false; errEl.textContent = res.error || 'Fehler beim Erstellen.'; return }
     activeGroup = res.group.id; activeChannel = res.group.channels[0]?.id || null
     close()
-    fillCol2(root)
+    fillRail(root)
     fillMain(root)
   })
 

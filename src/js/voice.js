@@ -1,57 +1,47 @@
 /**
- * MotoMatch Voice — WebRTC P2P-Mesh für Sprachkanäle
+ * MotoMatch Voice — LiveKit-basierte Sprachkanäle
  *
- * Signaling Online:  Supabase Realtime Broadcast pro Raum-ID
- * Signaling Offline: BroadcastChannel (gleicher Browser, mehrere Tabs)
- * STUN:              stun:stun.l.google.com:19302
- * TURN (optional):   VITE_TURN_URL / VITE_TURN_USER / VITE_TURN_CREDENTIAL
+ * Ersetzt das frühere handgebaute WebRTC-Mesh (RTCPeerConnection pro Teilnehmer
+ * + eigenes Supabase-Broadcast-Signaling) durch LiveKit: ein SFU-Server relayt
+ * Audio, statt dass jeder Client mit jedem einzeln verbindet. Das ist der
+ * Unterschied zwischen "funktioniert bei zwei Leuten im selben WLAN" und
+ * "funktioniert" — das alte Mesh hatte nie einen TURN-Server konfiguriert
+ * (VITE_TURN_* war immer leer) und scheiterte damit hinter jedem symmetrischen
+ * NAT (viele Firmen-/Mobilfunknetze). LiveKit bringt TURN, Reconnect-Handling,
+ * Geräte-Umschaltung und Sprech-Erkennung serverseitig mit.
  *
- * EINSCHRÄNKUNG: Ohne TURN-Server scheitern Verbindungen hinter
- * symmetrischem NAT (viele Firmen-/Mobilnetze). TURN-Keys eintragen in .env:
- *   VITE_TURN_URL=turn:xxx.metered.ca:443?transport=tcp
- *   VITE_TURN_USER=...
- *   VITE_TURN_CREDENTIAL=...
- * Kostenlos z. B. bei https://dashboard.metered.ca (Free Tier reicht).
+ * Die "wer ist im Raum, ohne selbst beizutreten"-Anzeige (watchVoiceRoom) bleibt
+ * unverändert auf Supabase-Realtime-Presence — sie ist unabhängig vom
+ * Audio-Transport und funktioniert bereits korrekt.
+ *
+ * EINSCHRÄNKUNG: Ohne Supabase-Backend (OFFLINE_MODE) gibt es keinen Weg, ein
+ * LiveKit-Token zu holen (der Token-Endpoint braucht eine echte Session) —
+ * Sprachchat ist daher im Demo-/Offline-Modus nicht verfügbar.
  */
 
+import { Room, RoomEvent, Track, ScreenSharePresets } from 'livekit-client'
 import { supabase, OFFLINE_MODE } from './supabase.js'
-
-/* ── ICE-Server-Konfiguration (STUN + optionaler TURN aus Env) ────── */
-function _buildIceServers() {
-  const servers = [{ urls: 'stun:stun.l.google.com:19302' }]
-  const url  = import.meta.env.VITE_TURN_URL
-  const user = import.meta.env.VITE_TURN_USER
-  const cred = import.meta.env.VITE_TURN_CREDENTIAL
-  if (url && user && cred) {
-    servers.push({ urls: url, username: user, credential: cred })
-    console.info('[Voice] TURN-Server konfiguriert:', url)
-  }
-  return servers
-}
+import { report } from './monitoring.js'
 
 /* ── State ─────────────────────────────────────────────────────────── */
-let _localStream = null
-let _peers = {}           // { [peerId]: { pc: RTCPeerConnection, audio: HTMLAudioElement, analyser: AnalyserNode } }
-let _sigChannel = null    // Supabase Realtime Channel ODER BroadcastChannel
-let _bcChannel = null     // BroadcastChannel (Offline-Fallback)
+let _room = null
 let _roomId = null
-let _myId = null          // userId (Supabase UID oder Fallback)
 let _myUsername = null
-let _onParticipantUpdate = null  // callback(participants: [{id, username, muted, speaking}])
-let _speaking = {}        // { [peerId]: bool }
-let _remoteMuted = {}     // { [peerId]: bool }
-let _speakTimers = {}
-let _audioCtx = null
-let _localAnalyser = null
-let _localSpeakTimer = null
+let _onParticipantUpdate = null
+let _presenceChan = null        // leichter Presence-Eintrag für watchVoiceRoom(), s.u.
+let _deafened = false
+let _remoteAudioEls = new Map() // identity -> HTMLAudioElement
+let _remoteVideoEls = new Map() // identity -> HTMLVideoElement (Screen-Share)
+let _localVideoEl = null        // eigener Screen-Share-Preview
 let _preferredMicId = null
 let _preferredSinkId = null
+let _outVolume = 1              // 0…1, gilt für alle Remote-Audio-Elemente
 
 /* ── Öffentliche API ────────────────────────────────────────────────── */
 
 /**
  * Sprachraum beitreten.
- * @param {string} roomId  - ID des Sprachraums
+ * @param {string} roomId  - ID des Sprachraums (== voice_rooms.id)
  * @param {string} userId  - eigene User-ID
  * @param {string} username - eigener Anzeigename
  * @param {{ muted: boolean, deafened: boolean }} prefs
@@ -59,114 +49,368 @@ let _preferredSinkId = null
  * @returns {Promise<{ok:boolean, error?:string}>}
  */
 export async function joinVoiceRoom(roomId, userId, username, prefs, onUpdate) {
-  if (_roomId) await leaveVoiceRoom()
+  if (_room) await leaveVoiceRoom()
 
-  let stream
-  try {
-    stream = await navigator.mediaDevices.getUserMedia({
-      audio: {
-        deviceId: _preferredMicId ? { ideal: _preferredMicId } : undefined,
-        echoCancellation: true,
-        noiseSuppression: true,
-        autoGainControl: true,
-      },
-    })
-  } catch (err) {
-    return { ok: false, error: 'Mikrofon-Zugriff verweigert. Bitte erlaube Mikrofonzugriff im Browser.' }
+  if (OFFLINE_MODE || !supabase) {
+    return { ok: false, error: 'Sprachchat benötigt eine Online-Verbindung (im Demo-Modus nicht verfügbar).' }
   }
 
-  _localStream = stream
+  const LIVEKIT_URL = import.meta.env.VITE_LIVEKIT_URL
+  if (!LIVEKIT_URL) {
+    return { ok: false, error: 'Sprachchat ist noch nicht konfiguriert.' }
+  }
+
+  // Das LiveKit-Token wird serverseitig gegen die Supabase-Session ausgestellt
+  // (api/livekit-token.js) — ohne Session gibt es keinen Talk-Zugang. `code`
+  // mitgeben, damit das UI diesen Fall gezielt behandeln kann (Anmelde-Angebot)
+  // statt die Fehlermeldung nach Text zu erraten.
+  const { data: { session } } = await supabase.auth.getSession()
+  if (!session) return { ok: false, code: 'auth', error: 'Bitte melde dich an, um einem Talk beizutreten.' }
+
+  let token
+  try {
+    const res = await fetch('/api/livekit-token', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.access_token}` },
+      body: JSON.stringify({ roomId }),
+    })
+    const body = await res.json().catch(() => ({}))
+    // Serverformat aller api/-Endpoints: { error: { code, message } }.
+    // Statuscode als Rückfall mitgeben: ohne ihn sah ein 404 (Endpoint gar
+    // nicht da, also gar kein Body) im UI exakt aus wie ein 403 (kein
+    // Zugriff) — beides nur "fehlgeschlagen".
+    if (!res.ok) {
+      // Eine serverseitig abgelaufene Sitzung bekommt denselben
+      // Anmelden-Knopf wie eine lokal fehlende (s. o.) — vorher endete
+      // dieser Fall in einem Modal ohne Ausweg.
+      const code = body?.error?.code
+      const isAuth = code === 'missing_token' || code === 'invalid_session'
+      return {
+        ok: false,
+        ...(isAuth ? { code: 'auth' } : {}),
+        error: body?.error?.message || `Talk-Zugang fehlgeschlagen (HTTP ${res.status}).`,
+      }
+    }
+    token = body.token
+  } catch {
+    return { ok: false, error: 'Talk-Zugang fehlgeschlagen (Netzwerkfehler).' }
+  }
+
+  const room = new Room({
+    adaptiveStream: true,
+    dynacast: true,
+    audioCaptureDefaults: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
+  })
+
   _roomId = roomId
-  _myId = userId
   _myUsername = username
   _onParticipantUpdate = onUpdate
-  _peers = {}
-  _speaking = {}
-  _remoteMuted = {}
+  _deafened = !!prefs.deafened
+  _remoteAudioEls = new Map()
+  _remoteVideoEls = new Map()
+  _localVideoEl = null
 
-  // Lautstärke-Analyse für lokales Mikrofon
-  _setupLocalAnalyser(stream, prefs.muted)
+  room
+    .on(RoomEvent.ParticipantConnected, _notifyUpdate)
+    .on(RoomEvent.ParticipantDisconnected, participant => {
+      _remoteAudioEls.get(participant.identity)?.remove()
+      _remoteAudioEls.delete(participant.identity)
+      _remoteVideoEls.get(participant.identity)?.remove()
+      _remoteVideoEls.delete(participant.identity)
+      _notifyUpdate()
+    })
+    .on(RoomEvent.ActiveSpeakersChanged, _notifyUpdate)
+    .on(RoomEvent.ConnectionQualityChanged, _notifyUpdate)
+    .on(RoomEvent.TrackMuted, _notifyUpdate)
+    .on(RoomEvent.TrackUnmuted, _notifyUpdate)
+    .on(RoomEvent.LocalTrackPublished, publication => {
+      if (publication.source === Track.Source.ScreenShare) {
+        const el = publication.track.attach()
+        el.autoplay = true; el.muted = true; el.playsInline = true
+        _localVideoEl = el
+      }
+      _notifyUpdate()
+    })
+    .on(RoomEvent.LocalTrackUnpublished, publication => {
+      if (publication.source === Track.Source.ScreenShare) {
+        publication.track?.detach().forEach(el => el.remove())
+        _localVideoEl = null
+      }
+      _notifyUpdate()
+    })
+    .on(RoomEvent.TrackSubscribed, (track, _publication, participant) => {
+      if (track.kind === Track.Kind.Audio) {
+        const el = track.attach()
+        el.style.display = 'none'
+        el.muted = _deafened
+        el.volume = _outVolume
+        document.body.appendChild(el)
+        _remoteAudioEls.set(participant.identity, el)
+        _notifyUpdate()
+        return
+      }
+      if (track.source === Track.Source.ScreenShare) {
+        const el = track.attach()
+        el.autoplay = true; el.playsInline = true
+        _remoteVideoEls.set(participant.identity, el)
+        _notifyUpdate()
+      }
+    })
+    .on(RoomEvent.TrackUnsubscribed, (track, _publication, participant) => {
+      track.detach().forEach(el => el.remove())
+      if (track.kind === Track.Kind.Audio) {
+        _remoteAudioEls.delete(participant.identity)
+      } else if (track.source === Track.Source.ScreenShare) {
+        _remoteVideoEls.delete(participant.identity)
+        _notifyUpdate()
+      }
+    })
+    .on(RoomEvent.Disconnected, () => _cleanup())
 
-  // Stummschalten initial anwenden
-  _applyMute(prefs.muted)
-  _applyDeafen(prefs.deafened)
+  try {
+    await room.connect(LIVEKIT_URL, token)
+    try {
+      await room.localParticipant.setMicrophoneEnabled(!prefs.muted, {
+        deviceId: _preferredMicId ? { ideal: _preferredMicId } : undefined,
+      })
+    } catch (micErr) {
+      // Zwischen dem erfolgreichen connect() und diesem Fehler kann bereits ein
+      // TrackSubscribed-Event (s. o.) <audio>-Elemente in den DOM gehängt haben —
+      // ohne Aufräumen blieben die verwaist, weil wir gleich mit einem Fehler
+      // aus der Funktion aussteigen, bevor sie sonst irgendwo entfernt würden.
+      for (const el of _remoteAudioEls.values()) el.remove()
+      _remoteAudioEls.clear()
+      throw micErr
+    }
+  } catch (err) {
+    try { room.disconnect() } catch {}
+    _roomId = null; _onParticipantUpdate = null
+    if (err?.name === 'NotAllowedError' || /permission|denied/i.test(err?.message || '')) {
+      return { ok: false, error: 'Mikrofon-Zugriff verweigert. Bitte erlaube Mikrofonzugriff im Browser.' }
+    }
+    return { ok: false, error: 'Verbindung zum Talk fehlgeschlagen. Bitte erneut versuchen.' }
+  }
 
-  await _setupSignaling(roomId)
+  _room = room
 
-  // Anderen mitteilen, dass wir da sind → sie initiieren Offers zu uns
-  _broadcast({ type: 'join', from: _myId, username: _myUsername, muted: !!prefs.muted })
+  // Mit dem Beitritt ist die Mikrofon-Freigabe erteilt: ab jetzt liefert
+  // enumerateDevices() echte Gerätenamen, der Cache von vorher enthält noch
+  // die namenlosen Einträge.
+  invalidateAudioDeviceCache()
 
+  // Leichter Presence-Eintrag auf demselben Topic, das watchVoiceRoom() (Sidebar
+  // ohne Beitritt) beobachtet — unabhängig vom LiveKit-Transport. Das eigene
+  // Beobachter-Abo auf diesen Raum muss vorher weg sein, sonst bekämen wir es
+  // hier zurückgereicht und würden nie in die Presence eintreten (s. _releaseVoiceTopic).
+  await _releaseVoiceTopic(roomId)
+  _presenceChan = supabase.channel(`voice:${roomId}`, { config: { presence: { key: userId } } })
+  _presenceChan.subscribe(async status => {
+    if (status === 'SUBSCRIBED') await _presenceChan?.track({ username, muted: !!prefs.muted })
+  })
+
+  _notifyUpdate()
   return { ok: true }
 }
 
 /** Sprachraum verlassen und alles aufräumen. */
 export async function leaveVoiceRoom() {
-  if (!_roomId) return
-  _broadcast({ type: 'leave', from: _myId })
+  const roomId = _roomId
   _cleanup()
+  // Erst zurückkehren, wenn das Presence-Topic frei ist: direkt danach baut die
+  // Sidebar wieder einen Beobachter für genau diesen Raum auf, und der bekäme
+  // sonst den noch nicht abgebauten Presence-Kanal zurück (s. _releaseVoiceTopic).
+  if (roomId) await _releaseVoiceTopic(roomId)
 }
 
 /** Mikrofon stumm-/entstumm-schalten. */
-export function toggleVoiceMute(muted) {
-  _applyMute(muted)
-  _broadcast({ type: 'muted', from: _myId, muted })
+export async function toggleVoiceMute(muted) {
+  if (!_room) return
+  try {
+    await _room.localParticipant.setMicrophoneEnabled(!muted, {
+      deviceId: _preferredMicId ? { ideal: _preferredMicId } : undefined,
+    })
+  } catch (err) {
+    // Umschaltung fehlgeschlagen — Presence NICHT auf den nie erreichten Zustand
+    // setzen, sonst zeigen andere Teilnehmer einen Mute-Status an, der am
+    // eigenen Mikrofon gar nicht wirksam wurde.
+    report(err, { where: 'voice.toggleVoiceMute', muted })
+    return
+  }
+  _presenceChan?.track?.({ username: _myUsername, muted })
+}
+
+/**
+ * Wiedergabelautstärke der anderen Teilnehmer setzen (0…100). Wirkt sofort auf
+ * alle laufenden Streams und gilt auch für später dazukommende.
+ */
+export function setOutputVolume(percent) {
+  _outVolume = Math.max(0, Math.min(100, Number(percent) || 0)) / 100
+  for (const el of _remoteAudioEls.values()) el.volume = _outVolume
 }
 
 /** Kopfhörer deafen/undeafen (muted aller Remote-Streams + eigenes Mikro). */
-export function toggleVoiceDeafen(deafened, muted) {
-  _applyDeafen(deafened)
-  _applyMute(muted)
-  _broadcast({ type: 'muted', from: _myId, muted })
+export async function toggleVoiceDeafen(deafened, muted) {
+  _deafened = deafened
+  for (const el of _remoteAudioEls.values()) el.muted = deafened
+  await toggleVoiceMute(muted)
+}
+
+/** Bildschirm teilen an-/ausschalten. */
+export async function toggleScreenShare(enabled) {
+  if (!_room) return { ok: false, error: 'Kein aktiver Talk.' }
+  try {
+    // LiveKits Voreinstellung für Bildschirmfreigaben ist h1080fps15 — 1080p bei
+    // nur 15 Bildern/s. Das ruckelt sichtbar, sobald sich etwas bewegt (Scrollen,
+    // Mauszeiger, Videos). Deshalb explizit 30 fps senden. Die Bitrate des
+    // Presets ist eine Obergrenze, keine Zusage: reicht die Leitung nicht, regelt
+    // LiveKit von selbst herunter.
+    //
+    // contentHint 'motion' ist der zweite Hebel: Bildschirminhalte gelten dem
+    // Encoder sonst als "detail", und dann opfert er zuerst die Bildrate, um die
+    // Schärfe zu halten — genau das Gegenteil von flüssig. Mit 'motion' bleibt
+    // die Bildrate oben und stattdessen wird bei knapper Leitung die Schärfe
+    // etwas weicher.
+    await _room.localParticipant.setScreenShareEnabled(
+      enabled,
+      { resolution: ScreenSharePresets.h1080fps30.resolution, contentHint: 'motion' },
+      { screenShareEncoding: ScreenSharePresets.h1080fps30.encoding },
+    )
+    return { ok: true }
+  } catch (err) {
+    // Nutzer hat den Browser-Auswahldialog abgebrochen — kein echter Fehler.
+    if (err?.name === 'NotAllowedError') return { ok: false, cancelled: true }
+    return { ok: false, error: 'Bildschirmfreigabe fehlgeschlagen.' }
+  }
+}
+
+/**
+ * Das <video>-Element für den Screen-Share einer Person holen (zum Einhängen
+ * ins UI). `participantId` ist '__local' für die eigene Freigabe oder die
+ * LiveKit-Identity aus dem onUpdate()-Callback von joinVoiceRoom().
+ * @returns {HTMLVideoElement|null}
+ */
+export function getScreenShareEl(participantId) {
+  if (participantId === '__local') return _localVideoEl
+  return _remoteVideoEls.get(participantId) || null
 }
 
 /** Sind wir aktuell in einem Raum? */
 export function inVoiceRoom() { return !!_roomId }
 export function currentRoomId() { return _roomId }
 
+/* ── Reine Beobachtung eines Voice-Rooms (kein Mikrofon, kein LiveKit-Join) ──
+   Nutzt denselben Presence-Channel wie ein echter Beitritt, tritt ihm aber
+   nur passiv bei (kein .track()), damit auch Nicht-Teilnehmer live sehen,
+   wer gerade im Call ist — z. B. während sie nur die Gruppenansicht offen
+   haben. Mehrere Räume können gleichzeitig beobachtet werden. Unverändert
+   gegenüber der Mesh-Implementierung — rein Presence-basiert, kein
+   Audio-Transport beteiligt. */
+let _watchers = {}  // { [roomId]: cleanupFn }
+
+/**
+ * Live-Teilnehmerliste eines Voice-Rooms beobachten, ohne selbst beizutreten.
+ * @param {string} roomId
+ * @param {Function} onUpdate - callback([{username, muted}])
+ * @returns {Function} cleanup — muss beim Verlassen der Ansicht aufgerufen werden
+ */
+export function watchVoiceRoom(roomId, onUpdate) {
+  if (_watchers[roomId]) _watchers[roomId].cleanup()
+
+  const emit = state => {
+    const participants = Object.values(state).flat().map(p => ({
+      username: p.username, muted: !!p.muted,
+    }))
+    onUpdate(participants)
+  }
+
+  if (!OFFLINE_MODE && supabase) {
+    const channel = supabase.channel(`voice:${roomId}`, {
+      config: { presence: { key: 'watch-' + Math.random().toString(36).slice(2) } },
+    })
+    channel.on('presence', { event: 'sync' }, () => emit(channel.presenceState()))
+    channel.subscribe()
+    const cleanup = () => { try { supabase.removeChannel(channel) } catch {}; delete _watchers[roomId] }
+    _watchers[roomId] = { cleanup }
+    return cleanup
+  }
+
+  // Offline-Fallback: kein Presence verfügbar, Voice-Rooms sind im Demo-Modus
+  // ohnehin nicht nutzbar (siehe joinVoiceRoom).
+  onUpdate([])
+  return () => {}
+}
+
+/** Alle aktiven Watcher aufräumen (z. B. beim Gruppen-/Ansichtswechsel). */
+export function unwatchAllVoiceRooms() {
+  for (const w of Object.values(_watchers)) w.cleanup()
+  _watchers = {}
+}
+
+/**
+ * Alle offenen Realtime-Kanäle auf `voice:<roomId>` schließen und warten, bis
+ * das Topic wirklich frei ist.
+ *
+ * Nötig, weil supabase.channel(topic) bei bereits vorhandenem Topic das
+ * BESTEHENDE Kanal-Objekt zurückgibt und die übergebene presence-Konfiguration
+ * verwirft — und subscribe() auf einem schon verbundenen Kanal seinen Callback
+ * nicht mehr aufruft. Wer einem Talk beitritt, während die Sidebar denselben
+ * Raum noch beobachtet, bekäme also den Beobachter-Kanal zurück, träte nie per
+ * track() in die Presence ein und wäre für alle anderen unsichtbar.
+ * removeChannel() ist asynchron (erst unsubscribe, dann teardown), deshalb muss
+ * hier gewartet werden, sonst ist das Topic beim nächsten channel()-Aufruf noch
+ * belegt.
+ */
+async function _releaseVoiceTopic(roomId) {
+  delete _watchers[roomId]
+  if (!supabase) return
+  const topic = `realtime:voice:${roomId}`
+  const open = (supabase.getChannels?.() || []).filter(c => c.topic === topic)
+  for (const ch of open) { try { await supabase.removeChannel(ch) } catch {} }
+}
+
+/* Gerätelisten-Cache. enumerateDevices() selbst ist billig (~2 ms), aber
+   LiveKits getLocalDevices() ruft bei fehlenden Gerätenamen intern
+   getUserMedia() auf — das öffnet die Mikrofon-Abfrage und kostet spürbar
+   Zeit, und zwar auch beim Ausgabegeräte-Menü. Das darf ein bloßes
+   Menü-Öffnen nicht auslösen, deshalb wird ohne Berechtigungsanfrage
+   gelesen und das Ergebnis gecacht. */
+let _deviceCache = null
+navigator.mediaDevices?.addEventListener?.('devicechange', () => { _deviceCache = null })
+
+/** Cache verwerfen, z. B. nachdem die Mikrofon-Freigabe erteilt wurde (dann gibt es Namen). */
+export function invalidateAudioDeviceCache() { _deviceCache = null }
+
 /**
  * Verfügbare Audio-Geräte auflisten.
+ * @param {{prompt?: boolean}} [opts] - prompt: true fordert die Berechtigung
+ *   aktiv an (nur auf ausdrückliche Nutzeraktion), damit Gerätenamen sichtbar
+ *   werden. Standard false: liefert sofort, ohne Berechtigungsdialog.
  * @returns {Promise<{inputs: MediaDeviceInfo[], outputs: MediaDeviceInfo[]}>}
  */
-export async function listAudioDevices() {
+export async function listAudioDevices({ prompt = false } = {}) {
+  if (_deviceCache && !prompt) return _deviceCache
   try {
-    const devices = await navigator.mediaDevices.enumerateDevices()
-    return {
-      inputs:  devices.filter(d => d.kind === 'audioinput'),
-      outputs: devices.filter(d => d.kind === 'audiooutput'),
-    }
-  } catch {
+    // Nacheinander statt parallel: zwei gleichzeitige getLocalDevices mit
+    // prompt=true können zwei Berechtigungsabfragen auslösen.
+    const inputs  = await Room.getLocalDevices('audioinput', prompt)
+    const outputs = await Room.getLocalDevices('audiooutput', prompt)
+    _deviceCache = { inputs, outputs }
+    return _deviceCache
+  } catch (err) {
+    // Leere Listen sehen im Menü aus wie „keine Geräte vorhanden“. Der
+    // Unterschied zu „Aufzählung fehlgeschlagen“ wäre sonst nirgends sichtbar.
+    report(err, { where: 'voice.listAudioDevices', prompt })
     return { inputs: [], outputs: [] }
   }
 }
 
-/**
- * Mikrofon wechseln (auch während eines laufenden Calls).
- */
+/** Mikrofon wechseln (auch während eines laufenden Calls). */
 export async function switchMicrophone(deviceId) {
   _preferredMicId = deviceId
-  if (!_localStream || !_roomId) return
-
-  let newStream
-  try {
-    newStream = await navigator.mediaDevices.getUserMedia({
-      audio: { deviceId: { exact: deviceId }, echoCancellation: true, noiseSuppression: true, autoGainControl: true },
-    })
-  } catch { return }
-
-  const [newTrack] = newStream.getAudioTracks()
-  const prefs = _getMuteState()
-  newTrack.enabled = !prefs.muted
-
-  // In alle Peer-Connections ersetzen
-  for (const { pc } of Object.values(_peers)) {
-    const sender = pc.getSenders().find(s => s.track?.kind === 'audio')
-    if (sender) sender.replaceTrack(newTrack)
-  }
-
-  // Alten Track stoppen
-  _localStream.getAudioTracks().forEach(t => t.stop())
-  _localStream = newStream
-  _setupLocalAnalyser(newStream, prefs.muted)
+  if (!_room) return
+  // Ohne Meldung bliebe für den Nutzer nur: ausgewähltes Mikro, altes Signal.
+  try { await _room.switchActiveDevice('audioinput', deviceId) }
+  catch (err) { report(err, { where: 'voice.switchMicrophone' }) }
 }
 
 /**
@@ -175,294 +419,57 @@ export async function switchMicrophone(deviceId) {
  */
 export async function switchSpeaker(deviceId) {
   _preferredSinkId = deviceId
-  let success = true
-  for (const { audio } of Object.values(_peers)) {
-    if (typeof audio.setSinkId === 'function') {
-      try { await audio.setSinkId(deviceId) } catch { success = false }
-    } else {
-      success = false
-    }
-  }
-  return success
+  if (!_room) return true
+  try { return await _room.switchActiveDevice('audiooutput', deviceId) }
+  catch (err) { report(err, { where: 'voice.switchSpeaker' }); return false }
 }
 
 /* ── Private Implementierung ────────────────────────────────────────── */
 
-function _getMuteState() {
-  const prefs = JSON.parse(localStorage.getItem('mm_comm_prefs_v1') || '{}')
-  return { muted: !!prefs.muted, deafened: !!prefs.deafened }
-}
-
-function _applyMute(muted) {
-  if (!_localStream) return
-  _localStream.getAudioTracks().forEach(t => { t.enabled = !muted })
-}
-
-function _applyDeafen(deafened) {
-  for (const { audio } of Object.values(_peers)) {
-    audio.muted = deafened
-  }
-}
-
-async function _setupSignaling(roomId) {
-  if (!OFFLINE_MODE && supabase) {
-    await _setupSupabaseSignaling(roomId)
-  } else {
-    _setupBroadcastChannelSignaling(roomId)
-  }
-}
-
-async function _setupSupabaseSignaling(roomId) {
-  const channelName = `voice:${roomId}`
-  _sigChannel = supabase.channel(channelName, {
-    config: { broadcast: { self: false }, presence: { key: _myId } },
-  })
-
-  _sigChannel
-    .on('broadcast', { event: 'signal' }, ({ payload }) => _handleSignal(payload))
-    .on('presence', { event: 'join' }, ({ newPresences }) => {
-      for (const p of newPresences) {
-        if (p.key !== _myId) _notifyUpdate()
-      }
-    })
-    .on('presence', { event: 'leave' }, ({ leftPresences }) => {
-      for (const p of leftPresences) {
-        if (p.key !== _myId) {
-          _removePeer(p.key)
-          _notifyUpdate()
-        }
-      }
-    })
-
-  await _sigChannel.subscribe(async status => {
-    if (status !== 'SUBSCRIBED') return
-    await _sigChannel.track({ username: _myUsername, muted: _getMuteState().muted })
-  })
-}
-
-/* BroadcastChannel-Signaling für lokale Zwei-Tab-Tests (kein Backend nötig).
-   Alle Tabs im gleichen Browser und gleicher Origin empfangen die Nachrichten. */
-function _setupBroadcastChannelSignaling(roomId) {
-  _bcChannel = new BroadcastChannel(`mm-voice:${roomId}`)
-  _bcChannel.onmessage = ({ data }) => _handleSignal(data)
-  console.info('[Voice] BroadcastChannel-Signaling aktiv (lokaler Zwei-Tab-Test).')
-}
-
-function _broadcast(payload) {
-  if (_bcChannel) {
-    _bcChannel.postMessage(payload)
-  } else if (_sigChannel) {
-    _sigChannel.send({ type: 'broadcast', event: 'signal', payload })
-  }
-}
-
-async function _handleSignal(msg) {
-  if (!msg || msg.from === _myId) return
-
-  switch (msg.type) {
-    case 'join': {
-      // Neuer Teilnehmer → wir machen ein Offer
-      const pc = await _createPeer(msg.from, msg.username)
-      const offer = await pc.createOffer()
-      await pc.setLocalDescription(offer)
-      _broadcast({ type: 'offer', from: _myId, to: msg.from, sdp: offer, username: _myUsername })
-      if (msg.muted != null) _remoteMuted[msg.from] = msg.muted
-      _notifyUpdate()
-      break
-    }
-    case 'offer': {
-      if (msg.to !== _myId) return
-      const pc = await _createPeer(msg.from, msg.username)
-      await pc.setRemoteDescription(new RTCSessionDescription(msg.sdp))
-      const answer = await pc.createAnswer()
-      await pc.setLocalDescription(answer)
-      _broadcast({ type: 'answer', from: _myId, to: msg.from, sdp: answer })
-      break
-    }
-    case 'answer': {
-      if (msg.to !== _myId) return
-      const peer = _peers[msg.from]
-      if (peer) await peer.pc.setRemoteDescription(new RTCSessionDescription(msg.sdp))
-      break
-    }
-    case 'ice': {
-      if (msg.to !== _myId) return
-      const peer = _peers[msg.from]
-      if (peer && msg.candidate) {
-        try { await peer.pc.addIceCandidate(new RTCIceCandidate(msg.candidate)) } catch {}
-      }
-      break
-    }
-    case 'muted': {
-      _remoteMuted[msg.from] = !!msg.muted
-      _notifyUpdate()
-      break
-    }
-    case 'leave': {
-      _removePeer(msg.from)
-      _notifyUpdate()
-      break
-    }
-  }
-}
-
-async function _createPeer(peerId, peerUsername) {
-  if (_peers[peerId]) return _peers[peerId].pc
-
-  const pc = new RTCPeerConnection({ iceServers: _buildIceServers() })
-
-  // Lokalen Track hinzufügen
-  if (_localStream) {
-    _localStream.getAudioTracks().forEach(t => pc.addTrack(t, _localStream))
-  }
-
-  pc.onicecandidate = ({ candidate }) => {
-    if (candidate) {
-      _broadcast({ type: 'ice', from: _myId, to: peerId, candidate: candidate.toJSON() })
-    }
-  }
-
-  const audio = document.createElement('audio')
-  audio.autoplay = true
-  audio.style.display = 'none'
-  document.body.appendChild(audio)
-
-  // Ausgabegerät anwenden, falls bereits gewählt
-  if (_preferredSinkId && typeof audio.setSinkId === 'function') {
-    try { await audio.setSinkId(_preferredSinkId) } catch {}
-  }
-
-  // Deafen-Status anwenden
-  const { deafened } = _getMuteState()
-  audio.muted = deafened
-
-  let analyser = null
-
-  pc.ontrack = ({ streams }) => {
-    const stream = streams[0]
-    if (!stream) return
-    audio.srcObject = stream
-    analyser = _setupRemoteAnalyser(stream, peerId)
-    _peers[peerId] = { ...(_peers[peerId] || {}), pc, audio, analyser }
-    _notifyUpdate()
-  }
-
-  pc.onconnectionstatechange = () => {
-    if (['failed', 'disconnected', 'closed'].includes(pc.connectionState)) {
-      _removePeer(peerId)
-      _notifyUpdate()
-    }
-  }
-
-  _peers[peerId] = { pc, audio, analyser, username: peerUsername }
-  return pc
-}
-
-function _removePeer(peerId) {
-  const peer = _peers[peerId]
-  if (!peer) return
-  try { peer.pc.close() } catch {}
-  peer.audio.srcObject = null
-  peer.audio.remove()
-  clearInterval(_speakTimers[peerId])
-  delete _peers[peerId]
-  delete _speaking[peerId]
-  delete _remoteMuted[peerId]
-  delete _speakTimers[peerId]
-}
-
-function _setupRemoteAnalyser(stream, peerId) {
-  try {
-    if (!_audioCtx) _audioCtx = new AudioContext()
-    const src = _audioCtx.createMediaStreamSource(stream)
-    const analyser = _audioCtx.createAnalyser()
-    analyser.fftSize = 512
-    src.connect(analyser)
-    const buf = new Uint8Array(analyser.frequencyBinCount)
-
-    const timer = setInterval(() => {
-      analyser.getByteFrequencyData(buf)
-      const vol = buf.reduce((a, b) => a + b, 0) / buf.length
-      const isSpeaking = vol > 8
-      if (_speaking[peerId] !== isSpeaking) {
-        _speaking[peerId] = isSpeaking
-        _notifyUpdate()
-      }
-    }, 100)
-    _speakTimers[peerId] = timer
-    return analyser
-  } catch {
-    return null
-  }
-}
-
-function _setupLocalAnalyser(stream, muted) {
-  try {
-    if (!_audioCtx) _audioCtx = new AudioContext()
-    if (_localSpeakTimer) clearInterval(_localSpeakTimer)
-    const src = _audioCtx.createMediaStreamSource(stream)
-    _localAnalyser = _audioCtx.createAnalyser()
-    _localAnalyser.fftSize = 512
-    src.connect(_localAnalyser)
-    const buf = new Uint8Array(_localAnalyser.frequencyBinCount)
-
-    _localSpeakTimer = setInterval(() => {
-      if (_getMuteState().muted) { _speaking['__local'] = false; return }
-      _localAnalyser.getByteFrequencyData(buf)
-      const vol = buf.reduce((a, b) => a + b, 0) / buf.length
-      const isSpeaking = vol > 8
-      if (_speaking['__local'] !== isSpeaking) {
-        _speaking['__local'] = isSpeaking
-        _notifyUpdate()
-      }
-    }, 100)
-  } catch {}
-}
-
 function _notifyUpdate() {
-  if (!_onParticipantUpdate) return
+  if (!_onParticipantUpdate || !_room) return
   const participants = [
-    { id: '__local', username: _myUsername, muted: _getMuteState().muted, speaking: !!_speaking['__local'] },
-    ...Object.entries(_peers).map(([id, p]) => ({
-      id,
-      username: p.username || id,
-      muted: !!_remoteMuted[id],
-      speaking: !!_speaking[id],
+    {
+      id: '__local',
+      username: _myUsername,
+      muted: !_room.localParticipant.isMicrophoneEnabled,
+      speaking: _room.localParticipant.isSpeaking,
+      quality: _room.localParticipant.connectionQuality,
+      screenSharing: _room.localParticipant.isScreenShareEnabled,
+    },
+    ...Array.from(_room.remoteParticipants.values()).map(p => ({
+      id: p.identity,
+      username: p.name || p.identity,
+      muted: !p.isMicrophoneEnabled,
+      speaking: p.isSpeaking,
+      quality: p.connectionQuality,
+      screenSharing: p.isScreenShareEnabled,
     })),
   ]
   _onParticipantUpdate(participants)
 }
 
 function _cleanup() {
-  if (_localSpeakTimer) clearInterval(_localSpeakTimer)
-  for (const id of Object.keys(_peers)) _removePeer(id)
+  if (!_room && !_roomId) return
 
-  if (_localStream) {
-    _localStream.getTracks().forEach(t => t.stop())
-    _localStream = null
-  }
+  for (const el of _remoteAudioEls.values()) el.remove()
+  _remoteAudioEls.clear()
+  for (const el of _remoteVideoEls.values()) el.remove()
+  _remoteVideoEls.clear()
+  _localVideoEl?.remove()
+  _localVideoEl = null
 
-  if (_sigChannel) {
-    _sigChannel.unsubscribe()
-    _sigChannel = null
-  }
-  if (_bcChannel) {
-    _bcChannel.close()
-    _bcChannel = null
-  }
+  if (_presenceChan) { try { supabase.removeChannel(_presenceChan) } catch {}; _presenceChan = null }
 
+  const room = _room
+  _room = null
   _roomId = null
-  _myId = null
   _myUsername = null
   _onParticipantUpdate = null
-  _speaking = {}
-  _remoteMuted = {}
+  _deafened = false
+
+  if (room) { try { room.disconnect() } catch {} }
 }
 
 /* ── beforeunload: aufräumen beim Seitenwechsel ─────────────────────── */
-window.addEventListener('beforeunload', () => {
-  if (_roomId) {
-    _broadcast({ type: 'leave', from: _myId })
-    _cleanup()
-  }
-})
+window.addEventListener('beforeunload', () => { _cleanup() })

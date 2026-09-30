@@ -1,18 +1,17 @@
-import { loadGarage } from "./garage.js";
-import { findBestBike } from "./matching.js";
+import { findBestBike, getCatalog } from "./matching.js";
+import { bikeBild, hatFoto } from "./bike-bild.js";
 
-const BIKES = [
-  { name: "Honda NR750", img: "/img/bikes/2/honda_nr750_1994.png.webp" },
-  { name: "Honda CB 750 F", img: "/img/bikes/2/honda_cb750f_1970.png.webp" },
-  { name: "Yamaha YZF-R3", img: "/img/bikes/2/yamaha_yzfr3_2017.png.webp" },
-  { name: "Harley Seventy-Two", img: "/img/bikes/2/harley_seventytwo_2015.png.webp" },
-  { name: "Harley Iron 883", img: "/img/bikes/2/harley_iron883_2018.png.webp" },
-  { name: "Yamaha 500 Custom", img: "/img/bikes/2/yamaha_500custom.png.webp" },
-  { name: "Honda CRF 450R", img: "/img/bikes/2/honda_crf450r_2023.png.webp" },
-  { name: "Yamaha RX-King 135", img: "/img/bikes/2/yamaha_rxking_135.png.webp" },
-  { name: "Suzuki GSX-R 750", img: "/img/bikes/2/suzuki_gsxr750_2023.png.webp" },
-  { name: "Yamaha DT 125 E", img: "/img/bikes/2/yamaha_dt125e_1974.png.webp" },
-];
+/* Die Walze zog ihre Motorraeder frueher aus einer fest eingetragenen Liste
+   von zehn. Neu aufgenommene Modelle tauchten darin nie auf, und schlimmer:
+   lag das ermittelte Bike nicht in der Liste, suchte ein Notbehelf das
+   aehnlichste ueber das letzte Wort des Namens. Bei "Yamaha DT 125 E" ist das
+   der Buchstabe "E" — die Walze hielt dann bei einem voellig anderen Modell,
+   waehrend die Ergebnisseite daneben das richtige zeigte. Jetzt kommen die
+   Karten aus demselben Katalog, aus dem auch das Ergebnis stammt. */
+/* Seit der Katalog den ganzen deutschen Markt umfasst, haben die meisten Bikes noch kein
+   Foto — die Walze füllt sich deshalb aus denen mit Foto, das Ergebnis zeigt notfalls die
+   Silhouette seiner Bauart (bike-bild.js). */
+const bikeKarte = (b) => ({ name: b.name, img: bikeBild(b, "titel") });
 
 const CARD_W = 240;
 const CARD_GAP = 16;
@@ -25,18 +24,18 @@ export function startDropAnimation(answers) {
 
   const winner = findBestBike(answers);
   try { localStorage.setItem('mm_primary_bike', winner.name); } catch (e) { /* ignore */ }
-  const winBike =
-    BIKES.find((b) => b.name === winner.name) ||
-    BIKES.find((b) => winner.name.includes(b.name.split(" ").slice(-1)[0])) ||
-    BIKES[0];
+  const katalog = getCatalog().filter(hatFoto).map(bikeKarte);
+  const winBike = bikeKarte(winner);
 
   // ── Build strip: 70 items, winner near end ──
   const TOTAL = 70;
   const WIN_POS = TOTAL - 8;
   const strip = [];
-  const others = BIKES.filter((b) => b.name !== winBike.name);
+  const others = katalog.filter((b) => b.name !== winBike.name);
   for (let i = 0; i < TOTAL; i++) {
-    if (i === WIN_POS) {
+    if (i === WIN_POS || others.length === 0) {
+      // Kein zweites Foto-Bike im Katalog (others leer) — Fuellkarten zeigen
+      // dann den Sieger noch einmal statt others[NaN] === undefined.
       strip.push(winBike);
     } else {
       strip.push(others[Math.floor(Math.random() * others.length)]);
@@ -189,7 +188,15 @@ export function startDropAnimation(answers) {
       container.style.opacity = "0";
       setTimeout(() => {
         container.style.display = "none";
-        loadGarage(answers);
+        // Erst hier nachladen statt oben statisch: der statische Import zog
+        // garage.js (mit three.js und Leaflet) in jeden Chunk, der quiz.js
+        // anfasst — und damit ueber die Quiz-Vorbereitung auf die Startseite.
+        import("./garage.js")
+          .then(m => m.loadGarage(answers))
+          .catch(err => {
+            console.error("[drop-animation] Garage konnte nicht geladen werden:", err);
+            import("./landing.js").then(m => m.initLanding());
+          });
       }, 800);
     }, 3800);
   }

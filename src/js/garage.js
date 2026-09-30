@@ -6,13 +6,14 @@
  *  Layout (scrollable, like bike-detail.js):
  *    Section 1: Hero — bg text + cutout image + name/badge/price/actions
  *    Section 2: Specs — animated counters (left) + 3D model (right)
- *    Section 3: KI-Analyse + Gear + Markt + Map (tabbed)
+ *    Section 3: Gear + Markt + Map (tabbed)
  *    Footer
  *
  *  3D: DRACOLoader + MeshoptDecoder, adaptive shadows, PMREM env
  * ══════════════════════════════════════════════════════════════
  */
 
+import { enterScreen, goBack as navGoBack } from "./nav.js";
 // three.js liegt in einem gemeinsamen Chunk von 667 KB. Die meisten Screens
 // (Karte, Ausrüstung, Community) zeigen kein Modell — deshalb erst laden,
 // wenn wirklich ein Viewer aufgebaut wird.
@@ -38,17 +39,19 @@ function loadThree() {
 }
 import {
   findBestBike,
+  ERGEBNIS_ANZAHL,
   findTopMatches,
   findBikeByShortName,
+  scoreBikeAgainst,
 } from "./matching.js";
+import { addMatch } from "./match-history.js";
+import { bikeBild, hatFoto, kachelFuerHero } from "./bike-bild.js";
 import { getGear } from "./gear.js";
-import { getStaticListings, getLiveListings } from "./marketplace.js";
-import { getAIExplanation } from "./ai.js";
-import { findNearby } from "./dealers.js";
+import { buildSearchUrls } from "./marketplace.js";
 import { esc } from "./util.js";
 
 // Einmaliger, dezenter Puls auf der Tab-Leiste, damit Nutzer merken, dass
-// hinter "Ansicht"/"Ausrüstung"/etc. mehr Inhalt steckt.
+// hinter "Profil"/"Ausrüstung"/etc. mehr Inhalt steckt.
 const TABHINT_KEY = "mm_tabhint_seen_v1";
 function tabHintSeen() {
   try { return !!localStorage.getItem(TABHINT_KEY); } catch { return true; }
@@ -94,6 +97,15 @@ function stopTabHint() {
 // ══════════════════════════════════════════════════════════════
 
 let garageScene, garageCamera, garageRenderer, garageBike, garageRaf;
+// Zaehlt jeden Start eines 3D-Ladevorgangs — der GLTF-Callback vergleicht
+// damit, ob er noch zum aktuellen Ladevorgang gehoert (siehe init3DViewer).
+let garageLoadGen = 0;
+let garageAnsichtObserver = null;
+// #garage-container ist statisch (index.html) und wird nie neu erzeugt —
+// bindEvents() legt sonst bei jedem Besuch einen weiteren scroll-/click-
+// Listener drauf. Referenzen hier merken, damit cleanup() sie abmeldet.
+let garageContainerScrollHandler = null;
+let garageContainerClickHandler = null;
 let camDist = 5,
   camHeight = 1.5,
   lookAtY = 0.45;
@@ -132,19 +144,36 @@ export function loadGarage(answers) {
   const container = document.getElementById("garage-container");
   container.style.display = "block";
 
-  const bikeData = findBestBike(answers);
-  const topMatches = findTopMatches(answers, 5);
+  /* Ein Durchlauf statt zwei: findBestBike() rechnete dasselbe noch einmal — und konnte seit der
+     Stilgarantie sogar ein anderes Bike liefern als Platz eins der Fünferliste. */
+  const topMatches = findTopMatches(answers, ERGEBNIS_ANZAHL);
+  const bikeData = topMatches[0]?.bike || findBestBike(answers);
 
   console.info(`[garage] Matched: ${bikeData.name}`);
 
+  // Sieger des Durchlaufs in die Match-Chronik — der Match-Reiter im
+  // Konfigurator liest sie aus.
+  const winner = topMatches[0];
+  addMatch(bikeData, {
+    score: winner?.score,
+    pct: winner ? scoreBikeAgainst(bikeData, answers)?.pct : null,
+    source: 'quiz',
+  });
+
   // Preload Google Maps + geolocation in background — only after consent
   if (hasMapsConsent()) {
-    loadGoogleMapsScript();
+    // Vorab-Laden ist nur ein Vorgriff — initHubMap() versucht es beim
+    // tatsaechlichen Oeffnen der Karte erneut und zeigt dann den
+    // Fehlerzustand (renderMapUnavailable). Hier reicht Protokollieren,
+    // damit die Ablehnung nicht unbehandelt bleibt.
+    loadGoogleMapsScript().catch((err) =>
+      console.warn("[garage] Google Maps Vorab-Laden fehlgeschlagen:", err),
+    );
     getUserLocation();
   }
 
   // Build the full page
-  container.innerHTML = buildPage(bikeData);
+  container.innerHTML = buildPage(bikeData, true, topMatches.hinweis);
   container.scrollTop = 0;
   window.scrollTo(0, 0);
 
@@ -155,6 +184,8 @@ export function loadGarage(answers) {
     init3DViewer(bikeData);
     bindEvents(bikeData, answers);
     initHubScrollEffect();
+    initTabbarThemeSync();
+    mountAnsicht(bikeData);
   });
 }
 
@@ -199,9 +230,15 @@ export function openBikeGarage(shortName) {
   setTimeout(() => {
     if (landing) landing.style.display = "none";
     container.style.display = "block";
+    enterScreen("garage", goBack, isGarageActive,
+                { screen: "garage", bike: bikeData.name });
 
     if (hasMapsConsent()) {
-      loadGoogleMapsScript();
+      // Siehe loadGarage(): Vorab-Laden ist nur ein Vorgriff, initHubMap()
+      // wiederholt den Versuch beim tatsaechlichen Oeffnen der Karte.
+      loadGoogleMapsScript().catch((err) =>
+        console.warn("[garage] Google Maps Vorab-Laden fehlgeschlagen:", err),
+      );
       getUserLocation();
     }
 
@@ -215,6 +252,8 @@ export function openBikeGarage(shortName) {
       init3DViewer(bikeData);
       bindEvents(bikeData, null);
       initHubScrollEffect();
+      initTabbarThemeSync();
+      mountAnsicht(bikeData);
     });
   }, 220);
 }
@@ -223,9 +262,36 @@ export function openBikeGarage(shortName) {
 //  PAGE BUILDER
 // ══════════════════════════════════════════════════════════════
 
-function buildPage(bike, fromQuiz = true) {
+/** Neu- und Gebrauchtpreis unter dem Hauptpreis — die Mitte aus beiden steht oben (matching_katalog.py). */
+function preisDetails(bike) {
+  const euro = (n) => `${Math.round(n).toLocaleString("de-DE")} €`;
+  const teile = [];
+  if (bike.priceNew) teile.push(`neu ca. ${euro(bike.priceNew)}`);
+  if (bike.priceUsed) {
+    /* `priceYear` bedeutet zweierlei: bei einem Katalogpreis das Modelljahr, bei einem Median aus
+       Inseraten dagegen den Tag der Erhebung. Beides gleich zu beschriften las sich falsch — die
+       Honda XL1000V Varadero (gebaut bis 2013) stand mit „gebraucht (2026)" da, als gäbe es sie
+       als 2026er Modell. Betroffen waren 348 Bikes, deren Preis aus Inseraten stammt. */
+    const ausInseraten = /Inserate/i.test(bike.priceSource || "");
+    const jahr = bike.priceYear
+      ? (ausInseraten ? ` (Stand ${bike.priceYear})` : ` (${bike.priceYear})`)
+      : "";
+    teile.push(`gebraucht${jahr} ca. ${euro(bike.priceUsed)}`);
+  }
+  if (!teile.length) return "";
+  return `<p class="bd-price-detail">${teile.join(" · ")} — Marktpreise 1000PS</p>`;
+}
+
+function buildPage(bike, fromQuiz = true, hinweis = null) {
   const priceDisplay =
-    bike.priceDisplay || `Ab EUR ${bike.price.split("-")[0]}`;
+    bike.priceDisplay ||
+    // price=1 ist der Katalog-Platzhalter für "kein echter Preis ermittelbar"
+    // (2026-09-27 Audit) — als Zahl gelesen zeigte das fälschlich "ca. 1 €" an.
+    (typeof bike.price === "number" && bike.price > 1
+      ? `ca. ${Math.round(bike.price).toLocaleString("de-DE")} €`
+      : bike.price && bike.price !== 1
+        ? `Ab EUR ${String(bike.price).split("-")[0]}`
+        : "Preis folgt");
 
   return `
     <!-- ═══ SECTION 1: Hero (Porsche-style) ═══ -->
@@ -234,59 +300,46 @@ function buildPage(bike, fromQuiz = true) {
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 12H5M12 19l-7-7 7-7"/></svg>
       </button>
 
-      <div class="bd-hero-bg-text">${bike.bgText || bike.name}</div>
-
+      <!-- Wortmarke sitzt in der Bildbox, damit sie an das Motorrad
+           gekoppelt bleibt statt an die Hero-Hoehe. -->
       <div class="bd-hero-img-wrap">
-        <img class="bd-hero-img" src="${bike.image2 || bike.image}" alt="${bike.name}">
+        <div class="bd-hero-bg-text">${bike.bgText || bike.name}</div>
+        <!-- Am Handy die eng beschnittene Kachel statt des Panoramas: im Titelbild (1600 × 437)
+             nimmt das Motorrad nur gut 40 % der Breite ein — auf 375 px blieb davon ein 90 px
+             hohes Bike mit viel Leere ringsum. Die Kachel zeigt nur das Motorrad. -->
+        <picture class="bd-hero-pic">
+          ${kachelFuerHero(bike) ? `<source media="(max-width: 768px)" srcset="${kachelFuerHero(bike)}">` : ""}
+          <img class="bd-hero-img" src="${bikeBild(bike, "titel")}" alt="${bike.name}">
+        </picture>
+        ${hatFoto(bike) ? "" : '<span class="bd-hero-foto-folgt">Foto folgt</span>'}
       </div>
 
       <div class="bd-hero-info">
         ${fromQuiz ? '<p class="gr-match-label">Dein perfektes Match</p>' : ""}
         <h1 class="bd-model-name">${bike.name}</h1>
-        <span class="bd-badge">${bike.style}</span>
-        <p class="bd-price">${priceDisplay} inkl. MwSt.</p>
+        <p class="bd-price">${priceDisplay}</p>
+        ${preisDetails(bike)}
+        ${hinweis ? `<p class="bd-hinweis">${hinweis}</p>` : ""}
       </div>
     </section>
 
     <!-- ═══ Sticky Touch Bar ═══ -->
     <div class="tb-wrap" id="bd-sticky-nav">
       <nav class="tb-bar" id="gr-tabbar">
-        <button class="tb-btn" id="gr-3d-btn">Ansicht</button>
-        <button class="tb-btn" id="gr-nav-gear">Ausr\u00fcstung</button>
-        <button class="tb-btn tb-btn-active" id="gr-share-btn">Match finden</button>
-        <button class="tb-btn" id="gr-nav-hub">Community</button>
-        <button class="tb-btn" id="gr-nav-market">Karte</button>
+        <button class="tb-btn" type="button" id="gr-profil-btn">Profil</button>
+        <button class="tb-btn" data-tab="ausstattung">Ausr\u00fcstung</button>
+        <button class="tb-btn" data-tab="match"><span class="tb-lbl-lang">Match finden</span><span class="tb-lbl-kurz">Match</span></button>
+        <button class="tb-btn" data-tab="community">Community</button>
+        <button class="tb-btn" data-tab="karte">Karte</button>
       </nav>
     </div>
 
     <!-- ═══ SECTION 2: Specs + 3D Model ═══ -->
     <section class="bd-specs" id="gr-specs-section">
       <div class="bd-specs-inner">
-        <div class="bd-specs-left">
-          <div class="bd-spec-item bd-spec-anim">
-            <span class="bd-spec-value"><span class="bd-counter" data-target="${bike.accel}" data-decimals="1">0</span><span class="bd-spec-unit">s</span></span>
-            <span class="bd-spec-label">Beschleunigung 0 - 100 km/h</span>
-          </div>
-          <div class="bd-spec-item bd-spec-anim">
-            <span class="bd-spec-value"><span class="bd-counter" data-target="${bike.kw}" data-decimals="0">0</span><span class="bd-spec-unit"> kW / </span><span class="bd-counter" data-target="${bike.ps}" data-decimals="0">0</span><span class="bd-spec-unit"> PS</span></span>
-            <span class="bd-spec-label">Leistung (kW) / Leistung (PS)</span>
-          </div>
-          <div class="bd-spec-item bd-spec-anim">
-            <span class="bd-spec-value"><span class="bd-counter" data-target="${bike.topSpeed}" data-decimals="0">0</span><span class="bd-spec-unit"> km/h</span></span>
-            <span class="bd-spec-label">Hochstgeschwindigkeit</span>
-          </div>
-          <button class="bd-btn bd-btn-outline bd-details-toggle" id="gr-details-toggle">Alle technischen Details</button>
-          <div class="bd-details-panel" id="gr-details-panel">
-            <div class="bd-details-grid">
-              <div class="bd-detail-item"><span class="bd-detail-val">${bike.cc} ccm</span><span class="bd-detail-lbl">Hubraum</span></div>
-              <div class="bd-detail-item"><span class="bd-detail-val">${bike.weight} kg</span><span class="bd-detail-lbl">Gewicht</span></div>
-              <div class="bd-detail-item"><span class="bd-detail-val">${bike.seat_height} cm</span><span class="bd-detail-lbl">Sitzhohe</span></div>
-              <div class="bd-detail-item"><span class="bd-detail-val">${bike.tank} L</span><span class="bd-detail-lbl">Tankvolumen</span></div>
-              <div class="bd-detail-item"><span class="bd-detail-val">${bike.gear}</span><span class="bd-detail-lbl">Getriebe</span></div>
-              <div class="bd-detail-item"><span class="bd-detail-val">${bike.license}</span><span class="bd-detail-lbl">Fuhrerschein</span></div>
-            </div>
-          </div>
-        </div>
+        <!-- Wird von mountAnsicht() gefuellt (bike-detail.js bleibt ein
+             eigener Chunk und wird erst nach dem Rendern nachgeladen). -->
+        <div class="bd-specs-left" id="gr-ansicht-host"></div>
         <div class="bd-specs-right">
           <div class="bd-3d-canvas-wrap" id="gr-3d-wrap">
             <canvas id="gr-3d-canvas"></canvas>
@@ -303,7 +356,7 @@ function buildPage(bike, fromQuiz = true) {
     </section>
 
     <!-- ═══ SECTION 4: Hub — Apple Maps Style ═══ -->
-    <section class="hub-section" id="gr-hub-section">
+    <section class="hub-section hub-section--finale" id="gr-hub-section">
       <div class="hub-inner">
         <h2 class="hub-title">In deiner N\u00e4he</h2>
         <div class="hub-filters">
@@ -384,8 +437,65 @@ function animateCounters(container) {
 //  3D VIEWER (in specs section)
 // ══════════════════════════════════════════════════════════════
 
+/* Gemeinsame Formel fuer Initial-Setup und Resize — vorher rechnete der
+   Resize-Handler mit einem eigenen Seitenverhaeltnis (w*0.6, Deckel 600),
+   das vom Aufbau (w*0.75, Deckel 550) abwich und nach jedem Resize ein
+   anderes Bild-Seitenverhaeltnis ergab als beim ersten Rendern. */
+function garage3dCanvasSize(wrap) {
+  const w = wrap.offsetWidth;
+  const h = wrap.offsetHeight || Math.min(w * 0.75, 550);
+  return { w, h };
+}
+
 async function init3DViewer(bikeData) {
-  if (!bikeData.has3D || !bikeData.glb) return;
+  if (!bikeData.has3D || !bikeData.glb) {
+    // Ohne 3D-Modell steht hier der 3D-Ersatz: dasselbe Motorrad im dunklen Studio, 4:3
+    // (freigegebene Bikes, tools/catalog/einbau.py).
+    const wrap = document.getElementById("gr-3d-wrap");
+    if (wrap) {
+      // Ohne Studio-Bild steht hier die Silhouette der Bauart (bike-bild.js) — der Rahmen bleibt
+      // gefüllt, und die Bildunterschrift sagt, dass das Foto noch kommt.
+      wrap.classList.add("bd-3d-canvas-wrap--studio");
+      wrap.innerHTML = `<img class="bd-studio-img" src="${bikeBild(bikeData, "studio")}" alt="${bikeData.name} im Studio" loading="lazy" decoding="async">`
+        + (bikeData.studio ? "" : '<span class="bd-studio-folgt">Studiofoto folgt</span>');
+      // Nebeneinander so hoch wie die Specs-Karte (bündige Kanten), aber nie schmaler als 4:3 — das Format des
+      // Studio-Bilds. Mit der vollen Kartenhöhe schnitt object-fit: cover bei schmalen Spalten (800–1100 px
+      // Fensterbreite, Rahmen 0,74–1,2) Vorder- und Hinterrad ab. Untereinander (Handy, Tablet hochkant) gilt das
+      // 4:3 aus dem CSS; die Kartenhöhe machte den Rahmen dort hochkant (340 × 460 px).
+      // Eingefroren, damit das Bild beim Aufklappen der Karte nicht mitwächst. mountAnsicht() ist async →
+      // bd-ansicht-embed existiert erst nach dem Import. MutationObserver abwarten.
+      const host = document.getElementById("gr-ansicht-host");
+      const inner = wrap.closest(".bd-specs-inner");
+      if (host && inner) {
+        let ansichtObsTimeout = null;
+        const obs = new MutationObserver(() => {
+          const specsCard = host.querySelector(".bd-ansicht-embed");
+          if (specsCard) {
+            obs.disconnect();
+            if (garageAnsichtObserver === obs) garageAnsichtObserver = null;
+            clearTimeout(ansichtObsTimeout);
+            requestAnimationFrame(() => {
+              if (getComputedStyle(inner).flexDirection === "column") return;
+              const h = Math.min(specsCard.offsetHeight, (wrap.offsetWidth * 3) / 4) + "px";
+              wrap.style.height = h;
+              wrap.style.maxHeight = h;
+            });
+          }
+        });
+        garageAnsichtObserver = obs;
+        obs.observe(host, { childList: true, subtree: true });
+        // mountAnsicht() ist async — scheitert sie (z. B. Ladefehler), erscheint
+        // .bd-ansicht-embed nie und der Observer liefe sonst endlos weiter.
+        // cleanup() faengt den Regelfall (Seite verlassen) ab, dieses Zeitlimit
+        // den Rest.
+        ansichtObsTimeout = setTimeout(() => {
+          obs.disconnect();
+          if (garageAnsichtObserver === obs) garageAnsichtObserver = null;
+        }, 10000);
+      }
+    }
+    return;
+  }
 
   const wrap = document.getElementById("gr-3d-wrap");
   const canvas = document.getElementById("gr-3d-canvas");
@@ -403,8 +513,7 @@ async function init3DViewer(bikeData) {
   garageScene = new THREE.Scene();
   garageScene.background = null; // transparent — blends with page
 
-  const w = wrap.offsetWidth;
-  const h = wrap.offsetHeight || Math.min(w * 0.75, 550);
+  const { w, h } = garage3dCanvasSize(wrap);
   canvas.style.height = h + "px";
 
   garageCamera = new THREE.PerspectiveCamera(30, w / h, 0.1, 100);
@@ -443,14 +552,15 @@ async function init3DViewer(bikeData) {
   const loader = new GLTFLoader();
   loader.setMeshoptDecoder(MeshoptDecoder);
   const dracoLoader = new DRACOLoader();
-  dracoLoader.setDecoderPath(
-    "https://www.gstatic.com/draco/versioned/decoders/1.5.7/",
-  );
+  dracoLoader.setDecoderPath("/draco/");
   loader.setDRACOLoader(dracoLoader);
 
+  const myLoadGen = ++garageLoadGen;
   loader.load(bikeData.glb, (gltf) => {
-    // Guard: scene was cleaned up while model was loading
-    if (!garageScene || !garageRenderer) {
+    // Guard: scene was cleaned up, or a newer load started (Nutzer navigierte
+    // weg und wieder zurueck, bevor dieser Fetch fertig war), waehrend das
+    // Modell lud — sonst landet dieses Ergebnis in einer fremden Szene.
+    if (!garageScene || !garageRenderer || myLoadGen !== garageLoadGen) {
       dracoLoader.dispose();
       return;
     }
@@ -517,7 +627,10 @@ async function init3DViewer(bikeData) {
     );
     const fovRad = (garageCamera.fov * Math.PI) / 180;
     const fitDist = diagonal / 2 / Math.tan(fovRad / 2);
-    camDist = fitDist * 1.35;
+    // Rand um das Modell. fitDist passt die Grundflaechen-Diagonale in das
+    // (vertikale) FOV — bei dem nahezu quadratischen Canvas blieb mit 1.35
+    // viel Luft. 1.1 laesst noch Reserve, damit beim Drehen nichts anschneidet.
+    camDist = fitDist * 1.1;
     camHeight = modelHeight * 0.6;
     lookAtY = modelHeight * 0.35;
 
@@ -566,8 +679,7 @@ async function init3DViewer(bikeData) {
 
   // Resize
   const onResize = () => {
-    const nw = wrap.offsetWidth;
-    const nh = Math.min(nw * 0.6, 600);
+    const { w: nw, h: nh } = garage3dCanvasSize(wrap);
     canvas.style.height = nh + "px";
     garageRenderer.setSize(nw, nh);
     garageCamera.aspect = nw / nh;
@@ -584,8 +696,12 @@ async function init3DViewer(bikeData) {
 function bindEvents(bikeData, answers) {
   const fromQuiz = answers !== null;
 
-  // Back button → go back to landing
-  document.getElementById("garage-back")?.addEventListener("click", goBack);
+  // Back button → go back to landing. Über die History, damit In-App-Button
+  // und Browser-Zurück denselben Weg nehmen; der Fallback greift nur beim
+  // Direkteinstieg über ?bike=<name>, wo kein Eintrag darunter liegt.
+  document.getElementById("garage-back")?.addEventListener("click", () => {
+    if (!navGoBack()) goBack();
+  });
 
   // Hinweis-Puls: erst nach 15s Inaktivität starten (siehe scheduleTabHint)
   scheduleTabHint();
@@ -605,7 +721,12 @@ function bindEvents(bikeData, answers) {
         heroBack.style.pointerEvents = stuck ? "none" : "auto";
       }
     };
-    scrollRoot.addEventListener("scroll", checkScrolled, { passive: true });
+    // #garage-container ist statisch (index.html) und wird nie neu erzeugt —
+    // Referenz merken, damit cleanup() den Listener beim naechsten Besuch
+    // wieder abmeldet, statt ihn bei jedem loadGarage()/openBikeGarage() ein
+    // weiteres Mal draufzulegen.
+    garageContainerScrollHandler = checkScrolled;
+    scrollRoot.addEventListener("scroll", garageContainerScrollHandler, { passive: true });
     checkScrolled();
   }
 
@@ -628,59 +749,39 @@ function bindEvents(bikeData, answers) {
     hubObserver.observe(hubSection);
   }
 
-  // Ansicht button → open Porsche Konfigurator split-screen
-  document.getElementById("gr-3d-btn")?.addEventListener("click", async () => {
-    setActiveBtn("gr-3d-btn");
-    const { openKonfigurator } = await import("./bike-detail.js");
-    openKonfigurator(bikeData, cleanup, "ansicht");
+  // Profil button → Konto-Overlay (kein Tab, daher kein setActiveBtn)
+  document.getElementById("gr-profil-btn")?.addEventListener("click", async () => {
+    markTabHintSeen();
+    stopTabHint();
+    const { openAccount } = await import("./account.js");
+    openAccount(document.getElementById("gr-tabbar"));
   });
 
-  // Match finden button → start quiz
-  document.getElementById("gr-share-btn")?.addEventListener("click", () => {
-    setActiveBtn("gr-share-btn");
-    cleanup();
-    const container = document.getElementById("garage-container");
-    container.style.display = "none";
-    container.innerHTML = "";
-    document.getElementById("quiz-screen").style.display = "flex";
-    import("./quiz.js").then((m) => m.initQuiz());
-  });
-
-  // Details toggle
-  document
-    .getElementById("gr-details-toggle")
-    ?.addEventListener("click", () => {
-      const panel = document.getElementById("gr-details-panel");
-      const btn = document.getElementById("gr-details-toggle");
-      if (!panel || !btn) return;
-      panel.classList.toggle("open");
-      btn.textContent = panel.classList.contains("open")
-        ? "Details ausblenden"
-        : "Alle technischen Details";
-    });
-
-  // Helper: set active button
-  function setActiveBtn(activeId) {
+  // Aktiven Reiter setzen — nur innerhalb dieser Leiste, nicht ueber alle
+  // .tb-btn im Dokument (die Konto-Leiste ist ein Klon derselben Klasse).
+  function setActiveBtn(btn) {
     document
-      .querySelectorAll(".tb-btn")
+      .querySelectorAll("#gr-tabbar .tb-btn")
       .forEach((b) => b.classList.remove("tb-btn-active"));
-    document.getElementById(activeId)?.classList.add("tb-btn-active");
+    btn?.classList.add("tb-btn-active");
     // Erster Klick auf einen Tab → Hinweis-Puls beenden/verhindern und nie wieder zeigen
     markTabHintSeen();
     stopTabHint();
   }
 
-  // Nav buttons → direkt zum passenden Konfigurator-Tab wechseln (kein Scrollen auf dem Deckblatt)
-  const navMap = {
-    "gr-nav-gear": "ausstattung",
-    "gr-nav-market": "karte",
-    "gr-nav-hub": "community",
-  };
-  Object.entries(navMap).forEach(([id, tab]) => {
-    document.getElementById(id)?.addEventListener("click", async () => {
-      setActiveBtn(id);
+  /* Alle vier Reiter fuehren in denselben Konfigurator-Tab wie die
+     gleichnamigen Reiter dort — eine Leiste, ein Verhalten.
+
+     "Match finden" sprang hier frueher direkt ins Quiz, waehrend derselbe
+     Reiter im Konfigurator die Passgenauigkeits-Ansicht oeffnete: gleiche
+     Beschriftung, gleiche Stelle, zwei verschiedene Ziele. Das Quiz startet
+     jetzt von dort aus ueber "Quiz starten" — ein Klick mehr, dafuer sieht
+     man vorher, worauf man sich einlaesst. */
+  document.querySelectorAll("#gr-tabbar .tb-btn[data-tab]").forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      setActiveBtn(btn);
       const { openKonfigurator } = await import("./bike-detail.js");
-      openKonfigurator(bikeData, cleanup, tab);
+      openKonfigurator(bikeData, cleanup, btn.dataset.tab);
     });
   });
 
@@ -700,12 +801,15 @@ function bindEvents(bikeData, answers) {
 
   // Retry-Button im Fehlerzustand ("Standort nicht verfügbar") — der Button
   // wird per innerHTML injiziert, daher hier per Delegation binden.
-  document.getElementById("garage-container")?.addEventListener("click", (e) => {
+  // Referenz merken (siehe Scroll-Listener oben): #garage-container bleibt
+  // ueber Besuche hinweg dasselbe Element, cleanup() meldet diesen Handler ab.
+  garageContainerClickHandler = (e) => {
     if (e.target.closest("#hub-retry-btn")) retryHubLocation();
-  });
+  };
+  document.getElementById("garage-container")?.addEventListener("click", garageContainerClickHandler);
 }
 
-function retryHubLocation() {
+export function retryHubLocation() {
   const loader = document.getElementById("hub-map-loading");
   if (loader) {
     loader.innerHTML = `
@@ -714,6 +818,11 @@ function retryHubLocation() {
     `;
   }
   getUserLocation().then(() => initHubMap());
+}
+
+function isGarageActive() {
+  const container = document.getElementById("garage-container");
+  return !!container && container.style.display !== "none";
 }
 
 function goBack() {
@@ -744,37 +853,23 @@ function renderTab(tab, bikeData, answers) {
   const extras = document.getElementById("gr-extras-section");
   if (extras) extras.classList.add("has-content");
 
-  if (tab === "ai") {
-    if (!answers) {
-      content.innerHTML = `
-        <div class="gr-ai-section">
-          <p class="gr-ai-text">Starte das Quiz, um eine personalisierte KI-Analyse zu erhalten.</p>
-        </div>
-      `;
-      return;
-    }
-    content.innerHTML = `
-      <div class="gr-ai-section">
-        <p class="gr-ai-text" id="gr-ai-text">Wird geladen...</p>
-      </div>
-    `;
-    getAIExplanation(answers, bikeData)
-      .then((text) => {
-        const el = document.getElementById("gr-ai-text");
-        if (el) el.textContent = text;
-      })
-      .catch(() => {
-        const el = document.getElementById("gr-ai-text");
-        if (el) el.textContent = "Nicht verfügbar.";
-      });
-  } else if (tab === "gear") {
+  /* Der Reiter "ai" ist entfallen. Er zeigte eine von OpenAI erzeugte
+     Begruendung zum Quiz-Ergebnis — sichtbar wurde sie nie, weil renderTab()
+     von keiner Stelle aufgerufen wird. Ein Aufruf pro Anzeige haette Geld
+     gekostet, gesehen hat ihn niemand. Mit ihm sind src/js/ai.js und
+     api/ai-match.js weg. */
+  if (tab === "gear") {
     const gear = getGear(bikeData.style);
+    /* getGear() liefert je Kategorie eine Liste — hier steht der Einstiegs-
+       Vorschlag, also der erste Eintrag. Vorher wurde die Liste selbst ins
+       Objekt gespreizt ({ ...gear.helmet }), womit name/type/reason undefined
+       waren und die Zeile leer blieb. */
     const items = [
-      { ...gear.helmet, label: "Helm" },
-      { ...gear.jacket, label: "Jacke" },
-      { ...gear.gloves, label: "Handschuhe" },
-      { ...gear.boots, label: "Stiefel" },
-    ];
+      { ...gear.helmet?.[0], label: "Helm", icon: "helmet" },
+      { ...gear.jacket?.[0], label: "Jacke", icon: "jacket" },
+      { ...gear.gloves?.[0], label: "Handschuhe", icon: "gloves" },
+      { ...gear.boots?.[0], label: "Stiefel", icon: "boots" },
+    ].filter((i) => i.name);
     content.innerHTML = `
       <p class="gr-section-label">Empfohlen fur ${bikeData.style}</p>
       ${items
@@ -785,7 +880,7 @@ function renderTab(tab, bikeData, answers) {
           <div class="gr-gear-info">
             <div class="gr-gear-top">
               <span class="gr-gear-name">${i.name}</span>
-              <span class="gr-gear-price">${i.price}</span>
+              <span class="gr-gear-price">ca. ${i.priceMin}\u2013${i.priceMax} EUR</span>
             </div>
             <span class="gr-gear-meta">${i.type} / ${i.reason}</span>
           </div>
@@ -795,14 +890,20 @@ function renderTab(tab, bikeData, answers) {
         .join("")}
     `;
   } else if (tab === "market") {
-    const { items: staticItems, urls } = getStaticListings(
-      bikeData.id,
-      bikeData.name,
-    );
+    /* Nur die drei Suchlinks, schon auf dieses Modell eingestellt. Bis 2026-09-21 holte
+       /api/search-places über Tavily fünf Websuche-Treffer dazu — Titel und Link ohne
+       Preis, oft nur Kategorieseiten, und jede Suche kostete Geld. Die Links zeigen alle
+       aktuellen Inserate; was ein gebrauchtes Exemplar kostet, steht schon in den
+       Katalogpreisen. Davor sprangen hier erfundene Inserate ein — nie etwas zeigen, das
+       wie ein echtes Angebot aussieht, ohne eins zu sein. */
+    const urls = buildSearchUrls(bikeData.name);
     content.innerHTML = `
       <p class="gr-section-label">Gebrauchtmarkt</p>
-      <div id="gr-market-listings" class="gr-market-list">
-        <p class="gr-meta-text">Suche Angebote...</p>
+      <div class="gr-market-list">
+        <p class="gr-meta-text">
+          Aktuelle Inserate findest du direkt bei den großen Marktplätzen \u2014 die Suche
+          ist schon auf dieses Modell eingestellt.
+        </p>
       </div>
       <div class="gr-market-links">
         <a href="${urls.kleinanzeigen}" target="_blank" rel="noopener" class="gr-market-link">Kleinanzeigen</a>
@@ -810,38 +911,6 @@ function renderTab(tab, bikeData, answers) {
         <a href="${urls.ebay}" target="_blank" rel="noopener" class="gr-market-link">eBay</a>
       </div>
     `;
-    getLiveListings(bikeData.name)
-      .then(({ items }) => {
-        const el = document.getElementById("gr-market-listings");
-        if (!el || items.length === 0) throw new Error("no results");
-        el.innerHTML = items
-          .map(
-            (item) => `
-          <a href="${esc(item.url)}" target="_blank" rel="noopener" class="gr-listing-item">
-            <span class="gr-listing-title">${esc(item.title)}</span>
-            <span class="gr-listing-meta">${esc(item.source)}</span>
-          </a>
-        `,
-          )
-          .join("");
-      })
-      .catch(() => {
-        const el = document.getElementById("gr-market-listings");
-        if (!el) return;
-        el.innerHTML = staticItems
-          .map(
-            (item) => `
-          <div class="gr-listing-item">
-            <div style="display:flex;justify-content:space-between;align-items:baseline;">
-              <span class="gr-listing-title">${item.title}</span>
-              <span class="gr-listing-price">${item.price}</span>
-            </div>
-            <span class="gr-listing-meta">${item.year} / ${item.km} km / ${item.location}</span>
-          </div>
-        `,
-          )
-          .join("");
-      });
   } else if (tab === "map") {
     // Redirect to hub section
     document
@@ -860,21 +929,24 @@ let hubMarkers = [];
 let hubInfoWindow = null;
 
 const MAPS_CONSENT_KEY = 'mm_maps_consent_v1';
-function hasMapsConsent() {
+export function hasMapsConsent() {
   try { return localStorage.getItem(MAPS_CONSENT_KEY) === '1'; } catch { return false; }
 }
 function setMapsConsent() {
   try { localStorage.setItem(MAPS_CONSENT_KEY, '1'); } catch {}
 }
 function renderMapsConsentPlaceholder(el) {
+  // Aussehen liegt in main.css (.hub-map-consent) — im Karten-Tab muss der
+  // Block dem schwebenden Ergebnis-Panel ausweichen, und das geht mit Inline-
+  // Stilen nicht, ohne sie mit !important zu ueberschreiben.
   el.innerHTML = `
-    <div class="hub-map-consent" id="hub-map-consent" style="display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;padding:24px;text-align:center;height:100%;box-sizing:border-box;">
-      <p style="max-width:420px;margin:0;font-size:14px;line-height:1.5;color:#e5e5e5;">
+    <div class="hub-map-consent" id="hub-map-consent">
+      <p class="hub-map-consent-text">
         Die Karte lädt Daten von <strong>Google Maps</strong>. Dabei wird deine
         IP-Adresse an Google übertragen. Details in der
-        <a href="#" data-open-legal="datenschutz" style="color:inherit;text-decoration:underline;">Datenschutzerklärung</a>.
+        <a href="#" data-open-legal="datenschutz">Datenschutzerklärung</a>.
       </p>
-      <button type="button" id="hub-map-consent-btn" class="tb-btn" style="padding:10px 18px;font-weight:600;cursor:pointer;">
+      <button type="button" id="hub-map-consent-btn" class="tb-btn hub-map-consent-btn">
         Karte laden
       </button>
     </div>`;
@@ -889,25 +961,89 @@ function renderMapsConsentPlaceholder(el) {
   });
 }
 
+/* Bibliotheken, die der Hub tatsächlich anfasst — siehe die google.maps.*-
+   Aufrufstellen weiter unten:
+     core      → ControlPosition, SymbolPath, Point, Size, event
+     maps      → Map, InfoWindow
+     marker    → Marker
+     places    → PlacesService, PlacesServiceStatus
+   "geocoding" stand hier ebenfalls, wird aber nicht mehr gebraucht: die
+   Ortssuche laeuft ueber Places (resolveOrt), weil die Geocoding-API im
+   Google-Projekt nicht freigeschaltet ist.
+   Mit loading=async liefert der Bootstrap beim script.onload nur einen
+   Platzhalter: google.maps existiert, die Konstruktoren und Konstanten aber
+   noch nicht. Wer direkt danach google.maps.Map oder ControlPosition benutzt,
+   läuft in "Cannot read properties of undefined". Erst importLibrary() füllt
+   den Namensraum — und zwar auch den klassischen google.maps.*, sodass die
+   bestehenden Aufrufstellen unverändert gültig bleiben. */
+const GMAPS_LIBRARIES = ["core", "maps", "marker", "places"];
+let gmapsReady = false;
+
 function loadGoogleMapsScript() {
-  if (window.google?.maps) return Promise.resolve();
+  // Nicht auf window.google.maps prüfen: das ist mit loading=async schon
+  // gesetzt, solange die Bibliotheken noch fehlen.
+  if (gmapsReady) return Promise.resolve();
   if (gmapsLoadPromise) return gmapsLoadPromise;
   gmapsLoadPromise = new Promise((resolve, reject) => {
-    const s = document.createElement("script");
-    s.src = `https://maps.googleapis.com/maps/api/js?key=${GMAPS_KEY}&libraries=places&loading=async`;
-    s.async = true;
-    const timer = setTimeout(() => {
-      gmapsLoadPromise = null; // nächster Klick darf einen frischen Versuch starten
-      reject(new Error("Google Maps: Ladezeit überschritten"));
-    }, 8000);
-    s.onload = () => {
+    let timer = null;
+    const fail = (err) => {
       clearTimeout(timer);
-      resolve();
+      gmapsLoadPromise = null; // nächster Versuch darf frisch starten
+      reject(err);
     };
+    const loadLibraries = async () => {
+      try {
+        // Nach dem callback ist der klassische Namensraum bereits befüllt;
+        // importLibrary holt zusätzlich marker/geocoding, die nicht in der
+        // libraries=-Liste stehen. Fehlt die Funktion wider Erwarten, reicht
+        // der bereits befüllte Namensraum für die genutzten Symbole aus.
+        if (typeof google.maps.importLibrary === "function") {
+          await Promise.all(
+            GMAPS_LIBRARIES.map((lib) => google.maps.importLibrary(lib)),
+          );
+        }
+        clearTimeout(timer);
+        gmapsReady = true;
+        resolve();
+      } catch (err) {
+        // Grund durchreichen statt verschlucken — sonst ist im Fehlerfall
+        // nicht zu unterscheiden, ob der Schlüssel, eine nicht freigeschaltete
+        // API oder das Netz das Problem ist.
+        fail(
+          new Error(
+            `Google Maps: Bibliotheken konnten nicht geladen werden (${err?.message || err})`,
+          ),
+        );
+      }
+    };
+    // Zeitlimit deckt Skript *und* Bibliotheken ab — ein hängendes
+    // importLibrary darf den Aufrufer nicht ewig warten lassen.
+    timer = setTimeout(
+      () => fail(new Error("Google Maps: Ladezeit überschritten")),
+      8000,
+    );
+    // Bootstrap schon vorhanden (z. B. vorheriger Versuch): nur Bibliotheken holen.
+    if (window.google?.maps?.importLibrary) {
+      loadLibraries();
+      return;
+    }
+    // script.onload ist bei loading=async das falsche Signal: es feuert, bevor
+    // die API sich eingerichtet hat — zu dem Zeitpunkt fehlt selbst
+    // google.maps.importLibrary noch. Der callback-Parameter ist der von
+    // Google vorgesehene Fertig-Zeitpunkt; erst danach steht der Namensraum.
+    const cbName = `__mmGmapsReady${Date.now().toString(36)}`;
+    window[cbName] = () => {
+      delete window[cbName];
+      loadLibraries();
+    };
+    const s = document.createElement("script");
+    s.src =
+      `https://maps.googleapis.com/maps/api/js?key=${GMAPS_KEY}` +
+      `&libraries=places&loading=async&callback=${cbName}`;
+    s.async = true;
     s.onerror = () => {
-      clearTimeout(timer);
-      gmapsLoadPromise = null;
-      reject(new Error("Google Maps: Skript konnte nicht geladen werden"));
+      delete window[cbName];
+      fail(new Error("Google Maps: Skript konnte nicht geladen werden"));
     };
     document.head.appendChild(s);
   });
@@ -973,17 +1109,27 @@ const MAP_STYLES = [
   },
   {
     featureType: "road",
-    elementType: "geometry.fill",
-    stylers: [{ color: "#5c5c5c" }],
-  },
-  {
-    featureType: "road",
     elementType: "geometry.stroke",
     stylers: [{ visibility: "off" }],
   },
+  /* Strassen nach Rang abgestuft.
+     Vorher lag alles auf #5c5c5c — jeder Feldweg so hell wie eine Autobahn.
+     Im Muensterland ergab das ein dichtes graues Geflecht, in dem sich nichts
+     unterscheiden liess; genau daher kam der ueberfuellte Eindruck, mehr noch
+     als von den Ortsnamen. Jetzt tragen die Hauptstrassen das Bild und die
+     kleinen Wege liegen knapp ueber dem Untergrund. */
+  { featureType: "road", elementType: "geometry.fill", stylers: [{ color: "#3a3a3a" }] },
+  { featureType: "road.local", elementType: "geometry.fill", stylers: [{ color: "#2f2f2f" }] },
+  { featureType: "road.arterial", elementType: "geometry.fill", stylers: [{ color: "#4a4a4a" }] },
+  { featureType: "road.highway", elementType: "geometry.fill", stylers: [{ color: "#6b6b6b" }] },
   { featureType: "poi", stylers: [{ visibility: "off" }] },
   { featureType: "transit", stylers: [{ visibility: "off" }] },
-  { featureType: "administrative", stylers: [{ visibility: "off" }] },
+  // Verwaltungsgrenzen bleiben aus — die Namen darin kommen unten zurueck.
+  {
+    featureType: "administrative",
+    elementType: "geometry",
+    stylers: [{ visibility: "off" }],
+  },
   {
     featureType: "landscape",
     elementType: "geometry.stroke",
@@ -994,88 +1140,126 @@ const MAP_STYLES = [
     elementType: "geometry.fill",
     stylers: [{ color: "#242424" }],
   },
+
+  /* ── Beschriftung ───────────────────────────────────────────────────
+     Die Regel `labels: off` weiter oben nimmt saemtliche Beschriftungen weg.
+     Uebrig blieb ein graues Liniengeflecht: man sah, DASS da Strassen sind,
+     aber nicht, wo man ist. Deshalb hier gezielt zurueck — und nur Text,
+     keine Symbole, damit die eigenen Marker die einzigen Zeichen auf der
+     Karte bleiben.
+
+     Die Helligkeit ist bewusst zurueckgenommen (#969696 statt #e2e2e2): in
+     Google fuehren auch Bauerschaften und Ortsteile als "locality", und in
+     Muensterland sind das viele. Ueber den Feature-Typ lassen sie sich nicht
+     von Staedten trennen — geprueft, "administrative.neighborhood" aus
+     aendert nichts daran. Was bleibt, ist das Gewicht: gross geschriebene
+     Stadtnamen setzt Google ohnehin groesser, die vielen kleinen treten mit
+     gedaempfter Farbe zurueck, statt das Bild zu fuellen. Bei der
+     Startzoomstufe (13,5) stehen ohnehin nur eine Handvoll Namen da; dicht
+     wird es erst zwei Stufen weiter draussen. */
+  {
+    featureType: "administrative.locality",
+    elementType: "labels.text.fill",
+    stylers: [{ visibility: "on" }, { color: "#7d7d7d" }],
+  },
+  {
+    featureType: "administrative.locality",
+    elementType: "labels.text.stroke",
+    stylers: [{ visibility: "on" }, { color: "#141414" }, { weight: 3 }],
+  },
+  // Die kleinen Punkte neben Ortsnamen: weg. Auf der Karte sollen nur die
+  // eigenen Marker Zeichen sein.
+  {
+    featureType: "administrative.locality",
+    elementType: "labels.icon",
+    stylers: [{ visibility: "off" }],
+  },
+  {
+    featureType: "road",
+    elementType: "labels.text.fill",
+    stylers: [{ visibility: "on" }, { color: "#6f6f6f" }],
+  },
+  {
+    featureType: "road",
+    elementType: "labels.text.stroke",
+    stylers: [{ visibility: "on" }, { color: "#141414" }, { weight: 3 }],
+  },
+  // Autobahn- und Bundesstrassenschilder: die Nummer ist unterwegs die
+  // schnellste Orientierung, das Schild selbst waere nur ein bunter Fleck.
+  { featureType: "road", elementType: "labels.icon", stylers: [{ visibility: "off" }] },
 ];
 
 // Premium marker colors per filter type
 const QUERY_COLORS = {
-  Motorradwerkstatt: { fill: "#c9a84c", stroke: "#a88a3a", label: "Werkstatt" },
+  /* Die Farben der drei gezeichneten Bilder sind uebernommen — Orange,
+     Gruen, Lila waren bereits die Erkennungsfarben auf der Karte. */
+  Motorradwerkstatt: { fill: "#ff6a13", stroke: "#c24f0d", label: "Werkstatt" },
   "Motorradh\u00e4ndler": {
-    fill: "#7ab8f5",
-    stroke: "#4a90d9",
+    fill: "#5ee61e",
+    stroke: "#3fae12",
     label: "H\u00e4ndler",
   },
-  Fahrschule: { fill: "#d0d0d0", stroke: "#999", label: "Fahrschule" },
+  Fahrschule: { fill: "#a020f0", stroke: "#7a17b8", label: "Fahrschule" },
+  Tankstelle: { fill: "#e63946", stroke: "#b32a35", label: "Tankstelle" },
+  Parkplatz: { fill: "#2f7dd1", stroke: "#215a99", label: "Parkplatz" },
+  Cafe: { fill: "#a9652e", stroke: "#7d4a20", label: "Biker-Treff" },
+  Notdienst: { fill: "#ffc300", stroke: "#c69800", label: "Notdienst" },
 };
 
-// Map filter → dealers.js type for fallback
-const FILTER_TO_DEALER_TYPE = {
-  Motorradwerkstatt: "Werkstatt",
-  "Motorradh\u00e4ndler": "H\u00e4ndler",
-  Fahrschule: "Fahrschule",
+/* Markersymbole fuer alle sieben Kacheln.
+   Frueher lagen drei gezeichnete .webp-Dateien im Ordner map-icons, die
+   restlichen vier Kacheln fielen mangels eigenem Bild auf das Werkstatt-Bild
+   zurueck — eine Tankstelle bekam also einen Schraubenschluessel.
+
+   Jetzt kommen alle sieben aus denselben Pfaden, die auch auf den
+   Filter-Knoepfen liegen: Knopf und Marker zeigen dasselbe Zeichen.
+   Gezeichnet wird zweilagig — dicke schwarze Linie darunter, farbige darueber.
+   Das ergibt die kraeftige Kontur der vorhandenen Bilder, bleibt aber als
+   Vektor bei jeder Zoomstufe scharf. */
+const MARKER_GLYPHS = {
+  Motorradwerkstatt:
+    '<path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/>',
+  "Motorradh\u00e4ndler": '<path d="M20 7H4l1-3h14zM2 7h20v5H2zM4 12v9h4v-5h8v5h4v-9"/>',
+  Fahrschule:
+    '<path d="M22 10v6M2 10l10-5 10 5-10 5z"/><path d="M6 12v5c3 3 9 3 12 0v-5"/>',
+  Tankstelle:
+    '<path d="M3 21h12M5 21V5a2 2 0 0 1 2-2h6a2 2 0 0 1 2 2v16M5 11h10M15 6l3 3v8a2 2 0 0 1-4 0v-2"/>',
+  Parkplatz:
+    '<rect x="3" y="3" width="18" height="18" rx="2"/><path d="M9 17V7h4a3 3 0 0 1 0 6H9"/>',
+  Cafe:
+    '<path d="M17 8h1a4 4 0 0 1 0 8h-1M3 8h14v9a4 4 0 0 1-4 4H7a4 4 0 0 1-4-4zM6 1v3M10 1v3M14 1v3"/>',
+  Notdienst:
+    '<path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><path d="M12 9v4M12 17h.01"/>',
 };
 
-// All possible search keywords per filter
+function glyphIconUrl(filter) {
+  const pfade = MARKER_GLYPHS[filter];
+  if (!pfade) return null;
+  const farbe = (QUERY_COLORS[filter] || {}).fill || "#fff";
+  const svg =
+    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="-2 -2 28 28" width="34" height="34">' +
+    '<g fill="none" stroke-linecap="round" stroke-linejoin="round">' +
+    `<g stroke="#111" stroke-width="6">${pfade}</g>` +
+    `<g stroke="${farbe}" stroke-width="3">${pfade}</g>` +
+    "</g></svg>";
+  return "data:image/svg+xml," + encodeURIComponent(svg);
+}
+
+/* Suchbegriffe je Filter.
+   Bewusst kurz: JEDER Begriff ist ein eigener, kostenpflichtiger
+   Text-Search-Aufruf bei Google. Vorher standen hier 46 Begriffe ueber alle
+   Filter — ein einmaliges Durchklicken der sieben Kacheln kostete damit 46
+   Aufrufe, ohne die auf 30 Treffer gedeckelte Liste besser zu fuellen.
+   "Zweirad*" ist zusaetzlich raus: im Deutschen sind das ueberwiegend
+   Fahrradlaeden, sie haben die Werkstattliste mit Radstationen geflutet. */
 const FILTER_KEYWORDS = {
-  Motorradwerkstatt: [
-    "Motorrad Werkstatt",
-    "Motorrad Service",
-    "Zweirad Werkstatt",
-    "Motorrad Reparatur",
-    "Zweirad Service",
-    "Motorrad Inspektion",
-    "Motorrad Meisterbetrieb",
-    "Motorrad Garage",
-    "Motorrad Tuning",
-    "Zweiradmechatroniker",
-  ],
-  Motorradhändler: [
-    "Motorrad Händler",
-    "Motorrad Shop",
-    "Zweirad Händler",
-    "Motorrad Center",
-    "Motorradhaus",
-    "Bike Shop",
-    "Motorrad Verkauf",
-    "BMW Motorrad",
-    "Honda Motorrad",
-    "Harley Davidson",
-  ],
-  Fahrschule: [
-    "Fahrschule",
-    "Fahrschule Motorrad",
-    "Führerschein Motorrad",
-    "Motorrad Fahrschule",
-    "Fahrschule Klasse A",
-    "Führerschein A2",
-    "Fahrausbildung Motorrad",
-    "Motorradausbildung",
-  ],
-  Tankstelle: [
-    "Tankstelle",
-    "Aral Tankstelle",
-    "Shell Tankstelle",
-    "Esso Tankstelle",
-    "Total Tankstelle",
-    "Jet Tankstelle",
-  ],
-  Parkplatz: [
-    "Motorrad Parkplatz",
-    "Parkhaus",
-    "Parkplatz",
-  ],
-  Cafe: [
-    "Motorrad Café",
-    "Biker Treffpunkt",
-    "Café",
-    "Motorrad Treff",
-  ],
-  Notdienst: [
-    "Motorrad Pannendienst",
-    "ADAC",
-    "Pannenhilfe",
-    "Motorrad Notdienst",
-    "Abschleppdienst Motorrad",
-  ],
+  Motorradwerkstatt: ["Motorradwerkstatt", "Motorrad Service"],
+  "Motorradh\u00e4ndler": ["Motorradh\u00e4ndler", "Motorradhaus"],
+  Fahrschule: ["Fahrschule Motorrad", "Fahrschule"],
+  Tankstelle: ["Tankstelle"],
+  Parkplatz: ["Parkplatz"],
+  Cafe: ["Motorrad Caf\u00e9", "Biker Treffpunkt"],
+  Notdienst: ["Motorrad Pannendienst"],
 };
 
 // Helper: get current search results with full place data
@@ -1098,32 +1282,41 @@ export function getHubSearchResults() {
 }
 // Helper: get current visible search markers (used by bike-detail Karte view)
 export function getHubMarkers() {
-  return (hubMarkers || []).map((m) => ({
+  return (hubMarkers || []).filter(Boolean).map((m) => ({
     title: m.getTitle?.() || '',
     position: m.getPosition?.()?.toJSON?.() || null,
     marker: m,
   }));
 }
 // Focus map on a specific result (open InfoWindow + center)
+/* Liefert false, wenn es zu der Kennung keinen Marker gibt — die Karten-
+   Ansicht faellt dann auf panHubToCoords() zurueck. Das kommt bei gemerkten
+   Orten vor, die ausserhalb der aktuellen Trefferliste liegen. */
 export function focusHubResult(placeId) {
-  if (!hubMapInstance) return
+  if (!hubMapInstance) return false
   const idx = (_allSearchResults || []).findIndex((p) => p.place_id === placeId)
-  if (idx < 0) return
+  if (idx < 0) return false
   const place = _allSearchResults[idx]
   const marker = hubMarkers[idx]
-  if (!marker || !place) return
+  if (!marker || !place) return false
   hubMapInstance.panTo(place.geometry.location)
   hubMapInstance.setZoom(15)
   if (hubInfoWindow) {
     hubInfoWindow.setContent(buildInfoContent(place, _lastSearchFilter))
     hubInfoWindow.open(hubMapInstance, marker)
   }
+  return true
 }
 // Recenter map on user
 export function recenterHubMap() {
   if (!hubMapInstance) return
   hubMapInstance.panTo({ lat: userLat, lng: userLng })
   hubMapInstance.setZoom(13.5)
+}
+// Step the zoom level up/down (used by the floating map controls)
+export function zoomHubMap(delta) {
+  if (!hubMapInstance) return
+  hubMapInstance.setZoom((hubMapInstance.getZoom() || 13.5) + delta)
 }
 export function panHubToCoords(lat, lng) {
   if (!hubMapInstance) return false
@@ -1135,18 +1328,79 @@ export function panHubToCoords(lat, lng) {
 export function searchNearbyAt(lat, lng) {
   userLat = lat
   userLng = lng
-  if (hubMapInstance) {
-    hubMapInstance.panTo({ lat, lng })
-    hubMapInstance.setZoom(13)
+  /* Ein eingegebener Ort ist ein vollwertiger Standort.
+     Ohne diese Zeile blieb userLocationKnown false — und initHubMap() steigt
+     genau darauf aus. Die Ortssuche konnte damit ausgerechnet in dem Fall
+     nichts ausrichten, fuer den es sie gibt: wenn der Browser den Standort
+     verweigert. Die Karte blieb "nicht verfuegbar", die Eingabe wirkungslos. */
+  userLocationKnown = true
+
+  if (!hubMapInstance) {
+    // Karte wurde mangels Standort nie gebaut — jetzt nachholen. initHubMap()
+    // startet am Ende selbst die Suche fuer die aktive Kachel.
+    initHubMap()
+    return
   }
-  const activePill = document.querySelector('.kv-pill.active')
-  searchNearby(activePill ? activePill.dataset.query : _lastSearchFilter || 'Motorrad')
+  hubMapInstance.panTo({ lat, lng })
+  hubMapInstance.setZoom(13)
+  const activePill = document.querySelector('.konf-karte-hub .hub-pill.active')
+  searchNearby(activePill ? activePill.dataset.query : _lastSearchFilter || 'Motorradwerkstatt')
 }
-// Get current coordinates (for weather API)
+
+/**
+ * Ort oder Postleitzahl zu Koordinaten aufloesen.
+ *
+ * Bewusst ueber die Places-Textsuche und NICHT ueber google.maps.Geocoder:
+ * die Geocoding-API ist im Google-Projekt nicht freigeschaltet, sie antwortet
+ * mit REQUEST_DENIED. Die Oberflaeche machte daraus "Ort nicht gefunden" und
+ * schob den Fehler damit dem Nutzer zu. Places ist ohnehin in Benutzung und
+ * loest beides sauber auf — an "Köln", "48143" und "Lüdinghausen" geprueft.
+ *
+ * @returns {Promise<{ok:true,lat:number,lng:number,label:string}|{ok:false,grund:'nicht_gefunden'|'technisch'}>}
+ */
+export function resolveOrt(query) {
+  return new Promise((fertig) => {
+    if (typeof google === 'undefined' || !google.maps?.places) {
+      fertig({ ok: false, grund: 'technisch' })
+      return
+    }
+    // Eigener Dienst ohne Karte: die Ortssuche muss auch dann gehen, wenn
+    // mangels Standort noch gar keine Karte steht.
+    const dienst = new google.maps.places.PlacesService(document.createElement('div'))
+    dienst.textSearch({ query: `${query}, Deutschland` }, (treffer, status) => {
+      const S = google.maps.places.PlacesServiceStatus
+      if (status === S.OK && treffer?.[0]?.geometry?.location) {
+        const ort = treffer[0]
+        fertig({
+          ok: true,
+          lat: ort.geometry.location.lat(),
+          lng: ort.geometry.location.lng(),
+          label: ort.formatted_address || ort.name || query,
+        })
+        return
+      }
+      fertig({ ok: false, grund: status === S.ZERO_RESULTS ? 'nicht_gefunden' : 'technisch' })
+    })
+  })
+}
+// Get current coordinates
 export function getUserCoords() {
   if (!userLocationKnown) return { lat: null, lng: null };
   return { lat: userLat, lng: userLng }
 }
+/* Meldet, dass der Nutzer den Kartenausschnitt selbst verschoben hat, samt
+   neuer Mitte. Der Karten-Tab blendet daraufhin "Hier suchen" ein — ohne das
+   bleibt die Trefferliste an der alten Mitte haengen, waehrend die Karte
+   laengst woanders steht. */
+let _onMapMovedCallback = null;
+export function onHubMapMoved(cb) {
+  _onMapMovedCallback = cb;
+}
+export function getHubMapCenter() {
+  const c = hubMapInstance?.getCenter?.();
+  return c ? { lat: c.lat(), lng: c.lng() } : null;
+}
+
 // Callback hook: bike-detail Karte view subscribes to result updates
 let _onResultsCallback = null;
 export function onHubResults(cb) {
@@ -1160,23 +1414,21 @@ const MAX_RESULTS = 30;
 
 // Icon sizes tuned so all appear visually equal on the map
 const MARKER_SIZES = {
-  Motorradwerkstatt: { w: 36, h: 36 },
-  Motorradhändler: { w: 50, h: 32 },
-  Fahrschule: { w: 45, h: 29 },
+  // Einheitlich, seit alle Symbole aus derselben 24er-Zeichenflaeche kommen.
+  // Die krummen Masse davor (50x32, 45x29) stammten von den Bildseitenverhaeltnissen.
+  Motorradwerkstatt: { w: 34, h: 34 },
+  Motorradhändler: { w: 34, h: 34 },
+  Fahrschule: { w: 34, h: 34 },
+  Tankstelle: { w: 34, h: 34 },
+  Parkplatz: { w: 34, h: 34 },
+  Cafe: { w: 34, h: 34 },
+  Notdienst: { w: 34, h: 34 },
 };
 
 function createMarkerIcon(filter) {
-  let url;
-  switch (filter) {
-    case "Motorradhändler":
-      url = "/img/map-icons/haendler.png.webp";
-      break;
-    case "Fahrschule":
-      url = "/img/map-icons/fahrschule.png.webp";
-      break;
-    default:
-      url = "/img/map-icons/werkstatt.png.webp";
-  }
+  // Eine Herkunft fuer alle Kacheln; der Rueckfall gilt nur noch fuer eine
+  // Kachel, die versehentlich ohne Symbol angelegt wird.
+  const url = glyphIconUrl(filter) || glyphIconUrl("Motorradwerkstatt");
   const sz = MARKER_SIZES[filter] || MARKER_SIZES["Motorradwerkstatt"];
   return {
     url,
@@ -1194,7 +1446,7 @@ function onZoomChanged() {
   // Marker-Größe anpassen
   const scale = zoom < 12 ? 0.5 : 1;
   hubMarkers.forEach((m) => {
-    const icon = m.getIcon();
+    const icon = m?.getIcon();
     if (icon && icon.url && icon._baseW) {
       const w = Math.round(icon._baseW * scale);
       const h = Math.round(icon._baseH * scale);
@@ -1208,15 +1460,12 @@ function onZoomChanged() {
     }
   });
 
-  // Bei Rauszoomen: weitere Ergebnisse nachladen
-  if (
-    _lastSearchFilter &&
-    _lastSearchRadius > 0 &&
-    _lastSearchRadius < 30000 &&
-    zoom < 12
-  ) {
-    searchNearby(_lastSearchFilter, 30000);
-  }
+  /* Frueher lief hier bei jedem Zoom unter Stufe 12 automatisch eine neue
+     Suche mit 30 km Radius an — also ein kompletter Satz kostenpflichtiger
+     Text-Search-Aufrufe fuer eine reine Kartengeste. Die Startstufe ist 13,5;
+     zweimal rauszoomen genuegte. Wer weiter weg suchen will, hat dafuer die
+     Radius-Kacheln und "Hier suchen". Zoom aendert jetzt nur noch die
+     Markergroesse. */
 }
 
 function buildInfoContent(place, query) {
@@ -1239,17 +1488,6 @@ function buildInfoContent(place, query) {
   </div>`;
 }
 
-function buildDealerInfoContent(dealer, query) {
-  const colors = QUERY_COLORS[query] || QUERY_COLORS["Motorradwerkstatt"];
-  return `<div class="hub-info">
-    <span class="hub-info-name">${esc(dealer.name)}</span>
-    <span class="hub-info-type" style="color:${colors.fill}">${colors.label}</span>
-    <span class="hub-info-addr">${esc(dealer.city)}</span>
-    ${dealer.phone ? `<a class="hub-info-phone" href="tel:${esc(dealer.phone)}">${esc(dealer.phone)}</a>` : ""}
-    <span class="hub-info-addr" style="margin-top:4px;font-size:10px;opacity:0.55">Beispieldaten · keine echten Betriebe</span>
-  </div>`;
-}
-
 let hubPlacesService = null;
 let hubMapInitToken = 0;
 
@@ -1261,14 +1499,36 @@ export async function initHubMap() {
     renderMapsConsentPlaceholder(el);
     return;
   }
-  // Reset stale instance if its DOM element is no longer in the document
-  if (hubMapInstance && !document.body.contains(hubMapInstance.getDiv?.())) {
-    hubMapInstance = null;
-  }
-  if (hubMapInstance) {
-    // Existing instance still valid → bind it to the new element
+  /* Bestehende Karte weiterverwenden statt eine neue zu bauen.
+     Jedes `new google.maps.Map(...)` ist ein kostenpflichtiger Kartenaufruf
+     bei Google. Der Karten-Reiter wirft beim Wechseln sein DOM weg, also war
+     der bisherige Test ("liegt das Element noch im Dokument?") nach jedem
+     Reiterwechsel negativ — und es entstand jedes Mal eine neue Karte. Ein
+     paar Mal hin und her, und das Tageskontingent war weg
+     (Google meldet dann OverQuotaMapError, die Karte erscheint hell und
+     unformatiert mit dem Hinweis "For development purposes only").
+
+     Jetzt zieht die vorhandene Kartenflaeche in den neuen Platzhalter um.
+     Das Element mit seinem Kartenzustand bleibt dasselbe, Google erfaehrt nur
+     die neue Groesse. */
+  const bestehendesFeld = hubMapInstance?.getDiv?.() || null;
+  if (bestehendesFeld) {
+    if (bestehendesFeld !== el) {
+      el.replaceWith(bestehendesFeld);
+      // Ohne resize bleibt die Karte auf der Groesse des alten Platzhalters.
+      google.maps.event.trigger(hubMapInstance, "resize");
+    }
+    /* Suche auch auf diesem Weg anstossen. Der Karten-Reiter verlaesst sich
+       darauf, dass initHubMap() das tut, und laesst seine Platzhalterzeilen
+       sonst stehen, bis onHubResults() meldet — was nie kaeme.
+       Kostet in aller Regel keinen Google-Aufruf: gleicher Filter, gleiche
+       Gegend, der Ergebnisspeicher antwortet. */
+    const aktiveKachel = document.querySelector(".hub-pill.active");
+    if (aktiveKachel) searchNearby(aktiveKachel.dataset.query);
     return;
   }
+  // Kein brauchbares Feld mehr (Karte nie gebaut oder Instanz verloren).
+  hubMapInstance = null;
 
   // Merkt sich diesen Aufruf: wird die Karte inzwischen erneut initialisiert
   // (schnelles Weg-/Zurückklicken) oder die Kartenfläche entfernt, brechen
@@ -1312,6 +1572,15 @@ export async function initHubMap() {
     // GTA Radar: scale markers on zoom change
     hubMapInstance.addListener("zoom_changed", onZoomChanged);
 
+    /* Nur "dragend": ein Zoom aendert die Mitte nicht, und focusHubResult()
+       schwenkt selbst — beides duerfte "Hier suchen" nicht ausloesen. */
+    hubMapInstance.addListener("dragend", () => {
+      if (!_onMapMovedCallback) return;
+      const c = hubMapInstance.getCenter?.();
+      if (!c) return;
+      try { _onMapMovedCallback({ lat: c.lat(), lng: c.lng() }); } catch {}
+    });
+
     // User location dot (pulsing blue)
     new google.maps.Marker({
       position: center,
@@ -1334,59 +1603,51 @@ export async function initHubMap() {
       hubPlacesService = null;
     }
 
-    // Search for active pill (falls back to dealers.js if Places unavailable)
+    // Search for active pill
     const activePill = document.querySelector(".hub-pill.active");
     if (activePill) searchNearby(activePill.dataset.query);
   } catch (err) {
     console.warn("[hub] Map init failed:", err);
     // Karte nicht verf\u00fcgbar (z. B. Netzwerk/CSP blockiert Google Maps) \u2014
-    // trotzdem die lokal bekannten Eintr\u00e4ge in der N\u00e4he anzeigen, statt nichts zu tun.
-    const activePill = document.querySelector(".hub-pill.active");
-    renderDealerFallbackList(activePill?.dataset.query || "Motorradwerkstatt");
+    // das sagen wir dem Nutzer, statt Ersatzeintr\u00e4ge zu erfinden.
+    renderMapUnavailable();
   }
 }
 
-// Reine Liste ohne Karte \u2014 greift auf die lokalen H\u00e4ndlerdaten zur\u00fcck,
-// z. B. wenn Google Maps nicht laden konnte oder noch l\u00e4dt.
-function renderDealerFallbackList(filter) {
+/* Steht statt der Karte da, wenn Google Maps nicht geladen werden konnte.
+   Frueher stand hier eine Liste erfundener Werkstaetten und Fahrschulen, die
+   wie echte Betriebe in der Naehe aussah. Ohne Karte gibt es keine echten
+   Treffer \u2014 also nennt der Block die Ursache und bietet einen zweiten
+   Versuch an, statt eine Naehe vorzutaeuschen, die niemand geprueft hat. */
+function renderMapUnavailable() {
   const el = document.getElementById("hub-gmap");
   if (!el) return;
-  const dealerType = FILTER_TO_DEALER_TYPE[filter] || filter;
-  const nearby = findNearby(userLat, userLng, 80)
-    .filter((d) => d.type === dealerType)
-    .slice(0, MAX_RESULTS);
-
-  if (!nearby.length) {
+  el.innerHTML = `
+    <div class="hub-map-loading" id="hub-map-loading">
+      <div style="font-size:32px;margin-bottom:8px">\ud83d\uddfa\ufe0f</div>
+      <div style="font-weight:700;color:#fff;margin-bottom:4px">Karte nicht verf\u00fcgbar</div>
+      <div style="font-size:12px;color:#888;max-width:280px;text-align:center;line-height:1.4">
+        Google Maps konnte gerade nicht geladen werden \u2014 deshalb lassen sich
+        keine Betriebe in deiner N\u00e4he anzeigen. Pr\u00fcfe deine Verbindung
+        und versuch es noch einmal.
+      </div>
+      <button type="button" id="hub-map-retry-btn" class="hub-retry-btn">Erneut versuchen</button>
+    </div>`;
+  el.querySelector("#hub-map-retry-btn")?.addEventListener("click", () => {
     el.innerHTML = `
       <div class="hub-map-loading" id="hub-map-loading">
-        <div style="font-size:32px;margin-bottom:8px">\ud83d\udccd</div>
-        <div style="font-weight:700;color:#fff;margin-bottom:4px">Keine Ergebnisse in der N\u00e4he</div>
-        <div style="font-size:12px;color:#888;max-width:280px;text-align:center;line-height:1.4">
-          F\u00fcr diese Kategorie wurden keine Eintr\u00e4ge in deiner Umgebung gefunden.
-        </div>
+        <span class="hub-map-spinner"></span>
+        <span>Karte wird geladen\u2026</span>
       </div>`;
-    return;
-  }
-
-  el.innerHTML = `
-    <div class="hub-fallback-list" style="height:100%;overflow-y:auto;padding:16px;display:flex;flex-direction:column;gap:10px">
-      ${nearby
-        .map(
-          (d) => `
-        <div style="background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.08);border-radius:12px;padding:14px 16px">
-          <div style="font-weight:700;color:#fff;font-size:14px;margin-bottom:2px">${esc(d.name)}</div>
-          <div style="font-size:12px;color:#888">${esc(d.city)}${d.phone ? " \u00b7 " + esc(d.phone) : ""}</div>
-        </div>`,
-        )
-        .join("")}
-    </div>`;
+    initHubMap();
+  });
 }
 
 let searchGeneration = 0;
 let searchTimeout = null;
 
 // Haversine distance in km
-function haversineKm(lat1, lng1, lat2, lng2) {
+export function haversineKm(lat1, lng1, lat2, lng2) {
   const R = 6371;
   const dLat = ((lat2 - lat1) * Math.PI) / 180;
   const dLng = ((lng2 - lng1) * Math.PI) / 180;
@@ -1419,10 +1680,85 @@ let _lastSearchFilter = null;
 let _allSearchResults = [];
 let _allSeenIds = new Set();
 
+/* ── Welche Treffer gehoeren in welche Kachel ──────────────────────────
+   Die Textsuche liefert, wonach sie gefragt wird, aber nicht nur das: unter
+   "Werkstatt" standen Radstationen, ein Kaufhaus und die Handwerkskammer.
+
+   An echten Antworten aus Muenster abgelesen:
+     Motorrad Mallek, Moto Basler, Motorrad Christiansen  -> car_repair
+     Motorrad Technik Druffel                             -> car_dealer
+     Radstation, Drahtesel, Bike-Corner, Zweirad Civak    -> bicycle_store
+   Die Unterscheidung liegt also im Typ, nicht im Namen. Zwei Ausnahmen
+   fangen die Wortlisten ab: "Triumph Muenster" fuehrt nur `store`, wird aber
+   ueber die Marke erkannt; "Fahrradwerkstatt ... Bike & more" traegt gar
+   keinen Typ und faellt ueber das Wort.
+
+   Fahrschulen liefern ueberhaupt keine Typen (geprueft: acht von acht ohne).
+   Fuer sie und die uebrigen Kacheln darf deshalb nichts verlangt werden —
+   dort wird nur aussortiert, nicht ausgewaehlt. */
+const RAD_WORTE = ["fahrrad", "e-bike", "ebike", "pedelec", "radstation", "velo"];
+const MOTOR_WORTE = [
+  "motorrad", "motorcycle", "moto", "biker", "kraftrad", "roller", "vespa",
+  "harley", "yamaha", "honda", "suzuki", "kawasaki", "ducati", "ktm",
+  "triumph", "aprilia", "husqvarna", "piaggio",
+];
+// Google fuehrt Motorradbetriebe unter den Kfz-Typen — einen eigenen gibt es nicht.
+const KFZ_TYPEN = ["car_repair", "car_dealer", "motorcycle_dealer"];
+// Nur hier wird eine Motorrad-Zugehoerigkeit verlangt.
+const NUR_MOTORISIERT = new Set(["Motorradwerkstatt", "Motorradh\u00e4ndler"]);
+
+function passtZurKategorie(place, filter) {
+  const name = (place.name || "").toLowerCase();
+  const typen = place.types || [];
+
+  // Gilt fuer jede Kachel: Fahrradlaeden sind nie gemeint.
+  if (typen.includes("bicycle_store")) return false;
+  if (RAD_WORTE.some((w) => name.includes(w))) return false;
+
+  if (!NUR_MOTORISIERT.has(filter)) return true;
+
+  return (
+    typen.some((t) => KFZ_TYPEN.includes(t)) ||
+    MOTOR_WORTE.some((w) => name.includes(w))
+  );
+}
+
+/* Ergebnis-Zwischenspeicher.
+   Ohne ihn kostete jedes Hin- und Herklicken zwischen Filtern und Radien
+   erneut Geld, obwohl sich weder Standort noch Umgebung geaendert hatten.
+   Schluessel ist der Filter plus die auf zwei Nachkommastellen (~1 km)
+   gerundete Suchmitte. Gemerkt wird der groesste bereits gesuchte Radius:
+   eine Suche mit kleinerem Radius ist darin enthalten und wird ohne einen
+   einzigen neuen Aufruf bedient. Auch leere Ergebnisse werden gemerkt —
+   sonst fragt eine tote Gegend bei jedem Klick erneut nach. */
+const SEARCH_CACHE_TTL_MS = 30 * 60 * 1000;
+const searchCache = new Map();
+
+function searchCacheKey(filter, lat, lng) {
+  return `${filter}|${lat.toFixed(2)}|${lng.toFixed(2)}`;
+}
+
+function readSearchCache(filter, radius, lat, lng) {
+  const hit = searchCache.get(searchCacheKey(filter, lat, lng));
+  if (!hit) return null;
+  if (Date.now() - hit.at > SEARCH_CACHE_TTL_MS) return null;
+  // Enger gesucht als jetzt gefragt: der Speicher deckt die Frage nicht ab.
+  if (hit.radius < radius) return null;
+  return hit.results;
+}
+
+function writeSearchCache(filter, radius, lat, lng, results) {
+  const key = searchCacheKey(filter, lat, lng);
+  const prev = searchCache.get(key);
+  // Einen weiter gefassten Treffer nicht durch einen engeren ersetzen.
+  if (prev && prev.radius > radius && Date.now() - prev.at <= SEARCH_CACHE_TTL_MS) return;
+  searchCache.set(key, { radius, results, at: Date.now() });
+}
+
 export function searchNearby(filter, radius = 5000) {
   if (!hubMapInstance) {
-    // Karte (noch) nicht verfügbar — trotzdem lokale Ergebnisse anzeigen
-    renderDealerFallbackList(filter);
+    // Ohne Karte gibt es keine echten Treffer — Ursache benennen statt raten.
+    renderMapUnavailable();
     return;
   }
 
@@ -1432,7 +1768,7 @@ export function searchNearby(filter, radius = 5000) {
   if (!isExpand) {
     // New filter — clear everything
     searchGeneration++;
-    hubMarkers.forEach((m) => m.setMap(null));
+    hubMarkers.forEach((m) => m?.setMap(null));
     hubMarkers = [];
     _allSearchResults = [];
     _allSeenIds = new Set();
@@ -1446,6 +1782,22 @@ export function searchNearby(filter, radius = 5000) {
   _lastSearchFilter = filter;
   _lastSearchRadius = radius;
 
+  /* Suchmitte einmal festhalten. searchNearbyAt() kann userLat/userLng
+     verschieben, waehrend die Antworten noch unterwegs sind — dann sortierte
+     die Rueckmeldung unten nach einer Mitte, um die gar nicht gesucht wurde. */
+  const originLat = userLat;
+  const originLng = userLng;
+
+  // Schon gesucht? Dann ohne einen einzigen Google-Aufruf beantworten.
+  const cached = readSearchCache(filter, radius, originLat, originLng);
+  if (cached) {
+    _allSearchResults = cached.slice();
+    _allSeenIds = new Set(cached.map((p) => p.place_id));
+    if (_allSearchResults.length) showPlacesResults(_allSearchResults, filter, gen);
+    else clearHubResults(gen);
+    return;
+  }
+
   const keywords = FILTER_KEYWORDS[filter] || [filter];
 
   if (hubPlacesService) {
@@ -1453,12 +1805,12 @@ export function searchNearby(filter, radius = 5000) {
 
     searchTimeout = setTimeout(() => {
       if (gen !== searchGeneration) return;
-      if (!_allSearchResults.length) showDealerResults(filter, gen);
+      if (!_allSearchResults.length) clearHubResults(gen);
     }, 10000);
 
     keywords.forEach((kw) => {
       hubPlacesService.textSearch(
-        { location: { lat: userLat, lng: userLng }, radius, query: kw },
+        { location: { lat: originLat, lng: originLng }, radius, query: kw },
         (results, status) => {
           if (gen !== searchGeneration) return;
           done++;
@@ -1470,14 +1822,7 @@ export function searchNearby(filter, radius = 5000) {
                 place.business_status !== "OPERATIONAL"
               )
                 return;
-              const n = (place.name || "").toLowerCase();
-              if (
-                n.includes("fahrrad") ||
-                n.includes("e-bike") ||
-                n.includes("ebike") ||
-                n.includes("pedelec")
-              )
-                return;
+              if (!passtZurKategorie(place, filter)) return;
               if (!_allSeenIds.has(place.place_id)) {
                 _allSeenIds.add(place.place_id);
                 _allSearchResults.push(place);
@@ -1490,37 +1835,52 @@ export function searchNearby(filter, radius = 5000) {
               _allSearchResults.sort(
                 (a, b) =>
                   haversineKm(
-                    userLat,
-                    userLng,
+                    originLat,
+                    originLng,
                     a.geometry.location.lat(),
                     a.geometry.location.lng(),
                   ) -
                   haversineKm(
-                    userLat,
-                    userLng,
+                    originLat,
+                    originLng,
                     b.geometry.location.lat(),
                     b.geometry.location.lng(),
                   ),
               );
+              writeSearchCache(filter, radius, originLat, originLng, _allSearchResults);
               showPlacesResults(_allSearchResults, filter, gen);
             } else {
-              showDealerResults(filter, gen);
+              writeSearchCache(filter, radius, originLat, originLng, []);
+              clearHubResults(gen);
             }
           }
         },
       );
     });
   } else {
-    showDealerResults(filter, gen);
+    // Places-Dienst nicht verf\u00fcgbar — ohne ihn gibt es nichts zu zeigen.
+    clearHubResults(gen);
   }
 }
 
 function showPlacesResults(results, filter, gen) {
-  hubMarkers.forEach((m) => m.setMap(null));
-  hubMarkers = [];
+  hubMarkers.forEach((m) => m?.setMap(null));
 
   // Only the nearest locations
   const limited = results.slice(0, MAX_RESULTS);
+
+  /* Feste Plaetze statt push(): die Marker entstehen versetzt (i * 40 ms) und
+     einzelne koennen ausfallen. Mit push() rutschten die nachfolgenden eine
+     Stelle vor, und focusHubResult() — das ueber den Index aus
+     _allSearchResults zugreift — oeffnete danach den falschen Ort. */
+  hubMarkers = new Array(limited.length);
+
+  /* Die Trefferliste haengt nicht an den Markern, sie liest _allSearchResults.
+     Sobald hier sortiert vorliegt, ist sie vollstaendig — also genau einmal
+     melden. Vorher stand diese Zeile im Timeout jedes einzelnen Markers: bei
+     30 Treffern baute sich die Liste 30-mal in 1,2 Sekunden neu auf. Genau
+     das war das Zappeln beim Laden. */
+  emitResultsUpdate();
 
   limited.forEach((place, i) => {
     setTimeout(() => {
@@ -1540,8 +1900,7 @@ function showPlacesResults(results, filter, gen) {
           hubInfoWindow.open(hubMapInstance, marker);
         });
 
-        hubMarkers.push(marker);
-        emitResultsUpdate();
+        hubMarkers[i] = marker;
       } catch (err) {
         console.warn("[hub] Marker error:", err);
       }
@@ -1549,40 +1908,18 @@ function showPlacesResults(results, filter, gen) {
   });
 }
 
-function showDealerResults(filter, gen) {
-  const dealerType = FILTER_TO_DEALER_TYPE[filter] || filter;
-  const nearby = findNearby(userLat, userLng, 80)
-    .filter((d) => d.type === dealerType)
-    .slice(0, MAX_RESULTS);
-
-  if (!nearby.length) return;
-
-  hubMarkers.forEach((m) => m.setMap(null));
+/* Die Places-Suche hat nichts geliefert \u2014 sei es, weil es in der Umgebung
+   nichts gibt, weil die Suche in die Zeitgrenze gelaufen ist oder weil der
+   Places-Dienst gar nicht bereitsteht. Frueher setzte an dieser Stelle eine
+   Liste erfundener Betriebe Marker auf die Karte. Jetzt bleibt die Karte leer
+   und die Trefferliste erfaehrt es, damit sie ihren eigenen Leerzustand
+   zeigen kann. */
+function clearHubResults(gen) {
+  if (gen !== searchGeneration) return;
+  hubMarkers.forEach((m) => m?.setMap(null));
   hubMarkers = [];
-
-  nearby.forEach((dealer, i) => {
-    setTimeout(() => {
-      try {
-        if (gen !== searchGeneration) return;
-
-        const marker = new google.maps.Marker({
-          position: { lat: dealer.lat, lng: dealer.lng },
-          map: hubMapInstance,
-          title: dealer.name,
-          icon: createMarkerIcon(filter),
-        });
-
-        marker.addListener("click", () => {
-          hubInfoWindow.setContent(buildDealerInfoContent(dealer, filter));
-          hubInfoWindow.open(hubMapInstance, marker);
-        });
-
-        hubMarkers.push(marker);
-      } catch (err) {
-        console.warn("[hub] Dealer marker error:", err);
-      }
-    }, i * 60);
-  });
+  if (hubInfoWindow) hubInfoWindow.close();
+  emitResultsUpdate();
 }
 
 // ══════════════════════════════════════════════════════════════
@@ -1591,6 +1928,66 @@ function showDealerResults(filter, gen) {
 
 let hubScrollHandler = null;
 let hubScrollRAF = null;
+
+/**
+ * Sobald die Tab-Leiste beim Scrollen oben andockt, schaltet sie auf die
+ * dunkle Variante (.scrolled) — dieselbe wie im Konfigurator. Frei stehend
+ * unter dem Hero bleibt sie hell.
+ */
+let tabbarThemeHandler = null;
+
+/**
+ * Setzt die Ansicht-Seite in die linke Spalte der Spec-Section. Laeuft ueber
+ * einen dynamischen Import, damit bike-detail.js nicht in den Garage-Chunk
+ * wandert — die Spalte ist fuer einen Moment leer, das ist gewollt.
+ */
+async function mountAnsicht(bikeData) {
+  const host = document.getElementById("gr-ansicht-host");
+  if (!host) return;
+  try {
+    const {
+      normalizeGarageData,
+      buildDetailsAnsichtHTML,
+      bindDetailsAnsichtEvents,
+      openKonfigurator,
+    } = await import("./bike-detail.js");
+    host.innerHTML = buildDetailsAnsichtHTML(normalizeGarageData(bikeData));
+    bindDetailsAnsichtEvents(host.querySelector(".bd-ansicht-embed"), (tab) =>
+      openKonfigurator(bikeData, cleanup, tab),
+    );
+  } catch {
+    /* Spalte bleibt leer — der Rest der Seite funktioniert weiter */
+  }
+}
+
+function initTabbarThemeSync() {
+  if (tabbarThemeHandler) return;
+
+  const nav = document.getElementById("bd-sticky-nav");
+  if (!nav) return;
+
+  const scrollTarget = document.getElementById("garage-container") || window;
+  // Der Sticky-Offset steht im CSS (negativ, damit die Bar knapp unter dem
+  // Fensterrand einrastet) — von dort lesen, statt ihn hier zu wiederholen.
+  const stickyTop = parseFloat(getComputedStyle(nav).top) || 0;
+
+  let ticking = false;
+  tabbarThemeHandler = () => {
+    if (ticking) return;
+    ticking = true;
+    requestAnimationFrame(() => {
+      ticking = false;
+      const rootTop =
+        scrollTarget === window ? 0 : scrollTarget.getBoundingClientRect().top;
+      const docked = nav.getBoundingClientRect().top - rootTop <= stickyTop + 1;
+      nav.classList.toggle("scrolled", docked);
+    });
+  };
+
+  scrollTarget.addEventListener("scroll", tabbarThemeHandler, { passive: true });
+  tabbarThemeHandler._scrollTarget = scrollTarget;
+  tabbarThemeHandler();
+}
 
 function initHubScrollEffect() {
   if (hubScrollHandler) return;
@@ -1716,6 +2113,19 @@ function shareResult(bikeData) {
 
 function cleanup() {
   clearTabHintTimers();
+  if (garageAnsichtObserver) {
+    garageAnsichtObserver.disconnect();
+    garageAnsichtObserver = null;
+  }
+  const gcEl = document.getElementById("garage-container");
+  if (garageContainerScrollHandler) {
+    gcEl?.removeEventListener("scroll", garageContainerScrollHandler);
+    garageContainerScrollHandler = null;
+  }
+  if (garageContainerClickHandler) {
+    gcEl?.removeEventListener("click", garageContainerClickHandler);
+    garageContainerClickHandler = null;
+  }
   if (hubScrollHandler) {
     const target = hubScrollHandler._scrollTarget || window;
     target.removeEventListener("scroll", hubScrollHandler);
@@ -1724,6 +2134,11 @@ function cleanup() {
   if (hubScrollRAF) {
     cancelAnimationFrame(hubScrollRAF);
     hubScrollRAF = null;
+  }
+  if (tabbarThemeHandler) {
+    const target = tabbarThemeHandler._scrollTarget || window;
+    target.removeEventListener("scroll", tabbarThemeHandler);
+    tabbarThemeHandler = null;
   }
   if (garageRaf) {
     cancelAnimationFrame(garageRaf);
@@ -1765,15 +2180,20 @@ function cleanup() {
   garageCamera = null;
   garageBike = null;
 
-  // Reset hub map state
+  /* Suchzustand zuruecksetzen — die Karte selbst aber behalten.
+     hubMapInstance, das zugehoerige Infofenster und der Places-Dienst haengen
+     an genau einem `new google.maps.Map(...)`, und das ist bei Google ein
+     kostenpflichtiger Kartenaufruf. Wurden sie hier verworfen, entstand beim
+     naechsten Oeffnen der Karte eine neue — jedes Mal. Zusammen mit dem
+     Reiterwechsel summierte sich das bis zum ausgeschoepften Tageskontingent
+     (OverQuotaMapError: Karte hell, unformatiert, "For development purposes
+     only"). Die Instanz kostet im Speicher wenig und wird beim naechsten
+     initHubMap() samt ihrer Kartenflaeche weiterverwendet. */
   if (searchTimeout) clearTimeout(searchTimeout);
   searchTimeout = null;
-  hubMarkers.forEach((m) => m.setMap(null));
+  hubMarkers.forEach((m) => m?.setMap(null));
   hubMarkers = [];
   if (hubInfoWindow) hubInfoWindow.close();
-  hubInfoWindow = null;
-  hubPlacesService = null;
-  hubMapInstance = null;
   searchGeneration = 0;
   geoPromise = null;
   gmapsLoadPromise = null;

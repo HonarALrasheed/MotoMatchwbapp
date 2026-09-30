@@ -1,7 +1,8 @@
 import { maybeShowOnboarding } from "./onboarding.js";
 import { getCatalog, findBikeByShortName } from "./matching.js";
+import { bikeBild } from "./bike-bild.js";
+import { esc } from "./util.js";
 
-let landingObserver = null;
 let _scrollHandler = null;
 
 // Kurze Vorschau-Info auf den Lifestyle-Karten — erscheint rein per CSS
@@ -16,16 +17,10 @@ const LC_INFO = {
 
 // Nutzungs-Sektionen unter dem Hero — adressieren neue und Bestandsfahrer.
 const USE_SECTIONS = [
-  { id: "lc-quiz",      label: "Finde dein perfektes Bike", img: "/img/quiz-lifestyle.jpeg.webp",      action: "quiz"      },
-  { id: "lc-garage",    label: "Deine Garage im Blick",     img: "/img/dealer-lifestyle.jpeg.webp",    action: "garage"    },
-  { id: "lc-community", label: "Fahr nicht allein",         img: "/img/community-lifestyle.jpeg.webp", action: "community" },
+  { id: "lc-quiz",      label: "Finde dein perfektes Bike", action: "quiz"      },
+  { id: "lc-garage",    label: "Deine Garage im Blick",     action: "garage"    },
+  { id: "lc-community", label: "Fahr nicht allein",         action: "community" },
 ];
-
-function esc(s) {
-  return String(s ?? "").replace(/[&<>"']/g, (c) => ({
-    "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;",
-  }[c]));
-}
 
 const FEATURED_BIKES = [
   {
@@ -34,7 +29,7 @@ const FEATURED_BIKES = [
     badgeKey: "cruiser",
     font: "font-harley",
     desc: "Dark Custom mit V-Twin. Minimalistisch, roh, unverkennbar.",
-    img: "/img/bikes/harley_iron883_2018.jpg.webp",
+    img: "/bikes/harley_iron883_2018_kachel.webp",
   },
   {
     name: "Seventy-Two",
@@ -42,7 +37,7 @@ const FEATURED_BIKES = [
     badgeKey: "cruiser",
     font: "font-harley-classic",
     desc: "Klassischer Chopper-Stil mit V-Twin Power. Purer Cruiser-Charakter.",
-    img: "/img/bikes/harley_seventytwo_2015.jpg.webp",
+    img: "/bikes/harley_seventytwo_2015_kachel.webp",
   },
   {
     name: "CB 750 F",
@@ -50,7 +45,7 @@ const FEATURED_BIKES = [
     badgeKey: "klassiker",
     font: "font-honda-classic",
     desc: "Die Legende, die alles veränderte. Vier Zylinder, Geschichte.",
-    img: "/img/bikes/honda_cb750f_1970.jpg.webp",
+    img: "/bikes/honda_cb750f_1970_kachel.webp",
   },
   {
     name: "500 Custom",
@@ -58,7 +53,7 @@ const FEATURED_BIKES = [
     badgeKey: "custom",
     font: "font-yamaha-custom",
     desc: "Moderner Custom-Cruiser. Vielseitig, komfortabel, einzigartig.",
-    img: "/img/bikes/yamaha_500custom.png.webp",
+    img: "/bikes/yamaha_500custom.webp",
   },
   {
     name: "YZF-R3",
@@ -66,7 +61,7 @@ const FEATURED_BIKES = [
     badgeKey: "sport",
     font: "font-yamaha-sport",
     desc: "Idealer Einstieg in die Sportwelt. Agil, leicht, perfekt für A2.",
-    img: "/img/bikes/yamaha_yzfr3_2017.jpg.webp",
+    img: "/bikes/yamaha_yzfr3_2017_kachel.webp",
   },
   {
     name: "NR750",
@@ -74,7 +69,7 @@ const FEATURED_BIKES = [
     badgeKey: "sportbike",
     font: "font-honda-tech",
     desc: "Ikonischer V4-Sportler mit ovalen Kolben. Technisches Meisterwerk.",
-    img: "/img/bikes/honda_nr750_1994.png.webp",
+    img: "/bikes/honda_nr750_1994.webp",
   },
 ];
 
@@ -85,13 +80,22 @@ function resolveFeaturedBike(def) {
   return findBikeByShortName(def.name) || def;
 }
 
+/* Sechs Kategorien, je das beliebteste Modell darin. "Beliebt" ist nicht
+   geschaetzt, sondern das Feld pop aus katalog-de.json (BMW R 1250 GS 0,965 …
+   Harley Sportster S 0,719). Wo die Nummer eins einer Kategorie dieselbe Marke
+   gehabt haette wie eine schon vergebene, steht die naechste: Sportbike waere
+   sonst die zweite Kawasaki, Cruiser die zweite Honda. So stehen sechs Marken
+   nebeneinander statt drei doppelt.
+   Bilder aus /bikes/showroom/ — die selbst erzeugten Studioaufnahmen. Sie sind
+   schon dunkel, deshalb faellt der Abdunkler in .p-discover-cat img schwaecher
+   aus als bei den fruehereren Landschaftsbildern. */
 const DISCOVER_CATS = [
-  { type: "Stil", name: "Cruiser",   primaryBike: "Iron 883",    bikes: "Iron 883 · Seventy-Two",   desc: "Dark Custom mit V-Twin. Minimalistisch, roh, unverkennbar.",        img: "/img/bikes/harley_iron883_2018.jpg.webp",    filter: "Cruiser"   },
-  { type: "Stil", name: "Sportbike", primaryBike: "YZF-R3",      bikes: "YZF-R3 · NR750",           desc: "Agilität trifft Technik. Für die Rennstrecke und die Straße.",       img: "/img/bikes/yamaha_yzfr3_2017.jpg.webp",      filter: "Sport"     },
-  { type: "Stil", name: "Klassiker", primaryBike: "CB 750 F",    bikes: "CB 750 F · RX King",       desc: "Zeitlose Legenden. Geschichte, die man fahren kann.",                img: "/img/bikes/honda_cb750f_1970.jpg.webp",      filter: "Klassiker" },
-  { type: "Stil", name: "Custom",    primaryBike: "500 Custom",  bikes: "500 Custom · DT 125",      desc: "Einzigartiger Stil. Jedes Bike ein Unikat.",                         img: "/img/bikes/yamaha_500custom.png.webp",       filter: "Custom"    },
-  { type: "Stil", name: "Naked",     primaryBike: "NR750",       bikes: "CRF450R · Speed Triple",   desc: "Puristische Power ohne Verkleidung. Fahrspaß pur.",                 img: "/img/bikes/honda_nr750_1994.png.webp",       filter: "Sportbike" },
-  { type: "Stil", name: "Vintage",   primaryBike: "Seventy-Two", bikes: "Seventy-Two · CB 750 F",   desc: "Klassisches Design, moderne Seele. Retro mit Charakter.",           img: "/img/bikes/harley_seventytwo_2015.jpg.webp", filter: "Cruiser"   },
+  { type: "Stil", name: "Reiseenduro", fullName: "BMW R 1250 GS",               primaryBike: "R 1250 GS",   bikes: "R 1250 GS · Africa Twin", img: "/bikes/showroom/bmw_r1250gs_2022.webp",       filter: "Enduro" },
+  { type: "Stil", name: "Klassiker",   fullName: "Yamaha XSR900",               primaryBike: "XSR900",      bikes: "XSR900 · Speed Twin",     img: "/bikes/showroom/yamaha_xsr900_2022.webp",     filter: "Klassiker" },
+  { type: "Stil", name: "Naked",       fullName: "Kawasaki Z900",               primaryBike: "Z900",        bikes: "Z900 · MT-09",            img: "/bikes/showroom/kawasaki_z900_2022.webp",     filter: "Naked" },
+  { type: "Stil", name: "Sportbike",   fullName: "Honda CBR650R",               primaryBike: "CBR650R",     bikes: "CBR650R · Ninja ZX-6R",   img: "/bikes/showroom/honda_cbr650r_2022.webp",     filter: "Sportbike" },
+  { type: "Stil", name: "Cruiser",     fullName: "Harley-Davidson Sportster S", primaryBike: "Sportster S", bikes: "Sportster S · Rebel 500", img: "/bikes/showroom/harley_sportsters_2022.webp", filter: "Cruiser" },
+  { type: "Stil", name: "Roller",      fullName: "Vespa GTS 125",               primaryBike: "GTS 125",     bikes: "GTS 125 · Forza 125",     img: "/bikes/showroom/vespa_gts125_2022.webp",      filter: "Roller" },
 ];
 
 // ── Toast helper ─────────────────────────────────────────
@@ -134,15 +138,24 @@ function buildSearchOverlay() {
   const results = overlay.querySelector("#p-search-results");
 
   const renderResults = (query) => {
+    /* Seit die Liste scrollt, bleibt sie beim Neuaufbau sonst auf der alten
+       Position stehen: nach dem Tippen landete man mitten in den Treffern
+       statt beim ersten. */
+    results.scrollTop = 0;
     const q = query.trim().toLowerCase();
     const catalog = getCatalog();
-    const matches = q
+    /* Der Katalog umfasst seit 2026-09-17 den ganzen deutschen Markt. Ohne Suchwort stehen
+       deshalb die verbreitetsten Bikes oben (pop), und die Liste ist gedeckelt — 2.000 Karten
+       auf einmal zu bauen hängt das Handy auf. */
+    const LIMIT = 40;
+    const alle = q
       ? catalog.filter(b =>
           b.name.toLowerCase().includes(q) ||
           (b.brand || "").toLowerCase().includes(q) ||
           (b.style || "").toLowerCase().includes(q) ||
           (b.bgText || "").toLowerCase().includes(q))
       : catalog;
+    const matches = alle.slice(0, LIMIT);
 
     if (matches.length === 0) {
       const empty = document.createElement("div");
@@ -153,7 +166,7 @@ function buildSearchOverlay() {
     }
     results.innerHTML = matches.map(b => `
       <div class="p-search-result" data-name="${b.name.replace(/"/g, "&quot;")}">
-        <img class="p-search-result-thumb" src="${b.image}" alt="${b.name.replace(/"/g, "&quot;")}">
+        <img class="p-search-result-thumb" src="${bikeBild(b, "kachel")}" alt="${b.name.replace(/"/g, "&quot;")}" loading="lazy" decoding="async">
         <div>
           <div class="p-search-result-name">${b.name}</div>
           <div class="p-search-result-style">${b.style}</div>
@@ -312,8 +325,56 @@ async function runLandingAction(action) {
 }
 
 // ── initLanding ───────────────────────────────────────────
+/**
+ * Hero-Video erst nachladen, wenn die Seite steht.
+ *
+ * Das Video ist mit Abstand die groesste Datei der Startseite. Als
+ * `<source>` im Markup laedt der Browser es sofort und parallel zu allem
+ * anderen — auf dem Handy verzoegert das den ersten sichtbaren Inhalt um
+ * Sekunden, obwohl es reine Dekoration hinter dem Titel ist.
+ *
+ * Uebersprungen wird es ganz, wenn die Verbindung langsam oder datensparsam
+ * ist oder jemand reduzierte Bewegung eingestellt hat. Dann bleibt der dunkle
+ * Verlauf stehen, auf dem der Titel ohnehin liegt.
+ */
+function startHeroVideo(root) {
+  const video = root.querySelector('.p-hero-video[data-src]')
+  if (!video) return
+
+  const net = navigator.connection
+  const sparsam = net?.saveData === true
+  const langsam = net && /^(slow-)?2g$/.test(net.effectiveType || '')
+  const ruhig = window.matchMedia('(prefers-reduced-motion: reduce)').matches
+  if (sparsam || langsam || ruhig) return
+
+  const attach = () => {
+    video.src = video.dataset.src
+    delete video.dataset.src
+    video.load()
+    video.play().catch(() => { /* Autoplay verweigert: dann eben Standbild */ })
+  }
+  // Nach dem load-Ereignis: bis dahin ist alles Sichtbare durch.
+  if (document.readyState === 'complete') setTimeout(attach, 200)
+  else window.addEventListener('load', () => setTimeout(attach, 200), { once: true })
+}
+
+/**
+ * Stellt sicher, dass die Startseite ueberhaupt aufgebaut ist.
+ *
+ * Nach einem Neuladen mitten in der App springt app.js direkt in den
+ * gemerkten Bildschirm und ruft initLanding() nie auf — #landing bleibt leer.
+ * Wer dann zurueckging, landete auf einer komplett schwarzen Seite: der
+ * Container wurde sichtbar geschaltet, hatte aber keinen Inhalt. Nur ein
+ * weiteres Neuladen half da wieder raus.
+ */
+export function ensureLandingRendered() {
+  const landing = document.getElementById('landing')
+  if (!landing) return
+  if (landing.innerHTML.trim()) return
+  initLanding()
+}
+
 export function initLanding() {
-  if (landingObserver) { landingObserver.disconnect(); landingObserver = null; }
   if (_scrollHandler) { window.removeEventListener("scroll", _scrollHandler); _scrollHandler = null; }
 
   const landing = document.getElementById("landing");
@@ -367,9 +428,12 @@ export function initLanding() {
 
     <!-- ═══ HERO ═══ -->
     <section class="p-hero">
-      <video class="p-hero-video" autoplay muted loop playsinline>
-        <source src="/__video/hero.mp4" type="video/mp4">
-      </video>
+      <!-- Ohne src ausgeliefert: die 3,8 MB des Videos konkurrierten sonst
+           ab der ersten Millisekunde mit allem, was fuer den ersten
+           Bildaufbau gebraucht wird — Schrift, CSS, Startbild. startHeroVideo()
+           haengt die Quelle an, sobald die Seite steht. -->
+      <video class="p-hero-video" autoplay muted loop playsinline
+             preload="none" data-src="/__video/hero.mp4"></video>
       <div class="p-hero-gradient-top"></div>
       <div class="p-hero-gradient-bottom"></div>
       <div class="p-hero-content">
@@ -384,48 +448,40 @@ export function initLanding() {
       </div>
     </section>
 
-    <!-- ═══ LIFESTYLE HERO ═══ -->
-    <div class="p-lifestyle-hero">
-      <img src="/img/hero-lifestyle.jpeg.webp" alt="Fahrerlebnis" />
-    </div>
-
-    <!-- ═══ USE SECTIONS ═══ -->
-    <div class="p-lifestyle-cards p-lifestyle-cards--3">
-      ${USE_SECTIONS.map(s => `
-        <article class="p-lifestyle-card" id="${esc(s.id)}" data-action="${esc(s.action)}">
-          <div class="p-lifestyle-card-img">
-            <img src="${esc(s.img)}" alt="${esc(s.label)}">
-            <div class="p-lc-info"><p class="p-lc-info-text">${esc(LC_INFO[s.id] || "")}</p></div>
-          </div>
-          <span class="p-lifestyle-card-label">${esc(s.label)}</span>
-        </article>
-      `).join("")}
-    </div>
+    <!-- ═══ WAS MOTOMATCH MACHT ═══ -->
+    <!-- Ersetzt die drei Bildkarten. Zwei davon waren Dopplung: die Quiz-Karte
+         klickte den Hero-Knopf an, die Garage-Karte fuehrte dorthin, wohin auch
+         "Ich hab schon eins" fuehrt.
+         Zwischenschritte, die wieder raus sind: erst ein Fliesstext mit vier
+         eingebetteten Verweisen (am Telefon sieben zentrierte Zeilen), dann ein
+         Satz mit einer Verweis-Reihe darunter. Beides war zu viel fuer die
+         Stelle. Geblieben ist eine Zeile im Ton des Hero. Garage, Ausruestung,
+         Karte und Community stehen ohnehin alle im Menue. -->
+    <section class="p-intro">
+      <p class="p-intro-text">Über 1.000 Motorräder mit Preis, Technik und Führerscheinklasse. Acht Fragen zeigen dir, welche davon zu dir passen.</p>
+    </section>
 
     <!-- ═══ DISCOVER ═══ -->
-    <section class="p-discover reveal-p" id="p-discover">
+    <section class="p-discover" id="p-discover">
       <h2 class="p-discover-title">Entdecken</h2>
       <div class="p-discover-cats">
         ${DISCOVER_CATS.map(c => `
           <div class="p-discover-cat" data-primary-bike="${c.primaryBike}">
-            <img src="${c.img}" alt="${c.name}" loading="lazy">
+            <img src="${c.img}" alt="${c.fullName} \u2014 ${c.name}" loading="lazy" decoding="async">
             <div class="p-discover-cat-top">${c.bikes}</div>
-            <div class="p-discover-cat-bottom">
-              <div class="p-discover-cat-desc">${c.desc}</div>
-            </div>
           </div>
         `).join("")}
       </div>
     </section>
 
     <!-- ═══ FINDER ═══ -->
-    <section class="p-finder reveal-p" id="p-finder">
+    <section class="p-finder" id="p-finder">
       <div class="p-finder-visual">
-        <img src="/img/bikes/sportbikes_trio.jpg.webp" alt="MotoMatch Motorrad" />
+        <img src="/bikes/sportbikes_trio.webp" alt="MotoMatch Motorrad" loading="lazy" decoding="async" />
       </div>
       <div class="p-finder-text">
-        <h2 class="p-finder-title">Finde mit 7 Fragen<br>dein passendes Bike.</h2>
-        <p class="p-finder-desc">Keine Verkaufsberatung, sondern ehrliches Matching — und Händler in deiner Nähe für eine unverbindliche Probefahrt.</p>
+        <h2 class="p-finder-title">Finde mit 8 Fragen<br>dein passendes Bike.</h2>
+        <p class="p-finder-desc">Führerschein, Budget, Fahrstil, Körpergröße — mehr braucht es nicht.</p>
         <div class="p-finder-form">
           <button class="p-finder-submit" id="finder-submit">MATCH FINDEN</button>
         </div>
@@ -440,8 +496,10 @@ export function initLanding() {
       <div class="p-footer-cols">
         <a href="/impressum.html" class="p-footer-link">Impressum</a>
         <a href="/datenschutz.html" class="p-footer-link">Datenschutz</a>
-        <a href="mailto:salamhonar2020@gmail.com" class="p-footer-link">Kontakt</a>
-        <a href="mailto:salamhonar2020@gmail.com?subject=MotoMatch%20Beta-Feedback" class="p-footer-link">Feedback</a>
+        <a href="/agb.html" class="p-footer-link">AGB</a>
+        <a href="/bildnachweis.html" class="p-footer-link">Bildnachweis</a>
+        <a href="mailto:kontakt@motomatch.studio" class="p-footer-link">Kontakt</a>
+        <a href="mailto:kontakt@motomatch.studio?subject=MotoMatch%20Beta-Feedback" class="p-footer-link">Feedback</a>
       </div>
       <div class="p-footer-bottom">
         <span class="p-footer-copy">© 2026 MotoMatch. Alle Rechte vorbehalten.</span>
@@ -453,7 +511,6 @@ export function initLanding() {
   // ── Quiz start ──────────────────────────────────────────
   const startQuiz = async () => {
     if (_scrollHandler) { window.removeEventListener("scroll", _scrollHandler); _scrollHandler = null; }
-    if (landingObserver) { landingObserver.disconnect(); landingObserver = null; }
     document.documentElement.classList.remove("has-landing");
     landing.style.transition = "opacity 0.5s ease";
     landing.style.opacity = "0";
@@ -465,12 +522,13 @@ export function initLanding() {
     }, 500);
   };
 
+  startHeroVideo(landing);
   document.getElementById("hero-cta").addEventListener("click", startQuiz);
   document.getElementById("hero-cta-existing").addEventListener("click", openExistingRiderChooser);
 
   // ── Use-section cards → passenden Screen ────────────────
-  landing.querySelectorAll(".p-lifestyle-card[data-action]").forEach((card) => {
-    card.addEventListener("click", () => runLandingAction(card.dataset.action));
+  landing.querySelectorAll("[data-action]").forEach((el) => {
+    el.addEventListener("click", () => runLandingAction(el.dataset.action));
   });
 
   // ── Discover category cards → Garage ───────────────────
@@ -503,13 +561,54 @@ export function initLanding() {
   const drawerBackdrop = document.getElementById("p-drawer-backdrop");
   const drawerClose = document.getElementById("p-drawer-close");
 
+  /* Scroll-Sperre für den offenen Drawer.
+     body{overflow:hidden} allein reicht nicht: auf der Startseite steht
+     html.has-landing auf overflow-y:auto und behaelt damit seinen eigenen
+     Scrollbereich — der Hintergrund scrollt hinter dem Drawer weiter, und
+     auf iOS landet man beim Schließen an einer anderen Position.
+     position:fixed friert den Hintergrund wirklich ein. Der negative
+     top-Offset hält die sichtbare Stelle fest, weil das Fixieren sonst
+     nach ganz oben springen würde; beim Lösen wird er zurückgescrollt.
+     .p-drawer ist selbst position:fixed und bleibt davon unberührt. */
+  let drawerScrollY = 0;
+  let scrollLocked = false;
+
+  function lockScroll() {
+    if (scrollLocked) return;
+    drawerScrollY = window.scrollY || document.documentElement.scrollTop || 0;
+    const b = document.body.style;
+    b.position = "fixed";
+    b.top = `-${drawerScrollY}px`;
+    b.left = "0";
+    b.right = "0";
+    b.width = "100%";
+    b.overflow = "hidden";
+    scrollLocked = true;
+  }
+
+  function unlockScroll() {
+    // Idempotent: closeDrawer wird auch aus Menü-Einträgen heraus gerufen,
+    // ohne den Wert sonst auf eine veraltete Position zurückzusetzen.
+    if (!scrollLocked) return;
+    const b = document.body.style;
+    b.position = "";
+    b.top = "";
+    b.left = "";
+    b.right = "";
+    b.width = "";
+    b.overflow = "";
+    scrollLocked = false;
+    // Direkt nach dem Zurücksetzen, sonst steht die Seite wieder ganz oben.
+    window.scrollTo(0, drawerScrollY);
+  }
+
   function openDrawer() {
     if (!drawer) return;
     drawer.setAttribute("aria-hidden", "false");
     drawer.classList.add("p-drawer--open");
     menuBtn.classList.add("is-open");
     menuBtn.setAttribute("aria-expanded", "true");
-    document.body.style.overflow = "hidden";
+    lockScroll();
   }
   function closeDrawer() {
     if (!drawer) return;
@@ -517,7 +616,7 @@ export function initLanding() {
     menuBtn.classList.remove("is-open");
     menuBtn.setAttribute("aria-expanded", "false");
     setTimeout(() => { drawer.setAttribute("aria-hidden", "true"); }, 300);
-    document.body.style.overflow = "";
+    unlockScroll();
   }
 
   menuBtn.addEventListener("click", () => {
@@ -543,11 +642,20 @@ export function initLanding() {
         return;
       }
 
+      /* "Bikes" hatte keine Katalogübersicht — es öffnete stur ein einzelnes
+         Bike (FEATURED_BIKES[0]) ohne Rückweg (2026-09-27 Audit). Die
+         Such-Übersicht zeigt ohne Suchwort bereits den ganzen Katalog als
+         Liste — das ist die "alle Bikes"-Ansicht, die hier eigentlich
+         gebraucht wird. */
+      if (tab === "ansicht") {
+        openSearch();
+        return;
+      }
+
       // Startseite sauber ausblenden — sonst bleibt sie unsichtbar im
       // Hintergrund aktiv (Menü/Scroll-Handler etc.), während der
       // Konfigurator angezeigt wird.
       if (_scrollHandler) { window.removeEventListener("scroll", _scrollHandler); _scrollHandler = null; }
-      if (landingObserver) { landingObserver.disconnect(); landingObserver = null; }
       document.documentElement.classList.remove("has-landing");
       landing.style.transition = "opacity 0.3s ease";
       landing.style.opacity = "0";
@@ -572,39 +680,32 @@ export function initLanding() {
   _scrollHandler = () => nav.classList.toggle("is-scrolled", window.scrollY > 40);
   window.addEventListener("scroll", _scrollHandler, { passive: true });
 
-  // ── Preload quiz assets ──────────────────────────────────
-  // Erst bei erkennbarer Absicht: das Quiz zieht den three.js-Chunk (667 KB)
-  // und das GLB nach. Wer nie ins Quiz geht, soll dafür nicht bezahlen.
-  let quizPreloadStarted = false;
-  const preloadQuiz = () => {
-    if (quizPreloadStarted) return;
-    quizPreloadStarted = true;
-    import("./quiz.js").then((m) => m.preloadQuizAssets());
+  // ── Quiz vorbereiten: erst bei Absicht ───────────────────
+  // Vorher lief das blind 2s nach dem Laden. Daran hing mehr, als es aussah:
+  // quiz.js zieht three.js nach (~600 KB), und preloadQuizAssets() laedt ein
+  // 1,5-MB-Fahrermodell von Supabase. Jeder Besucher der Startseite zahlte
+  // das, auch wer das Quiz nie startet.
+  // Jetzt an der Absicht aufgehaengt: sobald der Zeiger ueber dem Start-Knopf
+  // steht oder ihn beruehrt, ist die Vorbereitung frueh genug — zwischen
+  // Beruehrung und Klick liegt mehr als genug Zeit fuer den Ladevorgang.
+  let quizVorbereitet = false;
+  const bereiteQuizVor = () => {
+    if (quizVorbereitet) return;
+    quizVorbereitet = true;
+    import("./quiz.js").then(m => m.preloadQuizAssets());
   };
-  for (const id of ["hero-cta", "hero-cta-existing"]) {
-    const el = document.getElementById(id);
-    if (!el) continue;
-    el.addEventListener("pointerenter", preloadQuiz, { once: true, passive: true });
-    el.addEventListener("touchstart", preloadQuiz, { once: true, passive: true });
-    el.addEventListener("focus", preloadQuiz, { once: true });
+  ["pointerenter", "touchstart", "focus"].forEach(ev => {
+    document.getElementById("hero-cta")?.addEventListener(ev, bereiteQuizVor, { once: true, passive: true });
+  });
+  // Rueckfall fuer alle, die direkt nach unten scrollen: nach einer Weile und
+  // nur auf einer Verbindung, die es hergibt.
+  const netz = navigator.connection;
+  if (!netz?.saveData && !/^(slow-)?2g|3g$/.test(netz?.effectiveType || "")) {
+    setTimeout(bereiteQuizVor, 12000);
   }
 
   // ── First-visit onboarding ─────────────────────────────────
   maybeShowOnboarding();
-
-  // ── Scroll reveal ────────────────────────────────────────
-  landingObserver = new IntersectionObserver(
-    (entries) => entries.forEach((e) => { if (e.isIntersecting) e.target.classList.add("vis"); }),
-    { threshold: 0, rootMargin: "0px 0px -5% 0px" },
-  );
-  landing.querySelectorAll(".reveal-p").forEach((el) => landingObserver.observe(el));
-  // Fallback: mark already-visible elements immediately
-  setTimeout(() => {
-    landing.querySelectorAll(".reveal-p:not(.vis)").forEach((el) => {
-      const r = el.getBoundingClientRect();
-      if (r.top < window.innerHeight) el.classList.add("vis");
-    });
-  }, 100);
 
   // ── Hero entrance animation ──────────────────────────────
   const words = landing.querySelectorAll(".p-hero-title .hw");
@@ -617,6 +718,6 @@ export function initLanding() {
   }, delay);
   // ── Hard fallback: ensure nothing stays invisible ────────
   setTimeout(() => {
-    landing.querySelectorAll(".hw, .anim-p, .reveal-p").forEach((el) => el.classList.add("vis"));
+    landing.querySelectorAll(".hw, .anim-p").forEach((el) => el.classList.add("vis"));
   }, 1200);
 }

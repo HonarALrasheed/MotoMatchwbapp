@@ -166,8 +166,41 @@ for (const marke of marken) {
     intro: `Alle ${marke}-Modelle in unserem Katalog des deutschen Markts — mit Gebrauchtpreis, Leistung und Führerscheinklasse.`,
     liste: hat((b) => b.brand === marke) });
 }
+/* Zweiter Absatz je Thema: die Wörter, die Leute für dieselbe Sache tatsächlich eintippen
+   ("Streetfighter", "Leichtkraftrad", "Fahranfänger", "gedrosselt" …) — in ganzen Sätzen, die für
+   Menschen stimmen. Keine Wortlisten, keine Wiederholungen: Google erkennt Füllwörter und wertet
+   die Seite dann ab. Jeder Satz muss auch ohne Suchmaschine sinnvoll sein. */
+const STIL_MEHR = {
+  Sportbike: "Vom 125er-Sportler bis zum Supersportler mit über 200 PS: verkleidete Maschinen für kurvige Landstraßen und die Rennstrecke, mit sportlicher Sitzposition und hoher Drehzahl.",
+  Naked: "Naked Bikes heißen auch Streetfighter oder Roadster — Motorräder ohne Verkleidung, aufrechte Sitzposition, handlich in der Stadt und auf der Landstraße. Für viele das vielseitigste erste Motorrad.",
+  Cruiser: "Chopper, Bobber und klassische V2-Cruiser: tiefe Sitzbank, entspannte Sitzposition, viel Drehmoment von unten — zum Cruisen, nicht zum Rasen.",
+  Enduro: "Reiseenduros, Adventure-Bikes und Crossover für lange Touren mit Gepäck, dazu leichte Enduros für Feldwege und Offroad. Aufrecht sitzen, viel Federweg, oft große Tanks.",
+  Touring: "Reisemotorräder und Sporttourer für die Langstrecke: Windschutz, bequeme Sitzbank für Fahrer und Sozius, Platz für Koffer — gebaut für viele Kilometer am Stück.",
+  Klassiker: "Retro-Bikes im Stil der 70er: Neo-Retro, Café Racer und Scrambler mit moderner Technik, dazu echte Klassiker. Rundscheinwerfer, Speichen- oder Gussräder, viel Charakter.",
+  Supermoto: "Supermotos (auch Supermotard oder Motard) sind Enduros mit Straßenreifen: leicht, wendig, hoher Lenker — der Spaßmacher für enge Kurven und die Stadt.",
+  Roller: "Motorroller, Scooter und Maxi-Scooter mit Automatik: kein Schalten, Stauraum unter der Sitzbank, Wetterschutz — ideal zum Pendeln. Viele sind 125er, die man auch mit B196 fahren darf.",
+};
+function themaMehr(t) {
+  const fest = {
+    "fuehrerschein-a1": "A1-Motorräder heißen offiziell Leichtkrafträder: bis 125 ccm Hubraum, höchstens 11 kW (15 PS) und 0,1 kW je kg. Die frühere 80-km/h-Grenze für 16- und 17-Jährige gibt es seit 2013 nicht mehr.",
+    "fuehrerschein-b196": "Die Schlüsselzahl 196 wird ohne Prüfung eingetragen: nach Fahrstunden in der Fahrschule (4 × 90 Minuten Theorie, 5 × 90 Minuten Praxis). Sie gilt nur in Deutschland. Dafür darfst du jedes Leichtkraftrad fahren — Motorrad oder Roller mit 125 ccm.",
+    "fuehrerschein-a2": "A2 ist die mittlere Stufe des Stufenführerscheins: bis 35 kW (48 PS) und höchstens 0,2 kW je kg. Viele stärkere Modelle gibt es mit Drossel — ein gedrosseltes Motorrad darf ungedrosselt höchstens 70 kW haben. Nach zwei Jahren A2 geht es per Aufstieg (praktische Prüfung) zum offenen A.",
+    "fuehrerschein-a": "Der offene Führerschein A (auch „der große Motorradführerschein“) hat keine Leistungsgrenze. Direkt ab 24 Jahren, oder mit 20 nach mindestens zwei Jahren A2.",
+    "einsteiger": "Ob Fahranfänger, Wiedereinsteiger nach Jahren Pause oder das erste eigene Motorrad nach dem Führerschein: gutmütige Leistung, geringes Gewicht und eine erreichbare Sitzhöhe machen die ersten tausend Kilometer entspannt.",
+    "niedrige-sitzhoehe": "Wer mit beiden Füßen sicher auf den Boden will — etwa bei kleiner Körpergröße oder kurzer Schrittlänge — achtet zuerst auf die Sitzhöhe. Viele Modelle lassen sich zusätzlich tieferlegen oder mit einer flacheren Sitzbank ausstatten.",
+    "leichte-motorraeder": "Ein leichtes Motorrad ist wendig, lässt sich einfach schieben, rangieren und nach einem Umkipper wieder aufstellen. Gerade in der Stadt und beim Einstieg ist das mehr wert als ein paar PS.",
+  };
+  if (fest[t.slug]) return fest[t.slug];
+  if (t.stil && !t.slug.endsWith("-a2") && !t.slug.endsWith("-125")) return STIL_MEHR[t.stil] || "";
+  const budget = t.slug.match(/^(a2-)?unter-(\d+)-euro$/);
+  if (budget) return `Günstige Motorräder gebraucht kaufen: die Preise sind mittlere Marktpreise des deutschen Gebrauchtmarkts. Ein Schnäppchen unter ${zahl(Number(budget[2]))} € ist oft ein älteres Baujahr — auf der Modellseite steht der Gebrauchtpreis je Baujahr.`;
+  if (t.marke) return `${t.marke} gebraucht: alle Modelle mit mittlerem Gebrauchtpreis, Leistung, Gewicht, Sitzhöhe und Führerscheinklasse — und passende Alternativen anderer Hersteller auf jeder Modellseite.`;
+  return "";
+}
+
 for (const t of themen) {
   t.pfad = `/motorraeder/${t.slug}/`;
+  t.mehr = themaMehr(t);
   t.liste.sort((a, b) => (b.pop || 0) - (a.pop || 0));
 }
 const themaPfad = (slug) => themen.find((t) => t.slug === slug)?.pfad;
@@ -360,6 +393,7 @@ for (const t of themen) {
   schreibe(t.pfad, kopf({ titel: t.titel, beschreibung, pfad: t.pfad, krumen, bild: hatFoto(t.liste[0]) ? bikeBild(t.liste[0], "titel") : null, ld: [liste, ...faqLd(fragen)] }) + `
     <h1>${esc(t.h1)}</h1>
     <p class="intro">${esc(t.intro)}</p>
+    ${t.mehr ? `<p class="intro zwei">${esc(t.mehr)}</p>` : ""}
     ${kennzahlen(t.liste)}
     <ul class="raster">${t.liste.slice(0, MAX_LISTE).map(karte).join("")}</ul>
     ${t.liste.length > MAX_LISTE ? `<p class="hinweis">Gezeigt: die ${MAX_LISTE} gefragtesten von ${t.liste.length} Modellen. Das Quiz durchsucht alle.</p>` : ""}
@@ -427,7 +461,7 @@ for (const b of bikes) {
     speed: menge(b.topSpeed, "KMH"), vehicleTransmission: b.gear || undefined,
     bodyType: s?.einzahl || b.style,
   };
-  schreibe(pfad, kopf({ titel: `${b.name} – Preis, technische Daten & Führerschein`, beschreibung, pfad, krumen, bild: hatFoto(b) ? bikeBild(b, "titel") : null, ld: [motorrad, ...faqLd(fragen)] }) + `
+  schreibe(pfad, kopf({ titel: `${b.name} gebraucht: Preis, technische Daten & Führerschein`, beschreibung, pfad, krumen, bild: hatFoto(b) ? bikeBild(b, "titel") : null, ld: [motorrad, ...faqLd(fragen)] }) + `
     <article class="bike">
       <h1>${esc(b.name)}</h1>
       <figure><img src="${esc(bikeBild(b, "titel"))}" alt="${esc(altText(b, "titel"))}" width="1600" height="437" fetchpriority="high" />${hatFoto(b) ? "" : "<figcaption>Foto folgt</figcaption>"}</figure>
@@ -507,9 +541,9 @@ for (const v of vergleiche) {
   const beschreibung = `${a.name} oder ${b.name}? Preis (${preisText(a)} vs. ${preisText(b)}), Leistung, Gewicht, Sitzhöhe und Führerschein im direkten Vergleich.`;
   const weitere = [...(vergleicheVon.get(a) || []), ...(vergleicheVon.get(b) || [])].filter((x) => x !== v).slice(0, 8);
 
-  schreibe(v.pfad, kopf({ titel: `${a.name} vs. ${b.name}: Vergleich von Preis, PS & Gewicht`, beschreibung, pfad: v.pfad, krumen, bild: hatFoto(a) ? bikeBild(a, "titel") : null }) + `
+  schreibe(v.pfad, kopf({ titel: `${a.name} oder ${b.name}? Vergleich von Preis, PS & Gewicht`, beschreibung, pfad: v.pfad, krumen, bild: hatFoto(a) ? bikeBild(a, "titel") : null }) + `
     <h1>${esc(a.name)} vs. ${esc(b.name)}</h1>
-    <p class="intro">Zwei ${esc(STIL[a.style]?.mehrzahl || a.style)} im direkten Vergleich — mit Gebrauchtpreis, Technik und Führerschein.</p>
+    <p class="intro">${esc(a.name)} oder ${esc(b.name)}? Zwei ${esc(STIL[a.style]?.mehrzahl || a.style)} im direkten Vergleich — mit Gebrauchtpreis, Technik und Führerschein.</p>
     <div class="vs">${[a, b].map((x) => `<a href="${bikePfad.get(x)}"><img src="${esc(bikeBild(x, "kachel"))}" alt="${esc(altText(x, "kachel"))}" width="420" height="300" /><strong>${esc(x.name)}</strong><span class="preis">${preisText(x)}</span></a>`).join("")}</div>
     <section><h2>Kurz gesagt</h2><ul class="punkte">${fazit(a, b).map((x) => `<li>${esc(x)}</li>`).join("")}</ul></section>
     <section><h2>Daten im Vergleich</h2><div class="tabelle"><table class="vergleich"><tr><th></th><th>${esc(a.name)}</th><th>${esc(b.name)}</th></tr>${zeilen}</table></div>
@@ -551,6 +585,7 @@ main{max-width:1200px;margin:0 auto;padding:8px 16px 48px}
 h1{font-size:clamp(30px,6vw,52px);font-weight:800;line-height:1.1;margin:12px 0 14px}
 h2{font-size:22px;font-weight:600;margin:40px 0 14px}
 .intro{max-width:760px;font-size:18px;color:rgba(255,255,255,.8)}
+.intro.zwei{font-size:16px;color:rgba(255,255,255,.65);margin-top:10px}
 .kennzahlen,.hinweis{margin-top:14px;color:var(--dim);font-size:15px}
 .raster{list-style:none;display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:14px;margin-top:24px}
 .karte a{display:flex;flex-direction:column;gap:2px;height:100%;padding:12px;background:var(--fl);border:1px solid var(--rand);border-radius:14px;text-decoration:none}

@@ -1,5 +1,5 @@
 import { initLanding } from './landing.js'
-import { findBikeByShortName, ladeVollkatalog } from './matching.js'
+import { findBikeByShortName, ladeVollkatalog, getCatalog } from './matching.js'
 import { initSupabaseAuth, openPasswordResetScreen } from './auth.js'
 import { initFeedbackFab } from './feedback.js'
 import { initNav, setViewResolver, readRestoreView, clearRestoreView, rebuild } from './nav.js'
@@ -19,6 +19,9 @@ import { initInstall } from './install.js'
  */
 async function openView(view) {
   if (!view?.bike) return false
+  // Der Vollkatalog lädt erst im Leerlauf (siehe startApp) — ein Bike außerhalb der
+  // eingebauten Liste wäre beim Wiederherstellen sonst "nicht gefunden".
+  if (!findBikeByShortName(view.bike)) await ladeVollkatalog()
   if (view.screen === 'konfigurator') {
     /* matching.js wird von landing.js ohnehin statisch geladen und liegt damit
        schon im Start-Bundle — der dynamische Import hier brachte kein eigenes
@@ -49,8 +52,15 @@ export function startApp() {
   initSwipeNav()
   /* Den Katalog des deutschen Marktes (public/data/katalog-de.json) im Hintergrund holen,
      damit er dasteht, wenn das Quiz fertig ist. Schlägt es fehl, rechnet die Seite mit den
-     eingebauten Bikes weiter (matching.js). */
-  ladeVollkatalog()
+     eingebauten Bikes weiter (matching.js).
+     Erst nach dem load-Ereignis und im Leerlauf: gleich beim Start konkurrierte die Datei
+     (ca. 900 KB, gepackt ~150 KB) auf dem Handy mit dem Aufbau der Startseite um die Leitung —
+     gemessen bei langsamem 4G ~0,7 s später sichtbarer Hero. Wer ihn früher braucht, stößt ihn
+     selbst an (ladeVollkatalog() ist idempotent): das Quiz, die Suchfelder, Direktlinks. */
+  const katalogImLeerlauf = () =>
+    (window.requestIdleCallback || ((f) => setTimeout(f, 300)))(() => ladeVollkatalog(), { timeout: 3000 })
+  if (document.readyState === 'complete') katalogImLeerlauf()
+  else window.addEventListener('load', katalogImLeerlauf, { once: true })
   initSupabaseAuth()
   initFeedbackFab()
   // Registriert den Service Worker und bietet die Installation an — nur so
@@ -64,12 +74,31 @@ export function startApp() {
   document.getElementById('drop-container').style.display = 'none'
   document.getElementById('garage-container').style.display = 'none'
 
-  // Direct garage link: ?bike=Iron+883 → opens garage immediately
+  // Direktlinks in die Garage eines Bikes:
+  //   ?motorrad=<slug>  von den statischen Katalogseiten (scripts/seo-seiten.mjs) — eindeutig
+  //   ?bike=Iron+883    ältere Form über den Namen
+  // Beide warten auf den Vollkatalog, der sonst erst im Leerlauf lädt: ohne ihn kennt die App
+  // nur die Bikes mit Foto, und ein Link auf eins der übrigen landete bei "Bike nicht gefunden".
   const params = new URLSearchParams(window.location.search)
+  const slug = params.get('motorrad')
+  if (slug) {
+    const gesucht = slug.toLowerCase().replace(/_/g, '-')
+    Promise.all([ladeVollkatalog(), import('./garage.js')])
+      .then(([, m]) => {
+        const bike = getCatalog().find(b => String(b.slug || '').toLowerCase().replace(/_/g, '-') === gesucht)
+        if (bike) m.openBikeGarage(bike)
+        else initLanding()
+      })
+      .catch(err => {
+        console.error('[app] Direktlink konnte nicht geladen werden:', err)
+        initLanding()
+      })
+    return
+  }
   const bikeName = params.get('bike')
   if (bikeName) {
-    import('./garage.js')
-      .then(m => m.openBikeGarage(bikeName))
+    Promise.all([findBikeByShortName(bikeName) ? null : ladeVollkatalog(), import('./garage.js')])
+      .then(([, m]) => m.openBikeGarage(bikeName))
       .catch(err => {
         console.error('[app] Direktlink konnte nicht geladen werden:', err)
         initLanding()

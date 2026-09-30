@@ -166,8 +166,41 @@ for (const marke of marken) {
     intro: `Alle ${marke}-Modelle in unserem Katalog des deutschen Markts — mit Gebrauchtpreis, Leistung und Führerscheinklasse.`,
     liste: hat((b) => b.brand === marke) });
 }
+/* Zweiter Absatz je Thema: die Wörter, die Leute für dieselbe Sache tatsächlich eintippen
+   ("Streetfighter", "Leichtkraftrad", "Fahranfänger", "gedrosselt" …) — in ganzen Sätzen, die für
+   Menschen stimmen. Keine Wortlisten, keine Wiederholungen: Google erkennt Füllwörter und wertet
+   die Seite dann ab. Jeder Satz muss auch ohne Suchmaschine sinnvoll sein. */
+const STIL_MEHR = {
+  Sportbike: "Vom 125er-Sportler bis zum Supersportler mit über 200 PS: verkleidete Maschinen für kurvige Landstraßen und die Rennstrecke, mit sportlicher Sitzposition und hoher Drehzahl.",
+  Naked: "Naked Bikes heißen auch Streetfighter oder Roadster — Motorräder ohne Verkleidung, aufrechte Sitzposition, handlich in der Stadt und auf der Landstraße. Für viele das vielseitigste erste Motorrad.",
+  Cruiser: "Chopper, Bobber und klassische V2-Cruiser: tiefe Sitzbank, entspannte Sitzposition, viel Drehmoment von unten — zum Cruisen, nicht zum Rasen.",
+  Enduro: "Reiseenduros, Adventure-Bikes und Crossover für lange Touren mit Gepäck, dazu leichte Enduros für Feldwege und Offroad. Aufrecht sitzen, viel Federweg, oft große Tanks.",
+  Touring: "Reisemotorräder und Sporttourer für die Langstrecke: Windschutz, bequeme Sitzbank für Fahrer und Sozius, Platz für Koffer — gebaut für viele Kilometer am Stück.",
+  Klassiker: "Retro-Bikes im Stil der 70er: Neo-Retro, Café Racer und Scrambler mit moderner Technik, dazu echte Klassiker. Rundscheinwerfer, Speichen- oder Gussräder, viel Charakter.",
+  Supermoto: "Supermotos (auch Supermotard oder Motard) sind Enduros mit Straßenreifen: leicht, wendig, hoher Lenker — der Spaßmacher für enge Kurven und die Stadt.",
+  Roller: "Motorroller, Scooter und Maxi-Scooter mit Automatik: kein Schalten, Stauraum unter der Sitzbank, Wetterschutz — ideal zum Pendeln. Viele sind 125er, die man auch mit B196 fahren darf.",
+};
+function themaMehr(t) {
+  const fest = {
+    "fuehrerschein-a1": "A1-Motorräder heißen offiziell Leichtkrafträder: bis 125 ccm Hubraum, höchstens 11 kW (15 PS) und 0,1 kW je kg. Die frühere 80-km/h-Grenze für 16- und 17-Jährige gibt es seit 2013 nicht mehr.",
+    "fuehrerschein-b196": "Die Schlüsselzahl 196 wird ohne Prüfung eingetragen: nach Fahrstunden in der Fahrschule (4 × 90 Minuten Theorie, 5 × 90 Minuten Praxis). Sie gilt nur in Deutschland. Dafür darfst du jedes Leichtkraftrad fahren — Motorrad oder Roller mit 125 ccm.",
+    "fuehrerschein-a2": "A2 ist die mittlere Stufe des Stufenführerscheins: bis 35 kW (48 PS) und höchstens 0,2 kW je kg. Viele stärkere Modelle gibt es mit Drossel — ein gedrosseltes Motorrad darf ungedrosselt höchstens 70 kW haben. Nach zwei Jahren A2 geht es per Aufstieg (praktische Prüfung) zum offenen A.",
+    "fuehrerschein-a": "Der offene Führerschein A (auch „der große Motorradführerschein“) hat keine Leistungsgrenze. Direkt ab 24 Jahren, oder mit 20 nach mindestens zwei Jahren A2.",
+    "einsteiger": "Ob Fahranfänger, Wiedereinsteiger nach Jahren Pause oder das erste eigene Motorrad nach dem Führerschein: gutmütige Leistung, geringes Gewicht und eine erreichbare Sitzhöhe machen die ersten tausend Kilometer entspannt.",
+    "niedrige-sitzhoehe": "Wer mit beiden Füßen sicher auf den Boden will — etwa bei kleiner Körpergröße oder kurzer Schrittlänge — achtet zuerst auf die Sitzhöhe. Viele Modelle lassen sich zusätzlich tieferlegen oder mit einer flacheren Sitzbank ausstatten.",
+    "leichte-motorraeder": "Ein leichtes Motorrad ist wendig, lässt sich einfach schieben, rangieren und nach einem Umkipper wieder aufstellen. Gerade in der Stadt und beim Einstieg ist das mehr wert als ein paar PS.",
+  };
+  if (fest[t.slug]) return fest[t.slug];
+  if (t.stil && !t.slug.endsWith("-a2") && !t.slug.endsWith("-125")) return STIL_MEHR[t.stil] || "";
+  const budget = t.slug.match(/^(a2-)?unter-(\d+)-euro$/);
+  if (budget) return `Günstige Motorräder gebraucht kaufen: die Preise sind mittlere Marktpreise des deutschen Gebrauchtmarkts. Ein Schnäppchen unter ${zahl(Number(budget[2]))} € ist oft ein älteres Baujahr — auf der Modellseite steht der Gebrauchtpreis je Baujahr.`;
+  if (t.marke) return `${t.marke} gebraucht: alle Modelle mit mittlerem Gebrauchtpreis, Leistung, Gewicht, Sitzhöhe und Führerscheinklasse — und passende Alternativen anderer Hersteller auf jeder Modellseite.`;
+  return "";
+}
+
 for (const t of themen) {
   t.pfad = `/motorraeder/${t.slug}/`;
+  t.mehr = themaMehr(t);
   t.liste.sort((a, b) => (b.pop || 0) - (a.pop || 0));
 }
 const themaPfad = (slug) => themen.find((t) => t.slug === slug)?.pfad;
@@ -257,10 +290,20 @@ const fuss = () => `
 </html>
 `;
 
+/* Alt-Texte für die Bildersuche: Modell, Bauart und Ansicht — so, wie jemand ein Foto beschreiben würde.
+   Platzhalter sagen, dass sie einer sind: sonst zeigte die Bildersuche eine graue Silhouette als "Foto"
+   des Modells. */
+function altText(b, art) {
+  if (!hatFoto(b)) return `${b.name} – noch kein Foto (Platzhalter-Silhouette)`;
+  const bauart = STIL[b.style]?.einzahl || b.style;
+  const ansicht = art === "studio" ? "im Studio" : art === "kachel" ? "freigestellt" : "Seitenansicht";
+  return `${b.name}, ${bauart} – ${ansicht}`;
+}
+
 function karte(b) {
   const info = [klasseText(b), b.ps ? `${b.ps} PS` : null, b.cc ? `${b.cc} ccm` : null].filter(Boolean).join(" · ");
   return `<li class="karte"><a href="${bikePfad.get(b)}">
-      <img src="${esc(bikeBild(b, "kachel"))}" alt="${esc(b.name)}" loading="lazy" decoding="async" width="420" height="300" />
+      <img src="${esc(bikeBild(b, "kachel"))}" alt="${esc(altText(b, "kachel"))}" loading="lazy" decoding="async" width="420" height="300" />
       <strong>${esc(b.name)}</strong><span class="preis">${preisText(b)}</span><span class="info">${esc(info)}</span>
     </a></li>`;
 }
@@ -350,6 +393,7 @@ for (const t of themen) {
   schreibe(t.pfad, kopf({ titel: t.titel, beschreibung, pfad: t.pfad, krumen, bild: hatFoto(t.liste[0]) ? bikeBild(t.liste[0], "titel") : null, ld: [liste, ...faqLd(fragen)] }) + `
     <h1>${esc(t.h1)}</h1>
     <p class="intro">${esc(t.intro)}</p>
+    ${t.mehr ? `<p class="intro zwei">${esc(t.mehr)}</p>` : ""}
     ${kennzahlen(t.liste)}
     <ul class="raster">${t.liste.slice(0, MAX_LISTE).map(karte).join("")}</ul>
     ${t.liste.length > MAX_LISTE ? `<p class="hinweis">Gezeigt: die ${MAX_LISTE} gefragtesten von ${t.liste.length} Modellen. Das Quiz durchsucht alle.</p>` : ""}
@@ -417,11 +461,12 @@ for (const b of bikes) {
     speed: menge(b.topSpeed, "KMH"), vehicleTransmission: b.gear || undefined,
     bodyType: s?.einzahl || b.style,
   };
-  schreibe(pfad, kopf({ titel: `${b.name} – Preis, technische Daten & Führerschein`, beschreibung, pfad, krumen, bild: hatFoto(b) ? bikeBild(b, "titel") : null, ld: [motorrad, ...faqLd(fragen)] }) + `
+  schreibe(pfad, kopf({ titel: `${b.name} gebraucht: Preis, technische Daten & Führerschein`, beschreibung, pfad, krumen, bild: hatFoto(b) ? bikeBild(b, "titel") : null, ld: [motorrad, ...faqLd(fragen)] }) + `
     <article class="bike">
       <h1>${esc(b.name)}</h1>
-      <figure><img src="${esc(bikeBild(b, "titel"))}" alt="${esc(b.name)}" width="1600" height="437" />${hatFoto(b) ? "" : "<figcaption>Foto folgt</figcaption>"}</figure>
+      <figure><img src="${esc(bikeBild(b, "titel"))}" alt="${esc(altText(b, "titel"))}" width="1600" height="437" fetchpriority="high" />${hatFoto(b) ? "" : "<figcaption>Foto folgt</figcaption>"}</figure>
       <p class="preis gross">${preisText(b)}${b.priceYear && preis(b) ? ` <span>gebraucht, Baujahr ${b.priceYear}</span>` : ""}</p>
+      <p class="aktionen"><a class="knopf" href="/?motorrad=${esc(b.slug.replace(/_/g, "-"))}">In MotoMatch ansehen</a> <a class="knopf zweit" href="/">Passt sie zu mir? Quiz starten</a></p>
       <section><h2>Passt die ${esc(b.name)} zu dir?</h2><ul class="punkte">${fuerWen.map((x) => `<li>${esc(x)}</li>`).join("")}</ul></section>
       <section><h2>Technische Daten</h2><dl class="daten">${fakten.map(([k, v]) => `<dt>${esc(k)}</dt><dd>${esc(v)}</dd>`).join("")}</dl></section>
       ${jahre.length ? `<section><h2>Gebrauchtpreis nach Baujahr</h2><table class="jahre"><tr><th>Baujahr</th><th>Preis ca.</th></tr>${jahre.map(([j, v]) => `<tr><td>${j}</td><td>${zahl(v)} €</td></tr>`).join("")}</table></section>` : ""}
@@ -496,10 +541,10 @@ for (const v of vergleiche) {
   const beschreibung = `${a.name} oder ${b.name}? Preis (${preisText(a)} vs. ${preisText(b)}), Leistung, Gewicht, Sitzhöhe und Führerschein im direkten Vergleich.`;
   const weitere = [...(vergleicheVon.get(a) || []), ...(vergleicheVon.get(b) || [])].filter((x) => x !== v).slice(0, 8);
 
-  schreibe(v.pfad, kopf({ titel: `${a.name} vs. ${b.name}: Vergleich von Preis, PS & Gewicht`, beschreibung, pfad: v.pfad, krumen, bild: hatFoto(a) ? bikeBild(a, "titel") : null }) + `
+  schreibe(v.pfad, kopf({ titel: `${a.name} oder ${b.name}? Vergleich von Preis, PS & Gewicht`, beschreibung, pfad: v.pfad, krumen, bild: hatFoto(a) ? bikeBild(a, "titel") : null }) + `
     <h1>${esc(a.name)} vs. ${esc(b.name)}</h1>
-    <p class="intro">Zwei ${esc(STIL[a.style]?.mehrzahl || a.style)} im direkten Vergleich — mit Gebrauchtpreis, Technik und Führerschein.</p>
-    <div class="vs">${[a, b].map((x) => `<a href="${bikePfad.get(x)}"><img src="${esc(bikeBild(x, "kachel"))}" alt="${esc(x.name)}" width="420" height="300" /><strong>${esc(x.name)}</strong><span class="preis">${preisText(x)}</span></a>`).join("")}</div>
+    <p class="intro">${esc(a.name)} oder ${esc(b.name)}? Zwei ${esc(STIL[a.style]?.mehrzahl || a.style)} im direkten Vergleich — mit Gebrauchtpreis, Technik und Führerschein.</p>
+    <div class="vs">${[a, b].map((x) => `<a href="${bikePfad.get(x)}"><img src="${esc(bikeBild(x, "kachel"))}" alt="${esc(altText(x, "kachel"))}" width="420" height="300" /><strong>${esc(x.name)}</strong><span class="preis">${preisText(x)}</span></a>`).join("")}</div>
     <section><h2>Kurz gesagt</h2><ul class="punkte">${fazit(a, b).map((x) => `<li>${esc(x)}</li>`).join("")}</ul></section>
     <section><h2>Daten im Vergleich</h2><div class="tabelle"><table class="vergleich"><tr><th></th><th>${esc(a.name)}</th><th>${esc(b.name)}</th></tr>${zeilen}</table></div>
       <p class="hinweis">Hervorgehoben ist jeweils der bessere Wert. Welche Sitzhöhe und welcher Hubraum passen, hängt von dir ab.</p></section>
@@ -540,6 +585,7 @@ main{max-width:1200px;margin:0 auto;padding:8px 16px 48px}
 h1{font-size:clamp(30px,6vw,52px);font-weight:800;line-height:1.1;margin:12px 0 14px}
 h2{font-size:22px;font-weight:600;margin:40px 0 14px}
 .intro{max-width:760px;font-size:18px;color:rgba(255,255,255,.8)}
+.intro.zwei{font-size:16px;color:rgba(255,255,255,.65);margin-top:10px}
 .kennzahlen,.hinweis{margin-top:14px;color:var(--dim);font-size:15px}
 .raster{list-style:none;display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:14px;margin-top:24px}
 .karte a{display:flex;flex-direction:column;gap:2px;height:100%;padding:12px;background:var(--fl);border:1px solid var(--rand);border-radius:14px;text-decoration:none}
@@ -567,6 +613,8 @@ h2{font-size:22px;font-weight:600;margin:40px 0 14px}
 .cta p{color:var(--dim);max-width:560px;margin:0 auto 18px}
 .knopf{display:inline-block;background:#fff;color:#000;padding:12px 26px;text-decoration:none;font-weight:600}
 .knopf.klein{padding:7px 14px;font-size:14px}
+.knopf.zweit{background:transparent;color:#fff;border:1px solid rgba(255,255,255,.35)}
+.aktionen{display:flex;flex-wrap:wrap;gap:10px;margin:14px 0 4px}
 .fuss{max-width:1200px;margin:0 auto;padding:24px 16px 40px;border-top:1px solid var(--rand);color:var(--dim);font-size:13px}
 .fuss p{margin:4px 0}
 .vs{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-top:24px}
@@ -630,9 +678,18 @@ ${gruppe("Marke")}
 
 const heute = new Date().toISOString().slice(0, 10);
 const adressen = ["/", "/motorraeder/", "/vergleich/", ...themen.map((t) => t.pfad), ...bikes.map((b) => bikePfad.get(b)), ...vergleiche.map((v) => v.pfad)];
+/* Bild-Sitemap (Google-Erweiterung): die echten Fotos je Bike-Seite, damit sie in der Bildersuche
+   erscheinen. Nur echte Fotos — Platzhalter-Silhouetten gehören nicht in die Bildersuche. */
+const bilderJeSeite = new Map();
+for (const b of bikes) {
+  if (!hatFoto(b)) continue;
+  const bilder = [...new Set([bikeBild(b, "titel"), b.studio, b.image].filter(Boolean))];
+  bilderJeSeite.set(bikePfad.get(b), bilder);
+}
 writeFileSync(join(DIST, "sitemap.xml"), `<?xml version="1.0" encoding="UTF-8"?>
-<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
-${adressen.map((p) => `  <url><loc>${url(p)}</loc><lastmod>${heute}</lastmod></url>`).join("\n")}
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9" xmlns:image="http://www.google.com/schemas/sitemap-image/1.1">
+${adressen.map((p) => `  <url><loc>${url(p)}</loc><lastmod>${heute}</lastmod>${(bilderJeSeite.get(p) || [])
+    .map((bild) => `<image:image><image:loc>${esc(url(bild))}</image:loc></image:image>`).join("")}</url>`).join("\n")}
 </urlset>
 `);
 

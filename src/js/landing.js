@@ -1,5 +1,5 @@
 import { maybeShowOnboarding } from "./onboarding.js";
-import { getCatalog, findBikeByShortName } from "./matching.js";
+import { getCatalog, findBikeByShortName, ladeVollkatalog } from "./matching.js";
 import { bikeBild } from "./bike-bild.js";
 import { esc } from "./util.js";
 
@@ -185,6 +185,9 @@ function buildSearchOverlay() {
 
   renderResults("");
   input.addEventListener("input", () => renderResults(input.value));
+  // Der Vollkatalog lädt erst im Leerlauf nach dem Seitenaufbau (app.js) — wer vorher sucht,
+  // bekommt die Treffer neu gerechnet, sobald er da ist.
+  ladeVollkatalog().then(() => { if (overlay.isConnected) renderResults(input.value); });
 
   // Close on backdrop click
   overlay.addEventListener("click", (e) => { if (e.target === overlay) closeSearch(); });
@@ -714,8 +717,10 @@ export function initLanding() {
 
   // ── Hero entrance animation ──────────────────────────────
   const words = landing.querySelectorAll(".p-hero-title .hw");
-  words.forEach((w, i) => setTimeout(() => w.classList.add("vis"), 200 + i * 180));
-  const delay = 200 + words.length * 180 + 150;
+  // Der Titel ist das größte sichtbare Element (LCP): jede Verzögerung hier zählt bei Google als
+  // Ladezeit. Vorher 200 ms + 180 ms je Wort — enger gestaffelt bleibt der Effekt, ist aber schneller da.
+  words.forEach((w, i) => setTimeout(() => w.classList.add("vis"), 60 + i * 90));
+  const delay = 60 + words.length * 90 + 150;
   setTimeout(() => {
     landing.querySelectorAll(".anim-p").forEach((el, i) => {
       setTimeout(() => el.classList.add("vis"), i * 220);

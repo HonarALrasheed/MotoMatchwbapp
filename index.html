@@ -3,10 +3,27 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
-    <title>MotoMatch — Finde dein perfektes Bike</title>
+    <title>MotoMatch – Motorrad-Quiz: Finde dein perfektes Bike</title>
 
-    <meta name="description" content="MotoMatch findet per Quiz das passende Motorrad für dich — mit Modellvergleich, Ausrüstungsguide, interaktiver Händlerkarte und Community." />
+    <meta name="description" content="Welches Motorrad passt zu dir? MotoMatch findet in acht Fragen das passende Bike für deinen Führerschein (A1, A2, A) und dein Budget – aus über 1.000 Modellen, mit Händlerkarte und Community." />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <!-- Eine Adresse fuer alle Varianten (www, ?reset=1, ?dm=…): Google soll nur diese fuehren. -->
+    <link rel="canonical" href="https://motomatch.studio/" />
+
+    <!-- Sagt Google, dass die Seite "MotoMatch" heisst. Den Namen fuehren auch ein
+         franzoesischer Teile-Shop und mehrere andere Angebote — ohne diese Angabe
+         ordnet Google die Suche nach "motomatch" eher denen zu. -->
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@type": "WebSite",
+        "name": "MotoMatch",
+        "alternateName": ["MotoMatch Motorrad-Quiz", "motomatch.studio"],
+        "url": "https://motomatch.studio/",
+        "inLanguage": "de-DE",
+        "description": "Motorrad-Quiz: In acht Fragen das passende Bike für deinen Führerschein (A1, A2, A) und dein Budget finden."
+      }
+    </script>
 
     <!-- Vollbild auf Mobilgeraeten: als installierte Web-App laeuft MotoMatch
          ohne Adress- und Reiterleiste. Chromium (Android) liest dafuer das
@@ -26,15 +43,18 @@
 
     <!-- Open Graph -->
     <meta property="og:type" content="website" />
-    <meta property="og:title" content="MotoMatch — Finde dein perfektes Bike" />
-    <meta property="og:description" content="MotoMatch findet per Quiz das passende Motorrad für dich — mit Modellvergleich, Ausrüstungsguide, interaktiver Händlerkarte und Community." />
-    <meta property="og:image" content="/bikes/sportbikes_trio.webp" />
+    <meta property="og:site_name" content="MotoMatch" />
+    <meta property="og:locale" content="de_DE" />
+    <meta property="og:url" content="https://motomatch.studio/" />
+    <meta property="og:title" content="MotoMatch – Motorrad-Quiz: Finde dein perfektes Bike" />
+    <meta property="og:description" content="Welches Motorrad passt zu dir? MotoMatch findet in acht Fragen das passende Bike für deinen Führerschein (A1, A2, A) und dein Budget – aus über 1.000 Modellen, mit Händlerkarte und Community." />
+    <meta property="og:image" content="https://motomatch.studio/bikes/sportbikes_trio.webp" />
 
     <!-- Twitter Card -->
     <meta name="twitter:card" content="summary_large_image" />
-    <meta name="twitter:title" content="MotoMatch — Finde dein perfektes Bike" />
-    <meta name="twitter:description" content="MotoMatch findet per Quiz das passende Motorrad für dich — mit Modellvergleich, Ausrüstungsguide, interaktiver Händlerkarte und Community." />
-    <meta name="twitter:image" content="/bikes/sportbikes_trio.webp" />
+    <meta name="twitter:title" content="MotoMatch – Motorrad-Quiz: Finde dein perfektes Bike" />
+    <meta name="twitter:description" content="Welches Motorrad passt zu dir? MotoMatch findet in acht Fragen das passende Bike für deinen Führerschein (A1, A2, A) und dein Budget – aus über 1.000 Modellen, mit Händlerkarte und Community." />
+    <meta name="twitter:image" content="https://motomatch.studio/bikes/sportbikes_trio.webp" />
 
     <!-- Fonts: self-hosted via public/fonts/ + @font-face in main.css (kein Google-Request) -->
   </head>

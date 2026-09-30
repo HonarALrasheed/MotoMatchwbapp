@@ -80,6 +80,32 @@ Wichtigste Module in `src/js/`:
 - **Achtung:** `public/models/` und `public/__video/` sind gitignored ("too big for GitHub"). Ein Deploy über die Git-Integration hätte daher **keine 3D-Modelle/kein Hero-Video** — deployen über die `vercel` CLI vom lokalen Rechner, die lädt `public/` vollständig hoch.
 - Base-Pfad ist `/` (`vite.config.js`), absolute Asset-Pfade im Code (z. B. `/bikes/…`) gelten also unverändert auch im Build.
 
+## Katalogseiten für Google (SEO)
+`npm run build` = `vite build && node scripts/seo-seiten.mjs`. Die Skripte liegen bewusst in `scripts/`, nicht in `tools/`: `.vercelignore` schließt `tools/` (Bildwerkstatt, mehrere GB) vom Upload aus — dort fände der Vercel-Build sie nicht. Das Skript erzeugt aus
+`public/data/katalog-de.json` statische Seiten direkt in `dist/` — sie liegen **nicht** im Repo
+und laufen **nicht** im Dev-Server (`npm run build && npm run preview` zum Ansehen):
+- `/motorrad/<slug>/` je Bike (Slug = `slug` aus dem Katalog, `_` → `-`): Preis, Preise nach
+  Baujahr, Technik, "Passt die … zu dir?", ähnliche Modelle (`findSimilarBikes`), Quiz-Link.
+- `/motorraeder/` Übersicht und `/motorraeder/<thema>/` — Führerschein, Bauart, Bauart × A2/125,
+  Budget, Einsteiger, Sitzhöhe, Gewicht, Marke. Ein Thema entsteht nur ab 6 Modellen (Marken ab 3).
+- `dist/sitemap.xml` mit allen Adressen und `dist/seo.css` (eigenes Stylesheet, bewusst nicht
+  `main.css` — die Seiten laden kein App-JavaScript).
+- **Jede Seite muss echte Daten tragen.** Seiten, die nur Suchbegriffe wiederholen, wertet Google
+  als Spam ("doorway pages") und stuft dann die ganze Domain herab. Neue Themen also nur mit
+  eigener Auswahl aus dem Katalog, nicht als Textvarianten derselben Liste.
+- `/vergleich/<a>-vs-<b>/`: die drei ähnlichsten Modelle je Bike (`findSimilarBikes`), nur gleiche
+  Bauart, beide mit Preis, Preis und PS höchstens Faktor 1,6 auseinander — sonst entstehen Paare, die
+  niemand sucht. Vorne steht das bekanntere Modell (`pop`). Übersicht unter `/vergleich/`.
+- Neue Bikes/Preise im Katalog landen beim nächsten Deploy automatisch auf den Seiten. **Datenfehler
+  auch**: die Vergleiche heben "leichter/stärker" hervor, ein falsches Gewicht im Katalog steht dort
+  also prominent (Stand 2026-09-30 falsch: Honda CBR600RR 310 kg, MV Agusta F4 RC 291 kg, Honda
+  Monkey 58 kg — in der CSV-Pipeline korrigieren, nicht in `katalog-de.json`).
+- **IndexNow** (Bing, darüber ChatGPT-Suche/Copilot/DuckDuckGo): `scripts/indexnow.mjs` meldet alle
+  Adressen der *live* ausgelieferten Sitemap. Läuft per GitHub Action
+  (`.github/workflows/indexnow.yml`) nach jedem erfolgreichen Produktions-Deploy von Vercel, von Hand
+  über Actions → IndexNow → Run workflow. Schlüssel = `public/<32 Hex>.txt` — nicht umbenennen
+  oder löschen, sonst lehnt IndexNow die Meldungen ab. Google nimmt an IndexNow nicht teil.
+
 ## API-Schutz
 **Stand 2026-09-21:** `api/ai-match.js` (OpenAI) und `api/search-places.js` (Tavily) gibt es nicht
 mehr — die Gebrauchtsuche ist auf Wunsch des Nutzers abgeschaltet (alte Fassung in `_archiv/2026-09-21/`),
@@ -106,6 +132,19 @@ Origin-Header. Reihenfolge in beiden Handlern, Helfer alle aus
 - **`api/delete-account.js` ist der einzige Endpoint mit BEIDEN Schlüsseln:** `requireUser()` (Anon-Key) stellt fest, *wer* fragt — die zu löschende uid kommt ausschließlich aus dem verifizierten Token, es gibt bewusst keinen uid-Parameter. Erst danach kommt der Service-Role-Client für `auth.admin.deleteUser()` und das Aufräumen des Buckets `chat-attachments` (die CASCADE-Ketten in `schema.sql` räumen Tabellen ab, **nicht** den Storage). Reihenfolge ist Absicht: erst Storage, dann Auth-User — schlägt der Storage-Teil fehl, bricht der Endpoint ab und lässt das Konto stehen, weil ein verwaister öffentlicher Anhang danach niemandem mehr zuzuordnen wäre. Ohne `SUPABASE_SERVICE_ROLE_KEY` (lokal nicht in `.env`): 500/`not_configured`, es wird nichts gelöscht.
 - **`api/push-trigger.js` bleibt die Ausnahme bei der Authentifizierung:** aufgerufen von einem Supabase-Webhook, nicht aus dem Browser — deshalb bewusst **kein** Origin-Check und **kein** `requireUser`, sondern `x-webhook-secret`. Nur das Fehlerformat ist angeglichen. Nicht "vereinheitlichen".
 - **Konfigurationsprüfungen (`OPENAI_KEY`, `TAVILY_KEY`, `LIVEKIT_*`) stehen hinter der Anmeldung**, nicht davor: sonst kann jeder mit passendem Origin Sentry mit Events fluten und nebenbei abfragen, ob überhaupt Schlüssel hinterlegt sind.
+
+## Sicherheits-Header (vercel.json)
+Gelten für jede Adresse (`"source": "/(.*)"`):
+- `X-Frame-Options: DENY` + CSP `frame-ancestors 'none'` — keine fremde Seite darf MotoMatch
+  einbetten (Clickjacking). **Die CSP enthält bewusst nur `frame-ancestors`**: eine volle
+  Script-/Connect-CSP müsste Supabase, Google Maps, LiveKit, Sentry, Vercel Analytics und CartoCDN
+  einzeln freigeben und bricht beim nächsten neuen Dienst still — erst im Report-Only-Modus testen.
+- `Permissions-Policy`: `microphone=(self)` (Sprachkanäle), `display-capture=(self)`
+  (Bildschirmfreigabe), `geolocation=(self)` (Karte, Fahrtenbuch); Kamera, Zahlung, USB gesperrt.
+  **Neue Browser-Funktion (z. B. Kamera für Profilbild) = hier freigeben**, sonst lehnt der Browser
+  sie ohne Nachfrage ab.
+- `X-Content-Type-Options: nosniff`, `Referrer-Policy: strict-origin-when-cross-origin`, HSTS 2 Jahre
+  (ohne `includeSubDomains`, falls je eine Subdomain ohne HTTPS dazukommt).
 
 ## Fehler-Monitoring (Sentry)
 - Frontend-Init in [`src/js/monitoring.js`](src/js/monitoring.js), aufgerufen als **erste Zeile in [`src/main.js`](src/main.js)** — vor dem dynamischen Import von `app.js`, damit auch ein Fehler beim Auswerten der Importkette noch gemeldet wird. DSN aus `VITE_SENTRY_DSN` — ohne DSN no-op mit Konsolen-Info (wie `OFFLINE_MODE` in `supabase.js`).

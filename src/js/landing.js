@@ -494,6 +494,9 @@ export function initLanding() {
         <p class="p-footer-noch">Noch hier</p>
       </div>
       <div class="p-footer-cols">
+        <!-- Statische Katalogseiten (scripts/seo-seiten.mjs): der Link ist auch der Weg,
+             auf dem Google sie von der Startseite aus findet. -->
+        <a href="/motorraeder/" class="p-footer-link">Motorräder</a>
         <a href="/impressum.html" class="p-footer-link">Impressum</a>
         <a href="/datenschutz.html" class="p-footer-link">Datenschutz</a>
         <a href="/agb.html" class="p-footer-link">AGB</a>

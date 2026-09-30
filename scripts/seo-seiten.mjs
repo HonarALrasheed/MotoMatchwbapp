@@ -257,10 +257,20 @@ const fuss = () => `
 </html>
 `;
 
+/* Alt-Texte für die Bildersuche: Modell, Bauart und Ansicht — so, wie jemand ein Foto beschreiben würde.
+   Platzhalter sagen, dass sie einer sind: sonst zeigte die Bildersuche eine graue Silhouette als "Foto"
+   des Modells. */
+function altText(b, art) {
+  if (!hatFoto(b)) return `${b.name} – noch kein Foto (Platzhalter-Silhouette)`;
+  const bauart = STIL[b.style]?.einzahl || b.style;
+  const ansicht = art === "studio" ? "im Studio" : art === "kachel" ? "freigestellt" : "Seitenansicht";
+  return `${b.name}, ${bauart} – ${ansicht}`;
+}
+
 function karte(b) {
   const info = [klasseText(b), b.ps ? `${b.ps} PS` : null, b.cc ? `${b.cc} ccm` : null].filter(Boolean).join(" · ");
   return `<li class="karte"><a href="${bikePfad.get(b)}">
-      <img src="${esc(bikeBild(b, "kachel"))}" alt="${esc(b.name)}" loading="lazy" decoding="async" width="420" height="300" />
+      <img src="${esc(bikeBild(b, "kachel"))}" alt="${esc(altText(b, "kachel"))}" loading="lazy" decoding="async" width="420" height="300" />
       <strong>${esc(b.name)}</strong><span class="preis">${preisText(b)}</span><span class="info">${esc(info)}</span>
     </a></li>`;
 }
@@ -420,7 +430,7 @@ for (const b of bikes) {
   schreibe(pfad, kopf({ titel: `${b.name} – Preis, technische Daten & Führerschein`, beschreibung, pfad, krumen, bild: hatFoto(b) ? bikeBild(b, "titel") : null, ld: [motorrad, ...faqLd(fragen)] }) + `
     <article class="bike">
       <h1>${esc(b.name)}</h1>
-      <figure><img src="${esc(bikeBild(b, "titel"))}" alt="${esc(b.name)}" width="1600" height="437" />${hatFoto(b) ? "" : "<figcaption>Foto folgt</figcaption>"}</figure>
+      <figure><img src="${esc(bikeBild(b, "titel"))}" alt="${esc(altText(b, "titel"))}" width="1600" height="437" fetchpriority="high" />${hatFoto(b) ? "" : "<figcaption>Foto folgt</figcaption>"}</figure>
       <p class="preis gross">${preisText(b)}${b.priceYear && preis(b) ? ` <span>gebraucht, Baujahr ${b.priceYear}</span>` : ""}</p>
       <p class="aktionen"><a class="knopf" href="/?motorrad=${esc(b.slug.replace(/_/g, "-"))}">In MotoMatch ansehen</a> <a class="knopf zweit" href="/">Passt sie zu mir? Quiz starten</a></p>
       <section><h2>Passt die ${esc(b.name)} zu dir?</h2><ul class="punkte">${fuerWen.map((x) => `<li>${esc(x)}</li>`).join("")}</ul></section>
@@ -500,7 +510,7 @@ for (const v of vergleiche) {
   schreibe(v.pfad, kopf({ titel: `${a.name} vs. ${b.name}: Vergleich von Preis, PS & Gewicht`, beschreibung, pfad: v.pfad, krumen, bild: hatFoto(a) ? bikeBild(a, "titel") : null }) + `
     <h1>${esc(a.name)} vs. ${esc(b.name)}</h1>
     <p class="intro">Zwei ${esc(STIL[a.style]?.mehrzahl || a.style)} im direkten Vergleich — mit Gebrauchtpreis, Technik und Führerschein.</p>
-    <div class="vs">${[a, b].map((x) => `<a href="${bikePfad.get(x)}"><img src="${esc(bikeBild(x, "kachel"))}" alt="${esc(x.name)}" width="420" height="300" /><strong>${esc(x.name)}</strong><span class="preis">${preisText(x)}</span></a>`).join("")}</div>
+    <div class="vs">${[a, b].map((x) => `<a href="${bikePfad.get(x)}"><img src="${esc(bikeBild(x, "kachel"))}" alt="${esc(altText(x, "kachel"))}" width="420" height="300" /><strong>${esc(x.name)}</strong><span class="preis">${preisText(x)}</span></a>`).join("")}</div>
     <section><h2>Kurz gesagt</h2><ul class="punkte">${fazit(a, b).map((x) => `<li>${esc(x)}</li>`).join("")}</ul></section>
     <section><h2>Daten im Vergleich</h2><div class="tabelle"><table class="vergleich"><tr><th></th><th>${esc(a.name)}</th><th>${esc(b.name)}</th></tr>${zeilen}</table></div>
       <p class="hinweis">Hervorgehoben ist jeweils der bessere Wert. Welche Sitzhöhe und welcher Hubraum passen, hängt von dir ab.</p></section>
@@ -633,9 +643,18 @@ ${gruppe("Marke")}
 
 const heute = new Date().toISOString().slice(0, 10);
 const adressen = ["/", "/motorraeder/", "/vergleich/", ...themen.map((t) => t.pfad), ...bikes.map((b) => bikePfad.get(b)), ...vergleiche.map((v) => v.pfad)];
+/* Bild-Sitemap (Google-Erweiterung): die echten Fotos je Bike-Seite, damit sie in der Bildersuche
+   erscheinen. Nur echte Fotos — Platzhalter-Silhouetten gehören nicht in die Bildersuche. */
+const bilderJeSeite = new Map();
+for (const b of bikes) {
+  if (!hatFoto(b)) continue;
+  const bilder = [...new Set([bikeBild(b, "titel"), b.studio, b.image].filter(Boolean))];
+  bilderJeSeite.set(bikePfad.get(b), bilder);
+}
 writeFileSync(join(DIST, "sitemap.xml"), `<?xml version="1.0" encoding="UTF-8"?>
-<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
-${adressen.map((p) => `  <url><loc>${url(p)}</loc><lastmod>${heute}</lastmod></url>`).join("\n")}
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9" xmlns:image="http://www.google.com/schemas/sitemap-image/1.1">
+${adressen.map((p) => `  <url><loc>${url(p)}</loc><lastmod>${heute}</lastmod>${(bilderJeSeite.get(p) || [])
+    .map((bild) => `<image:image><image:loc>${esc(url(bild))}</image:loc></image:image>`).join("")}</url>`).join("\n")}
 </urlset>
 `);
 

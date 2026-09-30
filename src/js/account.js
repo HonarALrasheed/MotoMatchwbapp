@@ -14,7 +14,7 @@
 // Zentrale, plattformweite Auth — dieselbe Session/DB wie im Community-Bereich
 import * as auth from './auth.js'
 import { aktiveAnbieter } from './auth.js'
-import { getCatalog, preisAb, findBikeByShortName } from './matching.js'
+import { getCatalog, preisAb, findBikeByShortName, ladeVollkatalog } from './matching.js'
 import { bikeBild } from './bike-bild.js'
 import { esc, fmtDate, fmtRelative } from './util.js'
 import {
@@ -1695,6 +1695,11 @@ function wireBikeSearch() {
   const input = document.getElementById('acc-bike-search-input')
   const results = document.getElementById('acc-bike-search-results')
   if (!input || !results) return
+  // Vollkatalog lädt sonst erst im Leerlauf (app.js) — beim ersten Tippen anstoßen und die
+  // Treffer neu rechnen, sobald er da ist.
+  input.addEventListener('focus', () => {
+    ladeVollkatalog().then(() => { if (input.isConnected && input.value.trim()) renderResults(input.value) })
+  }, { once: true })
 
   const renderResults = (query) => {
     const q = query.trim().toLowerCase()

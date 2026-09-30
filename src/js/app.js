@@ -49,8 +49,15 @@ export function startApp() {
   initSwipeNav()
   /* Den Katalog des deutschen Marktes (public/data/katalog-de.json) im Hintergrund holen,
      damit er dasteht, wenn das Quiz fertig ist. Schlägt es fehl, rechnet die Seite mit den
-     eingebauten Bikes weiter (matching.js). */
-  ladeVollkatalog()
+     eingebauten Bikes weiter (matching.js).
+     Erst nach dem load-Ereignis und im Leerlauf: gleich beim Start konkurrierte die Datei
+     (ca. 900 KB, gepackt ~150 KB) auf dem Handy mit dem Aufbau der Startseite um die Leitung —
+     gemessen bei langsamem 4G ~0,7 s später sichtbarer Hero. Wer ihn früher braucht, stößt ihn
+     selbst an (ladeVollkatalog() ist idempotent): das Quiz, die Suchfelder, Direktlinks. */
+  const katalogImLeerlauf = () =>
+    (window.requestIdleCallback || ((f) => setTimeout(f, 300)))(() => ladeVollkatalog(), { timeout: 3000 })
+  if (document.readyState === 'complete') katalogImLeerlauf()
+  else window.addEventListener('load', katalogImLeerlauf, { once: true })
   initSupabaseAuth()
   initFeedbackFab()
   // Registriert den Service Worker und bietet die Installation an — nur so

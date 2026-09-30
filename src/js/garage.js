@@ -194,7 +194,9 @@ export function loadGarage(answers) {
  * No quiz answers needed — same full-featured page.
  */
 export function openBikeGarage(shortName) {
-  const bikeData = findBikeByShortName(shortName);
+  // Auch ein Katalog-Objekt: der Direktlink ?motorrad=<slug> (app.js) hat das Bike schon eindeutig
+  // gefunden — über den Namen wären gleichnamige Modelle verschiedener Baujahre mehrdeutig.
+  const bikeData = shortName && typeof shortName === "object" ? shortName : findBikeByShortName(shortName);
   if (!bikeData) {
     import('./landing.js').then(m => m.initLanding());
     // Reuse the existing mm-toast style — no new CSS introduced

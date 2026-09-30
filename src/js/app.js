@@ -1,5 +1,5 @@
 import { initLanding } from './landing.js'
-import { findBikeByShortName, ladeVollkatalog } from './matching.js'
+import { findBikeByShortName, ladeVollkatalog, getCatalog } from './matching.js'
 import { initSupabaseAuth, openPasswordResetScreen } from './auth.js'
 import { initFeedbackFab } from './feedback.js'
 import { initNav, setViewResolver, readRestoreView, clearRestoreView, rebuild } from './nav.js'
@@ -19,6 +19,9 @@ import { initInstall } from './install.js'
  */
 async function openView(view) {
   if (!view?.bike) return false
+  // Der Vollkatalog lädt erst im Leerlauf (siehe startApp) — ein Bike außerhalb der
+  // eingebauten Liste wäre beim Wiederherstellen sonst "nicht gefunden".
+  if (!findBikeByShortName(view.bike)) await ladeVollkatalog()
   if (view.screen === 'konfigurator') {
     /* matching.js wird von landing.js ohnehin statisch geladen und liegt damit
        schon im Start-Bundle — der dynamische Import hier brachte kein eigenes
@@ -71,12 +74,31 @@ export function startApp() {
   document.getElementById('drop-container').style.display = 'none'
   document.getElementById('garage-container').style.display = 'none'
 
-  // Direct garage link: ?bike=Iron+883 → opens garage immediately
+  // Direktlinks in die Garage eines Bikes:
+  //   ?motorrad=<slug>  von den statischen Katalogseiten (scripts/seo-seiten.mjs) — eindeutig
+  //   ?bike=Iron+883    ältere Form über den Namen
+  // Beide warten auf den Vollkatalog, der sonst erst im Leerlauf lädt: ohne ihn kennt die App
+  // nur die Bikes mit Foto, und ein Link auf eins der übrigen landete bei "Bike nicht gefunden".
   const params = new URLSearchParams(window.location.search)
+  const slug = params.get('motorrad')
+  if (slug) {
+    const gesucht = slug.toLowerCase().replace(/_/g, '-')
+    Promise.all([ladeVollkatalog(), import('./garage.js')])
+      .then(([, m]) => {
+        const bike = getCatalog().find(b => String(b.slug || '').toLowerCase().replace(/_/g, '-') === gesucht)
+        if (bike) m.openBikeGarage(bike)
+        else initLanding()
+      })
+      .catch(err => {
+        console.error('[app] Direktlink konnte nicht geladen werden:', err)
+        initLanding()
+      })
+    return
+  }
   const bikeName = params.get('bike')
   if (bikeName) {
-    import('./garage.js')
-      .then(m => m.openBikeGarage(bikeName))
+    Promise.all([findBikeByShortName(bikeName) ? null : ladeVollkatalog(), import('./garage.js')])
+      .then(([, m]) => m.openBikeGarage(bikeName))
       .catch(err => {
         console.error('[app] Direktlink konnte nicht geladen werden:', err)
         initLanding()

@@ -422,6 +422,7 @@ for (const b of bikes) {
       <h1>${esc(b.name)}</h1>
       <figure><img src="${esc(bikeBild(b, "titel"))}" alt="${esc(b.name)}" width="1600" height="437" />${hatFoto(b) ? "" : "<figcaption>Foto folgt</figcaption>"}</figure>
       <p class="preis gross">${preisText(b)}${b.priceYear && preis(b) ? ` <span>gebraucht, Baujahr ${b.priceYear}</span>` : ""}</p>
+      <p class="aktionen"><a class="knopf" href="/?motorrad=${esc(b.slug.replace(/_/g, "-"))}">In MotoMatch ansehen</a> <a class="knopf zweit" href="/">Passt sie zu mir? Quiz starten</a></p>
       <section><h2>Passt die ${esc(b.name)} zu dir?</h2><ul class="punkte">${fuerWen.map((x) => `<li>${esc(x)}</li>`).join("")}</ul></section>
       <section><h2>Technische Daten</h2><dl class="daten">${fakten.map(([k, v]) => `<dt>${esc(k)}</dt><dd>${esc(v)}</dd>`).join("")}</dl></section>
       ${jahre.length ? `<section><h2>Gebrauchtpreis nach Baujahr</h2><table class="jahre"><tr><th>Baujahr</th><th>Preis ca.</th></tr>${jahre.map(([j, v]) => `<tr><td>${j}</td><td>${zahl(v)} €</td></tr>`).join("")}</table></section>` : ""}
@@ -567,6 +568,8 @@ h2{font-size:22px;font-weight:600;margin:40px 0 14px}
 .cta p{color:var(--dim);max-width:560px;margin:0 auto 18px}
 .knopf{display:inline-block;background:#fff;color:#000;padding:12px 26px;text-decoration:none;font-weight:600}
 .knopf.klein{padding:7px 14px;font-size:14px}
+.knopf.zweit{background:transparent;color:#fff;border:1px solid rgba(255,255,255,.35)}
+.aktionen{display:flex;flex-wrap:wrap;gap:10px;margin:14px 0 4px}
 .fuss{max-width:1200px;margin:0 auto;padding:24px 16px 40px;border-top:1px solid var(--rand);color:var(--dim);font-size:13px}
 .fuss p{margin:4px 0}
 .vs{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-top:24px}

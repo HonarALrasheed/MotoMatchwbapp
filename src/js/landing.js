@@ -370,7 +370,9 @@ function startHeroVideo(root) {
 export function ensureLandingRendered() {
   const landing = document.getElementById('landing')
   if (!landing) return
-  if (landing.innerHTML.trim()) return
+  // .mm-vorab ist die Textfassung aus index.html fuer Crawler ohne JavaScript —
+  // steht nur sie drin, ist die Startseite noch nicht aufgebaut.
+  if (landing.innerHTML.trim() && !landing.querySelector('.mm-vorab')) return
   initLanding()
 }
 

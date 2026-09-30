@@ -5,6 +5,23 @@
 # Pflicht ist "leicht erkennbar, unmittelbar erreichbar, staendig verfuegbar",
 # nicht "auffindbar ueber Google".
 
+# KI-Suche und -Assistenten ausdruecklich willkommen: "*" erlaubt sie schon, aber manche Betreiber
+# werten nur eine namentliche Freigabe als Zustimmung. Alle stehen in DIESER Gruppe — eine eigene
+# Gruppe je Bot wuerde die Disallow-Zeilen unten fuer ihn aufheben (Bots lesen nur ihre eigene).
+User-agent: GPTBot
+User-agent: OAI-SearchBot
+User-agent: ChatGPT-User
+User-agent: ClaudeBot
+User-agent: Claude-SearchBot
+User-agent: Claude-User
+User-agent: PerplexityBot
+User-agent: Perplexity-User
+User-agent: Google-Extended
+User-agent: Applebot-Extended
+User-agent: Bingbot
+User-agent: DuckAssistBot
+User-agent: meta-externalagent
+User-agent: MistralAI-User
 User-agent: *
 Disallow: /impressum.html
 Disallow: /datenschutz.html
@@ -12,3 +29,5 @@ Disallow: /agb.html
 Allow: /
 
 Sitemap: https://motomatch.studio/sitemap.xml
+
+# Kurzbeschreibung fuer KI-Assistenten (llmstxt.org): https://motomatch.studio/llms.txt

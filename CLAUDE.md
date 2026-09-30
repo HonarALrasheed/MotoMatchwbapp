@@ -133,6 +133,19 @@ Origin-Header. Reihenfolge in beiden Handlern, Helfer alle aus
 - **`api/push-trigger.js` bleibt die Ausnahme bei der Authentifizierung:** aufgerufen von einem Supabase-Webhook, nicht aus dem Browser — deshalb bewusst **kein** Origin-Check und **kein** `requireUser`, sondern `x-webhook-secret`. Nur das Fehlerformat ist angeglichen. Nicht "vereinheitlichen".
 - **Konfigurationsprüfungen (`OPENAI_KEY`, `TAVILY_KEY`, `LIVEKIT_*`) stehen hinter der Anmeldung**, nicht davor: sonst kann jeder mit passendem Origin Sentry mit Events fluten und nebenbei abfragen, ob überhaupt Schlüssel hinterlegt sind.
 
+## Sicherheits-Header (vercel.json)
+Gelten für jede Adresse (`"source": "/(.*)"`):
+- `X-Frame-Options: DENY` + CSP `frame-ancestors 'none'` — keine fremde Seite darf MotoMatch
+  einbetten (Clickjacking). **Die CSP enthält bewusst nur `frame-ancestors`**: eine volle
+  Script-/Connect-CSP müsste Supabase, Google Maps, LiveKit, Sentry, Vercel Analytics und CartoCDN
+  einzeln freigeben und bricht beim nächsten neuen Dienst still — erst im Report-Only-Modus testen.
+- `Permissions-Policy`: `microphone=(self)` (Sprachkanäle), `display-capture=(self)`
+  (Bildschirmfreigabe), `geolocation=(self)` (Karte, Fahrtenbuch); Kamera, Zahlung, USB gesperrt.
+  **Neue Browser-Funktion (z. B. Kamera für Profilbild) = hier freigeben**, sonst lehnt der Browser
+  sie ohne Nachfrage ab.
+- `X-Content-Type-Options: nosniff`, `Referrer-Policy: strict-origin-when-cross-origin`, HSTS 2 Jahre
+  (ohne `includeSubDomains`, falls je eine Subdomain ohne HTTPS dazukommt).
+
 ## Fehler-Monitoring (Sentry)
 - Frontend-Init in [`src/js/monitoring.js`](src/js/monitoring.js), aufgerufen als **erste Zeile in [`src/main.js`](src/main.js)** — vor dem dynamischen Import von `app.js`, damit auch ein Fehler beim Auswerten der Importkette noch gemeldet wird. DSN aus `VITE_SENTRY_DSN` — ohne DSN no-op mit Konsolen-Info (wie `OFFLINE_MODE` in `supabase.js`).
 - **`VITE_SENTRY_DSN` muss zur *Build*-Zeit gesetzt sein.** Vite inlint den Wert; ohne DSN ist der `Sentry.init`-Zweig toter Code und `@sentry/browser` wird komplett wegoptimiert (Entry-Chunk 1,6 kB gz statt 25,8 kB gz). Die Variable in Vercel zu setzen reicht also nicht — es braucht danach einen **Redeploy mit neuem Build**.

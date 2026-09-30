@@ -205,7 +205,7 @@ const vergleicheVon = new Map();
 
 // ── Bausteine ──────────────────────────────────────────────────────────────
 
-function kopf({ titel, beschreibung, pfad, bild, krumen }) {
+function kopf({ titel, beschreibung, pfad, bild, krumen, ld: extraLd = [] }) {
   const og = bild ? url(bild) : url("/bikes/sportbikes_trio.webp");
   const ld = {
     "@context": "https://schema.org", "@type": "BreadcrumbList",
@@ -230,7 +230,7 @@ function kopf({ titel, beschreibung, pfad, bild, krumen }) {
   <meta property="og:image" content="${og}" />
   <meta name="twitter:card" content="summary_large_image" />
   <link rel="stylesheet" href="/seo.css" />
-  <script type="application/ld+json">${JSON.stringify(ld)}</script>
+  ${[ld, ...extraLd].map((x) => `<script type="application/ld+json">${JSON.stringify(x).replace(/</g, "\\u003c")}</script>`).join("\n  ")}
 </head>
 <body>
   <header class="kopf">
@@ -280,6 +280,58 @@ function kennzahlen(liste) {
   return `<p class="kennzahlen">${teile.join(" · ")}</p>`;
 }
 
+/* Häufige Fragen — beantwortet aus den Katalogdaten, nicht ausgedacht. Suchmaschinen und KI-Assistenten
+   (ChatGPT, Perplexity, Copilot, Gemini) zitieren bevorzugt Stellen, die eine Frage direkt beantworten.
+   Dieselben Paare stehen sichtbar auf der Seite und als FAQPage-Daten im Kopf — nur so ist es erlaubt. */
+function faqHtml(paare) {
+  if (!paare.length) return "";
+  return `<section class="faq"><h2>Häufige Fragen</h2><dl>${paare.map(([f, a]) => `<dt>${esc(f)}</dt><dd>${esc(a)}</dd>`).join("")}</dl></section>`;
+}
+const faqLd = (paare) => paare.length ? [{
+  "@context": "https://schema.org", "@type": "FAQPage",
+  mainEntity: paare.map(([f, a]) => ({ "@type": "Question", name: f, acceptedAnswer: { "@type": "Answer", text: a } })),
+}] : [];
+
+function themaFragen(t) {
+  const l = t.liste, paare = [];
+  const mitPreis = l.filter((b) => preis(b)).sort((a, b) => preis(a) - preis(b));
+  if (mitPreis.length >= 3) {
+    const q = (x) => preis(mitPreis[Math.min(mitPreis.length - 1, Math.floor(mitPreis.length * x))]);
+    paare.push([`${t.h1}: Was kosten sie gebraucht?`,
+      `Die Hälfte der ${mitPreis.length} Modelle mit Preis liegt gebraucht zwischen ca. ${zahl(q(0.25))} € und ${zahl(q(0.75))} €, typisch sind ca. ${zahl(q(0.5))} € (mittlere Marktpreise, Stand ${STAND}).`]);
+    paare.push([`${t.h1}: Welches Modell ist am günstigsten?`,
+      `Am günstigsten ist die ${mitPreis[0].name} mit ${preisText(mitPreis[0])} gebraucht, gefolgt von ${mitPreis.slice(1, 3).map((b) => `${b.name} (${preisText(b)})`).join(" und ")}.`]);
+  }
+  const stark = l.filter((b) => b.ps > 0).sort((a, b) => b.ps - a.ps)[0];
+  if (stark) paare.push([`${t.h1}: Welches Modell hat die meiste Leistung?`, `Die meiste Leistung hat die ${stark.name} mit ${stark.ps} PS (${stark.kw} kW)${
+    stark.license === "A" && stark.a2 && t.liste.every(darfA2) ? " — offen gemessen; mit A2 fährst du sie auf 35 kW gedrosselt" : ""}.`]);
+  const leicht = l.filter((b) => b.weight > 0).sort((a, b) => a.weight - b.weight)[0];
+  if (leicht) paare.push([`${t.h1}: Welches Modell ist am leichtesten?`, `Am leichtesten ist die ${leicht.name} mit ${leicht.weight} kg.`]);
+  const tief = l.filter((b) => b.seat_height > 0).sort((a, b) => a.seat_height - b.seat_height)[0];
+  if (tief) paare.push([`${t.h1}: Welches Modell hat die niedrigste Sitzhöhe?`,
+    `Am niedrigsten sitzt man auf der ${tief.name} mit ${dez(tief.seat_height)} cm — als Faustregel kommt man damit ab etwa ${abGroesse(tief.seat_height)} cm Körpergröße sicher auf den Boden.`]);
+  const beliebt = l.slice(0, 3);
+  if (beliebt.length === 3) paare.push([`${t.h1}: Welche Modelle sind am gefragtesten?`,
+    `Am gefragtesten auf dem deutschen Gebrauchtmarkt sind ${beliebt.map((b) => `${b.name} (${preisText(b)})`).join(", ")}.`]);
+  return paare;
+}
+
+function bikeFragen(b) {
+  const paare = [];
+  const lizenz = b.license === "A1" ? "den A1-Führerschein (ab 16) oder B196 mit dem Autoführerschein"
+    : b.license === "A2" ? "den A2-Führerschein (ab 18)"
+    : b.a2 ? "den A-Führerschein — oder A2, wenn sie auf 35 kW gedrosselt ist" : "den offenen A-Führerschein; für A2 ist sie zu stark";
+  paare.push([`Welchen Führerschein brauche ich für die ${b.name}?`, `Für die ${b.name} brauchst du ${lizenz}.`]);
+  if (preis(b)) paare.push([`Was kostet die ${b.name} gebraucht?`,
+    `Gebraucht kostet die ${b.name} ${preisText(b)}${b.priceYear ? ` (Baujahr ${b.priceYear})` : ""}, mittlerer Marktpreis, Stand ${STAND}.`]);
+  if (b.seat_height) paare.push([`Wie hoch ist die Sitzhöhe der ${b.name}?`,
+    `Die Sitzhöhe beträgt ${dez(b.seat_height)} cm. Als Faustregel kommt man ab etwa ${abGroesse(b.seat_height)} cm Körpergröße mit beiden Füßen sicher auf den Boden.`]);
+  paare.push([`Ist die ${b.name} für Anfänger geeignet?`, b.beginner
+    ? `Ja, die ${b.name} gilt als einsteigerfreundlich${b.weight ? ` — mit ${b.weight} kg` : ""}${b.ps ? ` und ${b.ps} PS` : ""}.`
+    : `Eher nicht: die ${b.name} ist eher etwas für Fahrerinnen und Fahrer mit Erfahrung${b.ps ? ` (${b.ps} PS${b.weight ? `, ${b.weight} kg` : ""})` : ""}.`]);
+  return paare;
+}
+
 function schreibe(pfad, html) {
   const ziel = join(DIST, pfad, "index.html");
   mkdirSync(dirname(ziel), { recursive: true });
@@ -292,12 +344,16 @@ for (const t of themen) {
   const krumen = [["Start", "/"], ["Motorräder", "/motorraeder/"], [t.h1, t.pfad]];
   const verwandt = themen.filter((x) => x !== t && x.gruppe === t.gruppe).slice(0, 12);
   const beschreibung = `${t.intro} ${t.liste.length} Modelle mit Gebrauchtpreis, PS und Führerscheinklasse.`.slice(0, 300);
-  schreibe(t.pfad, kopf({ titel: t.titel, beschreibung, pfad: t.pfad, krumen, bild: hatFoto(t.liste[0]) ? bikeBild(t.liste[0], "titel") : null }) + `
+  const fragen = themaFragen(t);
+  const liste = { "@context": "https://schema.org", "@type": "ItemList", name: t.h1, numberOfItems: t.liste.length,
+    itemListElement: t.liste.slice(0, 30).map((b, i) => ({ "@type": "ListItem", position: i + 1, name: b.name, url: url(bikePfad.get(b)) })) };
+  schreibe(t.pfad, kopf({ titel: t.titel, beschreibung, pfad: t.pfad, krumen, bild: hatFoto(t.liste[0]) ? bikeBild(t.liste[0], "titel") : null, ld: [liste, ...faqLd(fragen)] }) + `
     <h1>${esc(t.h1)}</h1>
     <p class="intro">${esc(t.intro)}</p>
     ${kennzahlen(t.liste)}
     <ul class="raster">${t.liste.slice(0, MAX_LISTE).map(karte).join("")}</ul>
     ${t.liste.length > MAX_LISTE ? `<p class="hinweis">Gezeigt: die ${MAX_LISTE} gefragtesten von ${t.liste.length} Modellen. Das Quiz durchsucht alle.</p>` : ""}
+    ${faqHtml(fragen)}
     ${verwandt.length ? `<section><h2>Ähnliche Themen</h2><ul class="themen">${verwandt.map((x) => `<li><a href="${x.pfad}">${esc(x.h1)}</a></li>`).join("")}</ul></section>` : ""}
 ` + fuss());
 }
@@ -349,7 +405,19 @@ for (const b of bikes) {
   const aehnlich = findSimilarBikes(b, 6).map((r) => r.bike).filter((x) => bikePfad.has(x));
   const beschreibung = `${b.name}: ${s?.einzahl || b.style}${b.ps ? ` mit ${b.ps} PS` : ""}${b.cc ? ` und ${zahl(b.cc)} ccm` : ""}. Gebraucht ${preisText(b)}, Führerschein ${klasseText(b)}${b.seat_height ? `, Sitzhöhe ${dez(b.seat_height)} cm` : ""}. Technische Daten, Preise nach Baujahr und ähnliche Modelle.`;
 
-  schreibe(pfad, kopf({ titel: `${b.name} – Preis, technische Daten & Führerschein`, beschreibung, pfad, krumen, bild: hatFoto(b) ? bikeBild(b, "titel") : null }) + `
+  const fragen = bikeFragen(b);
+  const menge = (value, unitCode) => (value ? { "@type": "QuantitativeValue", value, unitCode } : undefined);
+  const motorrad = {
+    "@context": "https://schema.org", "@type": "Motorcycle", name: b.name, url: url(pfad),
+    brand: { "@type": "Brand", name: b.brand }, model: b.bgText || b.name,
+    image: hatFoto(b) ? url(bikeBild(b, "titel")) : undefined,
+    vehicleEngine: (b.cc || b.kw) ? { "@type": "EngineSpecification", engineDisplacement: menge(b.cc, "CMQ"), enginePower: menge(b.kw, "KWT") } : undefined,
+    weight: menge(b.weight, "KGM"), fuelCapacity: menge(b.tank, "LTR"),
+    fuelConsumption: b.verbrauch ? { "@type": "QuantitativeValue", value: b.verbrauch, unitText: "l/100 km" } : undefined,
+    speed: menge(b.topSpeed, "KMH"), vehicleTransmission: b.gear || undefined,
+    bodyType: s?.einzahl || b.style,
+  };
+  schreibe(pfad, kopf({ titel: `${b.name} – Preis, technische Daten & Führerschein`, beschreibung, pfad, krumen, bild: hatFoto(b) ? bikeBild(b, "titel") : null, ld: [motorrad, ...faqLd(fragen)] }) + `
     <article class="bike">
       <h1>${esc(b.name)}</h1>
       <figure><img src="${esc(bikeBild(b, "titel"))}" alt="${esc(b.name)}" width="1600" height="437" />${hatFoto(b) ? "" : "<figcaption>Foto folgt</figcaption>"}</figure>
@@ -357,6 +425,7 @@ for (const b of bikes) {
       <section><h2>Passt die ${esc(b.name)} zu dir?</h2><ul class="punkte">${fuerWen.map((x) => `<li>${esc(x)}</li>`).join("")}</ul></section>
       <section><h2>Technische Daten</h2><dl class="daten">${fakten.map(([k, v]) => `<dt>${esc(k)}</dt><dd>${esc(v)}</dd>`).join("")}</dl></section>
       ${jahre.length ? `<section><h2>Gebrauchtpreis nach Baujahr</h2><table class="jahre"><tr><th>Baujahr</th><th>Preis ca.</th></tr>${jahre.map(([j, v]) => `<tr><td>${j}</td><td>${zahl(v)} €</td></tr>`).join("")}</table></section>` : ""}
+      ${faqHtml(fragen)}
     </article>
     ${aehnlich.length ? `<section><h2>Ähnliche Motorräder</h2><ul class="raster">${aehnlich.map(karte).join("")}</ul></section>` : ""}
     ${vergleicheVon.has(b) ? `<section><h2>${esc(b.name)} im Vergleich</h2><ul class="themen">${vergleicheVon.get(b)
@@ -511,8 +580,53 @@ h2{font-size:22px;font-weight:600;margin:40px 0 14px}
 .vergleich td{color:rgba(255,255,255,.75)}
 .vergleich td.besser{color:#fff;font-weight:600}
 .vergleich td.besser::after{content:" ✓";font-weight:400}
+.faq dl{max-width:760px}
+.faq dt{font-weight:600;margin-top:16px}
+.faq dd{color:rgba(255,255,255,.75);margin-top:4px}
 @media (max-width:640px){.raster{grid-template-columns:repeat(2,1fr);gap:10px}.karte a{padding:8px}h2{font-size:19px}.daten{gap:4px 14px}}
 `);
+
+/* llms.txt (llmstxt.org): eine Kurzbeschreibung der Seite für KI-Assistenten, in Markdown. Die meisten
+   KI-Crawler führen kein JavaScript aus — für sie ist die App selbst leer. Hier steht, was MotoMatch ist
+   und welche Seiten die Daten tragen. */
+{
+  const zeile = (t) => `- [${t.h1}](${url(t.pfad)}): ${t.liste.length} Modelle`;
+  const gruppe = (g) => themen.filter((t) => t.gruppe === g).map(zeile).join("\n");
+  writeFileSync(join(DIST, "llms.txt"), `# MotoMatch
+
+> MotoMatch hilft Motorradfahrerinnen und -fahrern in Deutschland, das passende Motorrad zu finden: ein Quiz mit acht Fragen (Führerschein, Budget, Körpergröße, Erfahrung, Einsatzzweck, Fahrstil) und ein Katalog von ${bikes.length} Modellen des deutschen Markts mit Gebrauchtpreisen, technischen Daten und Führerscheinklasse (A1, A2, A, B196).
+
+Die Preise sind mittlere Gebrauchtmarktpreise (Stand ${STAND}). Jede Modellseite nennt Preis (auch nach Baujahr), Leistung, Hubraum, Gewicht, Sitzhöhe, Tank, Verbrauch, Führerscheinklasse, Eignung für Einsteiger und ähnliche Modelle. Das Quiz selbst läuft unter ${BASIS}/ und braucht JavaScript.
+
+## Einstieg
+
+- [Quiz: Welches Motorrad passt zu mir?](${BASIS}/): acht Fragen, Ergebnis aus über 1.000 Modellen
+- [Alle Themen](${url("/motorraeder/")}): Motorräder nach Führerschein, Bauart, Budget und Marke
+- [Motorrad-Vergleiche](${url("/vergleich/")}): ${vergleiche.length} Duelle ähnlicher Modelle mit Preis, PS, Gewicht und Sitzhöhe
+
+## Nach Führerschein
+
+${gruppe("Führerschein")}
+
+## Für wen
+
+${gruppe("Für wen")}
+
+## Nach Bauart
+
+${gruppe("Bauart")}
+
+## Nach Budget
+
+${gruppe("Budget")}
+
+## Optional
+
+${gruppe("Bauart × Führerschein")}
+${gruppe("Marke")}
+- [Sitemap mit allen Modell- und Vergleichsseiten](${url("/sitemap.xml")})
+`);
+}
 
 const heute = new Date().toISOString().slice(0, 10);
 const adressen = ["/", "/motorraeder/", "/vergleich/", ...themen.map((t) => t.pfad), ...bikes.map((b) => bikePfad.get(b)), ...vergleiche.map((v) => v.pfad)];

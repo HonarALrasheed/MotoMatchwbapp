@@ -16,14 +16,51 @@
     <script type="application/ld+json">
       {
         "@context": "https://schema.org",
-        "@type": "WebSite",
-        "name": "MotoMatch",
-        "alternateName": ["MotoMatch Motorrad-Quiz", "motomatch.studio"],
-        "url": "https://motomatch.studio/",
-        "inLanguage": "de-DE",
-        "description": "Motorrad-Quiz: In acht Fragen das passende Bike für deinen Führerschein (A1, A2, A) und dein Budget finden."
+        "@graph": [
+          {
+            "@type": "WebSite",
+            "@id": "https://motomatch.studio/#website",
+            "name": "MotoMatch",
+            "alternateName": ["MotoMatch Motorrad-Quiz", "motomatch.studio"],
+            "url": "https://motomatch.studio/",
+            "inLanguage": "de-DE",
+            "description": "Motorrad-Quiz: In acht Fragen das passende Bike für deinen Führerschein (A1, A2, A) und dein Budget finden.",
+            "publisher": { "@id": "https://motomatch.studio/#org" }
+          },
+          {
+            "@type": "Organization",
+            "@id": "https://motomatch.studio/#org",
+            "name": "MotoMatch",
+            "url": "https://motomatch.studio/",
+            "logo": "https://motomatch.studio/icon-512.png",
+            "email": "kontakt@motomatch.studio"
+          },
+          {
+            "@type": "WebApplication",
+            "name": "MotoMatch Motorrad-Quiz",
+            "url": "https://motomatch.studio/",
+            "applicationCategory": "LifestyleApplication",
+            "operatingSystem": "Web",
+            "inLanguage": "de-DE",
+            "offers": { "@type": "Offer", "price": "0", "priceCurrency": "EUR" },
+            "description": "Acht Fragen zu Führerschein, Budget, Körpergröße, Erfahrung und Fahrstil — MotoMatch empfiehlt aus über 1.000 Modellen des deutschen Markts das passende Motorrad."
+          }
+        ]
       }
     </script>
+
+    <!-- Die App baut die Startseite per JavaScript. KI-Crawler (GPTBot, ClaudeBot, PerplexityBot …)
+         fuehren kein JavaScript aus und saehen sonst eine leere Seite. Deshalb steht in #landing eine
+         Textfassung derselben Inhalte; initLanding() ersetzt sie. Fuer Besucher mit JavaScript ist sie
+         ab dem ersten Byte unsichtbar (Klasse "js" unten) — kein Aufblitzen. Die Regeln stehen hier und
+         nicht in main.css, weil main.css erst per JavaScript geladen wird. -->
+    <script>document.documentElement.classList.add("js")</script>
+    <style>
+      html, body { background: #0a0a0a; }
+      .js .mm-vorab { display: none; }
+      .mm-vorab { max-width: 760px; margin: 0 auto; padding: 48px 16px; color: #fff; font-family: Arial, sans-serif; line-height: 1.6; }
+      .mm-vorab a { color: #fff; }
+    </style>
 
     <!-- Vollbild auf Mobilgeraeten: als installierte Web-App laeuft MotoMatch
          ohne Adress- und Reiterleiste. Chromium (Android) liest dafuer das
@@ -59,7 +96,25 @@
     <!-- Fonts: self-hosted via public/fonts/ + @font-face in main.css (kein Google-Request) -->
   </head>
   <body>
-    <div id="landing"></div>
+    <div id="landing">
+      <main class="mm-vorab">
+        <h1>MotoMatch – Welches Motorrad passt zu dir?</h1>
+        <p>MotoMatch findet in acht Fragen das passende Motorrad für dich: Führerschein (A1, A2, A oder B196), Budget, Körpergröße, Erfahrung, Einsatzzweck und Fahrstil. Grundlage ist ein Katalog von über 1.000 Modellen des deutschen Markts mit Gebrauchtpreisen, technischen Daten und Führerscheinklasse.</p>
+        <p>Dazu gibt es Modellvergleiche, einen Ausrüstungsguide, eine Karte mit Händlern, Werkstätten und Fahrschulen und eine Community für Motorradfahrerinnen und -fahrer.</p>
+        <h2>Motorräder finden</h2>
+        <ul>
+          <li><a href="/motorraeder/fuehrerschein-a2/">Motorräder für den A2-Führerschein</a></li>
+          <li><a href="/motorraeder/fuehrerschein-a1/">Motorräder für den A1-Führerschein (125 ccm)</a></li>
+          <li><a href="/motorraeder/fuehrerschein-b196/">125er für den Autoführerschein (B196)</a></li>
+          <li><a href="/motorraeder/einsteiger/">Motorräder für Anfänger und Einsteiger</a></li>
+          <li><a href="/motorraeder/niedrige-sitzhoehe/">Motorräder mit niedriger Sitzhöhe</a></li>
+          <li><a href="/motorraeder/unter-5000-euro/">Motorräder unter 5.000 €</a></li>
+          <li><a href="/motorraeder/">Alle Themen: Bauart, Budget, Marke</a></li>
+          <li><a href="/vergleich/">Motorrad-Vergleiche</a></li>
+        </ul>
+        <p>Das Quiz braucht JavaScript. <a href="/impressum.html">Impressum</a> · <a href="/datenschutz.html">Datenschutz</a></p>
+      </main>
+    </div>
 
     <div id="bike-detail" style="display: none"></div>
 

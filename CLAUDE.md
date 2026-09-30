@@ -100,6 +100,19 @@ und laufen **nicht** im Dev-Server (`npm run build && npm run preview` zum Anseh
   auch**: die Vergleiche heben "leichter/stärker" hervor, ein falsches Gewicht im Katalog steht dort
   also prominent (Stand 2026-09-30 falsch: Honda CBR600RR 310 kg, MV Agusta F4 RC 291 kg, Honda
   Monkey 58 kg — in der CSV-Pipeline korrigieren, nicht in `katalog-de.json`).
+- **KI-Sichtbarkeit** (ChatGPT, Perplexity, Claude, Gemini, Copilot): die meisten KI-Crawler führen
+  **kein JavaScript** aus.
+  - `index.html` trägt in `#landing` eine Textfassung der Startseite (`.mm-vorab`) mit Links auf die
+    Themenseiten. Für Besucher mit JavaScript ist sie per Klasse `js` (Inline-Skript im `<head>`) ab dem
+    ersten Byte unsichtbar; `initLanding()` ersetzt sie. **`ensureLandingRendered()` in `landing.js`
+    wertet `.mm-vorab` als "noch nicht aufgebaut"** — wer dort auf "leer" prüft, bekommt nach einem
+    Neuladen mitten in der App eine schwarze Startseite.
+  - `dist/llms.txt` (llmstxt.org) entsteht im selben Skript: Kurzbeschreibung + Themenlinks in Markdown.
+  - Themen- und Bike-Seiten haben "Häufige Fragen", beantwortet aus den Katalogdaten, sichtbar **und**
+    als `FAQPage`-JSON-LD (nur beides zusammen ist erlaubt). Dazu `ItemList` (Themen), `Motorcycle`
+    (Bikes), auf der Startseite `WebSite` + `Organization` + `WebApplication`.
+  - `robots.txt` nennt die KI-Crawler namentlich — **in derselben Gruppe wie `*`**. Eine eigene Gruppe je
+    Bot hebt für ihn die Disallow-Zeilen der Rechtsseiten auf.
 - **IndexNow** (Bing, darüber ChatGPT-Suche/Copilot/DuckDuckGo): `scripts/indexnow.mjs` meldet alle
   Adressen der *live* ausgelieferten Sitemap. Läuft per GitHub Action
   (`.github/workflows/indexnow.yml`) nach jedem erfolgreichen Produktions-Deploy von Vercel, von Hand

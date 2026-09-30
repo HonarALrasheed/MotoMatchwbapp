@@ -1,9 +1,0 @@
-<?xml version="1.0" encoding="UTF-8"?>
-<!-- Nur die Startseite: die App laeuft komplett unter einer Adresse (siehe nav.js).
-     Impressum, Datenschutz und AGB sind in robots.txt bewusst gesperrt. -->
-<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
-  <url>
-    <loc>https://motomatch.studio/</loc>
-    <lastmod>2026-09-30</lastmod>
-  </url>
-</urlset>

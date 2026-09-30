@@ -80,6 +80,21 @@ Wichtigste Module in `src/js/`:
 - **Achtung:** `public/models/` und `public/__video/` sind gitignored ("too big for GitHub"). Ein Deploy über die Git-Integration hätte daher **keine 3D-Modelle/kein Hero-Video** — deployen über die `vercel` CLI vom lokalen Rechner, die lädt `public/` vollständig hoch.
 - Base-Pfad ist `/` (`vite.config.js`), absolute Asset-Pfade im Code (z. B. `/bikes/…`) gelten also unverändert auch im Build.
 
+## Katalogseiten für Google (SEO)
+`npm run build` = `vite build && node tools/seo-seiten.mjs`. Das Skript erzeugt aus
+`public/data/katalog-de.json` statische Seiten direkt in `dist/` — sie liegen **nicht** im Repo
+und laufen **nicht** im Dev-Server (`npm run build && npm run preview` zum Ansehen):
+- `/motorrad/<slug>/` je Bike (Slug = `slug` aus dem Katalog, `_` → `-`): Preis, Preise nach
+  Baujahr, Technik, "Passt die … zu dir?", ähnliche Modelle (`findSimilarBikes`), Quiz-Link.
+- `/motorraeder/` Übersicht und `/motorraeder/<thema>/` — Führerschein, Bauart, Bauart × A2/125,
+  Budget, Einsteiger, Sitzhöhe, Gewicht, Marke. Ein Thema entsteht nur ab 6 Modellen (Marken ab 3).
+- `dist/sitemap.xml` mit allen Adressen und `dist/seo.css` (eigenes Stylesheet, bewusst nicht
+  `main.css` — die Seiten laden kein App-JavaScript).
+- **Jede Seite muss echte Daten tragen.** Seiten, die nur Suchbegriffe wiederholen, wertet Google
+  als Spam ("doorway pages") und stuft dann die ganze Domain herab. Neue Themen also nur mit
+  eigener Auswahl aus dem Katalog, nicht als Textvarianten derselben Liste.
+- Neue Bikes/Preise im Katalog landen beim nächsten Deploy automatisch auf den Seiten.
+
 ## API-Schutz
 **Stand 2026-09-21:** `api/ai-match.js` (OpenAI) und `api/search-places.js` (Tavily) gibt es nicht
 mehr — die Gebrauchtsuche ist auf Wunsch des Nutzers abgeschaltet (alte Fassung in `_archiv/2026-09-21/`),

@@ -15,7 +15,7 @@
  * Suchbegriffe wiederholen, stuft Google als Spam ein ("doorway pages") — Seiten mit Daten, die
  * sonst niemand so zusammenstellt, nicht.
  *
- *     node tools/seo-seiten.mjs            (läuft automatisch in `npm run build`)
+ *     node scripts/seo-seiten.mjs            (läuft automatisch in `npm run build`)
  */
 import { readFileSync, writeFileSync, mkdirSync, existsSync } from "node:fs";
 import { dirname, join } from "node:path";

@@ -81,7 +81,7 @@ Wichtigste Module in `src/js/`:
 - Base-Pfad ist `/` (`vite.config.js`), absolute Asset-Pfade im Code (z. B. `/bikes/…`) gelten also unverändert auch im Build.
 
 ## Katalogseiten für Google (SEO)
-`npm run build` = `vite build && node tools/seo-seiten.mjs`. Das Skript erzeugt aus
+`npm run build` = `vite build && node scripts/seo-seiten.mjs`. Die Skripte liegen bewusst in `scripts/`, nicht in `tools/`: `.vercelignore` schließt `tools/` (Bildwerkstatt, mehrere GB) vom Upload aus — dort fände der Vercel-Build sie nicht. Das Skript erzeugt aus
 `public/data/katalog-de.json` statische Seiten direkt in `dist/` — sie liegen **nicht** im Repo
 und laufen **nicht** im Dev-Server (`npm run build && npm run preview` zum Ansehen):
 - `/motorrad/<slug>/` je Bike (Slug = `slug` aus dem Katalog, `_` → `-`): Preis, Preise nach
@@ -100,7 +100,7 @@ und laufen **nicht** im Dev-Server (`npm run build && npm run preview` zum Anseh
   auch**: die Vergleiche heben "leichter/stärker" hervor, ein falsches Gewicht im Katalog steht dort
   also prominent (Stand 2026-09-30 falsch: Honda CBR600RR 310 kg, MV Agusta F4 RC 291 kg, Honda
   Monkey 58 kg — in der CSV-Pipeline korrigieren, nicht in `katalog-de.json`).
-- **IndexNow** (Bing, darüber ChatGPT-Suche/Copilot/DuckDuckGo): `tools/indexnow.mjs` meldet alle
+- **IndexNow** (Bing, darüber ChatGPT-Suche/Copilot/DuckDuckGo): `scripts/indexnow.mjs` meldet alle
   Adressen der *live* ausgelieferten Sitemap. Läuft per GitHub Action
   (`.github/workflows/indexnow.yml`) nach jedem erfolgreichen Produktions-Deploy von Vercel, von Hand
   über Actions → IndexNow → Run workflow. Schlüssel = `public/<32 Hex>.txt` — nicht umbenennen

@@ -10,7 +10,7 @@
  * ausgeliefert werden. Läuft automatisch nach jedem Produktions-Deploy
  * (.github/workflows/indexnow.yml) und lässt sich von Hand starten:
  *
- *     node tools/indexnow.mjs
+ *     node scripts/indexnow.mjs
  *
  * Der Schlüssel ist die Datei public/<schlüssel>.txt — IndexNow prüft über sie, dass die Meldung
  * vom Betreiber der Domain kommt. Sie muss ausgeliefert werden und darf nicht umbenannt werden.

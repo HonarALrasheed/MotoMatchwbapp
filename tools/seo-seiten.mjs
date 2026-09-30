@@ -8,6 +8,7 @@
  *   /motorrad/<slug>/        eine Seite je Bike: Preis, Technik, Führerschein, ähnliche Modelle
  *   /motorraeder/            Übersicht aller Themenseiten
  *   /motorraeder/<thema>/    Führerschein, Bauart, Budget, Einsteiger, Sitzhöhe, Marke …
+ *   /vergleich/<a>-vs-<b>/   ähnliche Modelle derselben Bauart direkt nebeneinander
  *   /sitemap.xml             alle Adressen (ersetzt die Fassung aus public/)
  *
  * Jede Seite trägt echte Katalogdaten und führt ins Quiz. Das ist Absicht: Seiten, die nur
@@ -41,6 +42,7 @@ const STAND = katalog.stand || "";
 
 const esc = (s) =>
   String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
+const jahrText = (j) => (Array.isArray(j) && j.length ? (j[0] === j.at(-1) ? `${j[0]}` : `${j[0]}–${j.at(-1)}`) : null);
 const zahl = (n) => Math.round(n).toLocaleString("de-DE");
 /* Kommazahl deutsch: 76.1 → "76,1" (Sitzhöhe, Tank, Verbrauch) */
 const dez = (n) => String(n).replace(".", ",");
@@ -170,6 +172,37 @@ for (const t of themen) {
 }
 const themaPfad = (slug) => themen.find((t) => t.slug === slug)?.pfad;
 
+// ── Vergleiche ─────────────────────────────────────────────────────────────
+/* "MT-07 vs Z650" gehört zu den häufigsten Motorrad-Suchen. Paare nur aus den drei ähnlichsten
+   Modellen derselben Bauart, beide mit Preis — sonst entstünden Vergleiche, die niemand sucht.
+   Vorne steht das bekanntere Modell (pop), so wie man es auch eintippen würde. */
+const verhaeltnis = (p, q) => Math.max(p, q) / Math.min(p, q);
+const vergleiche = [];
+const vergleicheVon = new Map();
+{
+  const gesehen = new Set();
+  for (const b of bikes) {
+    if (!preis(b)) continue;
+    for (const { bike: x } of findSimilarBikes(b, 3)) {
+      if (!bikePfad.has(x) || !preis(x) || x.style !== b.style) continue;
+      // Nur echte Konkurrenten: Preis und Leistung höchstens Faktor 1,6 auseinander. Sonst stand
+      // "Aprilia Caponord 1200 vs. Sherco 250 SE" da — gleiche Bauart, aber niemand sucht das.
+      if (verhaeltnis(preis(b), preis(x)) > 1.6 || (b.ps && x.ps && verhaeltnis(b.ps, x.ps) > 1.6)) continue;
+      const schl = [b.slug, x.slug].sort().join("|");
+      if (gesehen.has(schl)) continue;
+      gesehen.add(schl);
+      const [eins, zwei] = (b.pop || 0) >= (x.pop || 0) ? [b, x] : [x, b];
+      const v = { a: eins, b: zwei, pfad: `/vergleich/${eins.slug.replace(/_/g, "-")}-vs-${zwei.slug.replace(/_/g, "-")}/` };
+      vergleiche.push(v);
+      for (const y of [eins, zwei]) {
+        if (!vergleicheVon.has(y)) vergleicheVon.set(y, []);
+        vergleicheVon.get(y).push(v);
+      }
+    }
+  }
+  vergleiche.sort((p, q) => (q.a.pop || 0) + (q.b.pop || 0) - (p.a.pop || 0) - (p.b.pop || 0));
+}
+
 // ── Bausteine ──────────────────────────────────────────────────────────────
 
 function kopf({ titel, beschreibung, pfad, bild, krumen }) {
@@ -278,6 +311,7 @@ schreibe("/motorraeder/", kopf({
     <p class="intro">${bikes.length} Modelle aus dem deutschen Markt, jedes mit Gebrauchtpreis, Leistung und Führerscheinklasse. Wähle ein Thema — oder lass dir im Quiz das passende Bike zeigen.</p>
     ${gruppen.map((g) => `<section><h2>${esc(g)}</h2><ul class="themen">${themen.filter((t) => t.gruppe === g)
       .map((t) => `<li><a href="${t.pfad}">${esc(t.h1)}</a> <span>${t.liste.length}</span></li>`).join("")}</ul></section>`).join("")}
+    <section><h2>Vergleiche</h2><ul class="themen"><li><a href="/vergleich/">Alle Motorrad-Vergleiche</a> <span>${vergleiche.length}</span></li></ul></section>
 ` + fuss());
 
 for (const b of bikes) {
@@ -297,7 +331,7 @@ for (const b of bikes) {
     ["Gewicht", b.weight ? `${b.weight} kg` : null], ["Sitzhöhe", b.seat_height ? `${dez(b.seat_height)} cm` : null],
     ["Tank", b.tank ? `${dez(b.tank)} l` : null], ["Verbrauch", b.verbrauch ? `${dez(b.verbrauch)} l/100 km` : null],
     ["Höchstgeschwindigkeit", b.topSpeed ? `${b.topSpeed} km/h` : null], ["Getriebe", b.gear], ["Antrieb", b.antrieb],
-    ["Baujahre", Array.isArray(b.jahre) && b.jahre.length ? `${b.jahre[0]}–${b.jahre.at(-1)}` : null],
+    ["Baujahre", jahrText(b.jahre)],
   ].filter(([, v]) => v);
 
   const fuerWen = [];
@@ -325,10 +359,98 @@ for (const b of bikes) {
       ${jahre.length ? `<section><h2>Gebrauchtpreis nach Baujahr</h2><table class="jahre"><tr><th>Baujahr</th><th>Preis ca.</th></tr>${jahre.map(([j, v]) => `<tr><td>${j}</td><td>${zahl(v)} €</td></tr>`).join("")}</table></section>` : ""}
     </article>
     ${aehnlich.length ? `<section><h2>Ähnliche Motorräder</h2><ul class="raster">${aehnlich.map(karte).join("")}</ul></section>` : ""}
+    ${vergleicheVon.has(b) ? `<section><h2>${esc(b.name)} im Vergleich</h2><ul class="themen">${vergleicheVon.get(b)
+      .map((v) => `<li><a href="${v.pfad}">${esc(v.a.name)} vs. ${esc(v.b.name)}</a></li>`).join("")}</ul></section>` : ""}
     <section><h2>Mehr entdecken</h2><ul class="themen">${[klasseThema && [klasseThema, themen.find((t) => t.pfad === klasseThema).h1], stilThema && [stilThema, s.mehrzahl], markeThema && [markeThema, `Alle ${b.brand} Motorräder`]]
       .filter(Boolean).map(([p, n]) => `<li><a href="${p}">${esc(n)}</a></li>`).join("")}</ul></section>
 ` + fuss());
 }
+
+// ── Vergleichsseiten ───────────────────────────────────────────────────────
+
+/* [Beschriftung, Wert, Anzeige, besser] — besser: "min"/"max" markiert den Gewinner der Zeile,
+   null heißt "kein besser oder schlechter" (Hubraum, Sitzhöhe hängen vom Fahrer ab). */
+const reichweite = (b) => (b.tank > 0 && b.verbrauch > 0 ? Math.round((b.tank / b.verbrauch) * 100) : null);
+const ZEILEN = [
+  ["Preis gebraucht", preis, (v) => `ca. ${zahl(v)} €`, "min"],
+  ["Führerschein", klasseText, (v) => v, null],
+  ["Leistung", (b) => b.ps || null, (v) => `${v} PS`, "max"],
+  ["Drehmoment", (b) => b.torque || null, (v) => `${v} Nm`, "max"],
+  ["Hubraum", (b) => b.cc || null, (v) => `${zahl(v)} ccm`, null],
+  ["Gewicht", (b) => b.weight || null, (v) => `${v} kg`, "min"],
+  ["Leistungsgewicht", (b) => (b.ps > 0 && b.weight > 0 ? Math.round((b.weight / b.ps) * 10) / 10 : null), (v) => `${dez(v.toFixed(1))} kg/PS`, "min"],
+  ["Sitzhöhe", (b) => b.seat_height || null, (v) => `${dez(v)} cm`, null],
+  ["Tank", (b) => b.tank || null, (v) => `${dez(v)} l`, "max"],
+  ["Verbrauch", (b) => b.verbrauch || null, (v) => `${dez(v)} l/100 km`, "min"],
+  ["Reichweite", reichweite, (v) => `ca. ${zahl(v)} km`, "max"],
+  ["Höchstgeschwindigkeit", (b) => b.topSpeed || null, (v) => `${v} km/h`, "max"],
+  ["Baujahre", (b) => jahrText(b.jahre), (v) => v, null],
+];
+
+function fazit(a, b) {
+  const punkte = [];
+  const pa = preis(a), pb = preis(b);
+  if (Math.abs(pa - pb) >= 200) {
+    const [g, t] = pa < pb ? [a, b] : [b, a];
+    punkte.push(`Günstiger ist die ${g.name}: gebraucht rund ${zahl(Math.abs(pa - pb))} € weniger als die ${t.name}.`);
+  } else punkte.push("Preislich liegen beide fast gleichauf.");
+  if (a.ps && b.ps && a.ps !== b.ps) {
+    const [s, w] = a.ps > b.ps ? [a, b] : [b, a];
+    punkte.push(`Mehr Leistung hat die ${s.name} (${s.ps} statt ${w.ps} PS).`);
+  }
+  if (a.weight && b.weight && Math.abs(a.weight - b.weight) >= 3) {
+    const [l, s] = a.weight < b.weight ? [a, b] : [b, a];
+    punkte.push(`Leichter ist die ${l.name} — ${Math.abs(a.weight - b.weight)} kg weniger, das merkt man beim Rangieren.`);
+  }
+  if (a.seat_height && b.seat_height && Math.abs(a.seat_height - b.seat_height) >= 1) {
+    const n = a.seat_height < b.seat_height ? a : b;
+    punkte.push(`Niedriger sitzt man auf der ${n.name} (${dez(n.seat_height)} cm) — sicherer Stand als Faustregel ab etwa ${abGroesse(n.seat_height)} cm Körpergröße.`);
+  }
+  if (darfA2(a) !== darfA2(b)) {
+    const j = darfA2(a) ? a : b;
+    punkte.push(`Nur die ${j.name} ist mit dem A2-Führerschein fahrbar${j.license === "A" ? " (gedrosselt)" : ""}.`);
+  }
+  if (a.beginner !== b.beginner) punkte.push(`Für Einsteiger eignet sich eher die ${(a.beginner ? a : b).name}.`);
+  return punkte;
+}
+
+for (const v of vergleiche) {
+  const { a, b } = v;
+  const krumen = [["Start", "/"], ["Motorräder", "/motorraeder/"], ["Vergleiche", "/vergleich/"], [`${a.name} vs. ${b.name}`, v.pfad]];
+  const zeilen = ZEILEN.map(([name, wert, zeige, besser]) => {
+    const wa = wert(a), wb = wert(b);
+    if (wa == null && wb == null) return "";
+    const sieg = (w, x) => besser && typeof w === "number" && typeof x === "number" && w !== x && (besser === "min" ? w < x : w > x);
+    const zelle = (w, x) => `<td${sieg(w, x) ? ' class="besser"' : ""}>${w == null ? "–" : esc(zeige(w))}</td>`;
+    return `<tr><th>${esc(name)}</th>${zelle(wa, wb)}${zelle(wb, wa)}</tr>`;
+  }).join("");
+  const beschreibung = `${a.name} oder ${b.name}? Preis (${preisText(a)} vs. ${preisText(b)}), Leistung, Gewicht, Sitzhöhe und Führerschein im direkten Vergleich.`;
+  const weitere = [...(vergleicheVon.get(a) || []), ...(vergleicheVon.get(b) || [])].filter((x) => x !== v).slice(0, 8);
+
+  schreibe(v.pfad, kopf({ titel: `${a.name} vs. ${b.name}: Vergleich von Preis, PS & Gewicht`, beschreibung, pfad: v.pfad, krumen, bild: hatFoto(a) ? bikeBild(a, "titel") : null }) + `
+    <h1>${esc(a.name)} vs. ${esc(b.name)}</h1>
+    <p class="intro">Zwei ${esc(STIL[a.style]?.mehrzahl || a.style)} im direkten Vergleich — mit Gebrauchtpreis, Technik und Führerschein.</p>
+    <div class="vs">${[a, b].map((x) => `<a href="${bikePfad.get(x)}"><img src="${esc(bikeBild(x, "kachel"))}" alt="${esc(x.name)}" width="420" height="300" /><strong>${esc(x.name)}</strong><span class="preis">${preisText(x)}</span></a>`).join("")}</div>
+    <section><h2>Kurz gesagt</h2><ul class="punkte">${fazit(a, b).map((x) => `<li>${esc(x)}</li>`).join("")}</ul></section>
+    <section><h2>Daten im Vergleich</h2><div class="tabelle"><table class="vergleich"><tr><th></th><th>${esc(a.name)}</th><th>${esc(b.name)}</th></tr>${zeilen}</table></div>
+      <p class="hinweis">Hervorgehoben ist jeweils der bessere Wert. Welche Sitzhöhe und welcher Hubraum passen, hängt von dir ab.</p></section>
+    ${weitere.length ? `<section><h2>Weitere Vergleiche</h2><ul class="themen">${weitere.map((x) => `<li><a href="${x.pfad}">${esc(x.a.name)} vs. ${esc(x.b.name)}</a></li>`).join("")}</ul></section>` : ""}
+` + fuss());
+}
+
+/* Übersicht: je Bauart die gefragtesten Paare. Alle Paare stehen in der Sitemap und sind von den
+   Bike-Seiten aus verlinkt — hier alle 2.000+ aufzulisten wäre für Menschen unbrauchbar. */
+schreibe("/vergleich/", kopf({
+  titel: "Motorrad-Vergleiche: Preis, PS & Gewicht direkt nebeneinander",
+  beschreibung: `${vergleiche.length} Motorrad-Vergleiche aus dem deutschen Markt: Gebrauchtpreis, Leistung, Gewicht, Sitzhöhe und Führerschein direkt nebeneinander.`,
+  pfad: "/vergleich/", krumen: [["Start", "/"], ["Motorräder", "/motorraeder/"], ["Vergleiche", "/vergleich/"]] }) + `
+    <h1>Motorrad-Vergleiche</h1>
+    <p class="intro">${vergleiche.length} Duelle ähnlicher Modelle — mit Gebrauchtpreis, Leistung, Gewicht, Sitzhöhe und Führerschein direkt nebeneinander.</p>
+    ${Object.entries(STIL).map(([stil, s]) => {
+      const liste = vergleiche.filter((v) => v.a.style === stil).slice(0, 30);
+      return liste.length ? `<section><h2>${esc(s.mehrzahl)}</h2><ul class="themen">${liste.map((v) => `<li><a href="${v.pfad}">${esc(v.a.name)} vs. ${esc(v.b.name)}</a></li>`).join("")}</ul></section>` : "";
+    }).join("")}
+` + fuss());
 
 // ── Stylesheet und Sitemap ─────────────────────────────────────────────────
 
@@ -378,15 +500,26 @@ h2{font-size:22px;font-weight:600;margin:40px 0 14px}
 .knopf.klein{padding:7px 14px;font-size:14px}
 .fuss{max-width:1200px;margin:0 auto;padding:24px 16px 40px;border-top:1px solid var(--rand);color:var(--dim);font-size:13px}
 .fuss p{margin:4px 0}
+.vs{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-top:24px}
+.vs a{display:flex;flex-direction:column;gap:2px;padding:12px;background:var(--fl);border:1px solid var(--rand);border-radius:14px;text-decoration:none}
+.vs img{width:100%;height:auto;aspect-ratio:7/5;object-fit:contain;margin-bottom:8px}
+.tabelle{overflow-x:auto}
+.vergleich{border-collapse:collapse;width:100%;max-width:760px}
+.vergleich th,.vergleich td{text-align:left;padding:8px 14px 8px 0;border-bottom:1px solid var(--rand);vertical-align:top}
+.vergleich tr:first-child th{font-weight:600}
+.vergleich th{color:var(--dim);font-weight:400}
+.vergleich td{color:rgba(255,255,255,.75)}
+.vergleich td.besser{color:#fff;font-weight:600}
+.vergleich td.besser::after{content:" ✓";font-weight:400}
 @media (max-width:640px){.raster{grid-template-columns:repeat(2,1fr);gap:10px}.karte a{padding:8px}h2{font-size:19px}.daten{gap:4px 14px}}
 `);
 
 const heute = new Date().toISOString().slice(0, 10);
-const adressen = ["/", "/motorraeder/", ...themen.map((t) => t.pfad), ...bikes.map((b) => bikePfad.get(b))];
+const adressen = ["/", "/motorraeder/", "/vergleich/", ...themen.map((t) => t.pfad), ...bikes.map((b) => bikePfad.get(b)), ...vergleiche.map((v) => v.pfad)];
 writeFileSync(join(DIST, "sitemap.xml"), `<?xml version="1.0" encoding="UTF-8"?>
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
 ${adressen.map((p) => `  <url><loc>${url(p)}</loc><lastmod>${heute}</lastmod></url>`).join("\n")}
 </urlset>
 `);
 
-console.log(`[seo] ${bikes.length} Bike-Seiten, ${themen.length} Themenseiten, Sitemap mit ${adressen.length} Adressen`);
+console.log(`[seo] ${bikes.length} Bike-Seiten, ${themen.length} Themenseiten, ${vergleiche.length} Vergleiche, Sitemap mit ${adressen.length} Adressen`);

@@ -93,7 +93,18 @@ und laufen **nicht** im Dev-Server (`npm run build && npm run preview` zum Anseh
 - **Jede Seite muss echte Daten tragen.** Seiten, die nur Suchbegriffe wiederholen, wertet Google
   als Spam ("doorway pages") und stuft dann die ganze Domain herab. Neue Themen also nur mit
   eigener Auswahl aus dem Katalog, nicht als Textvarianten derselben Liste.
-- Neue Bikes/Preise im Katalog landen beim nächsten Deploy automatisch auf den Seiten.
+- `/vergleich/<a>-vs-<b>/`: die drei ähnlichsten Modelle je Bike (`findSimilarBikes`), nur gleiche
+  Bauart, beide mit Preis, Preis und PS höchstens Faktor 1,6 auseinander — sonst entstehen Paare, die
+  niemand sucht. Vorne steht das bekanntere Modell (`pop`). Übersicht unter `/vergleich/`.
+- Neue Bikes/Preise im Katalog landen beim nächsten Deploy automatisch auf den Seiten. **Datenfehler
+  auch**: die Vergleiche heben "leichter/stärker" hervor, ein falsches Gewicht im Katalog steht dort
+  also prominent (Stand 2026-09-30 falsch: Honda CBR600RR 310 kg, MV Agusta F4 RC 291 kg, Honda
+  Monkey 58 kg — in der CSV-Pipeline korrigieren, nicht in `katalog-de.json`).
+- **IndexNow** (Bing, darüber ChatGPT-Suche/Copilot/DuckDuckGo): `tools/indexnow.mjs` meldet alle
+  Adressen der *live* ausgelieferten Sitemap. Läuft per GitHub Action
+  (`.github/workflows/indexnow.yml`) nach jedem erfolgreichen Produktions-Deploy von Vercel, von Hand
+  über Actions → IndexNow → Run workflow. Schlüssel = `public/<32 Hex>.txt` — nicht umbenennen
+  oder löschen, sonst lehnt IndexNow die Meldungen ab. Google nimmt an IndexNow nicht teil.
 
 ## API-Schutz
 **Stand 2026-09-21:** `api/ai-match.js` (OpenAI) und `api/search-places.js` (Tavily) gibt es nicht

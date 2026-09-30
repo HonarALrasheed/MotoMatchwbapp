@@ -1,0 +1,26 @@
+# Meldet nach jedem erfolgreichen Produktions-Deploy auf Vercel alle Adressen der Sitemap per
+# IndexNow an Bing & Co. (tools/indexnow.mjs). Vercel meldet Deploys als GitHub-Deployments —
+# daran hängt dieser Lauf. Die Umgebung heißt je nach Vercel-Version "Production" oder
+# "Production – <Projekt>", deshalb startsWith. Von Hand: Actions → IndexNow → "Run workflow".
+name: IndexNow
+
+on:
+  deployment_status:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  melden:
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.deployment_status.state == 'success' &&
+       startsWith(github.event.deployment.environment, 'Production'))
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - run: node tools/indexnow.mjs

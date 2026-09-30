@@ -1106,6 +1106,15 @@ async function triggerExit() {
 
   await sleep(1800);
   exitPhase = 2;
+
+  /* Den Abschluss löst sonst nur das wegfahrende Motorrad in loop() aus. Kam das Modell nie an
+     (Download gescheitert, schlechtes Netz), blieb man nach "Match finden" für immer auf der
+     leeren Straße stehen. Mit Modell ist es nach unter einer Sekunde weg — dieser Rückfall greift
+     also nur, wenn es fehlt. finishExit() schützt sich selbst gegen den zweiten Aufruf. */
+  const myGeneration = loadGeneration;
+  setTimeout(() => {
+    if (myGeneration === loadGeneration) finishExit();
+  }, 2500);
 }
 
 function createExitBlurStreaks() {

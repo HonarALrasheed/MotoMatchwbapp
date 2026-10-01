@@ -77,7 +77,10 @@ Wichtigste Module in `src/js/`:
 
 ## Deployment (Vercel)
 - Projekt `moto-matchwbapp`, verlinkt über `.vercel/`; Build laut `vercel.json`: `npm run build` → `dist/`.
-- **Achtung:** `public/models/` und `public/__video/` sind gitignored ("too big for GitHub"). Ein Deploy über die Git-Integration hätte daher **keine 3D-Modelle/kein Hero-Video** — deployen über die `vercel` CLI vom lokalen Rechner, die lädt `public/` vollständig hoch.
+- **Produktion = Branch `main`** (Vercel → Settings → Environments → Production → Branch Tracking, seit
+  2026-09-30; vorher stand dort versehentlich `fix/vercel-lfs`, und Merges nach `main` landeten nur als
+  Preview). Jeder Merge nach `main` geht über die Git-Integration live — kein CLI-Deploy nötig: die
+  3D-Modelle liegen in Supabase Storage (`glb`-URLs im Katalog), `public/__video/hero.mp4` ist im Repo.
 - Base-Pfad ist `/` (`vite.config.js`), absolute Asset-Pfade im Code (z. B. `/bikes/…`) gelten also unverändert auch im Build.
 
 ## Katalogseiten für Google (SEO)
@@ -275,8 +278,13 @@ rastet an der näheren Seite ein; Position in `localStorage`
 ## Ladezeit
 Gemessen am **Produktions-Build** (`npm run preview`), nicht am Dev-Server —
 der liefert unbundled Module und zeigt völlig andere Zahlen.
-- **Der Flaschenhals sind Bilder, nicht der Code.** Startseite: ~8 MB Bilder
-  gegen 74 KB kritisches JavaScript. Vor jeder Code-Optimierung dort messen.
+- **Stand 2026-09-30 (gemessen):** Startseite ~377 KB Bilder, das größte Element (LCP) ist der
+  Hero-Titel. Handy-Profil (390 px, langsames 4G, 4× CPU): LCP ~2,3 s. Die früher hier genannten
+  "~8 MB Bilder" sind seit der WebP-Umstellung überholt.
+- **`katalog-de.json` (~900 KB, gepackt ~150 KB) lädt erst im Leerlauf nach `load`** (app.js). Wer
+  ihn früher braucht, ruft `ladeVollkatalog()` selbst (idempotent): Quiz, Suchfelder, Direktlinks
+  `?motorrad=`/`?bike=`, `openView()`. **Neuer Code, der `getCatalog()` beim Start liest, muss das
+  auch** — sonst sieht er nur die ~400 Bikes mit Foto.
 - **Statische Importe sind Ketten.** `quiz.js` → `drop-animation.js` →
   `garage.js` zog three.js und Leaflet (633 KB) in jeden Chunk, der das Quiz
   anfasst — und über die Quiz-Vorbereitung auf die Startseite. `loadGarage`

@@ -17,7 +17,7 @@
  *     node tools/matching-wachhund.mjs
  */
 import { readFileSync } from "node:fs";
-import { setCatalog, findTopMatches, findBestBike, ERGEBNIS_ANZAHL } from "../src/js/matching.js";
+import { setCatalog, findTopMatches, findBestBike, ERGEBNIS_ANZAHL, BUDGET_SLIDER_MAX } from "../src/js/matching.js";
 
 const katalog = JSON.parse(readFileSync(new URL("../public/data/katalog-de.json", import.meta.url)));
 setCatalog(katalog.bikes);
@@ -33,6 +33,17 @@ const BUDGET = ["500", "1500", "2500", "4000", "7000", "12000", "20000", "30000"
 const GROESSE = ["150", "165", "178", "195", "210"];
 const SOZIUS = ["Ja", "Nein"];
 const CHARAKTER = ["ruhig", "mittel", "voll"];
+
+/* Über dem Budget ist in Ordnung, wenn das Ergebnis es sagt — die drei Hinweise aus findTopMatches():
+   nichts auf dem Markt, Gattung mit diesem Führerschein gar nicht, oder Budget gelockert ("hier auch
+   bis 1.950 €" / "ganz ohne Budgetgrenze"). Beim gelockerten Budget darf der Preis die genannte neue
+   Grenze nicht überschreiten. */
+function budgetErklaert(hinweis, preis) {
+  if (!hinweis) return false;
+  if (/gibt es auf dem deutschen Markt nichts|gibt es mit deinem Führerschein nicht|ganz ohne Budgetgrenze/.test(hinweis)) return true;
+  const bis = hinweis.match(/hier auch bis ([\d.]+) €/);
+  return Boolean(bis) && preis <= Number(bis[1].replace(/\./g, ""));
+}
 
 const befunde = new Map();   // Art → { anzahl, beispiel }
 let laeufe = 0;
@@ -54,7 +65,9 @@ for (const q5 of BUDGET) for (const q6 of GROESSE) for (const q7 of SOZIUS) for 
   const walze = findBestBike(a);
   if (walze.name !== top[0].bike.name) melde("Walze hält bei anderem Bike als das Ergebnis", `${wer} → ${walze.name} statt ${top[0].bike.name}`);
 
-  const budget = Number(q5);
+  /* Am Anschlag zeigt das Quiz "30.000 €+": dort gibt es bewusst keine Obergrenze (BUDGET_SLIDER_MAX
+     in matching.js) — Bikes ohne Preis und über 30.000 € sind dann zulässig. */
+  const budget = Number(q5) >= BUDGET_SLIDER_MAX ? Infinity : Number(q5);
   const erlaubt = LIZENZ_ERLAUBT[q1];
   for (const { bike } of top) {
     if (!(erlaubt.includes(bike.license) || (q1 === "A2" && bike.a2))) {
@@ -64,12 +77,14 @@ for (const q5 of BUDGET) for (const q6 of GROESSE) for (const q7 of SOZIUS) for 
       if (!bike.price) melde("Treffer ohne Preis trotz Budget", `${wer} → ${bike.name}`);
       /* Über dem Budget ist nur in Ordnung, wenn es unterhalb wirklich nichts gibt UND das
          Ergebnis das auch sagt. Stillschweigend zu teuer bleibt ein Fehler. */
-      else if (bike.price > budget && !/gibt es auf dem deutschen Markt nichts/.test(top.hinweis || "")) {
+      else if (bike.price > budget && !budgetErklaert(top.hinweis, bike.price)) {
         melde("über Budget ohne Hinweis", `${wer} → ${bike.name} (${bike.price} €)`);
       }
     }
   }
 
+  // Die Auswahl, aus der das Matching tatsächlich gewählt hat (Führerschein, Gattung, ggf. gelockertes Budget).
+  const auswahl = top.auswahl || [];
   const poolGross = katalog.bikes.filter((b) => {
     if (!(erlaubt.includes(b.license) || (q1 === "A2" && b.a2))) return false;
     if (!Number.isFinite(budget)) return true;
@@ -84,7 +99,9 @@ for (const q5 of BUDGET) for (const q6 of GROESSE) for (const q7 of SOZIUS) for 
      1.500 EUR stehen acht Bikes zur Wahl, alle über 79 cm. Dann ist die hohe Sitzbank keine
      Fehlentscheidung des Matchings, sondern der Markt — die Karte nennt sie ohnehin als
      Einschränkung („79,5 cm Sitzhöhe — deutlich zu hoch für sicheren Stand"). */
-  if (!notfall && poolGross && erste.seat_height && erste.seat_height > sicherHoehe + 8) {
+  // Nur ein Fehler, wenn die Auswahl eine Maschine hergegeben hätte, auf der man sicher(er) steht.
+  const niedrigere = auswahl.some((b) => b.seat_height && b.seat_height <= sicherHoehe + 8);
+  if (!notfall && poolGross && niedrigere && erste.seat_height && erste.seat_height > sicherHoehe + 8) {
     melde("Platz eins zu hoch", `${wer} → ${erste.name} (${erste.seat_height} cm, sicher ${sicherHoehe.toFixed(0)})`);
   }
 
@@ -92,7 +109,12 @@ for (const q5 of BUDGET) for (const q6 of GROESSE) for (const q7 of SOZIUS) for 
   if (new Set(familien).size !== familien.length) melde("zweimal dieselbe Familie", wer);
   const marken = {};
   for (const r of top) marken[r.bike.brand] = (marken[r.bike.brand] || 0) + 1;
-  if (poolGross) for (const [mk, z] of Object.entries(marken)) if (z > 2) melde(`mehr als zwei je Marke (${mk})`, wer);
+  // Nur ein Fehler, wenn die Auswahl genug Bikes anderer Marken hergegeben hätte: höchstens zwei je Marke
+  // gezählt, müssen damit volle Ergebnisplätze zu füllen sein.
+  const jeMarkeMoeglich = {};
+  let moeglich = 0;
+  for (const b of auswahl) if ((jeMarkeMoeglich[b.brand] = (jeMarkeMoeglich[b.brand] || 0) + 1) <= 2) moeglich++;
+  if (poolGross && moeglich >= top.length) for (const [mk, z] of Object.entries(marken)) if (z > 2) melde(`mehr als zwei je Marke (${mk})`, wer);
   if (poolGross && q3 === "Egal") {
     const stile = {};
     for (const r of top) stile[r.bike.style] = (stile[r.bike.style] || 0) + 1;

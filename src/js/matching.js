@@ -1250,6 +1250,11 @@ export function findTopMatches(answers, n = 5) {
   });
   // Nicht aufzählbar, damit Code, der über die Treffer läuft, nichts davon merkt.
   Object.defineProperty(ergebnis, "hinweis", { value: hinweis, enumerable: false });
+  /* Die Auswahl, aus der die Treffer stammen (nach Führerschein, Gattung und — ggf. gelockertem —
+     Budget). Für den Wachhund (tools/matching-wachhund.mjs): eine Zusage wie "höchstens zwei je
+     Marke" ist nur dann verletzt, wenn diese Auswahl eine Alternative hergegeben hätte. Gegen den
+     ganzen Markt geprüft meldete er Tausende Fälle, in denen es schlicht keine gab. */
+  Object.defineProperty(ergebnis, "auswahl", { value: survivors, enumerable: false });
   return ergebnis;
 }
 

@@ -263,6 +263,11 @@ function kopf({ titel, beschreibung, pfad, bild, krumen, ld: extraLd = [] }) {
   <meta property="og:image" content="${og}" />
   <meta name="twitter:card" content="summary_large_image" />
   <link rel="stylesheet" href="/seo.css" />
+  <!-- Vercel Web Analytics wie in der App (src/main.js): ohne Cookies, ohne gespeicherte Kennung,
+       daher ohne Einwilligungsbanner. Ohne diese Zeile zählten die Katalogseiten nicht mit — genau
+       dort landen aber Besucher aus der Google-Suche. -->
+  <script>window.va = window.va || function () { (window.vaq = window.vaq || []).push(arguments); };</script>
+  <script defer src="/_vercel/insights/script.js"></script>
   ${[ld, ...extraLd].map((x) => `<script type="application/ld+json">${JSON.stringify(x).replace(/</g, "\\u003c")}</script>`).join("\n  ")}
 </head>
 <body>

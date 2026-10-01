@@ -980,55 +980,16 @@ function renderMapsConsentPlaceholder(el) {
    bestehenden Aufrufstellen unverändert gültig bleiben. */
 const GMAPS_LIBRARIES = ["core", "maps", "marker", "places"];
 let gmapsReady = false;
+/* Das Bootstrap-Skript (maps/api/js) wird höchstens EINMAL eingebunden — sein Promise überlebt
+   auch ein abgelaufenes Zeitlimit. Vorher setzte das Zeitlimit alles zurück, und der nächste
+   Versuch hängte ein zweites Skript an, während das erste noch lud. In Safari endete das in
+   "Loader.provide not called by module 'places'" (Sentry, 2026-10-01). */
+let gmapsBootstrap = null;
 
-function loadGoogleMapsScript() {
-  // Nicht auf window.google.maps prüfen: das ist mit loading=async schon
-  // gesetzt, solange die Bibliotheken noch fehlen.
-  if (gmapsReady) return Promise.resolve();
-  if (gmapsLoadPromise) return gmapsLoadPromise;
-  gmapsLoadPromise = new Promise((resolve, reject) => {
-    let timer = null;
-    const fail = (err) => {
-      clearTimeout(timer);
-      gmapsLoadPromise = null; // nächster Versuch darf frisch starten
-      reject(err);
-    };
-    const loadLibraries = async () => {
-      try {
-        // Nach dem callback ist der klassische Namensraum bereits befüllt;
-        // importLibrary holt zusätzlich marker/geocoding, die nicht in der
-        // libraries=-Liste stehen. Fehlt die Funktion wider Erwarten, reicht
-        // der bereits befüllte Namensraum für die genutzten Symbole aus.
-        if (typeof google.maps.importLibrary === "function") {
-          await Promise.all(
-            GMAPS_LIBRARIES.map((lib) => google.maps.importLibrary(lib)),
-          );
-        }
-        clearTimeout(timer);
-        gmapsReady = true;
-        resolve();
-      } catch (err) {
-        // Grund durchreichen statt verschlucken — sonst ist im Fehlerfall
-        // nicht zu unterscheiden, ob der Schlüssel, eine nicht freigeschaltete
-        // API oder das Netz das Problem ist.
-        fail(
-          new Error(
-            `Google Maps: Bibliotheken konnten nicht geladen werden (${err?.message || err})`,
-          ),
-        );
-      }
-    };
-    // Zeitlimit deckt Skript *und* Bibliotheken ab — ein hängendes
-    // importLibrary darf den Aufrufer nicht ewig warten lassen.
-    timer = setTimeout(
-      () => fail(new Error("Google Maps: Ladezeit überschritten")),
-      8000,
-    );
-    // Bootstrap schon vorhanden (z. B. vorheriger Versuch): nur Bibliotheken holen.
-    if (window.google?.maps?.importLibrary) {
-      loadLibraries();
-      return;
-    }
+function ladeGmapsBootstrap() {
+  if (window.google?.maps?.importLibrary) return Promise.resolve();
+  if (gmapsBootstrap) return gmapsBootstrap;
+  gmapsBootstrap = new Promise((resolve, reject) => {
     // script.onload ist bei loading=async das falsche Signal: es feuert, bevor
     // die API sich eingerichtet hat — zu dem Zeitpunkt fehlt selbst
     // google.maps.importLibrary noch. Der callback-Parameter ist der von
@@ -1036,19 +997,64 @@ function loadGoogleMapsScript() {
     const cbName = `__mmGmapsReady${Date.now().toString(36)}`;
     window[cbName] = () => {
       delete window[cbName];
-      loadLibraries();
+      resolve();
     };
     const s = document.createElement("script");
+    // Bewusst OHNE libraries=places: die Bibliotheken holt ausschließlich importLibrary()
+    // (loadGoogleMapsScript). Beides zusammen forderte "places" zweimal gleichzeitig an —
+    // der zweite Lader fand das Modul halb registriert vor.
     s.src =
       `https://maps.googleapis.com/maps/api/js?key=${GMAPS_KEY}` +
-      `&libraries=places&loading=async&callback=${cbName}`;
+      `&loading=async&callback=${cbName}`;
     s.async = true;
     s.onerror = () => {
       delete window[cbName];
-      fail(new Error("Google Maps: Skript konnte nicht geladen werden"));
+      s.remove();
+      gmapsBootstrap = null; // Netzfehler: der nächste Versuch darf neu einbinden
+      reject(new Error("Google Maps: Skript konnte nicht geladen werden"));
     };
     document.head.appendChild(s);
   });
+  return gmapsBootstrap;
+}
+
+/* Bibliotheken nacheinander statt gleichzeitig: "places" baut auf "maps" und "core" auf.
+   Parallel angefordert konnten sich die Lader in Safari gegenseitig überholen. Kostet
+   praktisch nichts — die Module kommen aus demselben, schon geladenen Bootstrap. */
+async function ladeGmapsBibliotheken() {
+  if (typeof google.maps.importLibrary !== "function") return;
+  for (const lib of GMAPS_LIBRARIES) await google.maps.importLibrary(lib);
+}
+
+function loadGoogleMapsScript() {
+  // Nicht auf window.google.maps prüfen: das ist mit loading=async schon
+  // gesetzt, solange die Bibliotheken noch fehlen.
+  if (gmapsReady) return Promise.resolve();
+  if (gmapsLoadPromise) return gmapsLoadPromise;
+  let timer = null;
+  const zeitlimit = new Promise((_, reject) => {
+    // Zeitlimit deckt Skript *und* Bibliotheken ab — ein hängendes
+    // importLibrary darf den Aufrufer nicht ewig warten lassen. Das Laden selbst
+    // läuft weiter; ein späterer Versuch hängt sich an dasselbe Skript.
+    timer = setTimeout(() => reject(new Error("Google Maps: Ladezeit überschritten")), 8000);
+  });
+  const laden = ladeGmapsBootstrap()
+    .then(ladeGmapsBibliotheken)
+    .catch((err) => {
+      // Grund durchreichen statt verschlucken — sonst ist im Fehlerfall
+      // nicht zu unterscheiden, ob der Schlüssel, eine nicht freigeschaltete
+      // API oder das Netz das Problem ist.
+      throw new Error(`Google Maps: Bibliotheken konnten nicht geladen werden (${err?.message || err})`);
+    });
+  gmapsLoadPromise = Promise.race([laden, zeitlimit])
+    .then(() => {
+      gmapsReady = true;
+    })
+    .catch((err) => {
+      gmapsLoadPromise = null; // nächster Versuch darf frisch starten (ohne neues Skript, s. o.)
+      throw err;
+    })
+    .finally(() => clearTimeout(timer));
   return gmapsLoadPromise;
 }
 

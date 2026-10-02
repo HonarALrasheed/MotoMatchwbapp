@@ -2010,7 +2010,15 @@ function buildMatchScoreCard(data, bike) {
   if (!res.fits.license) notes.push(`Braucht Führerschein <b>${esc(bike.license)}</b> — dein Profil: <b>${esc(answers.q1 || '–')}</b>.`)
   if (!res.fits.budget) notes.push(`Liegt über deinem Budget von <b>${fmtBudget(answers.q5)}</b>.`)
   if ((res.breakdown.beginnerPenalty ?? 0) < 0) notes.push('Für den Einstieg anspruchsvoll — viel Leistung, wenig Fehlerverzeihung.')
-  if ((res.breakdown.license ?? 0) < 0) notes.push('Liegt zwei Klassen unter deinem Führerschein — fahren darfst du sie, gereizt wirst du damit kaum.')
+  /* Nur wenn die Maschine ueberhaupt gefahren werden darf. Verlangt sie eine hoehere Klasse,
+     ist die Punktzahl ebenfalls negativ — dann stand hier bisher „liegt unter deinem Fuehrerschein"
+     direkt unter dem Satz, dass der Schein nicht reicht. Zwei Hinweise, die sich widersprechen. */
+  const stufen = res.breakdown.licenseStufen ?? 0
+  if (res.fits.license && stufen > 0) {
+    notes.push(stufen === 1
+      ? 'Liegt eine Klasse unter deinem Führerschein — fahren darfst du sie, ausreizen wirst du sie kaum.'
+      : 'Liegt zwei Klassen unter deinem Führerschein — fahren darfst du sie, gereizt wirst du damit kaum.')
+  }
   /* Die Einschränkungen aus der Begründung, ohne die, die oben schon ausführlicher stehen. */
   for (const satz of gruende.aber) {
     if (/Anfang|Anfänger/.test(satz)) continue

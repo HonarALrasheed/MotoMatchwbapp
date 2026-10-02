@@ -13236,6 +13236,54 @@ select.mmc-input option { background: #111; color: #fff; }
 
 .mmc-sp-privacy-save { margin-top: 20px; display: flex; justify-content: flex-end; }
 
+/* ── Einstellungen auf dem Handy ──────────────────────────────────
+   Das Panel ist von Hause aus zweispaltig: Nav links (220 px fest),
+   Content rechts. Auf einem 375-px-Viewport bleiben dem Content so
+   nur noch rund 150 px — Felder wie „Anzeigename" und die Farbwähler
+   stehen angeschnitten am Rand. Unter 560 px kippt das Panel deshalb
+   auf eine Zeile oben (horizontale Nav mit Scroll) und den Inhalt
+   darunter. Der Trenner und die Nav-Ueberschrift werden eingeklappt;
+   „Abmelden" bleibt als letzter, farblich abgesetzter Chip in der
+   Nav-Zeile. */
+@media (max-width: 560px) {
+  .mmc-sp-shell {
+    flex-direction: column;
+    max-width: 100%;
+    max-height: 100vh;
+    border-radius: 0;
+    height: 100%;
+  }
+  .mmc-sp-nav {
+    width: 100%;
+    min-width: 0;
+    flex-direction: row;
+    gap: 4px;
+    /* Rechts 56 px frei, damit der Schliessen-Knopf nicht ueber den letzten
+       Chip wandert, wenn die Zeile am rechten Rand gescrollt ist. */
+    padding: 10px 56px 8px 10px;
+    overflow-x: auto;
+    overflow-y: hidden;
+    border-bottom: 1px solid rgba(255,255,255,0.08);
+    scrollbar-width: none;
+  }
+  .mmc-sp-nav::-webkit-scrollbar { display: none; }
+  .mmc-sp-nav-head,
+  .mmc-sp-nav-sep { display: none; }
+  .mmc-sp-nav-item {
+    flex-shrink: 0;
+    padding: 8px 14px;
+    border-radius: 999px;
+    font-size: 13px;
+    white-space: nowrap;
+  }
+  .mmc-sp-content {
+    padding: 24px 18px 24px;
+    /* Platz fuer den Schliessen-Knopf oben rechts freihalten */
+    padding-right: 56px;
+  }
+  .mmc-sp-close { top: 10px; right: 10px; }
+}
+
 /* Bio and bike lines in user profile popover */
 .mmc-up-bio {
   font-size: 13px; color: rgba(255,255,255,0.6); margin: 6px 0 0;

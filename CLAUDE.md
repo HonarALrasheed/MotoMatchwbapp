@@ -6,6 +6,9 @@ mit **0 € Fixkosten** (nur Free-Tiers), Zeitbudget ~20 h/Woche.
 - Ist-Zustand und Feature-Inventar: [docs/STATUS.md](docs/STATUS.md)
 - Aufgabenliste, Meilensteine, was raus- und was rein muss: [docs/ROADMAP-BETA.md](docs/ROADMAP-BETA.md)
 - Bewusst aus Beta-Scope: Marketplace, Shop, Quests, QR-Login, OAuth (Voice/Talks ist seit heute in Arbeit, s. u.)
+- **Übergabe-Stand 2026-10-02** (was seit dem 29.09. passiert ist, Fallen, Konten/Dienste, offene Punkte):
+  [docs/UEBERGABE-2026-10-02.md](docs/UEBERGABE-2026-10-02.md) — **zuerst lesen**; der Beta-Blocker-Absatz
+  unten und `docs/STATUS.md` spiegeln den Stand vom August.
 - Beta-Blocker mit höchster Priorität: Git-Hygiene (nur 2 Commits, 16 dirty files),
   Sentry, Google-Maps-Key-Restriction, Rate-Limit auf `api/*`, Passwort-Reset-Flow
 

@@ -688,6 +688,11 @@ function scoreBike(bike, ctx) {
   else if (stufen < 0) licenseScore = WEIGHT.LICENSE_UNDER * 1.5;
   score += licenseScore;
   breakdown.license = licenseScore;
+  /* Der Abstand selbst, nicht nur die Punktzahl. Die Hinweise auf der Ergebnisseite leiteten
+     den Text bisher aus dem Vorzeichen von breakdown.license ab — und schrieben „zwei Klassen
+     unter deinem Fuehrerschein" auch dann, wenn die Maschine eine HOEHERE Klasse verlangt.
+     Aus dem Vorzeichen allein laesst sich das nicht unterscheiden. */
+  breakdown.licenseStufen = stufen;
   if (drossel) breakdown.drossel = true;
 
   /* Sitzhöhe. Ohne Angabe (im Vollkatalog fehlt sie bei rund einem Drittel) gibt es die

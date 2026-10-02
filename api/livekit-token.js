@@ -1,5 +1,5 @@
 import { AccessToken } from "livekit-server-sdk";
-import { checkOriginAndRate, requireUser, sendError, report } from "./_shared.js";
+import { checkOriginAndRate, requireUser, checkDailyLimit, sendError, report } from "./_shared.js";
 
 /**
  * LiveKit-Zugangstoken für einen Sprachraum.
@@ -30,6 +30,14 @@ export default async function handler(req, res) {
         : sendError(res, 401, "missing_token", "Bitte melde dich an, um einem Talk beizutreten.");
     }
     const { user, supabase } = auth;
+
+    // Tageskontingent pro Nutzer. Deckelt den Angreifer-Fall, in dem ein
+    // gestohlenes Token in Serie Raeume oeffnet — LiveKit rechnet nach
+    // Minuten, der Schaden skaliert mit der Zahl der Beitritte.
+    const erlaubt = await checkDailyLimit(supabase, "livekit-token");
+    if (!erlaubt) {
+      return sendError(res, 429, "daily_limit", "Du hast heute viele Raeume betreten. Bitte morgen weitermachen.");
+    }
 
     // Konfigurationsprüfung hinter der Anmeldung — so kann niemand von außen
     // abfragen, ob der Dienst überhaupt Schlüssel hinterlegt hat.

@@ -13236,6 +13236,85 @@ select.mmc-input option { background: #111; color: #fff; }
 
 .mmc-sp-privacy-save { margin-top: 20px; display: flex; justify-content: flex-end; }
 
+/* ── Einstellungen auf dem Handy ──────────────────────────────────
+   Das Panel ist von Hause aus zweispaltig: Nav links (220 px fest),
+   Content rechts. Auf einem 375-px-Viewport bleiben dem Content so
+   nur noch rund 150 px — Felder wie „Anzeigename" und die Farbwähler
+   stehen angeschnitten am Rand. Unter 560 px kippt das Panel deshalb
+   auf eine Zeile oben (horizontale Nav mit Scroll) und den Inhalt
+   darunter. Der Trenner und die Nav-Ueberschrift werden eingeklappt;
+   „Abmelden" bleibt als letzter, farblich abgesetzter Chip in der
+   Nav-Zeile. */
+@media (max-width: 560px) {
+  /* „Bottom Sheet": das Panel haengt unten, ueber ihm bleibt ein Streifen
+     Backdrop sichtbar — ein Tipp darauf schliesst, so wie man es auf dem
+     Handy erwartet. Vollbild hatte vorher den Rueckweg verdeckt. */
+  .mmc-settings-overlay {
+    align-items: flex-end;
+  }
+  .mmc-sp-shell {
+    flex-direction: column;
+    width: 100%;
+    max-width: 100%;
+    height: 88vh;
+    max-height: 88vh;
+    border-radius: 16px 16px 0 0;
+  }
+  .mmc-sp-nav {
+    width: 100%;
+    min-width: 0;
+    flex-direction: row;
+    gap: 4px;
+    /* Rechts 56 px frei fuer den Schliessen-Knopf. scroll-padding-right
+       sorgt dafuer, dass der letzte Chip beim Scrollen bis zum Ende nicht
+       vom Knopf verdeckt wird. */
+    padding: 12px 56px 10px 12px;
+    scroll-padding-right: 56px;
+    overflow-x: auto;
+    overflow-y: hidden;
+    border-bottom: 1px solid rgba(255,255,255,0.08);
+    scrollbar-width: none;
+    /* Oben leicht abrunden, damit das Sheet sichtbar oben endet */
+    border-radius: 16px 16px 0 0;
+  }
+  .mmc-sp-nav::-webkit-scrollbar { display: none; }
+  .mmc-sp-nav-head,
+  .mmc-sp-nav-sep { display: none; }
+  .mmc-sp-nav-item {
+    flex-shrink: 0;
+    padding: 9px 14px;
+    border-radius: 999px;
+    font-size: 13px;
+    white-space: nowrap;
+  }
+  .mmc-sp-content {
+    padding: 20px 18px 24px;
+    /* Statt relativ, damit der Schliessen-Knopf unten sich am Shell und
+       nicht am Content orientiert — sonst wandert er mit dem Scroll. */
+    position: static;
+  }
+  /* Schliessen-Knopf oben rechts in der Nav-Zeile, 44 x 44 px (Apple-
+     Mindestmass fuer Tipp-Ziele). Position:absolute am Shell, damit er
+     beim Content-Scroll an seiner Stelle bleibt. Links davon ist die
+     Nav-Zeile um 56 px eingerueckt, damit die Chips nicht hinter dem
+     Knopf scrollen. */
+  .mmc-sp-close {
+    position: absolute;
+    top: 10px;
+    right: 10px;
+    width: 44px;
+    height: 44px;
+    background: rgba(255,255,255,0.08);
+    border: none;
+    color: rgba(255,255,255,0.75);
+    font-size: 22px;
+    line-height: 1;
+    z-index: 10;
+  }
+  .mmc-sp-close:hover,
+  .mmc-sp-close:active { background: rgba(255,255,255,0.15); color: #fff; }
+}
+
 /* Bio and bike lines in user profile popover */
 .mmc-up-bio {
   font-size: 13px; color: rgba(255,255,255,0.6); margin: 6px 0 0;

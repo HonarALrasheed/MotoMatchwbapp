@@ -4050,8 +4050,11 @@ function openSettingsPanel(root) {
           <div class="mmc-sp-nav-sep"></div>
           <button class="mmc-sp-nav-item mmc-sp-nav-danger" id="mmc-sp-logout">Abmelden</button>
         </nav>
+        <!-- Close ausserhalb von Content, damit er beim Scrollen bleibt und
+             auf dem Handy nicht mit der horizontalen Nav-Chip-Zeile um den
+             gleichen Platz streitet (Hit-Test-Konflikt). -->
+        <button class="mmc-sp-close" id="mmc-sp-close" aria-label="Schließen">✕</button>
         <div class="mmc-sp-content">
-          <button class="mmc-sp-close" id="mmc-sp-close" aria-label="Schließen">✕</button>
           ${bodyHtml}
         </div>
       </div>`

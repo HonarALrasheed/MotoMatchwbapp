@@ -13246,42 +13246,79 @@ select.mmc-input option { background: #111; color: #fff; }
    „Abmelden" bleibt als letzter, farblich abgesetzter Chip in der
    Nav-Zeile. */
 @media (max-width: 560px) {
+  /* „Bottom Sheet": das Panel haengt unten, ueber ihm bleibt ein Streifen
+     Backdrop sichtbar — ein Tipp darauf schliesst, so wie man es auf dem
+     Handy erwartet. Vollbild hatte vorher den Rueckweg verdeckt. */
+  .mmc-settings-overlay {
+    align-items: flex-end;
+  }
   .mmc-sp-shell {
     flex-direction: column;
+    width: 100%;
     max-width: 100%;
-    max-height: 100vh;
-    border-radius: 0;
-    height: 100%;
+    height: 88vh;
+    max-height: 88vh;
+    border-radius: 16px 16px 0 0;
   }
   .mmc-sp-nav {
     width: 100%;
     min-width: 0;
     flex-direction: row;
     gap: 4px;
-    /* Rechts 56 px frei, damit der Schliessen-Knopf nicht ueber den letzten
-       Chip wandert, wenn die Zeile am rechten Rand gescrollt ist. */
-    padding: 10px 56px 8px 10px;
+    /* Links 48 px frei fuer den „zurueck"-Pfeil, rechts normal.
+       scroll-padding-left sorgt dafuer, dass der aktive Chip nicht hinter
+       dem Pfeil liegt, wenn die Zeile dort geoeffnet wird. */
+    padding: 12px 12px 10px 56px;
+    scroll-padding-left: 56px;
     overflow-x: auto;
     overflow-y: hidden;
     border-bottom: 1px solid rgba(255,255,255,0.08);
     scrollbar-width: none;
+    /* Oben leicht abrunden, damit das Sheet sichtbar oben endet */
+    border-radius: 16px 16px 0 0;
   }
   .mmc-sp-nav::-webkit-scrollbar { display: none; }
   .mmc-sp-nav-head,
   .mmc-sp-nav-sep { display: none; }
   .mmc-sp-nav-item {
     flex-shrink: 0;
-    padding: 8px 14px;
+    padding: 9px 14px;
     border-radius: 999px;
     font-size: 13px;
     white-space: nowrap;
   }
   .mmc-sp-content {
-    padding: 24px 18px 24px;
-    /* Platz fuer den Schliessen-Knopf oben rechts freihalten */
-    padding-right: 56px;
+    padding: 20px 18px 24px;
+    /* Statt relativ, damit der Schliessen-Knopf unten sich am Shell und
+       nicht am Content orientiert — sonst wandert er mit dem Scroll. */
+    position: static;
   }
-  .mmc-sp-close { top: 10px; right: 10px; }
+  /* Grosser „zurueck"-Pfeil statt der kleinen 30-px-Scheibe oben rechts.
+     Links in der Nav-Zeile, 44 × 44 px (Apple-Mindestmass fuer Tipp-Ziele),
+     Inhalt des Knopfs wird ueber ::before auf einen Pfeil umgestellt. Der
+     Knopf gehoert jetzt zum Shell (nicht zum Content), damit er oben in der
+     Nav-Zeile steht, nicht neben der Ueberschrift „Mein Profil". */
+  .mmc-sp-close {
+    position: absolute;
+    top: 6px;
+    left: 6px;
+    right: auto;
+    width: 44px;
+    height: 44px;
+    background: transparent;
+    border: none;
+    font-size: 0;
+    z-index: 2;
+  }
+  .mmc-sp-close::before {
+    content: "‹";
+    font-size: 32px;
+    line-height: 1;
+    color: rgba(255,255,255,0.75);
+    font-weight: 300;
+    padding-bottom: 4px;
+  }
+  .mmc-sp-close:hover { background: rgba(255,255,255,0.08); }
 }
 
 /* Bio and bike lines in user profile popover */

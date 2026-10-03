@@ -27,8 +27,8 @@ function loadThree() {
   return _threePromise
 }
 import { getGear } from './gear.js'
-import { initHubMap, searchNearby, getHubSearchResults, onHubResults, focusHubResult, recenterHubMap, zoomHubMap, getUserCoords, searchNearbyAt, retryHubLocation, hasMapsConsent, onHubMapMoved, panHubToCoords, haversineKm, resolveOrt, setHubPlacesPausiert, hatHubTreffer, setHubKarteOhneStandort, getHubMap as getHubMapReady } from './garage.js'
-import { esc, fmtRelative, LS_QUIZ_ANSWERS } from './util.js'
+import { initHubMap, searchNearby, getHubSearchResults, onHubResults, focusHubResult, recenterHubMap, zoomHubMap, getUserCoords, searchNearbyAt, retryHubLocation, hasMapsConsent, onHubMapMoved, panHubToCoords, haversineKm, resolveOrt, setHubPlacesPausiert, hatHubTreffer, setHubKarteOhneStandort, getHubMap as getHubMapReady } from './karte.js'
+import { esc, safeUrl, fmtRelative, LS_QUIZ_ANSWERS } from './util.js'
 import { buildTourenAnsicht, buildTourenUmkreis, initTouren, setTourenAktiv, setTourenHerkunft } from './touren.js'
 import { partnerLink, hatPartnerLinks } from './affiliate.js'
 import { ensureLandingRendered } from './landing.js'
@@ -2534,6 +2534,11 @@ function kvModus() {
 }
 
 function bindKarteViewEvents() {
+  // Zweimal auf dasselbe DOM gebunden (schnelles Doppel-Oeffnen) hiesse: jeder
+  // Klick wirkt doppelt, Gleit-Indikatoren liegen doppelt.
+  const hub = document.querySelector('.konf-karte-hub')
+  if (!hub || hub.dataset.gebunden) return
+  hub.dataset.gebunden = '1'
   let modus = kvModus()
   const sidebar = document.querySelector('.konf-karte-hub .kv-sidebar')
   const zeigeModus = () => {
@@ -2611,8 +2616,9 @@ function bindKarteViewEvents() {
         placeId: id,
         name: m.name || '—',
         address: m.address || '',
-        rating: m.rating || null,
+        rating: null,
         userRatings: 0,
+        tel: m.tel || '', web: m.web || '', marke: m.marke || '',
         isOpen: m.isOpen ?? null,
         lat: m.lat,
         lng: m.lng,
@@ -2654,17 +2660,6 @@ function bindKarteViewEvents() {
         'Tippe bei einem Treffer auf \u201eMerken\u201c \u2014 gemerkte Orte findest du hier wieder.')
       return
     }
-    if (!hasMapsConsent()) {
-      // Bewusst kein hervorgehobener Knopf: der Datenschutzhinweis auf der
-      // Karte traegt bereits den weissen "Karte laden"-Knopf. Zwei gleich
-      // starke Aufforderungen nebeneinander waeren eine zuviel — hier steht
-      // nur der zweite Weg dorthin, fuer den Fall, dass das Sheet auf dem
-      // Handy die Karte gerade verdeckt.
-      list.innerHTML = emptyState('\u{1F5FA}\u{FE0F}', 'Karte noch nicht geladen',
-        'Orte in deiner N\u00e4he findest du erst, wenn die Karte geladen ist.',
-        [{ id: 'kv-empty-consent', label: 'Karte laden' }])
-      return
-    }
     const { lat } = getUserCoords()
     if (lat == null) {
       list.innerHTML = emptyState('\u{1F4CD}', 'Kein Standortzugriff',
@@ -2693,11 +2688,9 @@ function bindKarteViewEvents() {
 
     let results = favOnly ? favResults() : [...getHubSearchResults()]
     if (openOnly) results = results.filter(r => r.isOpen === true)
-    results.sort(sortMode === 'rating'
-      // Ohne Bewertung nach hinten statt vor alles andere; bei Gleichstand
-      // entscheidet die Zahl der Bewertungen, sonst schiebt sich eine einzelne
-      // 5-Sterne-Stimme vor eine 4,8 aus 300.
-      ? (a, b) => (b.rating || 0) - (a.rating || 0) || (b.userRatings || 0) - (a.userRatings || 0)
+    // OpenStreetMap kennt keine Bewertungen — zweite Sortierung ist der Name
+    results.sort(sortMode === 'name'
+      ? (a, b) => a.name.localeCompare(b.name, 'de')
       : (a, b) => (a.distanceKm ?? Infinity) - (b.distanceKm ?? Infinity))
 
     // Ohne Treffer bleibt die Zeile leer statt einen Gedankenstrich zu zeigen:
@@ -2705,12 +2698,25 @@ function bindKarteViewEvents() {
     const countEl = document.getElementById('kv-list-count')
     if (countEl) countEl.textContent = results.length ? `${results.length} Treffer` : ''
 
-    if (!results.length) { renderEmpty(list); return }
+    /* Notdienst: OpenStreetMap kennt keine Pannendienste. Statt einer Liste,
+       die so tut, steht oben, wen man wirklich anruft — darunter die
+       naechsten Werkstaetten (ihre Nummern, soweit bekannt, am Eintrag). */
+    const notdienst = !favOnly && document.querySelector('.konf-karte-hub .hub-pill.active')?.dataset.query === 'Notdienst'
+    const notdienstBlock = notdienst ? `<div class="kv-notdienst">
+        <div class="kv-notdienst-knoepfe">
+          <a class="kv-notdienst-btn kv-notdienst-btn--notruf" href="tel:112">Notruf 112</a>
+          <a class="kv-notdienst-btn" href="tel:+498920204000">ADAC Pannenhilfe</a>
+        </div>
+        <p class="kv-notdienst-text">Bei Unfall mit Verletzten immer 112. Die Pannenhilfe des ADAC hilft auch Nichtmitgliedern (dann kostenpflichtig). Darunter: Motorradwerkst\u00e4tten in der N\u00e4he.</p>
+      </div>` : ''
 
-    list.innerHTML = results.map((r, i) => {
+    if (!results.length) { renderEmpty(list); if (notdienstBlock) list.insertAdjacentHTML('afterbegin', notdienstBlock); return }
+
+    list.innerHTML = notdienstBlock + results.map((r, i) => {
       const distance = r.distanceKm == null ? ''
         : r.distanceKm < 1 ? `${Math.round(r.distanceKm * 1000)} m` : `${r.distanceKm.toFixed(1)} km`
-      const rating = r.rating ? `<span class="kv-result-rating">\u2605 ${r.rating.toFixed(1)}${r.userRatings ? `<span class="kv-result-ratings-count">(${r.userRatings})</span>` : ''}</span>` : ''
+      // Marke nur, wenn sie etwas sagt (Tankstellen heissen oft wie ihre Marke)
+      const rating = r.marke && r.marke !== r.name ? `<span class="kv-result-marke">${esc(r.marke)}</span>` : ''
       const openStatus = r.isOpen === true ? '<span class="kv-result-open">Ge\u00f6ffnet</span>'
         : r.isOpen === false ? '<span class="kv-result-closed">Geschlossen</span>' : ''
       // Bewertung und Status stehen in einer Zeile, getrennt durch einen
@@ -2728,8 +2734,16 @@ function bindKarteViewEvents() {
             ${distance ? `<span class="kv-result-distance">${distance}</span>` : ''}
           </div>
           ${meta ? `<div class="kv-result-meta">${meta}</div>` : ''}
-          <div class="kv-result-address">${esc(r.address)}</div>
+          ${r.address ? `<div class="kv-result-address">${esc(r.address)}</div>` : ''}
           <div class="kv-result-actions">
+              ${r.tel ? `<a class="kv-action-btn" href="tel:${esc(r.tel.replace(/[^+\d]/g, ''))}" onclick="event.stopPropagation()">
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 16.9v3a2 2 0 0 1-2.2 2 19.8 19.8 0 0 1-8.6-3.1 19.5 19.5 0 0 1-6-6A19.8 19.8 0 0 1 2.1 4.2 2 2 0 0 1 4.1 2h3a2 2 0 0 1 2 1.7c.1.9.4 1.8.7 2.7a2 2 0 0 1-.5 2.1L8 9.8a16 16 0 0 0 6 6l1.3-1.3a2 2 0 0 1 2.1-.4c.9.3 1.8.6 2.7.7a2 2 0 0 1 1.7 2z"/></svg>
+                Anrufen
+              </a>` : ''}
+              ${safeUrl(r.web) ? `<a class="kv-action-btn" href="${esc(safeUrl(r.web))}" target="_blank" rel="noopener" onclick="event.stopPropagation()">
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a14 14 0 0 1 0 18M12 3a14 14 0 0 0 0 18"/></svg>
+                Website
+              </a>` : ''}
               <a class="kv-action-btn" href="${mapsUrl}" target="_blank" rel="noopener" onclick="event.stopPropagation()">
                 <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 11l18-8-8 18-2-7-8-3z"/></svg>
                 Route
@@ -2777,7 +2791,7 @@ function bindKarteViewEvents() {
             const result = getHubSearchResults().find(r => r.placeId === id)
             if (result) {
               const meta = JSON.parse(localStorage.getItem('mm_kv_favs_meta') || '{}')
-              meta[id] = { name: result.name, address: result.address, lat: result.lat, lng: result.lng, rating: result.rating, isOpen: result.isOpen ?? null, ts: Date.now() }
+              meta[id] = { name: result.name, address: result.address, lat: result.lat, lng: result.lng, tel: result.tel || '', web: result.web || '', marke: result.marke || '', isOpen: result.isOpen ?? null, ts: Date.now() }
               localStorage.setItem('mm_kv_favs_meta', JSON.stringify(meta))
             }
           } catch {}
@@ -2806,11 +2820,7 @@ function bindKarteViewEvents() {
   document.getElementById('kv-results-list')?.addEventListener('click', (e) => {
     const btn = e.target.closest('.kv-empty-btn')
     if (!btn) return
-    if (btn.id === 'kv-empty-consent') {
-      document.getElementById('hub-map-consent-btn')?.click()
-      searchPending = true
-      renderResults()
-    } else if (btn.id === 'kv-empty-retry') {
+    if (btn.id === 'kv-empty-retry') {
       searchPending = true
       renderResults()
       retryHubLocation()
@@ -2881,10 +2891,10 @@ function bindKarteViewEvents() {
   // Sortierung: Entfernung <-> Bewertung
   document.getElementById('kv-sort-btn')?.addEventListener('click', () => {
     const btn = document.getElementById('kv-sort-btn')
-    sortMode = sortMode === 'distance' ? 'rating' : 'distance'
+    sortMode = sortMode === 'distance' ? 'name' : 'distance'
     btn.dataset.sort = sortMode
     const label = btn.querySelector('.kv-sort-label')
-    if (label) label.textContent = sortMode === 'distance' ? 'Entfernung' : 'Bewertung'
+    if (label) label.textContent = sortMode === 'distance' ? 'Entfernung' : 'Name'
     renderResults()
   })
 

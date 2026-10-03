@@ -15,10 +15,13 @@
    ═══════════════════════════════════════════════════ */
 
 import { esc } from './util.js'
-import { getHubMap, onHubMapReady, getUserCoords, haversineKm } from './garage.js'
+import { getHubMap, onHubMapReady, getUserCoords, haversineKm, getMapLib } from './karte.js'
+import { setKurvenSichtbar, kurvenInDerNaehe, zeigeStrecke, stufe } from './kurven.js'
 
 const PRO_SEITE = 12
 const LS_GEMERKT = 'mm_touren_gemerkt_v1'
+const LS_KURVEN_EBENE = 'mm_kurven_ebene_v1'
+const kurvenEbeneGemerkt = () => { try { return localStorage.getItem(LS_KURVEN_EBENE) !== '0' } catch { return true } }
 const UMKREISE = [25, 50, 100, 200, 0] // 0 = ganz Deutschland
 /* Kurvigkeit in Grad Richtungsänderung je km (bauen.mjs). Grenzen aus der
    Verteilung der eigenen Touren: unteres und oberes Drittel. */
@@ -41,6 +44,7 @@ const zustand = {
   herkunft: null, // { lat, lng } aus "In diesem Gebiet suchen" / Ortssuche
   offeneTour: null,
   aktiv: false,
+  kurvenEbene: kurvenEbeneGemerkt(),
 }
 
 let indexPromise = null
@@ -77,7 +81,7 @@ async function ladeDetail(id) {
   // kumulierte Strecke in m — für den Punkt unter dem Mauszeiger im Höhenprofil
   const kum = [0]
   for (let i = 1; i < pts.length; i++) kum.push(kum[i - 1] + haversineKm(pts[i - 1][0], pts[i - 1][1], pts[i][0], pts[i][1]) * 1000)
-  const d = { pts, kum, profil: j.profil || [] }
+  const d = { pts, kum, profil: j.profil || [], schritte: j.schritte || [] }
   details.set(id, d)
   return d
 }
@@ -236,7 +240,7 @@ function renderFilter() {
     const aktiv = wert !== 'alle'
     const text = aktiv ? f.werte.find((w) => w[0] === wert)[1] : f.label
     return `<button type="button" class="kv-chip tour-filter-chip" data-filter="${key}" data-active="${aktiv}" aria-expanded="${zustand.offenerFilter === key}">${esc(text)}${ICON.pfeil}</button>`
-  }).join('') + `<button type="button" class="kv-chip kv-chip--fav" data-filter="gemerkt" data-active="${zustand.gemerkt}" aria-pressed="${zustand.gemerkt}" aria-label="Gemerkte Touren">${ICON.merken(false)}<span class="kv-chip-count">${n}</span></button>`
+  }).join('') + `<button type="button" class="kv-chip tour-filter-chip tour-kurven-chip" data-filter="kurvenebene" data-active="${zustand.kurvenEbene}" aria-pressed="${zustand.kurvenEbene}" title="Alle kurvigen Straßen auf der Karte">${ICON.kurve}Kurvenstrecken</button>` + `<button type="button" class="kv-chip kv-chip--fav" data-filter="gemerkt" data-active="${zustand.gemerkt}" aria-pressed="${zustand.gemerkt}" aria-label="Gemerkte Touren">${ICON.merken(false)}<span class="kv-chip-count">${n}</span></button>`
 
   const opt = document.getElementById('tour-optionen')
   const f = FILTER[zustand.offenerFilter]
@@ -351,21 +355,52 @@ function renderListe({ karteAnpassen = false } = {}) {
     return
   }
   const mitSammlung = zustand.seite === 1 && !zustand.gemerkt && zustand.typ !== 'rund'
-  box.innerHTML = seite.map(({ t, km }, i) => karte(t, km, i) + (mitSammlung && i === 1 ? sammlung() : '')).join('') + seiten(liste.length)
+  const mitKurven = zustand.seite === 1 && !zustand.gemerkt && herkunft()
+  box.innerHTML = seite.map(({ t, km }, i) => karte(t, km, i)
+    + (mitSammlung && i === 1 ? sammlung() : '')
+    + (mitKurven && i === Math.min(4, seite.length - 1) ? '<section class="tour-sammlung" id="kurven-band" hidden></section>' : '')).join('') + seiten(liste.length)
+  if (mitKurven) fuelleKurvenBand()
   box.scrollTop = 0
   zeichneListe(seite.map((x) => x.t), karteAnpassen)
 }
 
-// ── Detail ───────────────────────────────────────────────────────────────
-
-function googleMapsLink(t) {
-  const wp = t.typ === 'rund' ? [...t.wp, t.wp[0]] : t.wp
-  const p = (w) => `${w[1]},${w[2]}`
-  const mitte = wp.slice(1, -1)
-  // Google nimmt höchstens 9 Zwischenziele — gleichmäßig auswählen
-  const auswahl = mitte.length <= 8 ? mitte : Array.from({ length: 8 }, (_, i) => mitte[Math.round((i * (mitte.length - 1)) / 7)])
-  return `https://www.google.com/maps/dir/?api=1&travelmode=driving&origin=${p(wp[0])}&destination=${p(wp[wp.length - 1])}${auswahl.length ? `&waypoints=${encodeURIComponent(auswahl.map(p).join('|'))}` : ''}`
+/** Band "Kurvenstrecken in der Nähe": die kurvigsten Straßen im Umkreis. */
+let kurvenBandGen = 0
+async function fuelleKurvenBand() {
+  const gen = ++kurvenBandGen
+  const h = herkunft()
+  const band = document.getElementById('kurven-band')
+  if (!h || !band) return
+  const km = zustand.umkreis || 100
+  const liste = await kurvenInDerNaehe(h.lat, h.lng, Math.min(km, 100), 10).catch(() => [])
+  if (gen !== kurvenBandGen || !liste.length || !document.body.contains(band)) return
+  band.hidden = false
+  band.innerHTML = `
+    <div class="tour-sammlung-kopf">
+      <h4>Kurvenstrecken in der N\u00e4he</h4>
+      <div class="tour-sammlung-pfeile">
+        <button type="button" class="tour-pfeil" data-scroll="-1" aria-label="Zur\u00fcck">\u2039</button>
+        <button type="button" class="tour-pfeil" data-scroll="1" aria-label="Weiter">\u203a</button>
+      </div>
+    </div>
+    <div class="tour-sammlung-band">
+      ${liste.map((k) => {
+        const st = stufe(k)
+        const pts = k.pts.map(([a, b]) => [a, b])
+        const bild = streckenBild({ _pts: pts, typ: 'strecke' }, 220, 120)
+        return `<button type="button" class="tour-sammlung-karte" data-kurve="${esc(k.id)}">
+          <span class="tour-sammlung-bild">${bild}</span>
+          <span class="tour-sammlung-text">
+            <strong>${esc(k.name || 'Kurvenstrecke')}</strong>
+            <span><b style="color:${st.farbe}">${st.label}</b> \u00b7 ${(k.laenge / 1000).toFixed(1).replace('.', ',')}\u00a0km \u00b7 ${entfernung(k.abstand)}</span>
+          </span>
+        </button>`
+      }).join('')}
+    </div>`
+  band._liste = liste
 }
+
+// ── Detail ───────────────────────────────────────────────────────────────
 
 function gpxHerunterladen(t, d) {
   const x = (s) => esc(s)
@@ -459,10 +494,10 @@ async function oeffneTour(id) {
       ${kz(`${zahl(t.hmax)} m`, 'Höchster Punkt')}
     </div>
     <div class="tour-aktionen">
-      <a class="tour-btn tour-btn--primaer" href="${esc(googleMapsLink(t))}" target="_blank" rel="noopener">
+      <button type="button" class="tour-btn tour-btn--primaer" data-fahren>
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 11l18-8-8 18-2-7-8-3z"/></svg>
-        Navigation starten
-      </a>
+        Tour fahren
+      </button>
       <button type="button" class="tour-btn" data-gpx>
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12M7 10l5 5 5-5M5 21h14"/></svg>
         GPX
@@ -477,7 +512,7 @@ async function oeffneTour(id) {
     <h4 class="tour-abschnitt">Wegpunkte</h4>
     <ol class="tour-wegpunkte">${wp.map((w) => `<li>${esc(w[0])}</li>`).join('')}</ol>
     ${t.autobahnKm > 2 ? `<p class="tour-hinweis">Enthält rund ${zahl(t.autobahnKm)} km Autobahn als Verbindung.</p>` : ''}
-    <p class="tour-hinweis">Die Navigation über Google Maps kann zwischen den Wegpunkten anders fahren. Die genaue Strecke steckt in der GPX-Datei (z. B. für Calimoto, Kurviger, Garmin, TomTom).</p>
+    <p class="tour-hinweis">\u201eTour fahren\u201c f\u00fchrt dich mit Abbiegehinweisen und Ansage \u00fcber die Strecke \u2014 lass dabei den Bildschirm an, gesperrt gibt der Browser keinen Standort weiter. F\u00fcr ein Motorrad-Navi gibt es die Strecke als GPX.</p>
     <p class="tour-quelle">${esc(quellenText)}</p>
   </div>`
   box.scrollTop = 0
@@ -485,31 +520,92 @@ async function oeffneTour(id) {
   bindeProfil(t, d)
 }
 
-// ── Karte ────────────────────────────────────────────────────────────────
+// ── Karte (MapLibre) ─────────────────────────────────────────────────────
 
-const LINIE = { strokeColor: '#ffffff', strokeOpacity: 0.62, strokeWeight: 3, zIndex: 2 }
-const LINIE_HOVER = { strokeColor: '#ffffff', strokeOpacity: 1, strokeWeight: 5, zIndex: 20 }
-const LINIE_GEDIMMT = { strokeColor: '#ffffff', strokeOpacity: 0.22, strokeWeight: 3, zIndex: 1 }
+const LEER = { type: 'FeatureCollection', features: [] }
+const linie = (pts, props = {}, id) => ({ type: 'Feature', id, properties: props, geometry: { type: 'LineString', coordinates: pts.map(([la, ln]) => [ln, la]) } })
+const punkt = (p, props = {}) => ({ type: 'Feature', properties: props, geometry: { type: 'Point', coordinates: [p[1], p[0]] } })
 
-function startSymbol(skala = 5.5) {
-  return { path: google.maps.SymbolPath.CIRCLE, scale: skala, fillColor: '#ffffff', fillOpacity: 1, strokeColor: '#111', strokeWeight: 2.5 }
+/** Quellen und Ebenen einmal je Karte anlegen. */
+function ebenen(map) {
+  if (map.getSource('touren-liste')) return
+  // Pfeil für die Fahrtrichtung als Bild — die Kartenschrift hat kein passendes Zeichen
+  const c = document.createElement('canvas')
+  c.width = c.height = 32
+  const g = c.getContext('2d')
+  g.strokeStyle = '#111'; g.lineWidth = 5; g.lineCap = 'round'; g.lineJoin = 'round'
+  g.beginPath(); g.moveTo(11, 8); g.lineTo(21, 16); g.lineTo(11, 24); g.stroke()
+  map.addImage('tour-pfeil', g.getImageData(0, 0, 32, 32), { pixelRatio: 2 })
+
+  map.addSource('touren-liste', { type: 'geojson', data: LEER })
+  map.addSource('touren-start', { type: 'geojson', data: LEER })
+  map.addSource('tour-detail', { type: 'geojson', data: LEER })
+  map.addSource('tour-detail-punkte', { type: 'geojson', data: LEER })
+  const vorOrten = map.getLayer('orte-symbole') ? 'orte-symbole' : undefined
+  map.addLayer({
+    id: 'touren-linie', type: 'line', source: 'touren-liste',
+    layout: { 'line-join': 'round', 'line-cap': 'round' },
+    paint: {
+      'line-color': '#ffffff',
+      'line-width': ['case', ['boolean', ['feature-state', 'hover'], false], 5, 3],
+      'line-opacity': ['case', ['boolean', ['feature-state', 'hover'], false], 1, ['boolean', ['feature-state', 'gedimmt'], false], 0.22, 0.62],
+    },
+  }, vorOrten)
+  map.addLayer({
+    id: 'touren-start', type: 'circle', source: 'touren-start',
+    paint: { 'circle-radius': 4.5, 'circle-color': '#ffffff', 'circle-stroke-color': '#111', 'circle-stroke-width': 2.5 },
+  }, vorOrten)
+  map.addLayer({ id: 'tour-detail-rand', type: 'line', source: 'tour-detail', layout: { 'line-join': 'round', 'line-cap': 'round' }, paint: { 'line-color': '#000', 'line-opacity': 0.55, 'line-width': 9 } }, vorOrten)
+  map.addLayer({ id: 'tour-detail-linie', type: 'line', source: 'tour-detail', layout: { 'line-join': 'round', 'line-cap': 'round' }, paint: { 'line-color': '#ffffff', 'line-width': 4.5 } }, vorOrten)
+  map.addLayer({
+    id: 'tour-detail-pfeile', type: 'symbol', source: 'tour-detail',
+    layout: { 'symbol-placement': 'line', 'symbol-spacing': 90, 'icon-image': 'tour-pfeil', 'icon-size': 0.8, 'icon-allow-overlap': true, 'icon-rotation-alignment': 'map' },
+  }, vorOrten)
+  map.addLayer({
+    id: 'tour-detail-punkte', type: 'circle', source: 'tour-detail-punkte',
+    paint: {
+      'circle-radius': 7,
+      'circle-color': ['match', ['get', 'art'], 'ziel', '#111', '#ffffff'],
+      'circle-stroke-color': ['match', ['get', 'art'], 'ziel', '#ffffff', '#111'],
+      'circle-stroke-width': 2.5,
+    },
+  })
+
+  const oeffnen = (e) => { const id = e.features?.[0]?.properties?.id; if (id) oeffneTour(id) }
+  map.on('click', 'touren-linie', oeffnen)
+  map.on('click', 'touren-start', oeffnen)
+  map.on('mousemove', 'touren-linie', (e) => {
+    map.getCanvas().style.cursor = 'pointer'
+    const id = e.features?.[0]?.properties?.id
+    if (id && id !== hoverId) markiere(id)
+  })
+  map.on('mouseleave', 'touren-linie', () => { map.getCanvas().style.cursor = ''; markiere(null) })
 }
 
+const quelle = (map, id) => map.getSource(id)
+// Erst nach dem 'load' der Karte dürfen Quellen dazukommen (karte.js setzt die Marke)
+const istBereit = (map) => !!map?.__mmBereit
+
 function entferneListe() {
-  listenLinien.forEach((o) => { o.linie.setMap(null); o.start.setMap(null) })
+  const map = getHubMap()
+  if (!map?.getSource('touren-liste')) return
+  quelle(map, 'touren-liste').setData(LEER)
+  quelle(map, 'touren-start').setData(LEER)
   listenLinien = []
 }
 function entferneDetail() {
-  detailObjekte.forEach((o) => o.setMap(null))
-  detailObjekte = []
-  profilMarker?.setMap(null)
+  const map = getHubMap()
+  profilMarker?.remove()
   profilMarker = null
+  if (!map?.getSource('tour-detail')) return
+  quelle(map, 'tour-detail').setData(LEER)
+  quelle(map, 'tour-detail-punkte').setData(LEER)
 }
 
 function grenzen(punkte) {
-  const b = new google.maps.LatLngBounds()
-  punkte.forEach(([la, ln]) => b.extend({ lat: la, lng: ln }))
-  return b
+  let s = 90, w = 180, n = -90, o = -180
+  for (const [la, ln] of punkte) { if (la < s) s = la; if (la > n) n = la; if (ln < w) w = ln; if (ln > o) o = ln }
+  return [[w, s], [o, n]]
 }
 
 /** Platz für das schwebende Panel lassen, sonst liegen Linien darunter. */
@@ -524,52 +620,37 @@ function rand() {
 
 function zeichneListe(liste, anpassen) {
   const map = getHubMap()
-  if (!map || !zustand.aktiv || typeof google === 'undefined') return
+  if (!istBereit(map) || !zustand.aktiv) return
+  ebenen(map)
+  setKurvenSichtbar(zustand.kurvenEbene) // erst jetzt steht die Karte sicher
   entferneDetail()
-  entferneListe()
   hoverId = null
-  for (const t of liste) {
-    const linie = new google.maps.Polyline({ ...LINIE, path: t._pts.map(([lat, lng]) => ({ lat, lng })), map })
-    const start = new google.maps.Marker({ position: { lat: t._pts[0][0], lng: t._pts[0][1] }, map, icon: startSymbol(4.5), title: t.name, zIndex: 30 })
-    const oeffnen = () => oeffneTour(t.id)
-    linie.addListener('click', oeffnen)
-    start.addListener('click', oeffnen)
-    linie.addListener('mouseover', () => markiere(t.id))
-    linie.addListener('mouseout', () => markiere(null))
-    listenLinien.push({ id: t.id, linie, start })
-  }
-  if (anpassen && liste.length) map.fitBounds(grenzen(liste.flatMap((t) => t._pts)), rand())
+  listenLinien = liste.map((t, i) => ({ id: t.id, fid: i + 1 }))
+  quelle(map, 'touren-liste').setData({ type: 'FeatureCollection', features: liste.map((t, i) => linie(t._pts, { id: t.id }, i + 1)) })
+  quelle(map, 'touren-start').setData({ type: 'FeatureCollection', features: liste.map((t) => punkt(t._pts[0], { id: t.id })) })
+  if (anpassen && liste.length) map.fitBounds(grenzen(liste.flatMap((t) => t._pts)), { padding: rand(), duration: 700, maxZoom: 12 })
 }
 
 /** Karte und Liste zeigen dieselbe Tour hervorgehoben — von beiden Seiten aus. */
 function markiere(id) {
   hoverId = id
-  listenLinien.forEach((o) => o.linie.setOptions(id == null ? LINIE : o.id === id ? LINIE_HOVER : LINIE_GEDIMMT))
+  const map = getHubMap()
+  if (map?.getSource('touren-liste')) {
+    for (const o of listenLinien) map.setFeatureState({ source: 'touren-liste', id: o.fid }, { hover: o.id === id, gedimmt: id != null && o.id !== id })
+  }
   document.querySelectorAll('#tour-liste .tour-card').forEach((c) => c.classList.toggle('tour-card--hover', c.dataset.tour === id))
 }
 
 function zeichneDetail(t, d) {
   const map = getHubMap()
-  if (!map || !zustand.aktiv || typeof google === 'undefined') return
+  if (!istBereit(map) || !zustand.aktiv) return
+  ebenen(map)
   entferneListe()
-  entferneDetail()
-  const path = d.pts.map(([lat, lng]) => ({ lat, lng }))
-  detailObjekte.push(
-    new google.maps.Polyline({ path, map, strokeColor: '#000', strokeOpacity: 0.55, strokeWeight: 9, zIndex: 3 }),
-    new google.maps.Polyline({
-      path, map, strokeColor: '#ffffff', strokeOpacity: 1, strokeWeight: 4.5, zIndex: 4,
-      // Fahrtrichtung, wie sie die Tour vorsieht
-      icons: [{ icon: { path: google.maps.SymbolPath.FORWARD_OPEN_ARROW, scale: 2.2, strokeColor: '#111', strokeWeight: 2 }, offset: '40px', repeat: '110px' }],
-    }),
-    new google.maps.Marker({ position: path[0], map, icon: startSymbol(7), title: `Start: ${t.wp[0][0]}`, zIndex: 40 }),
-  )
-  if (t.typ === 'strecke') {
-    detailObjekte.push(new google.maps.Marker({
-      position: path[path.length - 1], map, title: `Ziel: ${t.wp[t.wp.length - 1][0]}`, zIndex: 40,
-      icon: { path: google.maps.SymbolPath.CIRCLE, scale: 7, fillColor: '#111', fillOpacity: 1, strokeColor: '#fff', strokeWeight: 2.5 },
-    }))
-  }
-  map.fitBounds(grenzen(d.pts), rand())
+  quelle(map, 'tour-detail').setData(linie(d.pts))
+  const punkte = [punkt(d.pts[0], { art: 'start' })]
+  if (t.typ === 'strecke') punkte.unshift(punkt(d.pts[d.pts.length - 1], { art: 'ziel' }))
+  quelle(map, 'tour-detail-punkte').setData({ type: 'FeatureCollection', features: punkte })
+  map.fitBounds(grenzen(d.pts), { padding: rand(), duration: 700 })
 }
 
 function bindeProfil(t, d) {
@@ -595,17 +676,19 @@ function bindeProfil(t, d) {
     const ziel = anteil * gesamtM
     let lo = 0, hi = d.kum.length - 1
     while (lo < hi) { const m = (lo + hi) >> 1; if (d.kum[m] < ziel) lo = m + 1; else hi = m }
-    const map = getHubMap()
-    if (!map || typeof google === 'undefined') return
-    const pos = { lat: d.pts[lo][0], lng: d.pts[lo][1] }
-    if (!profilMarker) profilMarker = new google.maps.Marker({ map, zIndex: 50, clickable: false, icon: { path: google.maps.SymbolPath.CIRCLE, scale: 6, fillColor: '#e8c56d', fillOpacity: 1, strokeColor: '#111', strokeWeight: 2 } })
-    profilMarker.setPosition(pos)
-    profilMarker.setMap(map)
+    const map = getHubMap(), ml = getMapLib()
+    if (!map || !ml) return
+    if (!profilMarker) {
+      const el = document.createElement('div')
+      el.className = 'tour-profil-punkt'
+      profilMarker = new ml.Marker({ element: el })
+    }
+    profilMarker.setLngLat([d.pts[lo][1], d.pts[lo][0]]).addTo(map)
   }
   const weg = () => {
     cursor.classList.remove('an')
     wert.textContent = grundtext
-    profilMarker?.setMap(null)
+    profilMarker?.remove()
   }
   svg.addEventListener('pointermove', bewegen)
   svg.addEventListener('pointerdown', bewegen)
@@ -617,6 +700,7 @@ function bindeProfil(t, d) {
 /** Karte steht (neu oder umgezogen): aktuellen Zustand darauf zeichnen. */
 function neuZeichnen(anpassen = false) {
   if (!zustand.aktiv) return
+  setKurvenSichtbar(zustand.kurvenEbene)
   if (zustand.offeneTour && details.has(zustand.offeneTour)) {
     const t = touren.find((x) => x.id === zustand.offeneTour)
     if (t) { zeichneDetail(t, details.get(zustand.offeneTour)); return }
@@ -627,6 +711,7 @@ function neuZeichnen(anpassen = false) {
 
 export function setTourenAktiv(an) {
   zustand.aktiv = an
+  setKurvenSichtbar(an && zustand.kurvenEbene)
   if (!an) { entferneListe(); entferneDetail(); return }
   renderUmkreis() // war versteckt und ist erst jetzt messbar
   neuZeichnen(true)
@@ -654,7 +739,10 @@ function renderUmkreis() {
  */
 export function initTouren({ mountThumb } = {}) {
   const ansicht = document.getElementById('kv-touren')
-  if (!ansicht) return
+  // Zweiter Aufruf auf demselben DOM (Reiter erneut gebunden): nichts doppelt
+  // verdrahten — sonst schaltet jeder Klick zweimal und hebt sich auf.
+  if (!ansicht || ansicht.dataset.gebunden) return
+  ansicht.dataset.gebunden = '1'
 
   umkreisThumb = mountThumb?.(document.querySelector('.tour-umkreis'), '.kv-radius-pill--active', 'kv-pill-thumb--radius') || null
   document.querySelectorAll('.tour-umkreis .kv-radius-pill').forEach((b) => b.addEventListener('click', () => {
@@ -669,6 +757,13 @@ export function initTouren({ mountThumb } = {}) {
     const chip = e.target.closest('[data-filter]')
     if (chip) {
       const key = chip.dataset.filter
+      if (key === 'kurvenebene') {
+        zustand.kurvenEbene = !zustand.kurvenEbene
+        try { localStorage.setItem(LS_KURVEN_EBENE, zustand.kurvenEbene ? '1' : '0') } catch {}
+        setKurvenSichtbar(zustand.kurvenEbene)
+        renderFilter()
+        return
+      }
       if (key === 'gemerkt') {
         zustand.gemerkt = !zustand.gemerkt
         zustand.offenerFilter = null
@@ -724,6 +819,12 @@ export function initTouren({ mountThumb } = {}) {
       renderListe({ karteAnpassen: true })
       return
     }
+    if (e.target.closest('[data-fahren]')) {
+      const t = touren.find((x) => x.id === zustand.offeneTour)
+      const d = details.get(zustand.offeneTour)
+      if (t && d) import('./tour-fahren.js').then((m) => m.starteFahrt(t, d))
+      return
+    }
     if (e.target.closest('[data-gpx]')) {
       const t = touren.find((x) => x.id === zustand.offeneTour)
       const d = details.get(zustand.offeneTour)
@@ -736,6 +837,15 @@ export function initTouren({ mountThumb } = {}) {
       merken.classList.toggle('tour-btn--gemerkt', an)
       merken.setAttribute('aria-pressed', String(an))
       merken.innerHTML = `${ICON.merken(an)}<span>${an ? 'Gemerkt' : 'Merken'}</span>`
+      return
+    }
+    const kurve = e.target.closest('[data-kurve]')
+    if (kurve) {
+      const k = document.getElementById('kurven-band')?._liste?.find((x) => x.id === kurve.dataset.kurve)
+      if (k) {
+        if (!zustand.kurvenEbene) { zustand.kurvenEbene = true; setKurvenSichtbar(true); renderFilter() }
+        zeigeStrecke(k, { padding: rand() })
+      }
       return
     }
     const tour = e.target.closest('[data-tour]')

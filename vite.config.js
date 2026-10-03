@@ -2,12 +2,23 @@ import { defineConfig } from 'vite'
 import devApi from './vite-plugin-dev-api.js'
 import draco from './vite-plugin-draco.js'
 
+const KACHEL_PROXY = {
+  target: 'https://tiles.openfreemap.org',
+  changeOrigin: true,
+  rewrite: (p) => p.replace(/^\/kacheln/, ''),
+}
+
 export default defineConfig(() => ({
   base: '/',
   server: {
     port: parseInt(process.env.PORT || '5173', 10),
     strictPort: false,
     open: true,
+    // Kartenkacheln über die eigene Adresse — wie der Rewrite in vercel.json
+    proxy: { '/kacheln': KACHEL_PROXY },
+  },
+  preview: {
+    proxy: { '/kacheln': KACHEL_PROXY },
   },
   build: {
     outDir: 'dist',

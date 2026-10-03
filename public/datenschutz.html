@@ -344,11 +344,20 @@
       </div>
 
       <div class="service-card">
-        <h3>Google Maps</h3>
-        <p>Betreiber: Google Ireland Limited, Irland. Zweck: Anzeige von Händlerstandorten auf
-        einer Karte. Beim Laden der Karte wird Ihre IP-Adresse an Google übertragen, auch in die
-        USA. Die Karte wird erst nach Ihrer ausdrücklichen Zustimmung geladen.
-        Rechtsgrundlage: Art. 6 Abs. 1 lit. a DSGVO.</p>
+        <h3>Karte (OpenStreetMap über OpenFreeMap)</h3>
+        <p>Die Karte zeigt Kartenmaterial aus OpenStreetMap. Die Kartenkacheln, Schriften und Symbole
+        stellt OpenFreeMap bereit (Hyperknot Software Kft., Ungarn; ausgeliefert über das Netzwerk von
+        Cloudflare). Ihr Browser ruft sie <strong>nicht direkt</strong> dort ab, sondern über unsere eigene
+        Adresse (motomatch.studio/kacheln/…); unser Hoster Vercel leitet die Anfrage weiter. Dabei
+        erfährt OpenFreeMap, welcher Kartenausschnitt geladen wird; Vercel kann Ihre IP-Adresse dabei in
+        einem technischen Weiterleitungsfeld mitsenden. Nach eigener Angabe speichert OpenFreeMap keine
+        IP-Adressen und setzt keine Cookies. Zweck: Darstellung der Karte, der Touren und der Orte.
+        Rechtsgrundlage: Art. 6 Abs. 1 lit. f DSGVO (berechtigtes Interesse an einer funktionsfähigen
+        Kartendarstellung ohne Werbe- oder Analysedienst).</p>
+        <p>Touren, Werkstätten, Händler, Fahrschulen, Tankstellen und die Ortssuche stammen aus einem
+        eigenen Datenbestand (Daten © OpenStreetMap-Mitwirkende, ODbL), der zusammen mit der Website
+        ausgeliefert wird. Suchanfragen und Ihr Standort werden dafür an niemanden übermittelt — Umkreis
+        und Entfernungen berechnet Ihr Gerät.</p>
       </div>
 
       <div class="service-card">
@@ -402,9 +411,7 @@
       </p>
       <p>
         Analyse- oder Marketingdienste, die Sie über mehrere Websites hinweg wiedererkennen,
-        setzen wir nicht ein. Die Einwilligung für die Kartendarstellung (Abschnitt 5) und der
-        Merker dafür sind davon ausgenommen — ohne ihn müssten wir Sie bei jedem Besuch erneut
-        fragen.
+        setzen wir nicht ein.
       </p>
     </section>
 
@@ -441,6 +448,22 @@
         darin bewusst nicht enthalten. Wohin dieses Bild anschließend gelangt, entscheiden allein
         Sie; für die Verarbeitung durch den von Ihnen gewählten Dienst ist dessen Anbieter
         verantwortlich.
+      </p>
+    </section>
+
+    <section>
+      <h2>8a. Tour fahren</h2>
+      <p>
+        Starten Sie bei einer Tour „Tour fahren“, liest die Website über die Standortschnittstelle Ihres Browsers fortlaufend Ihre Position aus, solange die Führung läuft. Abbiegehinweise, Restkilometer und der Abgleich mit der
+        Strecke werden auf Ihrem Gerät berechnet; Ihre Position wird nicht gespeichert und nicht
+        übermittelt. Damit die Karte mitläuft, lädt der Browser die Kartenkacheln für den jeweiligen
+        Ausschnitt (siehe Abschnitt 5, „Karte“) — daraus ist der ungefähre Kartenbereich erkennbar,
+        nicht aber Ihre genaue Position. Die Führung endet mit „Beenden“ oder beim Schließen der Seite.
+      </p>
+      <p>
+        Die Führung startet nur, wenn Sie sie ausdrücklich starten; zusätzlich fragt Ihr Browser um
+        Erlaubnis für den Standort. Rechtsgrundlage ist Ihre Einwilligung nach Art. 6 Abs. 1 lit. a
+        DSGVO sowie § 25 Abs. 1 TDDDG.
       </p>
     </section>
 
@@ -485,7 +508,7 @@
     <section>
       <h2>12. Stand</h2>
       <p>
-        Diese Datenschutzerklärung hat den Stand vom 2. Oktober 2026. Wir passen sie an, wenn
+        Diese Datenschutzerklärung hat den Stand vom 4. Oktober 2026. Wir passen sie an, wenn
         sich unsere Dienste oder die Rechtslage ändern.
       </p>
     </section>

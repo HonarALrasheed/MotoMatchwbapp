@@ -194,9 +194,48 @@ function schwierigkeit(km, kurven, aufJeKm) {
   return p >= 3 ? 'schwer' : p >= 1 ? 'mittel' : 'leicht'
 }
 
+/* Abbiegehinweise für "Tour fahren": [Meter ab Start, Art, Richtung, Straße, Ausfahrt].
+   Nur Stellen, an denen man etwas tun muss — "geradeaus weiter auf neuer
+   Straße" ohne Richtungswechsel fliegt raus. */
+function schritte(route) {
+  const aus = []
+  let km = 0
+  for (const leg of route.legs) {
+    for (const st of leg.steps) {
+      const m = st.maneuver
+      const strasse = [st.ref, st.name].filter(Boolean).join(' ').trim()
+      const egal = (m.type === 'new name' || m.type === 'continue') && (!m.modifier || m.modifier === 'straight')
+      if (m.type !== 'depart' && m.type !== 'arrive' && !egal) {
+        aus.push([Math.round(km), m.type, m.modifier || '', strasse, m.exit || 0])
+      }
+      km += st.distance
+    }
+  }
+  aus.push([Math.round(route.distance), 'arrive', '', '', 0])
+  return aus
+}
+
 // ── Lauf ─────────────────────────────────────────────────────────────────
 await mkdir(ZIEL, { recursive: true })
 const args = process.argv.slice(2)
+if (args.includes('--schritte')) {
+  // Nachrüsten ohne Neuberechnung der Höhen: nur OSRM fragen, Schritte ergänzen
+  for (const t of TOUREN) {
+    const datei = join(ZIEL, `${t.id}.json`)
+    if (!existsSync(datei)) continue
+    const d = JSON.parse(await readFile(datei, 'utf8'))
+    if (d.schritte) continue
+    const wps = []
+    for (const w of t.wp) wps.push(await wegpunkt(w))
+    const route = t.typ === 'rund' ? [...wps, wps[0]] : wps
+    const osrm = await holeJson(`https://router.project-osrm.org/route/v1/driving/${route.map((p) => `${p.lng},${p.lat}`).join(';')}?overview=false&steps=true`)
+    await pause(1100)
+    d.schritte = schritte(osrm.routes[0])
+    await writeFile(datei, JSON.stringify(d))
+    console.log(`${t.id}: ${d.schritte.length} Hinweise`)
+  }
+  process.exit(0)
+}
 const alleNeu = args.includes('--neu')
 const nur = new Set(args.filter((a) => !a.startsWith('--')))
 const indexDatei = join(ZIEL, 'index.json')
@@ -256,7 +295,7 @@ for (const t of TOUREN) {
   for (let i = 0; i < h.length; i += schritt) profil.push([+(((i * r.distance) / (proben.length - 1)) / 1000).toFixed(2), Math.round(h[i])])
   if ((h.length - 1) % schritt) profil.push([+km.toFixed(2), Math.round(h[h.length - 1])])
 
-  await writeFile(join(ZIEL, `${t.id}.json`), JSON.stringify({ id: t.id, linie: kodieren(genau), profil }))
+  await writeFile(join(ZIEL, `${t.id}.json`), JSON.stringify({ id: t.id, linie: kodieren(genau), profil, schritte: schritte(r) }))
   const eintrag = {
     id: t.id, name: t.name, region: t.region, typ: t.typ, text: t.text, tags: t.tags,
     km: Math.round(km), min: Math.round(r.duration / 60),

@@ -20,7 +20,7 @@ Web-App für Motorradfahrer:innen: passendes Bike finden (Quiz + Matching), Mode
 | Sprache | Vanilla JavaScript (ES-Module), **kein Framework** |
 | Package Manager | npm (package-lock.json), Node 20 (`.nvmrc`) |
 | 3D | three.js (GLTF/DRACO/Meshopt), per dynamischem Import nachgeladen |
-| Karten | Google Maps JS API + CartoCDN-Tiles / Open-Meteo |
+| Karten | MapLibre GL (eigene Karte, `karte.js`) mit OpenStreetMap-Kacheln von OpenFreeMap über den Proxy `/kacheln/*`; Orte, Touren, Ortssuche aus eigenen OSM-Daten unter `public/data/` / Open-Meteo |
 | Styling | ein zentrales Stylesheet: `src/styles/main.css` |
 | Deployment | Vercel, Base-Pfad `/` |
 
@@ -41,7 +41,7 @@ Keine Tests und kein Linter konfiguriert.
 | `src/styles/main.css` | gesamtes Styling (dunkles, Porsche-inspiriertes Design) |
 | `public/` | statische Assets (Bike-Bilder als WebP, Rechtsseiten, PWA-Icons, Video) |
 | `vite.config.js` | Base-Pfad, Asset-Kopie von `D:/MotoMatch/...` (nur alte Windows-Dev-Maschine, auf macOS inert) |
-| `.env` | `VITE_SUPABASE_URL/ANON_KEY`, `VITE_GMAPS_KEY`, `VITE_SENTRY_DSN` (client) sowie serverseitig `OPENAI_KEY`, `TAVILY_KEY`, `SENTRY_DSN` — alle optional, Features degradieren ohne Keys. Server-Keys **nie** mit `VITE_`-Prefix. |
+| `.env` | `VITE_SUPABASE_URL/ANON_KEY`, `VITE_SENTRY_DSN` (`VITE_GMAPS_KEY` wird seit der eigenen Karte nicht mehr gelesen) (client) sowie serverseitig `OPENAI_KEY`, `TAVILY_KEY`, `SENTRY_DSN` — alle optional, Features degradieren ohne Keys. Server-Keys **nie** mit `VITE_`-Prefix. |
 
 Wichtigste Module in `src/js/`:
 - `app.js` — Bootstrapping/Router zwischen Bildschirmen
@@ -50,7 +50,10 @@ Wichtigste Module in `src/js/`:
 - `community.js` — Discord-artige Community (Gruppen, Talks, DMs)
 - `quiz.js` / `matching.js` — Match-Quiz + Empfehlungslogik
 - `garage.js`, `map-view.js`, `gear.js`, `account.js`, `landing.js`, `marketplace.js`, `ai.js`
-- `touren.js` — Touren im Karten-Reiter (komoot-artig: Liste, Filter, Linien auf der Karte, Höhenprofil, GPX). Umschalter Touren/Orte in `bindKarteViewEvents()`; im Touren-Modus ruht die Places-Suche (`setHubPlacesPausiert`). Daten: `public/data/touren/`, erzeugt mit `node scripts/touren/bauen.mjs` aus der eigenen Sammlung `scripts/touren/quelle.mjs` (OSM/OSRM, OpenTopoData). **Keine Touren aus fremden Apps übernehmen** (Calimoto, Kurviger … sind geschützt).
+- `karte.js` — die Karte (MapLibre) für Karten-Reiter und Garage; ersetzt Google Maps + Places. Kacheln/Schriften/Symbole von OpenFreeMap laufen über die **eigene Domain** (`/kacheln/*`: Rewrite in `vercel.json`, Proxy in `vite.config.js`, `transformRequest` in `karte.js`) — deshalb kein Einwilligungs-Klick vor der Karte. Orte (Werkstätten, Händler, Fahrschulen, Tankstellen, Motorradparkplätze, Biker-Treffs) aus `public/data/orte/<kat>/<lat>_<lng>.json` (1°-Kacheln), Ortssuche aus `public/data/orte/suche.json`; beides baut `node scripts/orte/bauen.mjs` aus OpenStreetMap (Overpass). Die Exportnamen (`initHubMap`, `searchNearby` …) stammen aus der Google-Fassung und sind bewusst gleich geblieben. Quellenangabe (OpenStreetMap, OpenMapTiles) muss sichtbar bleiben.
+- `touren.js` — Touren im Karten-Reiter (komoot-artig: Liste, Filter, Linien auf der Karte, Höhenprofil, GPX). Umschalter Touren/Orte in `bindKarteViewEvents()`; im Touren-Modus ruht die Orte-Suche (`setHubPlacesPausiert`). Daten: `public/data/touren/` (inkl. Abbiegehinweisen), erzeugt mit `node scripts/touren/bauen.mjs` aus der eigenen Sammlung `scripts/touren/quelle.mjs` (OSM/OSRM, OpenTopoData). **Keine Touren aus fremden Apps übernehmen** (Calimoto, Kurviger … sind geschützt).
+- `kurven.js` — Kurvenstrecken: alle kurvigen Straßen Deutschlands als Ebene (Schalter „Kurvenstrecken“ im Touren-Modus, Farbe nach Kurvendichte) und Band „Kurvenstrecken in der Nähe“; jede Strecke über den Fahrmodus fahrbar. Daten `public/data/kurven/` aus `scripts/kurven/bauen.py` (pyosmium über `germany-latest.osm.pbf` von Geofabrik, ~4,9 GB, nicht im Repo): Kurvenradius je Knoten, enge Radien gewichtet (Verfahren wie roadcurvature.com, eigene Umsetzung). Biker-Treffs und Ortssuch-Index kommen aus `scripts/orte/aus_pbf.py` (derselbe Auszug) — die öffentlichen Overpass-Server scheitern an diesen Abfragen.
+- `tour-fahren.js` — „Tour fahren“: Führung in der App (GPS auf der Linie, nächster Abbiegehinweis, Ansage, Wake Lock). Keine Neuberechnung bei Abweichung — dafür bräuchte es einen eigenen Routing-Dienst.
 
 ## Konventionen
 - UI-Rendering per Template-Strings + `innerHTML`; **Nutzereingaben immer über `esc()` escapen** (XSS)

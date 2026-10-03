@@ -100,6 +100,7 @@ export async function initCommunityData(uid, username) {
   _myUsername = username
 
   if (OFFLINE_MODE || !uid) {
+    await _crewDemoLaden()
     _loadFromLocalStorage()
     return
   }
@@ -153,7 +154,7 @@ function _loadFromLocalStorage() {
  * Nutzern mit je ~1,5 MB waren das ~750 MB. Bilder kommen jetzt per
  * ensureAvatars() nur fuer die Nutzer nach, die auch wirklich angezeigt werden.
  */
-const PROFILE_FIELDS = 'id, username, display_name, bio, status_text, avatar_color, show_bike, bike_text, dm_policy, show_online, notif_sounds, notif_desktop'
+const PROFILE_FIELDS = 'id, username, display_name, bio, status_text, avatar_color, show_bike, bike_text, dm_policy, show_online, notif_sounds, notif_desktop, is_ai'
 
 async function _loadProfiles() {
   const { data } = await supabase.from('profiles').select(PROFILE_FIELDS)
@@ -172,6 +173,7 @@ async function _loadProfiles() {
       showOnline:     p.show_online,
       notifySounds:   p.notif_sounds,
       notifyDesktop:  p.notif_desktop,
+      isAi:           !!p.is_ai,
       _uid:           p.id,
     }
   }
@@ -1640,6 +1642,45 @@ async function _prepareAttachment(att) {
   // Kein getPublicUrl() mehr: der Bucket ist privat. Gespeichert wird nur der
   // Pfad, die Adresse zum Anzeigen entsteht beim Rendern per signedAttachmentUrl().
   return { name, type, size, path }
+}
+
+/* ── Crew-Demo (nur offline, nur mit VITE_CREW_URL) ─────────────────
+   Der lokale Dienst tools/community-crew (node crew.mjs serve) liefert
+   die Demo-Community und Antworten der KI-Mitglieder. Live passiert hier nichts. */
+const CREW_URL = import.meta.env.VITE_CREW_URL || ''
+export const crewAktiv = () => !!(OFFLINE_MODE && CREW_URL)
+
+async function _crewDemoLaden() {
+  if (!crewAktiv()) return
+  try {
+    // Neue Demo (anderer Stand) ersetzt die zwischengespeicherte; eigene Testnachrichten gehen dabei verloren.
+    const d = await (await fetch(CREW_URL + '/demo')).json()
+    if (d.mm_crew_demo_stand && d.mm_crew_demo_stand === lsRead('mm_crew_demo_stand', null)) return
+    for (const [k, v] of Object.entries(d)) lsWrite(k, v)
+  } catch (e) { console.warn('[Crew] Demo nicht geladen:', e.message) }
+}
+
+export async function crewAntworten(groupId, channelId, text, onReply) {
+  if (!crewAktiv() || !text) return
+  const g = _groups.find(x => x.id === groupId)
+  const ch = g?.channels?.find(c => c.id === channelId); if (!ch) return
+  let out = []
+  try {
+    const verlauf = ch.messages.slice(-12).map(m => ({ author: m.author, text: m.text }))
+    const r = await fetch(CREW_URL, { method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ text, author: _myUsername || 'Gast', kanal: ch.name, verlauf }) })
+    if (r.ok) out = await r.json()
+  } catch (e) { console.warn('[Crew] keine Antwort:', e.message); return }
+  let warte = 0
+  for (const o of out) {
+    warte += Math.min(Math.max(o.nach || 0, 3000), 15000)
+    setTimeout(() => {
+      if (!_profileCache[o.author]?.avatarImg) { _profileCache[o.author] = { ..._profileCache[o.author], displayName: o.display, avatarImg: o.avatar, isAi: true }; lsWrite(LS_PROFILE, _profileCache) }
+      ch.messages.push({ id: 'm-' + Date.now() + Math.random().toString(36).slice(2, 6), author: o.author, text: o.text, ts: Date.now(), reactions: {} })
+      lsWrite(LS_GROUPS, _groups)
+      onReply?.()
+    }, warte)
+  }
 }
 
 export async function sendGroupMessage(groupId, channelId, text, replyTo = null, attachment = null) {

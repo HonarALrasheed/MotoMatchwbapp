@@ -29,7 +29,7 @@ function loadThree() {
 import { getGear } from './gear.js'
 import { initHubMap, searchNearby, getHubSearchResults, onHubResults, focusHubResult, recenterHubMap, zoomHubMap, getUserCoords, searchNearbyAt, retryHubLocation, hasMapsConsent, onHubMapMoved, panHubToCoords, haversineKm, resolveOrt } from './garage.js'
 import { esc, fmtRelative, LS_QUIZ_ANSWERS } from './util.js'
-import { partnerLink, hatPartnerLinks } from './affiliate.js'
+import { produktLink, hatPartnerLinks, hatAmazonPartner } from './affiliate.js'
 import { ensureLandingRendered } from './landing.js'
 import { enterScreen, goBack } from './nav.js'
 import { findBikeByShortName, findTopMatches, findSimilarBikes, scoreBikeAgainst, begruendungFuer, MATCH_WEIGHTS } from './matching.js'
@@ -701,11 +701,6 @@ const GEAR_COLOR = {
   backprotector: { bg: '#0c1828', fg: '#7ab3e0' },
 }
 
-const GEAR_LABEL = {
-  helmet: 'Helm', jacket: 'Jacke', gloves: 'Handschuhe', boots: 'Stiefel',
-  pants: 'Hose', kidneybelt: 'Nierengurt', balaclava: 'Sturmhaube', backprotector: 'Rückenprotektor',
-}
-
 const STYLE_TIPS = {
   Sportbike:    { icon: '🏎', text: 'Eng anliegend & aerodynamisch — CE Level 2 empfohlen' },
   Naked:        { icon: '🛣', text: 'Vielseitig & alltagstauglich — Textil oder Leder' },
@@ -1341,37 +1336,42 @@ function buildCommunityCards() {
   return `<div class="gear-grid" id="gear-list">${cards.join('')}</div>`
 }
 
-function buildGearCards(style) {
-  const gear = getGear(style)
-  const categories = [
-    { key: 'helmet',        items: gear.helmet },
-    { key: 'jacket',        items: gear.jacket },
-    { key: 'gloves',        items: gear.gloves },
-    { key: 'boots',         items: gear.boots  },
-    { key: 'pants',         items: gear.pants  },
-    { key: 'kidneybelt',    items: gear.kidneybelt },
-    { key: 'balaclava',     items: gear.balaclava },
-    { key: 'backprotector', items: gear.backprotector },
-  ]
+const GEAR_STYLES = ['Sportbike', 'Naked', 'Cruiser', 'Enduro', 'Motocross', 'Klassiker', 'Custom']
 
+function buildGearCards(style) {
+  // "Alle": jedes Produkt einmal, die Karten-ID (Favoriten) stammt aus dem ersten Stil, in dem es vorkommt.
+  const stile = style === 'Alle' ? GEAR_STYLES : [style]
+  const categories = ['helmet', 'jacket', 'gloves', 'boots', 'pants', 'kidneybelt', 'balaclava', 'backprotector'].map(key => {
+    const gesehen = new Set()
+    const items = []
+    for (const s of stile) {
+      (getGear(s)[key] || []).forEach((item, i) => {
+        if (gesehen.has(item.name)) return
+        gesehen.add(item.name)
+        items.push({ item, cardId: `${s}-${key}-${i}` })
+      })
+    }
+    return { key, items }
+  })
+
+  // Innerhalb einer Kategorie aufsteigend nach Preis.
   const cards = categories.flatMap(({ key, items }) =>
-    items.map((item, i) => {
+    [...items].sort((a, b) => (a.item.priceMin + a.item.priceMax) - (b.item.priceMin + b.item.priceMax)).map(({ item, cardId }) => {
       const searchQ = encodeURIComponent(item.name)
-      const tier = i === 0 ? 'Budget' : i === 1 ? 'Empfohlen' : 'Premium'
-      const tierClass = i === 0 ? 'gear-tier--budget' : i === 1 ? 'gear-tier--mid' : 'gear-tier--premium'
       // Split brand (first word) from product name
+      const mehrwortMarke = ['Roland Sands', 'Lewis Leathers', 'Deus Ex Machina', 'Fly Racing']
+        .find(m => item.name.startsWith(m + ' '))
       const nameParts = item.name.split(' ')
-      const brand = nameParts[0]
-      const productName = nameParts.slice(1).join(' ') || item.type
+      const brand = mehrwortMarke || nameParts[0]
+      const productName = (mehrwortMarke ? item.name.slice(mehrwortMarke.length + 1) : nameParts.slice(1).join(' ')) || item.type
       // CE level detection from reason text
       const ceMatch = item.reason?.match(/CE-?Level\s*(\d)/i)
       const ceLevel = ceMatch ? parseInt(ceMatch[1]) : null
       const ceBadge = ceLevel
         ? `<span class="gear-card-ce gear-card-ce--${ceLevel}">CE ${ceLevel}</span>`
         : ''
-      const zielUrl = item.url || `https://www.louis.de/suche?query=${searchQ}`
       // Partnerlink, falls eine Kennung gesetzt ist — sonst unveraendert.
-      const { href: productUrl } = partnerLink(zielUrl)
+      const { href: productUrl } = produktLink(item, `https://www.louis.de/suche?query=${searchQ}`)
       /* Der Platzhalter liegt IMMER darunter, das Foto legt sich darueber.
          Vorher stand hinter onerror ein blankes this.remove() — schlug ein
          Bild fehl, blieb eine leere Flaeche stehen, die wie ein kaputter
@@ -1380,24 +1380,21 @@ function buildGearCards(style) {
          selbst wieder frei; nebenbei steht waehrend des Ladens etwas da.
          44 der 105 Ausruestungsteile in gear.js haben ohnehin keine
          Bild-URL — fuer die ist der Platzhalter der Normalfall. */
-      const photoHtml = `
+      const photoHtml = item.image ? `
         <div class="gear-card-svg">${GEAR_ICON_SMALL[key]}</div>
-        ${item.image
-          ? `<img class="gear-card-photo" src="${esc(item.image)}" alt="${esc(item.name)}"
-                  loading="lazy" decoding="async" onerror="this.remove()">`
-          : ''}`
-      // Der Kaufgrund nennt das CE-Level oft selbst — steht es schon als
-      // Plakette am Bild, waere es in der Zeile darunter doppelt.
-      const reason = (item.reason || '')
-        .replace(/^CE-?Level\s*\d\+?\s*,\s*/i, '')
-        .replace(/^./, c => c.toUpperCase())
+        <img class="gear-card-photo" src="${esc(item.image)}" alt="${esc(item.name)}"
+             loading="lazy" decoding="async" onerror="this.remove()">` : `
+        <div class="gear-card-noimg">
+          <div class="gear-card-svg">${GEAR_ICON_SMALL[key]}</div>
+          <span class="gear-card-noimg-brand">${esc(brand)}</span>
+          <span class="gear-card-noimg-model">${esc(productName)}</span>
+        </div>`
       // Nur noch die geschaetzte Spanne, erkennbar als Schaetzung ("ca.").
       // Frueher stand hier bei manchen Teilen ein exakter Eurobetrag aus dem
       // Feld `price`. Den hat nichts je aktualisiert, und bei der Haelfte der
       // Eintraege lag er ausserhalb der eigenen Spanne — er sah nur genauer
       // aus, als er war. Der Shop-Link daneben zeigt den echten Tagespreis.
       const priceHtml = `<span class="gear-card-price-ca">ca.</span> ${item.priceMin}\u2013${item.priceMax}\u00a0\u20ac`
-      const cardId = `${style}-${key}-${i}`
       return `
       <a class="gear-card gear-card--product konf-reveal" data-gear="${key}" data-price-min="${item.priceMin}" data-price-max="${item.priceMax}" data-card-id="${cardId}"
          href="${esc(productUrl)}" target="_blank" rel="noopener sponsored nofollow">
@@ -1406,16 +1403,13 @@ function buildGearCards(style) {
           <button class="gear-card-heart" aria-label="Merken">
             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg>
           </button>
-          <span class="gear-card-badge ${tierClass}">${tier}</span>
           ${ceBadge}
         </div>
         <div class="gear-card-body">
-          <span class="gear-card-cat">${GEAR_LABEL[key]}</span>
           <div class="gear-card-brand">${brand}</div>
           <div class="gear-card-name">${productName}</div>
           <div class="gear-card-type">${item.type}</div>
           <div class="gear-card-price">${priceHtml}</div>
-          <p class="gear-card-reason">${reason}</p>
         </div>
       </a>`
     })
@@ -1567,7 +1561,7 @@ function buildAusstattungView(data) {
       </div>
 
       <div class="gear-bar-tools">
-        <span class="gear-count-badge" id="gear-count-badge">0 Artikel</span>
+        <span class="gear-count-badge" id="gear-count-badge">0 Artikel</span>${hatPartnerLinks() ? '\n        <span class="gear-affiliate-tag" title="Die Produktlinks sind Partnerlinks">Anzeige</span>' : ''}
         <button class="gear-pill gear-fav-toggle" id="gear-fav-toggle" data-active="false" aria-pressed="false" aria-label="Nur Favoriten zeigen">
           <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg>
           <span class="gear-pill-count" id="gear-fav-toggle-count">0</span>
@@ -1606,6 +1600,13 @@ function buildAusstattungView(data) {
         </div>
 
         <div class="gear-tools-group">
+          <span class="gear-tools-legend">Fahrstil</span>
+          <select class="gear-style-select" id="gear-style-select" aria-label="Ausrüstung für Fahrstil">
+            ${['Alle', ...GEAR_STYLES].map(s => `<option value="${s}"${s === 'Alle' ? ' selected' : ''}>${s === 'Alle' ? 'Alle Stile' : s}</option>`).join('')}
+          </select>
+        </div>
+
+        <div class="gear-tools-group">
           <span class="gear-tools-legend">Sortierung</span>
           <button class="gear-pill gear-sort-btn" id="gear-sort-btn" data-dir="none" aria-pressed="false" type="button">
             <span class="gear-sort-label">Preis \u2191</span>
@@ -1628,14 +1629,14 @@ function buildAusstattungView(data) {
       <span>Keine Produkte in dieser Preisspanne</span>
     </div>
 
+    ${buildGearCards('Alle')}
+
     ${hatPartnerLinks() ? `
     <p class="gear-affiliate-note">
-      <span class="gear-affiliate-tag">Anzeige</span>
-      Die Produktlinks sind Partnerlinks. Kaufst du darüber etwas, erhalten wir
-      eine Provision — für dich ändert sich der Preis dadurch nicht.
+      Anzeige: Die Produktlinks sind Partnerlinks. Kaufst du darüber etwas, erhalten wir
+      eine Provision — für dich ändert sich der Preis dadurch nicht.${hatAmazonPartner() ? `
+      Als Amazon-Partner verdienen wir an qualifizierten Verkäufen.` : ''}
     </p>` : ''}
-
-    ${buildGearCards(data.style)}
 
     <div class="konf-next-cta konf-reveal">
       <button class="konf-next-btn" data-next="community">
@@ -3666,9 +3667,10 @@ function initKonfiguratorAnimations() {
   }
 
   // Restore gear favorites from localStorage
+  function restoreGearFavs(root) {
   try {
     const savedGearFavs = JSON.parse(localStorage.getItem('mm_gear_favs') || '[]')
-    document.querySelectorAll('.gear-card').forEach(card => {
+    root.querySelectorAll('.gear-card').forEach(card => {
       const id = card.dataset.cardId
       if (id && savedGearFavs.includes(id)) {
         card.querySelector('.gear-card-heart')?.classList.add('gear-card-heart--active')
@@ -3676,9 +3678,12 @@ function initKonfiguratorAnimations() {
     })
     updateFavCount?.()
   } catch {}
+  }
+  restoreGearFavs(document)
 
   // Favorites (heart button on card) — persist to localStorage
-  document.querySelectorAll('.gear-card-heart').forEach(btn => {
+  function bindGearHearts(root) {
+  root.querySelectorAll('.gear-card-heart').forEach(btn => {
     btn.addEventListener('click', e => {
       e.preventDefault()
       e.stopPropagation()
@@ -3720,6 +3725,8 @@ function initKonfiguratorAnimations() {
       if (toggle?.dataset.active === 'true') applyGearFilters()
     })
   })
+  }
+  bindGearHearts(document)
 
   // Favorites toggle (middle of price-top row) — show only favorites
   const gearFavToggleBtn = document.getElementById('gear-fav-toggle')
@@ -3825,6 +3832,25 @@ function initKonfiguratorAnimations() {
     })
   }
   bindGearToggle('gear-deal-toggle')
+
+  const styleSel = document.getElementById('gear-style-select')
+  if (styleSel && !styleSel.dataset.bound) {
+    styleSel.dataset.bound = '1'
+    styleSel.addEventListener('change', () => {
+      const list = document.getElementById('gear-list')
+      if (!list) return
+      const neu = document.createRange().createContextualFragment(buildGearCards(styleSel.value)).firstElementChild
+      list.replaceWith(neu)
+      neu.querySelectorAll('.konf-reveal').forEach(el => el.classList.add('konf-visible'))
+      applyGearView(getGearView())
+      restoreGearFavs(neu)
+      bindGearHearts(neu)
+      tagPriceTips()
+      const dir = document.getElementById('gear-sort-btn')?.dataset.dir
+      if (dir === 'asc' || dir === 'desc') sortGearCards(dir)
+      applyGearFilters()
+    })
+  }
 
   // Initial budget calculation (on first load of Ausrüstung tab)
   if (document.getElementById('gear-fav-toggle')) {

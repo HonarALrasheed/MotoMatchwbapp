@@ -21,9 +21,9 @@ let gebundenAn = null
    wirkt jede lange Straße "extrem". Grenzen aus der Verteilung der eigenen
    Daten: ab 400 die obersten ~8 % (B 308 Jochstraße, Wehratal …). */
 export const STUFEN = [
-  { ab: 400, label: 'Extrem kurvig', farbe: '#ff4d6d' },
-  { ab: 250, label: 'Sehr kurvig', farbe: '#ff8a3d' },
-  { ab: 0, label: 'Kurvig', farbe: '#e8c56d' },
+  { ab: 400, label: 'Extrem kurvig', farbe: '#d6204a' },
+  { ab: 250, label: 'Sehr kurvig', farbe: '#f0661a' },
+  { ab: 0, label: 'Kurvig', farbe: '#d99a0b' },
 ]
 const dichte = (k) => Math.round((k.kurvig / Math.max(k.laenge, 1)) * 1000)
 export const stufe = (k) => STUFEN.find((s) => dichte(k) >= s.ab)
@@ -97,7 +97,7 @@ function ebene(map) {
     paint: {
       'line-color': ['step', ['get', 'dichte'], STUFEN[2].farbe, STUFEN[1].ab, STUFEN[1].farbe, STUFEN[0].ab, STUFEN[0].farbe],
       'line-width': ['interpolate', ['linear'], ['zoom'], 7, 1.4, 11, 2.6, 14, 4.5],
-      'line-opacity': 0.8,
+      'line-opacity': 0.85,
     },
   }, map.getLayer('touren-linie') ? 'touren-linie' : undefined)
   map.on('click', 'kurven-linie', async (e) => {

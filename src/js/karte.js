@@ -18,7 +18,7 @@ import { esc } from './util.js'
 
 const KACHEL_HOST = 'https://tiles.openfreemap.org/'
 const KACHEL_PROXY = `${location.origin}/kacheln/`
-const STIL_URL = `${KACHEL_PROXY}styles/dark`
+const STIL_URL = `${KACHEL_PROXY}styles/liberty`
 const DE_MITTE = { lat: 51.16, lng: 10.45 }
 const MAX_TREFFER = 100
 
@@ -94,7 +94,8 @@ function glyphBild(filter, gross = false) {
   const farbe = FARBEN[filter]?.fill || '#fff'
   const g = GLYPHEN[filter] || GLYPHEN.Motorradwerkstatt
   const px = gross ? 46 : 34
-  const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="-2 -2 28 28" width="${px * 2}" height="${px * 2}"><g fill="none" stroke-linecap="round" stroke-linejoin="round"><g stroke="#111" stroke-width="6">${g}</g><g stroke="${farbe}" stroke-width="3">${g}</g></g></svg>`
+  // Runde Plakette mit weißem Rand — auf der hellen Karte klar abgesetzt (wie die Punkte bei komoot)
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="-6 -6 36 36" width="${px * 2}" height="${px * 2}"><circle cx="12" cy="12" r="15.5" fill="rgba(0,0,0,0.18)" transform="translate(0 1)"/><circle cx="12" cy="12" r="15" fill="${farbe}" stroke="#fff" stroke-width="2.6"/><g fill="none" stroke="#fff" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" transform="translate(12 12) scale(0.66) translate(-12 -12)">${g}</g></svg>`
   return new Promise((ok, fehler) => {
     const img = new Image(px * 2, px * 2)
     img.onload = () => ok(img)
@@ -184,17 +185,53 @@ export function getUserCoords() {
 
 // ── Karte ────────────────────────────────────────────────────────────────
 
-/* Der Stil kommt als JSON und wird vor der Übergabe angepasst: Farben an das
-   MotoMatch-Dunkel, alle Adressen über den eigenen Proxy. */
+/* Helle Landschaftskarte in der Art von komoot: kräftig grüner Wald, blaues
+   Wasser, gelb-orange Hauptstraßen, damit man Landschaft und Strecke liest.
+   Grundlage ist der OpenFreeMap-Stil "liberty", die Farben setzen wir hier. */
+const STIL_FARBEN = {
+  background: { 'background-color': '#f3f1e8' },
+  park: { 'fill-color': '#cfe5b3' },
+  landcover_wood: { 'fill-color': '#b9d996', 'fill-opacity': 0.9 },
+  landcover_grass: { 'fill-color': '#dcebc4' },
+  landuse_residential: { 'fill-color': '#ebe6db' },
+  landuse_cemetery: { 'fill-color': '#d6e3c3' },
+  water: { 'fill-color': '#a9d3f2' },
+  waterway_river: { 'line-color': '#8cc2ec' },
+  waterway_other: { 'line-color': '#8cc2ec' },
+  waterway_tunnel: { 'line-color': '#8cc2ec' },
+  building: { 'fill-color': '#e1dbcf' },
+  road_motorway: { 'line-color': '#f5a05a' },
+  road_motorway_casing: { 'line-color': '#d07a35' },
+  road_motorway_link: { 'line-color': '#f5a05a' },
+  road_motorway_link_casing: { 'line-color': '#d07a35' },
+  road_trunk_primary: { 'line-color': '#fbd27c' },
+  road_trunk_primary_casing: { 'line-color': '#d6a04c' },
+  road_secondary_tertiary: { 'line-color': '#fff1bf' },
+  road_secondary_tertiary_casing: { 'line-color': '#d8b46e' },
+  bridge_motorway: { 'line-color': '#f5a05a' },
+  bridge_trunk_primary: { 'line-color': '#fbd27c' },
+  bridge_secondary_tertiary: { 'line-color': '#fff1bf' },
+  water_name_point_label: { 'text-color': '#3f6f9e' },
+  water_name_line_label: { 'text-color': '#3f6f9e' },
+  label_village: { 'text-color': '#3a3a3a' },
+  label_town: { 'text-color': '#262626' },
+  label_city: { 'text-color': '#1a1a1a' },
+  label_city_capital: { 'text-color': '#1a1a1a' },
+}
+
+/* Der Stil kommt als JSON und wird vor der Übergabe angepasst: Farben (s. o.),
+   deutsche Namen, alle Adressen über den eigenen Proxy. */
 async function ladeStil() {
   const r = await fetch(STIL_URL)
   if (!r.ok) throw new Error(`Kartenstil HTTP ${r.status}`)
   const stil = await r.json()
+  // 3D-Gebäude kosten auf dem Handy Leistung und verdecken im Fahrmodus die Straße
+  stil.layers = stil.layers.filter((l) => l.id !== 'building-3d')
   for (const l of stil.layers) {
-    if (l.id === 'background') l.paint = { ...l.paint, 'background-color': '#1b1b1b' }
-    if (l.id === 'water') l.paint = { ...l.paint, 'fill-color': '#0f1114' }
-    // Deutsche Namen zuerst ("Niedersachsen" statt "Lower Saxony"), sonst der Ortsname
-    if (l.layout?.['text-field'] && l.id !== 'highway_name_motorway') {
+    if (STIL_FARBEN[l.id]) l.paint = { ...l.paint, ...STIL_FARBEN[l.id] }
+    // Deutsche Namen zuerst ("Niedersachsen" statt "Lower Saxony"), sonst der Ortsname —
+    // nur in Ebenen, die Namen zeigen; Straßenschilder tragen die Nummer (ref)
+    if (l.layout?.['text-field'] && JSON.stringify(l.layout['text-field']).includes('name') && !l.id.includes('shield')) {
       l.layout['text-field'] = ['coalesce', ['get', 'name:de'], ['get', 'name_de'], ['get', 'name'], ['get', 'name:latin']]
     }
   }

@@ -14,7 +14,7 @@
    Wechsel neu, Filter und offene Tour sollen das überleben.
    ═══════════════════════════════════════════════════ */
 
-import { esc } from './util.js'
+import { esc, safeUrl } from './util.js'
 import { getHubMap, onHubMapReady, getUserCoords, haversineKm, getMapLib } from './karte.js'
 import { setKurvenSichtbar, kurvenInDerNaehe, zeigeStrecke, stufe } from './kurven.js'
 
@@ -50,6 +50,7 @@ const zustand = {
 let indexPromise = null
 let touren = []
 let quellenText = ''
+let bilder = {} // id → { autor, lizenz, lizenzUrl, seite } (Fotos: scripts/touren/bilder.mjs)
 const details = new Map()
 let listenLinien = [] // { id, linie, start }
 let detailObjekte = []
@@ -60,9 +61,12 @@ let hoverId = null
 
 function ladeIndex() {
   if (!indexPromise) {
+    // Fotos sind Beiwerk: fehlt bilder.json, zeigen die Karten die gezeichnete Landschaft
+    const fotos = fetch('/data/touren/bilder.json').then((r) => (r.ok ? r.json() : {})).catch(() => ({}))
     indexPromise = fetch('/data/touren/index.json')
       .then((r) => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.json() })
-      .then((j) => {
+      .then(async (j) => {
+        bilder = await fotos
         quellenText = j.quellen || ''
         touren = (j.touren || []).map((t) => ({ ...t, _pts: dekodieren(t.vorschau) }))
         return touren
@@ -177,24 +181,98 @@ function kurvenBalken(k) {
   return `<span class="tour-kurven" title="${kurvenStufe(k).label} (${k}°/km)">${ICON.kurve}<span class="tour-kurven-balken">${[1, 2, 3].map((i) => `<i class="${i <= n ? 'an' : ''}"></i>`).join('')}</span>${kurvenStufe(k).label}</span>`
 }
 
-/** Form der Strecke als kleines Bild — wir haben keine Fotos, aber jede Tour eine Linie. */
+/** Zufall mit fester Saat — dieselbe Tour bekommt immer dieselbe Landschaft. */
+function saat(text) {
+  let x = 2166136261
+  for (let i = 0; i < text.length; i++) x = Math.imul(x ^ text.charCodeAt(i), 16777619)
+  return () => ((x = Math.imul(x ^ (x >>> 15), 2246822507) ^ Math.imul(x ^ (x >>> 13), 3266489909)) >>> 0) / 4294967296
+}
+
+/** Kleine gezeichnete Landschaftskarte mit der Strecke darauf — für Touren und
+    Kurvenstrecken ohne Foto. Wald, Höhenlinien und Straßen sind Dekor in den
+    Farben der Karte, die Linie ist die echte Form der Strecke. */
 function streckenBild(t, b = 96, h = 96) {
   const pts = t._pts
   const k = Math.cos((pts[0][0] * Math.PI) / 180)
   const xs = pts.map((p) => p[1] * k), ys = pts.map((p) => -p[0])
   const minX = Math.min(...xs), maxX = Math.max(...xs), minY = Math.min(...ys), maxY = Math.max(...ys)
-  const pad = 12
+  const pad = Math.max(10, Math.min(b, h) * 0.12)
   const s = Math.min((b - 2 * pad) / (maxX - minX || 1), (h - 2 * pad) / (maxY - minY || 1))
   const ox = (b - (maxX - minX) * s) / 2, oy = (h - (maxY - minY) * s) / 2
   const xy = pts.map((_, i) => [(xs[i] - minX) * s + ox, (ys[i] - minY) * s + oy].map((v) => v.toFixed(1)))
   const d = 'M' + xy.map((p) => p.join(',')).join('L')
   const [sx, sy] = xy[0], [zx, zy] = xy[xy.length - 1]
-  return `<svg viewBox="0 0 ${b} ${h}" preserveAspectRatio="xMidYMid meet" aria-hidden="true">
+
+  const r = saat(t.id || d.slice(0, 40))
+  const f = (v) => v.toFixed(1)
+  const m = Math.max(b, h)
+  let deko = ''
+  // Waldflecken als unregelmäßige, weich gerundete Formen
+  const fleck = (cx, cy, groesse) => {
+    const n = 8, p = []
+    for (let i = 0; i < n; i++) {
+      const w = (i / n) * Math.PI * 2, rr = groesse * (0.55 + r() * 0.6)
+      p.push([cx + Math.cos(w) * rr, cy + Math.sin(w) * rr * 0.75])
+    }
+    const mitte = (a, c) => [(a[0] + c[0]) / 2, (a[1] + c[1]) / 2]
+    let pfad = `M${mitte(p[n - 1], p[0]).map(f).join(',')}`
+    for (let i = 0; i < n; i++) pfad += `Q${p[i].map(f).join(',')} ${mitte(p[i], p[(i + 1) % n]).map(f).join(',')}`
+    return pfad + 'Z'
+  }
+  for (let i = 0; i < 6; i++) deko += `<path d="${fleck(r() * b, r() * h, m * (0.1 + r() * 0.16))}" class="tb-wald"/>`
+  for (let i = 0; i < 3; i++) deko += `<path d="${fleck(r() * b, r() * h, m * (0.05 + r() * 0.06))}" class="tb-wald tb-wald--dicht"/>`
+  // ab und zu ein See
+  if (r() < 0.4) {
+    const cx = r() * b, cy = r() * h, rx = m * (0.05 + r() * 0.06)
+    deko += `<ellipse cx="${f(cx)}" cy="${f(cy)}" rx="${f(rx)}" ry="${f(rx * 0.6)}" class="tb-see"/>`
+  }
+  // Höhenlinien und zwei Landstraßen als sanfte Wellen
+  for (let i = 0; i < 4; i++) {
+    const y0 = r() * h, a = h * (0.06 + r() * 0.1), w = b / (1 + r() * 1.5)
+    deko += `<path d="M${-5},${f(y0)} C${f(w * 0.5)},${f(y0 - a)} ${f(w)},${f(y0 + a)} ${f(b * 0.6)},${f(y0)} S${f(b * 0.9)},${f(y0 - a)} ${b + 5},${f(y0 + a * 0.5)}" class="tb-hoehe"/>`
+  }
+  for (let i = 0; i < 2; i++) {
+    const x0 = r() * b, a = b * (0.1 + r() * 0.15)
+    const weg = `M${f(x0)},-5 C${f(x0 + a)},${f(h * 0.35)} ${f(x0 - a)},${f(h * 0.65)} ${f(x0 + a * 0.4)},${h + 5}`
+    // eine Bundesstraße in Kartengelb, eine kleine Straße in Weiß
+    deko += i === 0 ? `<path d="${weg}" class="tb-strasse-rand"/><path d="${weg}" class="tb-strasse tb-strasse--gelb"/>` : `<path d="${weg}" class="tb-strasse"/>`
+  }
+  return `<svg viewBox="0 0 ${b} ${h}" preserveAspectRatio="xMidYMid slice" aria-hidden="true" class="tour-landschaft">
+    ${deko}
     <path d="${d}" class="tour-bild-schatten"/>
     <path d="${d}" class="tour-bild-linie"/>
-    ${t.typ === 'strecke' ? `<circle cx="${zx}" cy="${zy}" r="3.2" class="tour-bild-ziel"/>` : ''}
-    <circle cx="${sx}" cy="${sy}" r="3.6" class="tour-bild-start"/>
+    ${t.typ === 'strecke' ? `<circle cx="${zx}" cy="${zy}" r="3.4" class="tour-bild-ziel"/>` : ''}
+    <circle cx="${sx}" cy="${sy}" r="3.8" class="tour-bild-start"/>
   </svg>`
+}
+
+/** Nur die Form der Strecke (für das Abzeichen auf dem Foto). */
+function streckenForm(t, b = 64, h = 44) {
+  const pts = t._pts
+  const k = Math.cos((pts[0][0] * Math.PI) / 180)
+  const xs = pts.map((p) => p[1] * k), ys = pts.map((p) => -p[0])
+  const minX = Math.min(...xs), maxX = Math.max(...xs), minY = Math.min(...ys), maxY = Math.max(...ys)
+  const pad = 6
+  const s = Math.min((b - 2 * pad) / (maxX - minX || 1), (h - 2 * pad) / (maxY - minY || 1))
+  const ox = (b - (maxX - minX) * s) / 2, oy = (h - (maxY - minY) * s) / 2
+  const d = 'M' + pts.map((_, i) => `${((xs[i] - minX) * s + ox).toFixed(1)},${((ys[i] - minY) * s + oy).toFixed(1)}`).join('L')
+  return `<svg viewBox="0 0 ${b} ${h}" aria-hidden="true"><path d="${d}" fill="none" stroke="#fff" stroke-width="1.8" stroke-linejoin="round" stroke-linecap="round"/></svg>`
+}
+
+/** Titelbild: Foto, wenn es eins gibt, sonst die gezeichnete Landschaft. */
+function titelBild(t, art = 'karte') {
+  const foto = t.id && bilder[t.id]
+  if (!foto) {
+    const [b, h] = { karte: [96, 96], band: [220, 120], detail: [320, 170] }[art]
+    return streckenBild(t, b, h)
+  }
+  const src = `/data/touren/bilder/${encodeURIComponent(t.id)}${art === 'detail' ? '' : '-k'}.jpg`
+  const img = `<img src="${src}" alt="" loading="lazy" decoding="async" class="tour-foto">`
+  if (art !== 'detail') return img
+  const lizenz = foto.lizenzUrl ? `<a href="${esc(safeUrl(foto.lizenzUrl))}" target="_blank" rel="noopener">${esc(foto.lizenz)}</a>` : esc(foto.lizenz)
+  return `${img}
+    <span class="tour-foto-form" title="Form der Strecke">${streckenForm(t)}</span>
+    <span class="tour-foto-credit">Foto: <a href="${esc(safeUrl(foto.seite))}" target="_blank" rel="noopener">${esc(foto.autor)}</a>, ${lizenz}, Wikimedia Commons</span>`
 }
 
 // ── Markup ───────────────────────────────────────────────────────────────
@@ -254,7 +332,7 @@ function renderFilter() {
 
 function karte(t, km, i) {
   return `<article class="tour-card${hoverId === t.id ? ' tour-card--hover' : ''}" data-tour="${esc(t.id)}" style="--i:${Math.min(i, 12)}" tabindex="0">
-    <div class="tour-bild">${streckenBild(t)}</div>
+    <div class="tour-bild${bilder[t.id] ? ' tour-bild--foto' : ''}">${titelBild(t)}</div>
     <div class="tour-card-body">
       <div class="tour-badges">
         <span class="tour-badge tour-badge--${t.schwierigkeit}">${SCHWIERIGKEIT[t.schwierigkeit]}</span>
@@ -285,7 +363,7 @@ function sammlung() {
     </div>
     <div class="tour-sammlung-band">
       ${fs.map(({ t, km }) => `<button type="button" class="tour-sammlung-karte" data-tour="${esc(t.id)}">
-        <span class="tour-sammlung-bild">${streckenBild(t, 220, 120)}</span>
+        <span class="tour-sammlung-bild${bilder[t.id] ? ' tour-sammlung-bild--foto' : ''}">${titelBild(t, 'band')}</span>
         <span class="tour-sammlung-text">
           <strong>${esc(t.name)}</strong>
           <span>${zahl(t.km)} km${km != null ? ` · ${entfernung(km)}` : ''}</span>
@@ -387,7 +465,7 @@ async function fuelleKurvenBand() {
       ${liste.map((k) => {
         const st = stufe(k)
         const pts = k.pts.map(([a, b]) => [a, b])
-        const bild = streckenBild({ _pts: pts, typ: 'strecke' }, 220, 120)
+        const bild = streckenBild({ id: k.id, _pts: pts, typ: 'strecke' }, 220, 120)
         return `<button type="button" class="tour-sammlung-karte" data-kurve="${esc(k.id)}">
           <span class="tour-sammlung-bild">${bild}</span>
           <span class="tour-sammlung-text">
@@ -478,7 +556,7 @@ async function oeffneTour(id) {
   const wp = t.typ === 'rund' ? [...t.wp, [`${t.wp[0][0]} (Ziel)`]] : t.wp
   box.innerHTML = `<div class="tour-detail">
     <button type="button" class="tour-zurueck" data-zurueck>‹ Alle Touren</button>
-    <div class="tour-detail-bild">${streckenBild(t, 320, 150)}</div>
+    <div class="tour-detail-bild${bilder[t.id] ? ' tour-detail-bild--foto' : ''}">${titelBild(t, 'detail')}</div>
     <div class="tour-badges">
       <span class="tour-badge tour-badge--${t.schwierigkeit}">${SCHWIERIGKEIT[t.schwierigkeit]}</span>
       ${kurvenBalken(t.kurven)}
@@ -533,7 +611,7 @@ function ebenen(map) {
   const c = document.createElement('canvas')
   c.width = c.height = 32
   const g = c.getContext('2d')
-  g.strokeStyle = '#111'; g.lineWidth = 5; g.lineCap = 'round'; g.lineJoin = 'round'
+  g.strokeStyle = '#fff'; g.lineWidth = 5; g.lineCap = 'round'; g.lineJoin = 'round'
   g.beginPath(); g.moveTo(11, 8); g.lineTo(21, 16); g.lineTo(11, 24); g.stroke()
   map.addImage('tour-pfeil', g.getImageData(0, 0, 32, 32), { pixelRatio: 2 })
 
@@ -546,17 +624,17 @@ function ebenen(map) {
     id: 'touren-linie', type: 'line', source: 'touren-liste',
     layout: { 'line-join': 'round', 'line-cap': 'round' },
     paint: {
-      'line-color': '#ffffff',
-      'line-width': ['case', ['boolean', ['feature-state', 'hover'], false], 5, 3],
-      'line-opacity': ['case', ['boolean', ['feature-state', 'hover'], false], 1, ['boolean', ['feature-state', 'gedimmt'], false], 0.22, 0.62],
+      'line-color': ['case', ['boolean', ['feature-state', 'hover'], false], '#2b3fb8', '#4263eb'],
+      'line-width': ['case', ['boolean', ['feature-state', 'hover'], false], 5.5, 3.5],
+      'line-opacity': ['case', ['boolean', ['feature-state', 'hover'], false], 1, ['boolean', ['feature-state', 'gedimmt'], false], 0.3, 0.85],
     },
   }, vorOrten)
   map.addLayer({
     id: 'touren-start', type: 'circle', source: 'touren-start',
-    paint: { 'circle-radius': 4.5, 'circle-color': '#ffffff', 'circle-stroke-color': '#111', 'circle-stroke-width': 2.5 },
+    paint: { 'circle-radius': 5, 'circle-color': '#4263eb', 'circle-stroke-color': '#ffffff', 'circle-stroke-width': 2.5 },
   }, vorOrten)
-  map.addLayer({ id: 'tour-detail-rand', type: 'line', source: 'tour-detail', layout: { 'line-join': 'round', 'line-cap': 'round' }, paint: { 'line-color': '#000', 'line-opacity': 0.55, 'line-width': 9 } }, vorOrten)
-  map.addLayer({ id: 'tour-detail-linie', type: 'line', source: 'tour-detail', layout: { 'line-join': 'round', 'line-cap': 'round' }, paint: { 'line-color': '#ffffff', 'line-width': 4.5 } }, vorOrten)
+  map.addLayer({ id: 'tour-detail-rand', type: 'line', source: 'tour-detail', layout: { 'line-join': 'round', 'line-cap': 'round' }, paint: { 'line-color': '#ffffff', 'line-opacity': 0.95, 'line-width': 10 } }, vorOrten)
+  map.addLayer({ id: 'tour-detail-linie', type: 'line', source: 'tour-detail', layout: { 'line-join': 'round', 'line-cap': 'round' }, paint: { 'line-color': '#3b5bdb', 'line-width': 5.5 } }, vorOrten)
   map.addLayer({
     id: 'tour-detail-pfeile', type: 'symbol', source: 'tour-detail',
     layout: { 'symbol-placement': 'line', 'symbol-spacing': 90, 'icon-image': 'tour-pfeil', 'icon-size': 0.8, 'icon-allow-overlap': true, 'icon-rotation-alignment': 'map' },
@@ -565,8 +643,8 @@ function ebenen(map) {
     id: 'tour-detail-punkte', type: 'circle', source: 'tour-detail-punkte',
     paint: {
       'circle-radius': 7,
-      'circle-color': ['match', ['get', 'art'], 'ziel', '#111', '#ffffff'],
-      'circle-stroke-color': ['match', ['get', 'art'], 'ziel', '#ffffff', '#111'],
+      'circle-color': ['match', ['get', 'art'], 'ziel', '#1f1f1f', '#3b5bdb'],
+      'circle-stroke-color': '#ffffff',
       'circle-stroke-width': 2.5,
     },
   })

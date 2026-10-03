@@ -8238,7 +8238,7 @@ select.p-auth-input {
 
 /* ═══ Eigene Karte (karte.js, MapLibre) ═══════════════════════════════════ */
 .hub-map.maplibregl-map,
-.hub-map .maplibregl-canvas { background: #1b1b1b; }
+.hub-map .maplibregl-canvas { background: #f3f1e8; }
 .hub-map .maplibregl-canvas:focus { outline: none; }
 /* Infofenster im Panel-Look statt des weissen Standard-Popups */
 .mm-popup .maplibregl-popup-content {
@@ -8272,8 +8272,8 @@ select.p-auth-input {
   width: 14px;
   height: 14px;
   border-radius: 50%;
-  background: #e8c56d;
-  border: 2px solid #111;
+  background: #3b5bdb;
+  border: 2px solid #fff;
   pointer-events: none;
 }
 /* Quellenangabe (Pflicht: OpenStreetMap, OpenMapTiles) — dezent, aber da */
@@ -8594,18 +8594,25 @@ select.p-auth-input {
   height: 88px;
   border-radius: 12px;
   overflow: hidden;
-  background:
-    radial-gradient(120% 90% at 30% 20%, rgba(255,255,255,0.09), transparent 60%),
-    repeating-linear-gradient(0deg, rgba(255,255,255,0.025) 0 1px, transparent 1px 11px),
-    repeating-linear-gradient(90deg, rgba(255,255,255,0.025) 0 1px, transparent 1px 11px),
-    #1d1d1d;
+  background: #eef0e3;
   border: 1px solid rgba(255,255,255,0.07);
 }
+/* Gezeichnete Landschaft (Touren ohne Foto, Kurvenstrecken) — Farben wie die Karte */
+.tour-landschaft { background: radial-gradient(120% 100% at 25% 15%, #f6f5ec, #e7ecd6); }
+.tb-wald { fill: #c3dda3; opacity: 0.85; }
+.tb-wald--dicht { fill: #a9cf86; opacity: 0.7; }
+.tb-see { fill: #a9d3f2; }
+.tb-hoehe { fill: none; stroke: rgba(130,110,70,0.16); stroke-width: 0.9; }
+.tb-strasse { fill: none; stroke: #fff; stroke-width: 1.6; opacity: 0.9; }
+.tb-strasse-rand { fill: none; stroke: #d6a04c; stroke-width: 3.2; opacity: 0.55; }
+.tb-strasse--gelb { stroke: #fbd27c; stroke-width: 2; opacity: 1; }
 .tour-bild svg, .tour-sammlung-bild svg, .tour-detail-bild svg { display: block; width: 100%; height: 100%; }
-.tour-bild-schatten { fill: none; stroke: rgba(0,0,0,0.65); stroke-width: 4.5; stroke-linejoin: round; stroke-linecap: round; }
-.tour-bild-linie { fill: none; stroke: #fff; stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; }
-.tour-bild-start { fill: #fff; stroke: #111; stroke-width: 2; }
-.tour-bild-ziel { fill: #111; stroke: #fff; stroke-width: 1.8; }
+.tour-bild-schatten { fill: none; stroke: #fff; stroke-width: 5.5; stroke-linejoin: round; stroke-linecap: round; }
+.tour-bild-linie { fill: none; stroke: #3b5bdb; stroke-width: 2.6; stroke-linejoin: round; stroke-linecap: round; }
+.tour-bild-start { fill: #3b5bdb; stroke: #fff; stroke-width: 2; }
+.tour-bild-ziel { fill: #1f1f1f; stroke: #fff; stroke-width: 1.8; }
+.tour-foto { display: block; width: 100%; height: 100%; object-fit: cover; }
+.tour-bild--foto { background: #1d1d1d; }
 
 .tour-card-body { min-width: 0; }
 .tour-badges { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
@@ -8723,7 +8730,8 @@ select.p-auth-input {
 }
 @media (hover: hover) and (pointer: fine) { .tour-sammlung-karte:hover { border-color: rgba(255,255,255,0.22); } }
 .tour-sammlung-karte:active { transform: scale(0.98); }
-.tour-sammlung-bild { position: absolute; inset: 0; opacity: 0.55; }
+.tour-sammlung-bild { position: absolute; inset: 0; opacity: 0.9; }
+.tour-sammlung-bild--foto { opacity: 1; }
 .tour-sammlung-text {
   position: absolute;
   left: 0; right: 0; bottom: 0;
@@ -8785,17 +8793,50 @@ select.p-auth-input {
 }
 @media (hover: hover) and (pointer: fine) { .tour-zurueck:hover { background: rgba(255,255,255,0.08); color: #fff; } }
 .tour-detail-bild {
-  height: 150px;
+  position: relative;
+  height: 190px;
   margin-bottom: 12px;
   border-radius: 14px;
   overflow: hidden;
-  background:
-    radial-gradient(120% 90% at 30% 20%, rgba(255,255,255,0.08), transparent 60%),
-    repeating-linear-gradient(0deg, rgba(255,255,255,0.025) 0 1px, transparent 1px 14px),
-    repeating-linear-gradient(90deg, rgba(255,255,255,0.025) 0 1px, transparent 1px 14px),
-    #1d1d1d;
+  background: #1d1d1d;
   border: 1px solid rgba(255,255,255,0.07);
 }
+.tour-detail-bild--foto::after {
+  content: "";
+  position: absolute;
+  inset: auto 0 0 0;
+  height: 56px;
+  background: linear-gradient(to top, rgba(0,0,0,0.7), transparent);
+  pointer-events: none;
+}
+.tour-foto-form {
+  position: absolute;
+  left: 10px;
+  top: 10px;
+  z-index: 1;
+  display: block;
+  width: 64px;
+  height: 44px;
+  border-radius: 9px;
+  background: rgba(0,0,0,0.45);
+  -webkit-backdrop-filter: blur(6px);
+  backdrop-filter: blur(6px);
+}
+.tour-foto-credit {
+  position: absolute;
+  right: 10px;
+  bottom: 7px;
+  left: 10px;
+  z-index: 1;
+  font-size: 10px;
+  line-height: 1.3;
+  text-align: right;
+  color: rgba(255,255,255,0.72);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.tour-foto-credit a { color: inherit; text-decoration: underline; text-decoration-color: rgba(255,255,255,0.35); }
 .tour-detail-name { margin: 8px 0 0; font-size: 19px; font-weight: 750; line-height: 1.25; color: #fff; letter-spacing: -0.01em; }
 .tour-detail .tour-sub { white-space: normal; }
 .tour-kennzahlen {

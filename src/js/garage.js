@@ -1409,6 +1409,33 @@ export function getHubMapCenter() {
   return c ? { lat: c.lat(), lng: c.lng() } : null;
 }
 
+/* Für die Touren (touren.js): die Kartenflaeche selbst, eine Meldung, sobald sie
+   steht, und ein Schalter, der die Orte-Suche samt Markern ruhen laesst. */
+export function getHubMap() {
+  return hubMapInstance;
+}
+let _onMapReadyCallback = null;
+export function onHubMapReady(cb) {
+  _onMapReadyCallback = cb;
+  if (hubMapInstance && cb) try { cb(hubMapInstance); } catch {}
+}
+function emitMapReady() {
+  if (_onMapReadyCallback) try { _onMapReadyCallback(hubMapInstance); } catch (err) { console.warn('[hub] map ready:', err); }
+}
+let hubPlacesPausiert = false;
+let hubKarteOhneStandort = false;
+export function setHubKarteOhneStandort(an) {
+  hubKarteOhneStandort = !!an;
+}
+export function setHubPlacesPausiert(an) {
+  hubPlacesPausiert = !!an;
+  hubMarkers.forEach((m) => m?.setMap(an ? null : hubMapInstance));
+  if (an && hubInfoWindow) hubInfoWindow.close();
+}
+export function hatHubTreffer() {
+  return _allSearchResults.length > 0;
+}
+
 // Callback hook: bike-detail Karte view subscribes to result updates
 let _onResultsCallback = null;
 export function onHubResults(cb) {
@@ -1526,6 +1553,7 @@ export async function initHubMap() {
       // Ohne resize bleibt die Karte auf der Groesse des alten Platzhalters.
       google.maps.event.trigger(hubMapInstance, "resize");
     }
+    emitMapReady();
     /* Suche auch auf diesem Weg anstossen. Der Karten-Reiter verlaesst sich
        darauf, dass initHubMap() das tut, und laesst seine Platzhalterzeilen
        sonst stehen, bis onHubResults() meldet — was nie kaeme.
@@ -1553,17 +1581,19 @@ export async function initHubMap() {
     // echten Standort, obwohl der Nutzer den Zugriff verweigert hat.
     // getUserLocation() hat dafür bereits eine Fehlermeldung in den Loader
     // geschrieben; die bleibt stehen, bis ein neuer Versuch erfolgreich ist.
-    if (!userLocationKnown) return;
+    /* Touren brauchen keinen Standort: ohne ihn steht die Karte ueber ganz
+       Deutschland statt gar nicht. Orte bleiben ohne Standort aus (s. o.). */
+    if (!userLocationKnown && !hubKarteOhneStandort) return;
 
     // Hide loading spinner
     const loader = document.getElementById("hub-map-loading");
     if (loader) loader.style.display = "none";
 
-    const center = { lat: userLat, lng: userLng };
+    const center = userLocationKnown ? { lat: userLat, lng: userLng } : { lat: 51.16, lng: 10.45 };
 
     hubMapInstance = new google.maps.Map(el, {
       center,
-      zoom: 13.5,
+      zoom: userLocationKnown ? 13.5 : 6,
       styles: MAP_STYLES,
       // Disable all default UI, re-enable only zoom
       disableDefaultUI: true,
@@ -1590,7 +1620,7 @@ export async function initHubMap() {
     });
 
     // User location dot (pulsing blue)
-    new google.maps.Marker({
+    if (userLocationKnown) new google.maps.Marker({
       position: center,
       map: hubMapInstance,
       icon: {
@@ -1603,6 +1633,8 @@ export async function initHubMap() {
       },
       zIndex: 999,
     });
+
+    emitMapReady();
 
     // Places service (may fail if API not enabled)
     try {
@@ -1764,6 +1796,9 @@ function writeSearchCache(filter, radius, lat, lng, results) {
 }
 
 export function searchNearby(filter, radius = 5000) {
+  // Im Touren-Modus der Karte keine Places-Suche: kostet Google-Aufrufe und
+  // legte Werkstatt-Marker unter die Tourenlinien.
+  if (hubPlacesPausiert) return;
   if (!hubMapInstance) {
     // Ohne Karte gibt es keine echten Treffer — Ursache benennen statt raten.
     renderMapUnavailable();
@@ -1898,7 +1933,7 @@ function showPlacesResults(results, filter, gen) {
 
         const marker = new google.maps.Marker({
           position: place.geometry.location,
-          map: hubMapInstance,
+          map: hubPlacesPausiert ? null : hubMapInstance,
           title: place.name,
           icon: createMarkerIcon(filter),
         });

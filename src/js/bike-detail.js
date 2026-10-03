@@ -27,8 +27,9 @@ function loadThree() {
   return _threePromise
 }
 import { getGear } from './gear.js'
-import { initHubMap, searchNearby, getHubSearchResults, onHubResults, focusHubResult, recenterHubMap, zoomHubMap, getUserCoords, searchNearbyAt, retryHubLocation, hasMapsConsent, onHubMapMoved, panHubToCoords, haversineKm, resolveOrt } from './garage.js'
+import { initHubMap, searchNearby, getHubSearchResults, onHubResults, focusHubResult, recenterHubMap, zoomHubMap, getUserCoords, searchNearbyAt, retryHubLocation, hasMapsConsent, onHubMapMoved, panHubToCoords, haversineKm, resolveOrt, setHubPlacesPausiert, hatHubTreffer, setHubKarteOhneStandort, getHubMap as getHubMapReady } from './garage.js'
 import { esc, fmtRelative, LS_QUIZ_ANSWERS } from './util.js'
+import { buildTourenAnsicht, buildTourenUmkreis, initTouren, setTourenAktiv, setTourenHerkunft } from './touren.js'
 import { partnerLink, hatPartnerLinks } from './affiliate.js'
 import { ensureLandingRendered } from './landing.js'
 import { enterScreen, goBack } from './nav.js'
@@ -1693,9 +1694,21 @@ function buildKarteView(data) {
             <!-- Drag-Handle: nur unterhalb des kv-layout-Breakpoints sichtbar,
                  dort wird das Panel per CSS zum Apple-Maps-artigen Bottom-Sheet -->
             <div class="kv-sheet-handle" id="kv-sheet-handle" tabindex="0" role="button" aria-label="Kartenansicht ein-/ausklappen"></div>
+            <!-- Touren (wie komoot) oder Orte (Werkstaetten, Haendler …) -->
+            <div class="kv-modus" role="tablist" aria-label="Was die Karte zeigt">
+              <button type="button" class="kv-modus-btn" role="tab" data-modus="touren">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="6" cy="19" r="2.5"/><circle cx="18" cy="5" r="2.5"/><path d="M8.5 19H16a3.5 3.5 0 0 0 0-7H8a3.5 3.5 0 0 1 0-7h7.5"/></svg>
+                Touren
+              </button>
+              <button type="button" class="kv-modus-btn" role="tab" data-modus="orte">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0z"/><circle cx="12" cy="10" r="3"/></svg>
+                Orte
+              </button>
+            </div>
             <!-- Radius + Ortssuche -->
             <div class="kv-search-row">
-              <div class="kv-radius-group" role="group" aria-label="Suchradius">
+              ${buildTourenUmkreis()}
+              <div class="kv-radius-group kv-orte-radius" role="group" aria-label="Suchradius">
                 <div class="kv-radius-pills">
                   <button class="kv-radius-pill" data-radius="2000">2 km</button>
                   <button class="kv-radius-pill kv-radius-pill--active" data-radius="5000">5 km</button>
@@ -1718,6 +1731,9 @@ function buildKarteView(data) {
               </div>
             </div>
 
+            ${buildTourenAnsicht()}
+
+            <div class="kv-ansicht kv-ansicht--orte" id="kv-orte">
             <!-- Category pills -->
             <div class="hub-filters kv-filters">
               <button class="hub-pill active" data-query="Motorradwerkstatt">
@@ -1770,6 +1786,7 @@ function buildKarteView(data) {
 
             <div class="kv-results-list" id="kv-results-list">
               <div class="kv-results-empty"><span>\u2026</span></div>
+            </div>
             </div>
           </aside>
         </div>
@@ -2286,7 +2303,8 @@ const KV_SHEET_EXPANDED_AT = 0.2
  */
 function syncKvPeek() {
   const sheet = document.querySelector('.konf-karte-hub .kv-sidebar')
-  const filters = sheet?.querySelector('.hub-filters')
+  // Eingeklappt bleibt die Filterzeile des gerade gezeigten Modus sichtbar
+  const filters = sheet?.querySelector(sheet.dataset.modus === 'orte' ? '.hub-filters' : '.tour-filters')
   if (!sheet || !filters) return
   const top = sheet.getBoundingClientRect().top
   const bottom = filters.getBoundingClientRect().bottom
@@ -2508,7 +2526,33 @@ function mountKvThumb(container, activeSelector, extraClass) {
   return reposition
 }
 
+/* Touren oder Orte — gemerkt pro Geraet. Touren ist Standard: das ist, was
+   man auf einer Motorradkarte zuerst sucht, und es kostet keine Places-Aufrufe. */
+const LS_KV_MODUS = 'mm_kv_modus_v1'
+function kvModus() {
+  try { return localStorage.getItem(LS_KV_MODUS) === 'orte' ? 'orte' : 'touren' } catch { return 'touren' }
+}
+
 function bindKarteViewEvents() {
+  let modus = kvModus()
+  const sidebar = document.querySelector('.konf-karte-hub .kv-sidebar')
+  const zeigeModus = () => {
+    sidebar?.setAttribute('data-modus', modus)
+    document.querySelectorAll('.kv-modus-btn').forEach(b => {
+      const an = b.dataset.modus === modus
+      b.classList.toggle('kv-modus-btn--aktiv', an)
+      b.setAttribute('aria-selected', String(an))
+    })
+    const hier = document.querySelector('#kv-search-here span')
+    if (hier) hier.textContent = modus === 'touren' ? 'In diesem Gebiet suchen' : 'Hier suchen'
+  }
+  zeigeModus()
+  // Vor initHubMap(): die startet sonst sofort eine Places-Suche
+  setHubPlacesPausiert(modus === 'touren')
+  setHubKarteOhneStandort(modus === 'touren')
+  setTourenAktiv(modus === 'touren')
+  initTouren({ mountThumb: mountKvThumb })
+
   // Init the Google Map (re-uses garage's hub map implementation)
   // Ergebnisliste danach einmal aktualisieren, damit sie bei fehlendem
   // Standort sofort "Standort nicht verfügbar" statt für immer "Suche läuft…" zeigt.
@@ -2521,7 +2565,7 @@ function bindKarteViewEvents() {
     /* Ohne Standort ist das Eingabefeld der einzige Weg weiter. Es hinter der
        Lupe eingeklappt zu lassen, versteckt genau dann die Loesung, wenn sie
        gebraucht wird. */
-    if (hasMapsConsent() && getUserCoords().lat == null) openSearch()
+    if (modus === 'orte' && hasMapsConsent() && getUserCoords().lat == null) openSearch()
   })
 
   let currentRadius = 5000
@@ -2799,10 +2843,40 @@ function bindKarteViewEvents() {
   searchHereBtn?.addEventListener('click', () => {
     if (!movedCenter) return
     searchHereBtn.hidden = true
+    if (modus === 'touren') {
+      setTourenHerkunft(movedCenter.lat, movedCenter.lng)
+      return
+    }
     searchPending = true
     renderResults()
     searchNearbyAt(movedCenter.lat, movedCenter.lng)
   })
+
+  document.querySelectorAll('.kv-modus-btn').forEach(btn => btn.addEventListener('click', () => {
+    if (btn.dataset.modus === modus) return
+    modus = btn.dataset.modus
+    try { localStorage.setItem(LS_KV_MODUS, modus) } catch {}
+    zeigeModus()
+    if (searchHereBtn) searchHereBtn.hidden = true
+    setHubPlacesPausiert(modus === 'touren')
+    setHubKarteOhneStandort(modus === 'touren')
+    setTourenAktiv(modus === 'touren')
+    // Ohne Standort ist die Karte im Orte-Modus noch nicht gebaut
+    if (modus === 'touren' && !getHubMapReady()) initHubMap()
+    if (modus === 'orte') {
+      // Erst die Leiste sichtbar machen, dann messen — versteckt ist sie 0 breit
+      moveFilterThumb?.()
+      moveRadiusThumb?.()
+      syncFilterOverflow()
+      const aktiv = document.querySelector('.konf-karte-hub .hub-pill.active')
+      if (aktiv && !hatHubTreffer() && hasMapsConsent() && getUserCoords().lat != null) {
+        searchPending = true
+        searchNearby(aktiv.dataset.query, currentRadius)
+      }
+      renderResults()
+    }
+    syncKvPeek()
+  }))
 
   // Sortierung: Entfernung <-> Bewertung
   document.getElementById('kv-sort-btn')?.addEventListener('click', () => {
@@ -2933,6 +3007,7 @@ function bindKarteViewEvents() {
     if (treffer.ok) {
       eingabe.placeholder = 'PLZ oder Ort eingeben\u2026'
       searchNearbyAt(treffer.lat, treffer.lng)
+      if (modus === 'touren') setTourenHerkunft(treffer.lat, treffer.lng)
       return
     }
     /* Zwei Ursachen, zwei Meldungen. Vorher stand bei jedem Fehlschlag
@@ -2967,6 +3042,7 @@ function bindKarteViewEvents() {
   // control (Apple-Maps-style), so both trigger the same handler.
   const handleRecenter = () => {
     recenterHubMap()
+    if (modus === 'touren' && getUserCoords().lat != null) setTourenHerkunft(null)
     const input = document.getElementById('kv-search-input')
     if (input) input.value = ''
   }

@@ -50,6 +50,7 @@ Wichtigste Module in `src/js/`:
 - `community.js` — Discord-artige Community (Gruppen, Talks, DMs)
 - `quiz.js` / `matching.js` — Match-Quiz + Empfehlungslogik
 - `garage.js`, `map-view.js`, `gear.js`, `account.js`, `landing.js`, `marketplace.js`, `ai.js`
+- `touren.js` — Touren im Karten-Reiter (komoot-artig: Liste, Filter, Linien auf der Karte, Höhenprofil, GPX). Umschalter Touren/Orte in `bindKarteViewEvents()`; im Touren-Modus ruht die Places-Suche (`setHubPlacesPausiert`). Daten: `public/data/touren/`, erzeugt mit `node scripts/touren/bauen.mjs` aus der eigenen Sammlung `scripts/touren/quelle.mjs` (OSM/OSRM, OpenTopoData). **Keine Touren aus fremden Apps übernehmen** (Calimoto, Kurviger … sind geschützt).
 
 ## Konventionen
 - UI-Rendering per Template-Strings + `innerHTML`; **Nutzereingaben immer über `esc()` escapen** (XSS)

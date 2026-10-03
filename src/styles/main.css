@@ -4415,6 +4415,13 @@ select.p-auth-input {
 .mm-reco-grid::-webkit-scrollbar {
   display: none;
 }
+/* Nebeneinander mit der Passgenauigkeit: die Vorschläge füllen die volle Kartenhöhe,
+   sonst bleibt unten Leerraum, sobald links Hinweise dazukommen. */
+@media (min-width: 601px) {
+  .konf-top-row > #mm-match-reco { display: flex; flex-direction: column; }
+  .konf-top-row > #mm-match-reco .mm-reco-grid { flex: 1; }
+  .konf-top-row > #mm-match-reco .mm-reco-media { flex: 1; aspect-ratio: auto; min-height: 150px; }
+}
 .mm-reco-card {
   flex: 0 0 46%;
   scroll-snap-align: start;
@@ -10789,6 +10796,10 @@ select.acc-input option { background: #1a1a1a; color: #fff; }
 }
 @media (max-width: 640px) {
   .gear-affiliate-note { margin-inline: 12px; }
+}
+/* Mobil reicht der Hinweis unter der Liste (.gear-affiliate-note) */
+@media (max-width: 768px) {
+  .gear-affiliate-tag { display: none; }
 }
 
 .mmc-auth-legal {

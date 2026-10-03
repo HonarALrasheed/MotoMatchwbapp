@@ -33,7 +33,7 @@ import { produktLink, hatPartnerLinks, hatAmazonPartner } from './affiliate.js'
 import { ensureLandingRendered } from './landing.js'
 import { enterScreen, goBack } from './nav.js'
 import { findBikeByShortName, findTopMatches, findSimilarBikes, scoreBikeAgainst, begruendungFuer, MATCH_WEIGHTS } from './matching.js'
-import { bikeBild, hatFoto } from './bike-bild.js'
+import { bikeBild, hatFoto, kachelFuerHero } from './bike-bild.js'
 import { getMatches, addMatch, removeMatch, clearMatches, restoreMatch, hasMatch, getLastAnswers, getPrimaryBike, setPrimaryBike } from './match-history.js'
 
 // Deterministic pseudo-random number from a seed string, returns float in [0,1)
@@ -2011,7 +2011,8 @@ function buildMatchScoreCard(data, bike) {
   if (!res.fits.license) notes.push(`Braucht Führerschein <b>${esc(bike.license)}</b> — dein Profil: <b>${esc(answers.q1 || '–')}</b>.`)
   if (!res.fits.budget) notes.push(`Liegt über deinem Budget von <b>${fmtBudget(answers.q5)}</b>.`)
   if ((res.breakdown.beginnerPenalty ?? 0) < 0) notes.push('Für den Einstieg anspruchsvoll — viel Leistung, wenig Fehlerverzeihung.')
-  if ((res.breakdown.license ?? 0) < 0) notes.push('Liegt zwei Klassen unter deinem Führerschein — fahren darfst du sie, gereizt wirst du damit kaum.')
+  // Abzug gibt es auch, wenn das Bike über dem Schein liegt — dann steht oben schon der Führerschein-Hinweis.
+  if (res.fits.license && (res.breakdown.license ?? 0) < 0) notes.push('Liegt zwei Klassen unter deinem Führerschein — fahren darfst du sie, gereizt wirst du damit kaum.')
   /* Die Einschränkungen aus der Begründung, ohne die, die oben schon ausführlicher stehen. */
   for (const satz of gruende.aber) {
     if (/Anfang|Anfänger/.test(satz)) continue
@@ -2168,7 +2169,8 @@ function buildMatchRecoCard(currentBike) {
         ${recs.map(r => {
           const b = r.bike
           const pct = useProfile ? (scoreBikeAgainst(b, answers)?.pct ?? 0) : null
-          const img = bikeBild(b, 'titel')
+          // Eng zugeschnittene Kachel statt des Panoramas, sonst ist das Bike in der Kachel winzig.
+          const img = kachelFuerHero(b) || bikeBild(b, 'titel')
           const chips = matchWhyChips(b, currentBike)
           return `
             <article class="mm-reco-card" data-row-match="${esc(b.name)}">

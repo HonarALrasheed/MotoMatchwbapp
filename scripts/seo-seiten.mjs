@@ -147,6 +147,25 @@ thema({ slug: "leichte-a2-motorraeder", gruppe: "Für wen",
   intro: "A2-tauglich und höchstens 190 kg: die Kombination, nach der die meisten Fahranfänger suchen.",
   liste: hat((b) => darfA2(b) && b.license !== "A1" && b.weight > 0 && b.weight <= 190) });
 
+/* Körpergröße: "motorrad für 1,60 m" und "motorrad für große fahrer" gehören zu den häufigsten
+   Fragen von Einsteigern. Grenze nach derselben Faustregel wie abGroesse(): sicher ist eine
+   Sitzhöhe bis 45 % der Körpergröße plus 3 %. Für große Fahrer zählt das Gegenteil — Knieschluss
+   und Platz, also hohe Sitzbank. */
+const meter = (cm) => `${Math.floor(cm / 100)},${String(cm % 100).padStart(2, "0")} m`;
+for (const cm of [150, 155, 160, 165, 170, 175]) {
+  const bis = Math.round(cm * 0.45 * 1.03 * 10) / 10;
+  thema({ slug: `motorrad-fuer-${cm}-cm`, gruppe: "Körpergröße",
+    h1: `Motorräder für ${meter(cm)} Körpergröße`,
+    titel: `Motorrad für ${meter(cm)} (${cm} cm): passende Modelle mit Sitzhöhe`,
+    intro: `Mit ${cm} cm Körpergröße kommst du auf Sitzhöhen bis etwa ${dez(bis)} cm sicher mit beiden Füßen auf den Boden. Diese Modelle liegen darunter — viele lassen sich zusätzlich mit Niedrigsitzbank oder Tieferlegung anpassen.`,
+    liste: hat((b) => b.seat_height > 0 && b.seat_height <= bis) });
+}
+thema({ slug: "motorrad-fuer-grosse-fahrer", gruppe: "Körpergröße",
+  h1: "Motorräder für große Fahrer ab 1,85 m",
+  titel: "Motorrad für große Fahrer (ab 1,85 m): Modelle mit hoher Sitzbank",
+  intro: "Ab etwa 1,85 m wird es auf kleinen Bikes eng: Knie stoßen an den Tank, der Kniewinkel wird spitz. Diese Modelle haben eine Sitzhöhe ab 84 cm und bieten entsprechend Platz.",
+  liste: hat((b) => b.seat_height >= 84 && b.style !== "Roller") });
+
 for (const [stil, s] of Object.entries(STIL)) {
   thema({ slug: s.slug, gruppe: "Bauart", h1: s.mehrzahl, stil,
     titel: `${s.mehrzahl}: alle Modelle mit Preis & Führerschein`,
@@ -687,6 +706,7 @@ ${gruppe("Führerschein")}
 ## Für wen
 
 ${gruppe("Für wen")}
+${gruppe("Körpergröße")}
 
 ## Nach Bauart
 

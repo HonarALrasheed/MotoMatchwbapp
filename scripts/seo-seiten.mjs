@@ -441,6 +441,36 @@ function schreibe(pfad, html) {
   writeFileSync(ziel, html);
 }
 
+// ── Ratgeber (Inhalt) — vor den Seiten, damit Themen- und Bike-Seiten auf passende Artikel verweisen
+const RATGEBER_DATUM = "2026-10-05";
+const ratgeber = artikel({ bikes, preis, zahl, dez, darfA2, bikePfad, themaPfad, esc, STIL, karte, hatFoto });
+const ratgeberVon = new Map(ratgeber.map((r) => [r.slug, r]));
+/* Interne Links Seite → Artikel: Google gewichtet Seiten höher, auf die viele eigene Seiten zeigen,
+   und Leser finden die Erklärung genau dort, wo die Frage entsteht. */
+function ratgeberFuerThema(t) {
+  const s = t.slug, l = [];
+  if (/a2/.test(s)) l.push("a2-drosselung");
+  if (/^fuehrerschein-/.test(s)) l.push("fuehrerscheinklassen-a1-a2-a");
+  if (/b196|a1|-125$/.test(s)) l.push("b196-125er-mit-autofuehrerschein");
+  if (s === "einsteiger") l.push("erstes-motorrad-kaufen");
+  if (/sitzhoehe|-cm$|grosse-fahrer/.test(s)) l.push("sitzhoehe-koerpergroesse");
+  if (/leicht|-kg$/.test(s)) l.push("leichtes-motorrad");
+  if (/euro$/.test(s)) l.push("motorrad-neu-oder-gebraucht", "motorrad-gebraucht-kaufen-checkliste");
+  if (t.gruppe === "Bauart" || t.gruppe === "Marke") l.push("motorradtypen");
+  if (l.length < 2) l.push("erstes-motorrad-kaufen", "motorrad-gebraucht-kaufen-checkliste");
+  return [...new Set(l)].slice(0, 3).map((x) => ratgeberVon.get(x)).filter(Boolean);
+}
+function ratgeberFuerBike(b) {
+  const l = [];
+  if (b.license === "A" && b.a2) l.push("a2-drosselung");
+  if (b.license === "A1") l.push("b196-125er-mit-autofuehrerschein");
+  if (b.beginner) l.push("erstes-motorrad-kaufen");
+  if (b.seat_height) l.push("sitzhoehe-koerpergroesse");
+  l.push("motorrad-gebraucht-kaufen-checkliste", "motorradsteuer");
+  return [...new Set(l)].slice(0, 3).map((x) => ratgeberVon.get(x)).filter(Boolean);
+}
+const ratgeberBox = (liste) => (liste.length ? `<section><h2>Passende Ratgeber</h2><ul class="r-links">${liste.map((r) => `<li><a href="/ratgeber/${r.slug}/"><strong>${esc(r.h1)}</strong><span>Ratgeber lesen ›</span></a></li>`).join("")}</ul></section>` : "");
+
 // ── Seiten schreiben ───────────────────────────────────────────────────────
 
 for (const t of themen) {
@@ -458,6 +488,7 @@ for (const t of themen) {
     <ul class="raster">${t.liste.slice(0, MAX_LISTE).map(karte).join("")}</ul>
     ${t.liste.length > MAX_LISTE ? `<p class="hinweis">Gezeigt: die ${MAX_LISTE} gefragtesten von ${t.liste.length} Modellen. Das Quiz durchsucht alle.</p>` : ""}
     ${faqHtml(fragen)}
+    ${ratgeberBox(ratgeberFuerThema(t))}
     ${verwandt.length ? `<section><h2>Ähnliche Themen</h2><ul class="themen">${verwandt.map((x) => `<li><a href="${x.pfad}">${esc(x.h1)}</a></li>`).join("")}</ul></section>` : ""}
 ` + fuss());
 }
@@ -573,6 +604,7 @@ for (const b of bikes) {
       ${faqHtml(fragen)}
     </article>
     ${aehnlich.length ? `<section><h2>Ähnliche Motorräder</h2><ul class="raster">${aehnlich.map(karte).join("")}</ul></section>` : ""}
+    ${ratgeberBox(ratgeberFuerBike(b))}
     ${vergleicheVon.has(b) ? `<section><h2>${esc(b.name)} im Vergleich</h2><ul class="themen">${vergleicheVon.get(b)
       .map((v) => `<li><a href="${v.pfad}">${esc(v.a.name)} vs. ${esc(v.b.name)}</a></li>`).join("")}</ul></section>` : ""}
     <section><h2>Mehr entdecken</h2><ul class="themen">${[klasseThema && [klasseThema, themen.find((t) => t.pfad === klasseThema).h1], stilThema && [stilThema, s.mehrzahl], markeThema && [markeThema, `Alle ${b.brand} Motorräder`]]
@@ -669,8 +701,6 @@ schreibe("/vergleich/", kopf({
 // ── Stylesheet und Sitemap ─────────────────────────────────────────────────
 
 // ── Ratgeber ───────────────────────────────────────────────────────────────
-const RATGEBER_DATUM = "2026-10-05";
-const ratgeber = artikel({ bikes, preis, zahl, dez, darfA2, bikePfad, themaPfad, esc, STIL, karte, hatFoto });
 const MONAT = new Date(`${STAND || RATGEBER_DATUM}T12:00:00`).toLocaleDateString("de-DE", { month: "long", year: "numeric" });
 const ankerVon = (t) => t.toLowerCase().replace(/ä/g, "ae").replace(/ö/g, "oe").replace(/ü/g, "ue").replace(/ß/g, "ss").replace(/<[^>]+>/g, "").replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
 const heldBild = (b) => (b ? (b.studio || bikeBild(b, "titel")) : null);
@@ -822,6 +852,11 @@ h2{font-size:22px;font-weight:600;margin:40px 0 14px}
 .r-karten strong{display:block;font-size:18px;padding:14px 16px 4px;line-height:1.25}
 .r-karten span{color:var(--dim);font-size:14px;padding:0 16px 16px}
 .knopf.klein{white-space:nowrap}
+.r-links{list-style:none;display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:10px}
+.r-links a{display:flex;flex-direction:column;gap:6px;height:100%;padding:16px 18px;background:var(--fl);border:1px solid var(--rand);border-radius:14px;text-decoration:none}
+.r-links a:hover{border-color:rgba(255,255,255,.35)}
+.r-links strong{font-size:16px;font-weight:600;line-height:1.3}
+.r-links span{font-size:13px;color:var(--dim)}
 .ueb{margin-top:40px}
 .ueb h2{font-size:24px;font-weight:800;margin:0 0 14px}
 .kacheln{list-style:none;display:grid;grid-template-columns:repeat(auto-fill,minmax(170px,1fr));gap:10px}

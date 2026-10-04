@@ -64,11 +64,14 @@ export function ausschnitt(pts, w, h) {
 
 /** Erst die große Karte fertig laden lassen — die Vorschaubilder holen dieselben
     Kacheln und würden ihr sonst die Leitung wegnehmen. */
-function hauptkarteFertig(ms = 5000) {
+async function hauptkarteFertig(ms = 8000) {
+  const ende = Date.now() + ms
+  // Die große Karte entsteht evtl. erst gleich — so lange warten
+  while (!getHubMap()?.__mmBereit && Date.now() < ende) await new Promise((r) => setTimeout(r, 150))
   const haupt = getHubMap()
-  if (!haupt || (haupt.loaded() && haupt.areTilesLoaded())) return Promise.resolve()
-  return new Promise((ok) => {
-    const t = setTimeout(ok, ms)
+  if (!haupt || (haupt.loaded() && haupt.areTilesLoaded())) return
+  await new Promise((ok) => {
+    const t = setTimeout(ok, Math.max(0, ende - Date.now()))
     haupt.once('idle', () => { clearTimeout(t); ok() })
   })
 }

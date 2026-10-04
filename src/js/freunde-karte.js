@@ -12,6 +12,7 @@
    ═══════════════════════════════════════════════════ */
 
 import { esc, safeUrl } from './util.js'
+import { hinweisen } from './meldung.js'
 import { supabase, OFFLINE_MODE } from './supabase.js'
 import { getSession, currentUser } from './auth.js'
 import { getHubMap, getMapLib, haversineKm, getUserCoords } from './karte.js'
@@ -248,14 +249,14 @@ function zeigeInfo(p) {
 async function hinfahren(p) {
   popup?.remove()
   const c = getUserCoords()
-  if (c.lat == null) { alert('Dein Standort ist noch nicht bekannt.'); return }
+  if (c.lat == null) { hinweisen('Standort unbekannt', 'Dein Standort ist noch nicht bekannt — erlaube ihn im Browser und versuch es erneut.'); return }
   try {
     const [{ route }, { fahrtVorbereiten }] = await Promise.all([import('./routing.js'), import('./tour-fahren.js')])
     const r = await route([[c.lat, c.lng], [p.lat, p.lng]])
     const t = { id: `freund:${p.username}`, name: `Zu ${p.name}`, typ: 'strecke', min: Math.max(1, Math.round((r.sekunden || 0) / 60)) }
     fahrtVorbereiten(t, r, { zurueck: () => import('./touren.js').then((m) => m.zeigeTourenListe?.()) })
   } catch (err) {
-    alert(err?.message || 'Die Route konnte nicht berechnet werden.')
+    hinweisen('Keine Route', err?.message || 'Die Route konnte nicht berechnet werden.')
   }
 }
 

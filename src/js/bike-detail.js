@@ -27,7 +27,7 @@ function loadThree() {
   return _threePromise
 }
 import { getGear } from './gear.js'
-import { initHubMap, searchNearby, getHubSearchResults, onHubResults, focusHubResult, recenterHubMap, zoomHubMap, getUserCoords, searchNearbyAt, retryHubLocation, hasMapsConsent, onHubMapMoved, panHubToCoords, haversineKm, resolveOrt, setHubPlacesPausiert, hatHubTreffer, setHubKarteOhneStandort, getHubMap as getHubMapReady } from './karte.js'
+import { initHubMap, searchNearby, getHubSearchResults, onHubResults, focusHubResult, recenterHubMap, zoomHubMap, getUserCoords, searchNearbyAt, retryHubLocation, hasMapsConsent, onHubMapMoved, panHubToCoords, haversineKm, resolveOrt, setHubPlacesPausiert, hatHubTreffer, setHubKarteOhneStandort, getHubMap as getHubMapReady, karteVorwaermen, getSuchMitte } from './karte.js'
 import { esc, safeUrl, fmtRelative, LS_QUIZ_ANSWERS } from './util.js'
 import { buildTourenAnsicht, buildTourenUmkreis, initTouren, setTourenAktiv, setTourenHerkunft } from './touren.js'
 import { partnerLink, hatPartnerLinks } from './affiliate.js'
@@ -332,6 +332,7 @@ export function openKonfigurator(bikeData, garageCleanup, initialTab) {
     landing.style.opacity = '0'
   }
 
+  if (targetTab === 'karte') karteVorwaermen() // lädt schon während der Überblendung
   setTimeout(() => {
     if (garageContainer) {
       garageContainer.style.display = 'none'
@@ -2240,6 +2241,8 @@ function switchTab(tabName, data) {
   // Persist last active tab
   try { localStorage.setItem('mm_last_tab', tabName) } catch {}
 
+  // Karte schon während der Überblendung laden
+  if (tabName === 'karte') karteVorwaermen()
   container.classList.add('konf-right--fading')
 
   setTimeout(() => {
@@ -2301,15 +2304,21 @@ const KV_SHEET_EXPANDED_AT = 0.2
  * des Geraets abhaengt und ein fester Wert sonst mitten in eine Zeile
  * schneidet.
  */
+// Andere Module melden, dass sich der eingeklappte Teil geändert hat (Planer)
+document.addEventListener('mm:kv-peek', () => syncKvPeek())
 function syncKvPeek() {
   const sheet = document.querySelector('.konf-karte-hub .kv-sidebar')
-  // Eingeklappt bleibt die Filterzeile des gerade gezeigten Modus sichtbar
-  const filters = sheet?.querySelector(sheet.dataset.modus === 'orte' ? '.hub-filters' : '.tour-filters')
+  // Eingeklappt sichtbar: bei Orten die Kategoriezeile, bei Touren nur bis zur
+  // Umkreis-Zeile — Filter und Liste kommen erst beim Hochwischen. Beim Planen
+  // der Kopf mit der Kurzfassung (Strecke, Speichern, Los).
+  const plant = document.body.classList.contains('mm-plant')
+  const filters = sheet?.querySelector(plant ? '.plan-mini' : sheet.dataset.modus === 'orte' ? '.hub-filters' : '.kv-search-row')
   if (!sheet || !filters) return
   const top = sheet.getBoundingClientRect().top
   const bottom = filters.getBoundingClientRect().bottom
   if (bottom <= top) return
-  const peek = Math.round(bottom - top + 12) + 'px'
+  // Touren: knapp unter der Umkreis-Zeile kappen, sonst lugt der Rand der Filter-Chips hervor
+  const peek = Math.round(bottom - top + (sheet.dataset.modus === 'orte' && !plant ? 12 : 6)) + 'px'
   sheet.style.setProperty('--kv-peek', peek)
   // Zusaetzlich global: der Beta-Feedback-Knopf steht ausserhalb des Sheets
   // und weicht ueber dessen Kante aus (main.css, 767px-Block).
@@ -2365,6 +2374,8 @@ function bindKarteSheet() {
     sheet.style.transform = ''
     sheet.style.clipPath = ''
     sheet.classList.toggle('kv-sheet--expanded', expanded)
+    // Eingeklappt muss der Kopf sichtbar sein, auch wenn er beim Scrollen weggeglitten war
+    if (!expanded) sheet.classList.remove('kv-kopf-weg')
     publishKvVisible(sheet, expanded ? 0 : sheet.offsetHeight - kvPeekPx(sheet))
   }
   const toggle = () => setExpanded(!isExpanded())
@@ -2572,12 +2583,12 @@ function bindKarteViewEvents() {
     /* Nur dort abschalten, wo gar keine Suche laufen kann. Steht Karte und
        Standort, hat initHubMap() gerade selbst eine angestossen — dann bleibt
        der Platzhalter, bis onHubResults() meldet. */
-    if (!hasMapsConsent() || getUserCoords().lat == null) searchPending = false
+    if (!hasMapsConsent() || getSuchMitte().lat == null) searchPending = false
     renderResults()
     /* Ohne Standort ist das Eingabefeld der einzige Weg weiter. Es hinter der
        Lupe eingeklappt zu lassen, versteckt genau dann die Loesung, wenn sie
        gebraucht wird. */
-    if (modus === 'orte' && hasMapsConsent() && getUserCoords().lat == null) openSearch()
+    if (modus === 'orte' && hasMapsConsent() && getSuchMitte().lat == null) openSearch()
   })
 
   let currentRadius = 5000
@@ -2615,7 +2626,7 @@ function bindKarteViewEvents() {
      Suche liegen, deshalb Entfernung nur, wenn ein Standort bekannt ist. */
   const favResults = () => {
     const meta = readFavMeta()
-    const { lat, lng } = getUserCoords()
+    const { lat, lng } = getSuchMitte()
     return currentFavorites.map(id => {
       const m = meta[id]
       if (!m) return null
@@ -2667,7 +2678,7 @@ function bindKarteViewEvents() {
         'Tippe bei einem Treffer auf \u201eMerken\u201c \u2014 gemerkte Orte findest du hier wieder.')
       return
     }
-    const { lat } = getUserCoords()
+    const { lat } = getSuchMitte()
     if (lat == null) {
       list.innerHTML = emptyState('\u{1F4CD}', 'Kein Standortzugriff',
         'Erlaube den Zugriff im Browser \u2014 oder gib einen Ort ein.',
@@ -2886,7 +2897,7 @@ function bindKarteViewEvents() {
       moveRadiusThumb?.()
       syncFilterOverflow()
       const aktiv = document.querySelector('.konf-karte-hub .hub-pill.active')
-      if (aktiv && !hatHubTreffer() && hasMapsConsent() && getUserCoords().lat != null) {
+      if (aktiv && !hatHubTreffer() && hasMapsConsent() && getSuchMitte().lat != null) {
         searchPending = true
         searchNearby(aktiv.dataset.query, currentRadius)
       }
@@ -2969,8 +2980,9 @@ function bindKarteViewEvents() {
       revealPill(pill)
       moveFilterThumb?.()
       searchPending = true
-      renderResults()
+      // Erst suchen (räumt die Treffer der alten Kategorie sofort ab), dann zeichnen
       searchNearby(pill.dataset.query, currentRadius)
+      renderResults()
     })
   })
   // Radius pills
@@ -3059,7 +3071,9 @@ function bindKarteViewEvents() {
   // control (Apple-Maps-style), so both trigger the same handler.
   const handleRecenter = () => {
     recenterHubMap()
-    if (modus === 'touren' && getUserCoords().lat != null) setTourenHerkunft(null)
+    // Liste nach Entfernung von hier — die Karte bleibt beim Standort statt
+    // gleich wieder auf den Umkreis herauszuzoomen
+    if (modus === 'touren' && getUserCoords().lat != null) setTourenHerkunft(null, null, { karteAnpassen: false })
     const input = document.getElementById('kv-search-input')
     if (input) input.value = ''
   }

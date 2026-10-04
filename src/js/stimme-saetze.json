@@ -1,6 +1,9 @@
 {
-  "_hinweis": "Sätze der Navi-Stimme Heiko. Schlüssel = Dateiname der Ansage unter public/stimme/heiko/. scripts/stimme/bauen.py spricht daraus die Ansagen ein; src/js/stimme.js nutzt die Texte, wenn eine Ansage fehlt.",
-  "abstaende": { "800": "In 800 Metern", "250": "In 250 Metern" },
+  "_hinweis": "Sätze der Navi-Stimme Heike. Schlüssel = Dateiname der Ansage unter public/stimme/heike/. scripts/stimme/bauen.py spricht daraus die Ansagen ein; src/js/stimme.js nutzt die Texte, wenn eine Ansage fehlt.",
+  "abstaende": {
+    "800": "In achthundert Metern",
+    "250": "In zweihundertfünfzig Metern"
+  },
   "manoever": {
     "abbiegen-links": "links abbiegen",
     "abbiegen-rechts": "rechts abbiegen",
@@ -27,16 +30,18 @@
     "ende-links": "am Ende der Straße links abbiegen",
     "ende-rechts": "am Ende der Straße rechts abbiegen",
     "ziel": "erreichst du dein Ziel",
-    "start-tour": "beginnt die Tour"
+    "start-tour": "beginnt die Tour",
+    "ausfahrt": "die Ausfahrt nehmen",
+    "gabel": "an der Gabelung der Straße folgen"
   },
   "einzeln": {
-    "hallo": "Hi, ich bin Heiko. Fahr vorsichtig. Zu Hause wartet jemand auf dich.",
+    "hallo": "Hi, ich bin Heike. Fahr vorsichtig. Zu Hause wartet jemand auf dich.",
     "los": "Los geht's. Gute Fahrt, und komm gut heim.",
     "los-anfahrt": "Los geht's. Erst fahren wir zum Start der Tour.",
     "start-erreicht": "Start der Tour erreicht. Viel Spaß, und fahr vorsichtig.",
     "neu": "Kein Problem, ich habe die Route neu berechnet.",
     "pause": "Du bist jetzt seit anderthalb Stunden unterwegs. Gönn dir eine kurze Pause. Ausgeruht fährt es sich sicherer.",
     "angekommen": "Du bist angekommen. Schön, dass du heil zurück bist.",
-    "probe": "Hi, ich bin Heiko. Ich bringe dich sicher ans Ziel, und wieder nach Hause."
+    "probe": "Hi, ich bin Heike. Ich bringe dich sicher ans Ziel, und wieder nach Hause."
   }
 }

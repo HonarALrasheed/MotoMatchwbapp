@@ -59,6 +59,25 @@ function ladeKachel(zelle) {
   return kacheln.get(zelle)
 }
 
+/* Weit draußen (Zoom < 9,5) nur die kurvigsten Strecken (≥ 1500) — die stehen
+   vereinfacht in einer Datei für ganz Deutschland (scripts/kurven/uebersicht.py),
+   statt dass jeder Blick zwanzig Kacheln lädt. */
+const UEBERSICHT_BIS = 9.5
+let uebersichtPromise = null
+function ladeUebersicht() {
+  if (!uebersichtPromise) {
+    uebersichtPromise = fetch('/data/kurven/uebersicht.json').then((r) => (r.ok ? r.json() : Promise.reject(new Error(r.status))))
+      .then((liste) => liste.map(([id, name, kurvig, laenge, linie]) => {
+        const pts = dekodieren(linie)
+        let s = 90, w = 180, n = -90, o = -180
+        for (const [a, b] of pts) { if (a < s) s = a; if (a > n) n = a; if (b < w) w = b; if (b > o) o = b }
+        return { id, name, kurvig, laenge, pts, box: [s, w, n, o] }
+      }))
+      .catch(() => { uebersichtPromise = null; return null })
+  }
+  return uebersichtPromise
+}
+
 /** Alle Kurvenstrecken im Rechteck (Süd, West, Nord, Ost). */
 export async function streckenIn(s, w, n, o) {
   const index = await ladeIndex()
@@ -167,10 +186,15 @@ async function aktualisieren() {
     return
   }
   const b = map.getBounds()
-  const liste = await streckenIn(b.getSouth(), b.getWest(), b.getNorth(), b.getEast())
-  if (!sichtbar) return
-  // Weit draußen nur die kurvigsten, sonst ist jede Landstraße eingefärbt
   const z = map.getZoom()
+  const [bs, bw, bn, bo] = [b.getSouth(), b.getWest(), b.getNorth(), b.getEast()]
+  const grob = z < UEBERSICHT_BIS && await ladeUebersicht()
+  const liste = grob
+    ? grob.filter(({ box: [s, w, n, o] }) => n >= bs && s <= bn && o >= bw && w <= bo)
+    : await streckenIn(bs, bw, bn, bo)
+  // Inzwischen weitergeschoben? Dann gilt der neuere Aufruf
+  if (!sichtbar || map.getZoom() !== z || map.getBounds().getSouth() !== bs) return
+  // Weit draußen nur die kurvigsten, sonst ist jede Landstraße eingefärbt
   const ab = z < 8 ? 2500 : z < 9.5 ? 1500 : z < 11 ? 1000 : 0
   map.getSource('kurven').setData({ type: 'FeatureCollection', features: liste.filter((k) => k.kurvig >= ab).map(zuFeature) })
 }

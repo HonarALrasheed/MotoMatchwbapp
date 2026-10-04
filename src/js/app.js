@@ -70,6 +70,15 @@ export function startApp() {
     import('./karte.js').then((m) => m.karteVorwaermen()).catch(() => { karteGewaermt = false })
   }
   for (const typ of ['pointerover', 'pointerdown', 'focusin']) document.addEventListener(typ, karteWaermen, { passive: true })
+  // Nach dem Start im Leerlauf vorladen, damit die Karte beim Öffnen sofort
+  // steht (angemeldet gleich, sonst etwas später)
+  const karteImLeerlauf = () => import('./auth.js').then(({ isLoggedIn }) => setTimeout(() => {
+    if (karteGewaermt) return
+    karteGewaermt = true
+    import('./karte.js').then((m) => m.karteVorwaermen()).catch(() => { karteGewaermt = false })
+  }, isLoggedIn() ? 800 : 3000)).catch(() => {})
+  if (document.readyState === 'complete') karteImLeerlauf()
+  else window.addEventListener('load', karteImLeerlauf, { once: true })
   initSupabaseAuth()
   initFeedbackFab()
   // Registriert den Service Worker und bietet die Installation an — nur so

@@ -17,6 +17,7 @@
    ═══════════════════════════════════════════════════ */
 
 import { esc } from './util.js'
+import { hinweisen, fragen } from './meldung.js'
 import { getHubMap, getMapLib, haversineKm, getUserCoords } from './karte.js'
 import { wetterEntlang, wetterWarnung, wetterSymbol } from './wetter.js'
 import { starteAufzeichnung } from './ride-tracker.js'
@@ -79,7 +80,7 @@ const mSprache = (m) => (m >= 1000 ? `${(m / 1000).toFixed(m >= 10000 ? 0 : 1).r
 const dauer = (min) => (min >= 60 ? `${Math.floor(min / 60)}:${String(Math.round(min % 60)).padStart(2, '0')} Std` : `${Math.max(1, Math.round(min))} Min`)
 const uhr = (minAb) => new Date(Date.now() + minAb * 60000).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' })
 
-/** Heiko sagt an (stimme.js): eingesprochene Ansage, sonst die Gerätestimme mit text. */
+/** Heike sagt an (stimme.js): eingesprochene Ansage, sonst die Gerätestimme mit text. */
 function sprich(schluessel, text, { ton = fahrt?.ton, anhaengen = false } = {}) {
   if (!ton) return
   // Die Begrüßung läuft aus, die erste Ansage stellt sich hinten an
@@ -337,13 +338,13 @@ function zeigePlan(v, { abstand }) {
     </ol>
     <div class="fahrt-wetter" id="fahrt-wetter"><div class="fahrt-laedt"><span class="hub-map-spinner"></span> Wetter unterwegs…</div></div>
     ${v.anfahrtFehler && !v.anfahrt && abstand > ANFAHRT_AB_M ? `<p class="fahrt-start-fehler">${esc(v.anfahrtFehler)} Das Navi zeigt dir dann die Richtung zur Strecke.</p>` : ''}
-    <div class="fahrt-heiko">
-      <div class="fahrt-heiko-kopf">
-        <span class="fahrt-heiko-zeichen" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M3 11.5L12 4l9 7.5"/><path d="M5.5 10v9.5h13V10"/><path d="M12 17.2s-3-1.9-3-3.9a1.6 1.6 0 0 1 3-.8 1.6 1.6 0 0 1 3 .8c0 2-3 3.9-3 3.9z"/></svg></span>
-        <span class="fahrt-heiko-text"><strong>${PERSONA.name} sagt an</strong><em>${esc(PERSONA.zeile)}</em></span>
-        <button type="button" class="fahrt-heiko-probe" data-probe aria-label="Stimme anhören"><svg viewBox="0 0 24 24"><path d="M8 5.5v13l10.5-6.5z"/></svg></button>
+    <div class="fahrt-stimme">
+      <div class="fahrt-stimme-kopf">
+        <span class="fahrt-stimme-zeichen" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M3 11.5L12 4l9 7.5"/><path d="M5.5 10v9.5h13V10"/><path d="M12 17.2s-3-1.9-3-3.9a1.6 1.6 0 0 1 3-.8 1.6 1.6 0 0 1 3 .8c0 2-3 3.9-3 3.9z"/></svg></span>
+        <span class="fahrt-stimme-text"><strong>${PERSONA.name} sagt an</strong><em>${esc(PERSONA.zeile)}</em></span>
+        <button type="button" class="fahrt-stimme-probe" data-probe aria-label="Stimme anhören"><svg viewBox="0 0 24 24"><path d="M8 5.5v13l10.5-6.5z"/></svg></button>
       </div>
-      <label class="fahrt-heiko-wartet">
+      <label class="fahrt-stimme-wartet">
         <span>Wer wartet auf dich?</span>
         <input type="text" data-wartet maxlength="40" placeholder="z. B. Lena, Mama, die Kids" value="${esc(wartetAufDich())}" autocomplete="off">
       </label>
@@ -766,7 +767,7 @@ export function starteFahrt(t, strecke, { info = {}, onEnde, mitschneiden = fals
   const map = getHubMap(), ml = getMapLib()
   const host = document.querySelector('.konf-karte-hub .kv-map-wrap')
   if (!map || !ml || !host || !strecke?.pts?.length) return false
-  if (!navigator.geolocation && !sim()) { alert('Dein Browser gibt keinen Standort frei — ohne GPS kann die Tour nicht geführt werden.'); return false }
+  if (!navigator.geolocation && !sim()) { hinweisen('Kein Standort', 'Dein Browser gibt keinen Standort frei — ohne GPS kann die Tour nicht geführt werden.'); return false }
   const d = { ...strecke, kum: strecke.kum || kumuliert(strecke.pts) }
   if (!d.schritte?.length || d.schritte.at(-1)[1] !== 'arrive') d.schritte = [...(d.schritte || []), [Math.round(d.kum.at(-1)), 'arrive', '', '', 0]]
 
@@ -853,6 +854,9 @@ export function starteFahrt(t, strecke, { info = {}, onEnde, mitschneiden = fals
       fahrt.folgen = false
       el.querySelector('[data-fahrt="folgen"]').hidden = false
       const rest = fahrt.d.pts.slice(fahrt.index)
+      // Mitfahr-Innenrand (Pfeil unten) erst lösen — zusammen mit dem Rand hier
+      // passte die Strecke auf dem Handy nicht hinein und nichts bewegte sich
+      map.setPadding({ top: 0, bottom: 0, left: 0, right: 0 })
       map.fitBounds(grenzen(fahrt.letztePos ? [...rest, [fahrt.letztePos.lat, fahrt.letztePos.lng]] : rest), { padding: { top: 200, bottom: 190, left: 50, right: 50 }, pitch: 0, bearing: 0, duration: 900 })
     }
     if (was === 'ton') {
@@ -971,11 +975,11 @@ function aufnahmeSpeichern(f, aufnahme) {
   el.addEventListener('click', async (e) => {
     const b = e.target.closest('[data-auf]')
     if (!b) return
-    if (b.dataset.auf === 'weg' && !confirm('Aufgezeichnete Fahrt verwerfen?')) return
+    if (b.dataset.auf === 'weg' && !(await fragen('Fahrt verwerfen?', 'Die aufgezeichnete Strecke geht dabei verloren.', { ja: 'Verwerfen', gefahr: true }))) return
     let id = null
     if (b.dataset.auf === 'sichern') {
       const { speichereFahrt, PRAEFIX } = await import('./eigene-strecken.js')
-      try { id = PRAEFIX + speichereFahrt(aufnahme, el.querySelector('.aufnahme-name').value.trim() || f.t.name) } catch (err) { alert(err.message); return }
+      try { id = PRAEFIX + speichereFahrt(aufnahme, el.querySelector('.aufnahme-name').value.trim() || f.t.name) } catch (err) { hinweisen('Nicht gespeichert', err.message); return }
     }
     el.remove()
     if (id) import('./touren.js').then((m) => m.zeigeEigeneStrecke?.(id))

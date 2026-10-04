@@ -8298,6 +8298,7 @@ select.p-auth-input {
 @media (max-width: 768px) {
   .hub-map .maplibregl-ctrl-bottom-right { top: calc(6px + var(--sa-top, 0px)); bottom: auto; }
   .hub-map .maplibregl-ctrl-bottom-right .maplibregl-ctrl { margin: 0 6px 0 0; }
+  .hub-map .maplibregl-ctrl-attrib { max-width: calc(100vw - 84px); }
 }
 .hub-map-fehler-titel { font-weight: 700; color: #fff; margin-bottom: 4px; }
 .hub-map-fehler-text { font-size: 12px; color: #888; max-width: 280px; text-align: center; line-height: 1.4; }
@@ -9629,7 +9630,7 @@ body.mm-faehrt .mm-standort-punkt { display: none; }
   top: calc(84px + var(--sa-top));
   left: 50%;
   z-index: 30;
-  transform: translateX(-50%);
+  translate: -50% 0; /* nicht transform: die Einblend-Animation setzt transform */
   width: min(360px, calc(100% - 32px));
   padding: 12px 16px 12px;
   border-radius: 18px;
@@ -15713,20 +15714,20 @@ body.mm-plant .kurven-legende { display: none; }
   .kurven-legende { right: auto; left: 50%; top: 128px; transform: translateX(-50%); gap: 9px; padding: 6px 11px; font-size: 11px; }
 }
 
-/* ── Heiko: Navi-Stimme auf dem Startbildschirm ─────────────────────── */
-.fahrt-heiko { display: flex; flex-direction: column; gap: 10px; padding: 12px; border-radius: 14px; background: linear-gradient(160deg, rgba(255,170,90,0.16), rgba(255,170,90,0.04)); border: 1px solid rgba(255,170,90,0.25); }
-.fahrt-heiko-kopf { display: flex; align-items: center; gap: 10px; }
-.fahrt-heiko-zeichen { flex: none; display: grid; place-items: center; width: 38px; height: 38px; border-radius: 50%; background: #ffb15e; }
-.fahrt-heiko-zeichen svg { width: 22px; height: 22px; fill: none; stroke: #3a1d00; stroke-width: 1.9; stroke-linecap: round; stroke-linejoin: round; }
-.fahrt-heiko-text { flex: 1; min-width: 0; }
-.fahrt-heiko-text strong { display: block; font-size: 13.5px; color: #fff; }
-.fahrt-heiko-text em { display: block; margin-top: 2px; font-style: normal; font-size: 11.5px; line-height: 1.4; color: rgba(255,255,255,0.6); }
-.fahrt-heiko-probe { flex: none; display: grid; place-items: center; width: 36px; height: 36px; border: 0; border-radius: 50%; background: rgba(255,255,255,0.1); color: #fff; cursor: pointer; }
-.fahrt-heiko-probe:hover { background: rgba(255,255,255,0.18); }
-.fahrt-heiko-probe svg { width: 16px; height: 16px; fill: currentColor; margin-left: 2px; }
-.fahrt-heiko-wartet { display: flex; flex-direction: column; gap: 5px; font-size: 11.5px; color: rgba(255,255,255,0.6); }
-.fahrt-heiko-wartet input { height: 40px; padding: 0 12px; border-radius: 10px; border: 1px solid rgba(255,255,255,0.14); background: #1b1b1b; color: #fff; font: 500 14px/1 var(--font); }
-.fahrt-heiko-wartet input:focus { outline: none; border-color: #ffb15e; }
+/* ── Heike: Navi-Stimme auf dem Startbildschirm ─────────────────────── */
+.fahrt-stimme { display: flex; flex-direction: column; gap: 10px; padding: 12px; border-radius: 14px; background: linear-gradient(160deg, rgba(255,170,90,0.16), rgba(255,170,90,0.04)); border: 1px solid rgba(255,170,90,0.25); }
+.fahrt-stimme-kopf { display: flex; align-items: center; gap: 10px; }
+.fahrt-stimme-zeichen { flex: none; display: grid; place-items: center; width: 38px; height: 38px; border-radius: 50%; background: #ffb15e; }
+.fahrt-stimme-zeichen svg { width: 22px; height: 22px; fill: none; stroke: #3a1d00; stroke-width: 1.9; stroke-linecap: round; stroke-linejoin: round; }
+.fahrt-stimme-text { flex: 1; min-width: 0; }
+.fahrt-stimme-text strong { display: block; font-size: 13.5px; color: #fff; }
+.fahrt-stimme-text em { display: block; margin-top: 2px; font-style: normal; font-size: 11.5px; line-height: 1.4; color: rgba(255,255,255,0.6); }
+.fahrt-stimme-probe { flex: none; display: grid; place-items: center; width: 36px; height: 36px; border: 0; border-radius: 50%; background: rgba(255,255,255,0.1); color: #fff; cursor: pointer; }
+.fahrt-stimme-probe:hover { background: rgba(255,255,255,0.18); }
+.fahrt-stimme-probe svg { width: 16px; height: 16px; fill: currentColor; margin-left: 2px; }
+.fahrt-stimme-wartet { display: flex; flex-direction: column; gap: 5px; font-size: 11.5px; color: rgba(255,255,255,0.6); }
+.fahrt-stimme-wartet input { height: 40px; padding: 0 12px; border-radius: 10px; border: 1px solid rgba(255,255,255,0.14); background: #1b1b1b; color: #fff; font: 500 14px/1 var(--font); }
+.fahrt-stimme-wartet input:focus { outline: none; border-color: #ffb15e; }
 
 /* Am Ziel: "Bescheid geben" */
 .fahrt-heim { position: absolute; left: 50%; top: 18px; transform: translateX(-50%); z-index: 30; width: min(360px, calc(100% - 32px)); display: flex; flex-direction: column; gap: 6px; padding: 16px; border-radius: 18px; background: rgba(20,20,20,0.96); color: #fff; box-shadow: 0 10px 30px rgba(0,0,0,0.35); animation: fahrt-heim-ein .35s ease-out; }
@@ -15837,11 +15838,21 @@ body.mm-faehrt .leute-panel, body.mm-fliegt .leute-panel, body.mm-plant .leute-p
 
 /* ── Tourenliste: aufgeräumter Kopf (Filter gebündelt, "+ Neu"-Menü) ── */
 .tour-filters .kv-chip-count { margin-left: 2px; }
-.tour-optionen { flex-direction: column; flex-wrap: nowrap; gap: 10px; padding-top: 12px; }
+.tour-optionen { display: block; padding-top: 10px; }
+.tour-opt-karte { display: flex; flex-direction: column; gap: 10px; padding: 12px; border-radius: 16px; background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.07); }
 .tour-opt-gruppe { display: flex; flex-direction: column; gap: 6px; }
-.tour-opt-titel { font-size: 11px; font-weight: 600; color: rgba(255,255,255,0.45); }
-.tour-opt-werte { display: flex; flex-wrap: wrap; gap: 6px; }
-.tour-opt-reset { align-self: flex-start; padding: 0; border: 0; background: none; color: rgba(255,255,255,0.55); font: 600 12px/1.4 var(--font); text-decoration: underline; cursor: pointer; }
+.tour-opt-titel { font-size: 11px; font-weight: 600; letter-spacing: 0.02em; color: rgba(255,255,255,0.45); }
+.tour-opt-werte { display: flex; gap: 2px; padding: 3px; border-radius: 11px; background: rgba(0,0,0,0.25); }
+.tour-opt-werte .tour-option {
+  flex: 1 1 0; min-width: 0; height: 30px; padding: 0 6px; border: 0; border-radius: 8px;
+  background: none; color: rgba(255,255,255,0.6); font-size: 12px; font-weight: 600;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.tour-opt-werte .tour-option:hover { background: rgba(255,255,255,0.06); color: #fff; }
+.tour-opt-werte .tour-option--aktiv,
+.tour-opt-werte .tour-option--aktiv:hover { background: #fff; color: #111; }
+.tour-opt-reset { align-self: flex-end; padding: 0; border: 0; background: none; color: rgba(255,255,255,0.55); font: 600 12px/1.4 var(--font); cursor: pointer; }
+.tour-opt-reset:hover { color: #fff; }
 .tour-list-bar { position: relative; z-index: 6; }
 .tour-neu-wrap { position: relative; }
 .tour-neu {
@@ -15862,3 +15873,144 @@ body.mm-faehrt .leute-panel, body.mm-fliegt .leute-panel, body.mm-plant .leute-p
 .tour-neu-menue button:hover { background: rgba(255,255,255,0.08); }
 .tour-neu-menue svg { width: 16px; height: 16px; flex: none; }
 
+/* Kopf der Tourenliste weicht beim Runterscrollen (touren.js, .kv-kopf-weg) */
+.kv-sidebar .kv-modus,
+.kv-sidebar .kv-search-row,
+.kv-sidebar .tour-filters,
+.kv-sidebar .tour-list-bar {
+  max-height: 90px;
+  transition: max-height .28s ease, opacity .2s ease, margin .28s ease, padding .28s ease;
+}
+.kv-sidebar.kv-kopf-weg[data-modus="touren"] .kv-modus,
+.kv-sidebar.kv-kopf-weg[data-modus="touren"] .kv-search-row,
+.kv-sidebar.kv-kopf-weg[data-modus="touren"] .tour-filters,
+.kv-sidebar.kv-kopf-weg[data-modus="touren"] .tour-optionen,
+.kv-sidebar.kv-kopf-weg[data-modus="touren"] .tour-list-bar {
+  max-height: 0;
+  min-height: 0;
+  margin-top: 0;
+  margin-bottom: 0;
+  padding-top: 0;
+  padding-bottom: 0;
+  border-width: 0;
+  opacity: 0;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+/* ── Planer: neues Layout ─────────────────────────────────────────────── */
+body.mm-plant .kv-sidebar .kv-modus,
+body.mm-plant .kv-sidebar .kv-search-row { display: none; }
+.fahrt-start.plan { display: flex; flex-direction: column; gap: 12px; }
+.plan svg { fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.plan-kopf { display: flex; align-items: center; gap: 6px; margin-top: 4px; }
+/* Kurzfassung nur auf dem Handy (dort bleibt sie im eingeklappten Panel stehen) */
+.plan-mini { display: none; }
+@container (max-width: 759.98px) {
+  .plan-mini { display: flex; align-items: center; gap: 8px; min-height: 40px; margin: 6px 0 10px; }
+  .plan-mini:empty { display: none; }
+  .plan-mini-werte, .plan-mini-text { flex: 1; min-width: 0; font-size: 14px; color: rgba(235,235,245,0.75); }
+  .plan-mini-werte strong { color: #fff; font-size: 16px; font-weight: 750; }
+  .plan-mini .tour-btn, .plan-mini .fahrt-los { flex: none; width: auto; height: 38px; min-height: 0; margin: 0; padding: 0 14px; font-size: 14px; }
+}
+.plan-kopf h2 { flex: 1; margin: 0; font-size: 20px; font-weight: 800; color: #fff; letter-spacing: -0.01em; }
+.plan-icon { flex: none; display: grid; place-items: center; width: 36px; height: 36px; padding: 0; border: 0; border-radius: 50%; background: rgba(255,255,255,0.07); color: #fff; cursor: pointer; transition: background .15s, opacity .15s; }
+.plan-icon svg { width: 18px; height: 18px; }
+.plan-icon:hover:not([disabled]) { background: rgba(255,255,255,0.14); }
+.plan-icon[disabled] { opacity: 0.3; cursor: default; }
+.plan-icon[hidden] { display: none; }
+.plan-kopf .plan-icon:first-child { margin-left: -4px; background: none; }
+.plan-suche { position: relative; display: flex; align-items: center; }
+.plan-suche-icon { position: absolute; left: 13px; display: grid; color: rgba(255,255,255,0.45); pointer-events: none; }
+.plan-suche-icon svg { width: 17px; height: 17px; }
+.plan-suche input { flex: 1; height: 46px; padding: 0 48px 0 40px; border-radius: 14px; border: 1px solid rgba(255,255,255,0.1); background: rgba(255,255,255,0.06); color: #fff; font: 500 14.5px/1 var(--font); }
+.plan-suche input::placeholder { color: rgba(255,255,255,0.4); }
+.plan-suche input:focus { outline: none; border-color: #4263eb; background: rgba(66,99,235,0.08); }
+.plan-suche input::-webkit-search-cancel-button { display: none; }
+.plan-suche-los { position: absolute; right: 6px; display: grid; place-items: center; width: 34px; height: 34px; border: 0; border-radius: 10px; background: #4263eb; color: #fff; cursor: pointer; }
+.plan-suche-los svg { width: 17px; height: 17px; stroke-width: 2.4; }
+.plan-standort { display: flex; align-items: center; gap: 10px; padding: 0 2px; border: 0; background: none; color: #8ea2ff; font: 600 13.5px/1.2 var(--font); cursor: pointer; text-align: left; }
+.plan-standort[hidden] { display: none; }
+.plan-standort svg { width: 18px; height: 18px; }
+.plan-optionen { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.plan-segment { display: flex; flex-direction: column; gap: 2px; padding: 3px; border-radius: 13px; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.06); }
+.plan-segment button { display: flex; align-items: center; gap: 8px; height: 36px; padding: 0 10px; border: 0; border-radius: 10px; background: none; color: rgba(255,255,255,0.6); font: 600 13px/1 var(--font); cursor: pointer; transition: background .15s, color .15s; }
+.plan-segment button svg { width: 16px; height: 16px; flex: none; }
+.plan-segment button:hover { color: #fff; }
+.plan-segment button[aria-pressed="true"] { background: #fff; color: #111; }
+.plan-vorschlag-karte { display: flex; flex-direction: column; gap: 8px; }
+.plan-vorschlag-karte[hidden] { display: none; }
+.plan-vorschlag-knopf { display: flex; align-items: center; gap: 12px; width: 100%; padding: 12px; border: 1px solid rgba(155,107,255,0.35); border-radius: 14px; background: linear-gradient(135deg, rgba(155,107,255,0.18), rgba(66,99,235,0.12)); color: #fff; text-align: left; cursor: pointer; }
+.plan-vorschlag-knopf svg { width: 22px; height: 22px; flex: none; color: #c4a6ff; }
+.plan-vorschlag-knopf strong { display: block; font-size: 14px; }
+.plan-vorschlag-knopf em { display: block; font-style: normal; font-size: 12px; color: rgba(255,255,255,0.55); }
+.plan-vorschlag { display: flex; gap: 6px; }
+.plan-vorschlag .tour-option { flex: 1; }
+.plan-tipp { display: flex; align-items: center; gap: 10px; margin: 0; padding: 4px 2px; background: none; color: rgba(255,255,255,0.5); font-size: 13px; line-height: 1.45; }
+.plan-tipp svg { width: 20px; height: 20px; flex: none; color: rgba(255,255,255,0.4); }
+.plan-liste { position: relative; gap: 0; padding: 4px 0; }
+.plan-liste-punkt { position: relative; display: flex; align-items: center; gap: 12px; min-height: 40px; padding: 0 !important; font-size: 13.5px; color: #fff; }
+.plan-liste-punkt:not(:last-child)::after { content: ''; position: absolute; left: 11px; top: 30px; bottom: -10px; width: 2px; background: rgba(66,99,235,0.6); }
+.plan-liste-name { flex: 1; min-width: 0; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.plan-liste-punkt--start .plan-nr { background: #2f9e44; }
+.plan-liste-punkt--ziel .plan-nr { background: #fff; color: #111; }
+.plan-liste-punkt--via .plan-nr { background: #4263eb; }
+.plan-liste-punkt--zurueck { color: rgba(255,255,255,0.55); }
+.plan-liste-punkt--zurueck .plan-nr { background: rgba(255,255,255,0.12); font-size: 13px; }
+.plan-weg { background: none; }
+.plan-weg:hover { background: rgba(255,255,255,0.08); color: #fff; }
+
+
+/* ── Eigene Meldung statt alert/confirm/prompt (meldung.js) ──────────── */
+.mm-meldung {
+  position: fixed; inset: 0; z-index: 10000; display: grid; place-items: center; padding: 20px;
+  background: rgba(0,0,0,0.45); -webkit-backdrop-filter: blur(4px); backdrop-filter: blur(4px);
+  animation: mm-meldung-ein .18s ease-out;
+}
+.mm-meldung--weg { opacity: 0; transition: opacity .15s ease; }
+.mm-meldung-karte {
+  width: min(360px, 100%); display: flex; flex-direction: column; gap: 10px; padding: 20px;
+  border-radius: 20px; background: #1e1e1e; border: 1px solid rgba(255,255,255,0.1);
+  box-shadow: 0 24px 60px rgba(0,0,0,0.5); color: #fff; animation: mm-meldung-karte .22s cubic-bezier(.2,.9,.3,1.2);
+}
+.mm-meldung-titel { font-size: 17px; font-weight: 750; }
+.mm-meldung-text { margin: 0; font-size: 14px; line-height: 1.5; color: rgba(255,255,255,0.7); }
+.mm-meldung-eingabe { height: 46px; padding: 0 14px; border-radius: 12px; border: 1px solid rgba(255,255,255,0.14); background: #141414; color: #fff; font: 500 15px/1 var(--font); }
+.mm-meldung-eingabe:focus { outline: none; border-color: #4263eb; }
+.mm-meldung-knoepfe { display: flex; gap: 8px; margin-top: 6px; }
+.mm-meldung-knoepfe button { flex: 1; height: 44px; border: 0; border-radius: 12px; background: rgba(255,255,255,0.08); color: #fff; font: 650 14px/1 var(--font); cursor: pointer; }
+.mm-meldung-knoepfe button:hover { background: rgba(255,255,255,0.14); }
+.mm-meldung-knoepfe .mm-meldung-haupt { background: #fff; color: #111; }
+.mm-meldung-knoepfe .mm-meldung-haupt:hover { background: #e9e9e9; }
+.mm-meldung-knoepfe .mm-meldung-gefahr { background: #e03131; color: #fff; }
+.mm-meldung-knoepfe .mm-meldung-gefahr:hover { background: #c92a2a; }
+@keyframes mm-meldung-ein { from { opacity: 0; } }
+@keyframes mm-meldung-karte { from { opacity: 0; transform: translateY(8px) scale(.97); } }
+
+/* Handy: Liste nicht hinter der Reiterleiste enden lassen */
+@media (max-width: 759.98px) {
+  .konf-karte-hub .tour-liste { padding-bottom: calc(var(--tb-mobile-h, 72px) + 16px); }
+}
+.flug-hud strong { padding-right: 34px; }
+.flug-hud-zu { pointer-events: auto; /* der HUD selbst lässt Gesten zur Karte durch */ position: absolute; top: 9px; right: 10px; width: 28px; height: 28px; padding: 0; border: 0; border-radius: 50%; background: rgba(255,255,255,0.14); color: #fff; font-size: 18px; line-height: 1; cursor: pointer; }
+.flug-hud-zu:hover { background: rgba(255,255,255,0.24); }
+
+/* Handy: Das Sheet endet über der schwebenden Reiterleiste. Darunter füllt
+   eine Fläche in Sheet-Farbe bis zum Bildrand — so reicht das Panel optisch
+   bis ganz unten, ohne dass Listenzeilen durch die Leiste scheinen. */
+@container (max-width: 759.98px) {
+  .konf-split--karte .kv-layout::after {
+    content: '';
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    height: calc(var(--tb-mobile-h) + 1px);
+    background: rgba(24, 24, 24, 0.96);
+    border-left: 1px solid rgba(255,255,255,0.14);
+    border-right: 1px solid rgba(255,255,255,0.14);
+    z-index: 49;
+    pointer-events: none;
+  }
+  .konf-karte-hub.kv-faehrt .kv-layout::after { display: none; }
+}

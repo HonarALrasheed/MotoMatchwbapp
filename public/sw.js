@@ -27,6 +27,13 @@ async function aufraeumen(cache) {
 async function kartenAntwort(request) {
   const url = new URL(request.url)
   const cache = await caches.open(KARTEN_CACHE)
+  // Stil und TileJSON: sofort aus dem Cache, im Hintergrund erneuern
+  if (/\/kacheln\/(styles|planet$)/.test(url.pathname)) {
+    const alt = await cache.match(request)
+    const neu = fetch(request).then((r) => { if (r.ok) cache.put(request, r.clone()); return r }).catch(() => null)
+    if (alt) return alt
+    return (await neu) || Response.error()
+  }
   if (zuerstNetz(url)) {
     try {
       const r = await fetch(request)

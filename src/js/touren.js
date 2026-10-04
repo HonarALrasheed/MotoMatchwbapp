@@ -15,6 +15,7 @@
    ═══════════════════════════════════════════════════ */
 
 import { esc } from './util.js'
+import { meldung, eingeben, fragen } from './meldung.js'
 import { getHubMap, onHubMapReady, getUserCoords, haversineKm, getMapLib } from './karte.js'
 import { setKurvenSichtbar, kurvenInDerNaehe, zeigeStrecke, stufe } from './kurven.js'
 import { vorschauBeobachten } from './vorschau.js'
@@ -347,10 +348,13 @@ function renderFilter() {
   const opt = document.getElementById('tour-optionen')
   if (!opt) return
   opt.hidden = !offen
-  opt.innerHTML = offen ? Object.entries(FILTER).map(([key, f]) => `<div class="tour-opt-gruppe">
+  // Kurze Beschriftungen, damit jede Gruppe in eine Zeile passt
+  const KURZ = { kurz: '< 100 km', mittel: '100–200', lang: '> 200 km', sehr: 'Sehr kurvig', strecke: 'Strecke' }
+  opt.innerHTML = offen ? `<div class="tour-opt-karte">${Object.entries(FILTER).map(([key, f]) => `<div class="tour-opt-gruppe">
       <span class="tour-opt-titel">${esc(f.label)}</span>
-      <div class="tour-opt-werte">${f.werte.map(([id, label]) => `<button type="button" class="tour-option${zustand[key] === id ? ' tour-option--aktiv' : ''}" data-gruppe="${key}" data-wert="${id}">${esc(id === 'alle' ? 'Alle' : label)}</button>`).join('')}</div>
-    </div>`).join('') + (aktiveFilter ? '<button type="button" class="tour-opt-reset" data-filter-reset>Filter zurücksetzen</button>' : '') : ''
+      <div class="tour-opt-werte" role="group" aria-label="${esc(f.label)}">${f.werte.map(([id, label]) => `<button type="button" class="tour-option${zustand[key] === id ? ' tour-option--aktiv' : ''}" aria-pressed="${zustand[key] === id}" data-gruppe="${key}" data-wert="${id}" title="${esc(label)}">${esc(id === 'alle' ? 'Alle' : KURZ[id] || label)}</button>`).join('')}</div>
+    </div>`).join('')}
+    ${aktiveFilter ? '<button type="button" class="tour-opt-reset" data-filter-reset>Zurücksetzen</button>' : ''}</div>` : ''
 
   const sortLabel = document.getElementById('tour-sort-label')
   if (sortLabel) sortLabel.textContent = { entfernung: 'Entfernung', kurven: 'Kurvigkeit', laenge: 'Länge' }[sortWirksam()]
@@ -695,6 +699,11 @@ function ebenen(map) {
   g.beginPath(); g.moveTo(11, 8); g.lineTo(21, 16); g.lineTo(11, 24); g.stroke()
   map.addImage('tour-pfeil', g.getImageData(0, 0, 32, 32), { pixelRatio: 2 })
 
+  // Umkreis der Suche als zarter Kreis (unter allem anderen)
+  map.addSource('touren-umkreis', { type: 'geojson', data: LEER })
+  const vorStrassen = map.getStyle().layers.find((l) => /^(tunnel_|road_|bridge_)/.test(l.id))?.id
+  map.addLayer({ id: 'touren-umkreis-flaeche', type: 'fill', source: 'touren-umkreis', paint: { 'fill-color': '#4263eb', 'fill-opacity': 0.07 } }, vorStrassen)
+  map.addLayer({ id: 'touren-umkreis-rand', type: 'line', source: 'touren-umkreis', paint: { 'line-color': '#3b5bdb', 'line-width': 2.2, 'line-opacity': 0.85, 'line-dasharray': [2.5, 1.8] } }, vorStrassen)
   map.addSource('touren-liste', { type: 'geojson', data: LEER })
   map.addSource('touren-start', { type: 'geojson', data: LEER })
   map.addSource('tour-detail', { type: 'geojson', data: LEER, lineMetrics: true })
@@ -744,9 +753,21 @@ const quelle = (map, id) => map.getSource(id)
 // Erst nach dem 'load' der Karte dürfen Quellen dazukommen (karte.js setzt die Marke)
 const istBereit = (map) => !!map?.__mmBereit
 
+/** Kreis als Polygon (64 Ecken) um h mit Radius km. */
+function umkreisKreis(h, km) {
+  const ring = []
+  const dLat = km / 111.32, dLng = km / (111.32 * Math.cos((h.lat * Math.PI) / 180))
+  for (let i = 0; i <= 64; i++) {
+    const a = (i / 64) * Math.PI * 2
+    ring.push([h.lng + dLng * Math.cos(a), h.lat + dLat * Math.sin(a)])
+  }
+  return { type: 'Feature', properties: {}, geometry: { type: 'Polygon', coordinates: [ring] } }
+}
+
 function entferneListe() {
   const map = getHubMap()
   if (!map?.getSource('touren-liste')) return
+  quelle(map, 'touren-umkreis').setData(LEER)
   quelle(map, 'touren-liste').setData(LEER)
   quelle(map, 'touren-start').setData(LEER)
   listenLinien = []
@@ -786,7 +807,18 @@ function zeichneListe(liste, anpassen) {
   listenLinien = liste.map((t, i) => ({ id: t.id, fid: i + 1 }))
   quelle(map, 'touren-liste').setData({ type: 'FeatureCollection', features: liste.map((t, i) => linie(t._pts, { id: t.id }, i + 1)) })
   quelle(map, 'touren-start').setData({ type: 'FeatureCollection', features: liste.map((t) => punkt(t._pts[0], { id: t.id })) })
-  if (anpassen && liste.length) map.fitBounds(grenzen(liste.flatMap((t) => t._pts)), { padding: rand(), duration: 700, maxZoom: 12 })
+  // Umkreis um Standort bzw. die gesuchte Kartenmitte zeigen und einpassen
+  const h = herkunft()
+  const kreis = h && zustand.umkreis && !zustand.meine && !zustand.gemerkt ? umkreisKreis(h, zustand.umkreis) : null
+  quelle(map, 'touren-umkreis').setData(kreis || LEER)
+  // Reiter wird gerade neu aufgebaut (Karte 0×0): Ausschnitt bleibt, wie er war
+  if (!map.getCanvas().clientWidth) anpassen = false
+  if (anpassen && kreis) {
+    // Etwas Luft um den Kreis, damit sein Rand sichtbar bleibt
+    const r = rand()
+    map.fitBounds(grenzen(kreis.geometry.coordinates[0].map(([ln, la]) => [la, ln])), { padding: { top: r.top + 24, bottom: r.bottom + 24, left: r.left + 24, right: r.right + 24 }, duration: 700 })
+  }
+  else if (anpassen && liste.length) map.fitBounds(grenzen(liste.flatMap((t) => t._pts)), { padding: rand(), duration: 700, maxZoom: 12 })
 }
 
 /** Karte und Liste zeigen dieselbe Tour hervorgehoben — von beiden Seiten aus. */
@@ -808,7 +840,8 @@ function zeichneDetail(t, d) {
   const punkte = [punkt(d.pts[0], { art: 'start' })]
   if (t.typ === 'strecke') punkte.unshift(punkt(d.pts[d.pts.length - 1], { art: 'ziel' }))
   quelle(map, 'tour-detail-punkte').setData({ type: 'FeatureCollection', features: punkte })
-  map.fitBounds(grenzen(d.pts), { padding: rand(), duration: 700 })
+  // Reiter wird gerade neu aufgebaut (Karte 0×0): gleich danach passt oeffneTour ein
+  if (map.getCanvas().clientWidth) map.fitBounds(grenzen(d.pts), { padding: rand(), duration: 700 })
   map.once('moveend', () => nachzeichnen(map))
 }
 
@@ -924,8 +957,12 @@ export function flugStoppen(zurueck = true) {
   f.hud?.remove()
   flugKarte(f.map, false, f)
   document.body.classList.remove('mm-fliegt')
+  if (f.sheetWarAuf) document.dispatchEvent(new CustomEvent('mm:kv-sheet', { detail: { auf: true } }))
   document.getElementById('tour-profil-cursor')?.classList.remove('an')
   document.querySelectorAll('[data-flug]').forEach((b) => { b.classList.remove('an'); b.lastChild.textContent = ' Strecke abfliegen' })
+  // Der Flug setzt einen Kamera-Innenrand, der sonst haften bleibt und jedes
+  // spätere Zentrieren (Mein Standort, Tour öffnen) verschiebt
+  f.map.setPadding({ top: 0, bottom: 0, left: 0, right: 0 })
   if (zurueck) f.map.fitBounds(grenzen(f.d.pts), { padding: rand(), pitch: 0, bearing: 0, duration: 1400 })
   else f.map.easeTo({ pitch: 0, bearing: 0, duration: 800 })
   f.map.once('moveend', () => { if (!flug) f.map.setMaxPitch(0) })
@@ -943,18 +980,25 @@ function abfliegen(d, t) {
   const f = flug = { map, d, raf: 0, punkt: new ml.Marker({ element: el }).setLngLat([d.pts[0][1], d.pts[0][0]]).addTo(map), kurs: null, t0: 0, tLetzt: 0 }
   flugKarte(map, true, f)
   document.body.classList.add('mm-fliegt')
+  // Handy: Panel einklappen, sonst sieht man vom Flug nichts — danach wieder auf
+  const mobil = window.matchMedia('(max-width: 759.98px)').matches
+  if (mobil) {
+    f.sheetWarAuf = !!document.querySelector('.konf-karte-hub .kv-sidebar.kv-sheet--expanded')
+    document.dispatchEvent(new CustomEvent('mm:kv-sheet', { detail: { auf: false } }))
+  }
   // Anzeige oben auf der Karte: Name, Fortschritt, Kilometer und Höhe
   const host = document.querySelector('.konf-karte-hub .kv-map-wrap')
   if (host) {
     f.hud = document.createElement('div')
     f.hud.className = 'flug-hud'
-    f.hud.innerHTML = `<strong>${esc(t?.name || 'Strecke')}</strong><div class="flug-hud-zeile"><span class="flug-km">km 0</span><span class="flug-hoehe"></span></div><div class="flug-hud-balken"><i></i></div>`
+    f.hud.innerHTML = `<button type="button" class="flug-hud-zu" aria-label="Flug beenden">×</button><strong>${esc(t?.name || 'Strecke')}</strong><div class="flug-hud-zeile"><span class="flug-km">km 0</span><span class="flug-hoehe"></span></div><div class="flug-hud-balken"><i></i></div>`
+    f.hud.querySelector('.flug-hud-zu').addEventListener('click', () => flugStoppen())
     host.appendChild(f.hud)
   }
   f.abbruch = (e) => { if (e.originalEvent) flugStoppen(false) }
   map.on('dragstart', f.abbruch); map.on('wheel', f.abbruch)
   document.querySelectorAll('[data-flug]').forEach((b) => { b.classList.add('an'); b.lastChild.textContent = ' Flug stoppen' })
-  const pad = rand()
+  const pad = mobil ? { top: 90, bottom: Math.round(Math.min(260, window.innerHeight * 0.33)), left: 20, right: 20 } : rand()
   const padding = { top: Math.round(pad.top + (window.innerHeight * 0.18)), bottom: pad.bottom, left: pad.left, right: pad.right }
   const cursor = document.getElementById('tour-profil-cursor')
   const wert = document.getElementById('tour-profil-wert')
@@ -1057,6 +1101,7 @@ function neuZeichnen(anpassen = false) {
 
 export function setTourenAktiv(an) {
   zustand.aktiv = an
+  document.querySelector('.konf-karte-hub .kv-sidebar')?.classList.remove('kv-kopf-weg')
   setKurvenSichtbar(an && zustand.kurvenEbene)
   if (!an) { entferneListe(); entferneDetail(); return }
   renderUmkreis() // war versteckt und ist erst jetzt messbar
@@ -1064,13 +1109,24 @@ export function setTourenAktiv(an) {
 }
 
 /** "In diesem Gebiet suchen" bzw. Ortssuche: neue Mitte für Entfernung und Umkreis. */
-export function setTourenHerkunft(lat, lng) {
+export function setTourenHerkunft(lat, lng, { karteAnpassen = true } = {}) {
   zustand.herkunft = lat == null ? null : { lat, lng }
   zustand.seite = 1
   zustand.offeneTour = null
-  if (!zustand.umkreis) zustand.umkreis = 100
+  zustand.meine = false
+  zustand.gemerkt = false
+  if (!zustand.umkreis && karteAnpassen) {
+    // "Alle" gewählt: Umkreis passend zum sichtbaren Ausschnitt nehmen
+    const map = getHubMap()
+    let r = 100
+    if (lat != null && map) {
+      const b = map.getBounds()
+      r = Math.min(haversineKm(lat, lng, b.getNorth(), lng), haversineKm(lat, lng, lat, b.getEast()))
+    }
+    zustand.umkreis = UMKREISE.find((u) => u && u >= r) || 200
+  }
   renderUmkreis()
-  renderListe({ karteAnpassen: true })
+  renderListe({ karteAnpassen })
 }
 
 let umkreisThumb = null
@@ -1109,7 +1165,7 @@ async function teilen(t, d) {
     if (navigator.share) { await navigator.share({ title: t.name, text, url }); return }
   } catch (err) { if (err?.name === 'AbortError') return }
   try { await navigator.clipboard.writeText(url); hinweis('Link kopiert — schick ihn, wem du willst.') }
-  catch { prompt('Link zum Kopieren', url) }
+  catch { meldung({ titel: 'Link zum Teilen', eingabe: url, knoepfe: [{ label: 'Fertig', wert: true, haupt: true }] }) }
 }
 
 /** Geteilte Strecke aus dem Link (app.js legt sie in sessionStorage ab). */
@@ -1145,6 +1201,23 @@ export function initTouren({ mountThumb } = {}) {
     renderUmkreis()
     renderListe({ karteAnpassen: true })
   }))
+
+  // Kopf (Touren/Orte, Umkreis, Filter) beim Runterscrollen ausblenden, beim
+  // Hochscrollen wieder zeigen — mehr Platz für die Liste
+  const box = document.getElementById('tour-liste')
+  const seitenleiste = ansicht.closest('.kv-sidebar')
+  let letzteY = 0
+  box?.addEventListener('scroll', () => {
+    const y = box.scrollTop
+    if (y < 24) seitenleiste?.classList.remove('kv-kopf-weg')
+    else if (y > letzteY + 6) {
+      seitenleiste?.classList.add('kv-kopf-weg')
+      const menue = ansicht.querySelector('.tour-neu-menue')
+      if (menue && !menue.hidden) { menue.hidden = true; ansicht.querySelector('#tour-neu')?.setAttribute('aria-expanded', 'false') }
+    }
+    else if (y < letzteY - 6) seitenleiste?.classList.remove('kv-kopf-weg')
+    if (Math.abs(y - letzteY) > 6 || y < 24) letzteY = y
+  }, { passive: true })
 
   // "+ Neu"-Menü schließt bei jedem Tipp daneben (auch auf der Karte)
   document.addEventListener('pointerdown', (e) => {
@@ -1242,17 +1315,21 @@ export function initTouren({ mountThumb } = {}) {
     }
     if (e.target.closest('[data-umbenennen]')) {
       const t = findeTour(zustand.offeneTour)
-      const name = t && prompt('Neuer Name der Strecke', t.name)
-      if (name?.trim()) { umbenennen(t.id, name.trim().slice(0, 80)); eigeneGeaendert(); oeffneTour(t.id) }
+      if (!t) return
+      eingeben('Neuer Name der Strecke', t.name).then((name) => {
+        if (name?.trim()) { umbenennen(t.id, name.trim().slice(0, 80)); eigeneGeaendert(); oeffneTour(t.id) }
+      })
       return
     }
     if (e.target.closest('[data-loeschen]')) {
       const t = findeTour(zustand.offeneTour)
-      if (t && confirm(`„${t.name}“ löschen? Das lässt sich nicht rückgängig machen.`)) {
+      if (!t) return
+      fragen(`„${t.name}“ löschen?`, 'Das lässt sich nicht rückgängig machen.', { ja: 'Löschen', gefahr: true }).then((ja) => {
+        if (!ja) return
         loesche(t.id); eigeneGeaendert()
         zustand.offeneTour = null
         renderListe({ karteAnpassen: true })
-      }
+      })
       return
     }
     if (e.target.closest('[data-flug]')) {
@@ -1287,6 +1364,7 @@ export function initTouren({ mountThumb } = {}) {
       merken.classList.toggle('tour-btn--gemerkt', an)
       merken.setAttribute('aria-pressed', String(an))
       merken.innerHTML = `${ICON.merken(an)}<span>${an ? 'Gemerkt' : 'Merken'}</span>`
+      renderFilter() // Zähler am Gemerkt-Chip
       return
     }
     const kurve = e.target.closest('[data-kurve]')

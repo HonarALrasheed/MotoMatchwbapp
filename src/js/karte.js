@@ -32,6 +32,10 @@ let popup = null
 let userLat = DE_MITTE.lat
 let userLng = DE_MITTE.lng
 let userLocationKnown = false
+/* Suchmitte aus Ortssuche/"Hier suchen" — getrennt vom echten Standort, sonst
+   stünden danach Standortpunkt, "Mein Standort" und die mit Freunden geteilte
+   Position am gesuchten Ort. null = um den eigenen Standort suchen. */
+let suchMitte = null
 let geoPromise = null
 
 /* Letzter Kartenausschnitt: Die Karte öffnet dort, wo man zuletzt war, statt
@@ -77,8 +81,57 @@ export function getMapLib() { return ml }
 export function karteVorwaermen() {
   if (navigator.connection?.saveData) return
   ladeMapLibre().catch(() => {})
-  ladeKartenStil().catch(() => {})
-  fetch('/kacheln/planet').catch(() => {})
+  startTeileVorladen()
+}
+
+/** Wo die Karte aufgeht: Standort, sonst letzter Ausschnitt, sonst Deutschland. */
+function startBlick() {
+  if (userLocationKnown) return { lng: userLng, lat: userLat, zoom: 12.5 }
+  return letzterBlick() || { lng: userLng, lat: userLat, zoom: 5.4 }
+}
+
+/* Was die Karte zum ersten Bild braucht, vorab holen — landet im Browser- und
+   Worker-Cache, MapLibre fragt danach dieselben Adressen an. Ohne das lädt
+   sie nacheinander: erst Kacheln, dann die Schriften (vorher zeichnet sie
+   keine Kachel), dann die Symbole. */
+let vorladen = null
+function startTeileVorladen(breite = innerWidth, hoehe = innerHeight) {
+  if (vorladen) return vorladen
+  vorladen = ladeKartenStil().then((stil) => {
+    const holen = (u) => fetch(umleiten(u).url).catch(() => {})
+    if (stil.glyphs) {
+      for (const [schrift, bereiche] of [['Regular', [0, 256, 512, 8192]], ['Bold', [0, 256]], ['Italic', [0, 256, 8192]]]) {
+        for (const a of bereiche) holen(stil.glyphs.replace('{fontstack}', encodeURIComponent(`Noto Sans ${schrift}`)).replace('{range}', `${a}-${a + 255}`))
+      }
+    }
+    if (typeof stil.sprite === 'string') {
+      const s = stil.sprite + (devicePixelRatio > 1 ? '@2x' : '')
+      holen(`${s}.json`); holen(`${s}.png`)
+    }
+    holen('/data/kurven/uebersicht.json') // Kurvenstrecken weit draußen (Ebene ist Standard)
+    // Kacheln des Startausschnitts (Vektor 512 px, Relief in derselben Stufe)
+    const vektor = Object.values(stil.sources).find((q) => q.type === 'vector' && q.tiles?.length)
+    if (!vektor || navigator.connection?.effectiveType?.includes('2g')) return
+    const b = startBlick()
+    const z = Math.min(14, Math.max(0, Math.floor(b.zoom)))
+    const n = 2 ** z
+    const welt = 512 * 2 ** b.zoom
+    const px = ((b.lng + 180) / 360) * welt
+    const sin = Math.sin((b.lat * Math.PI) / 180)
+    const py = (0.5 - Math.log((1 + sin) / (1 - sin)) / (4 * Math.PI)) * welt
+    const kachel = welt / n
+    const x0 = Math.floor((px - breite / 2) / kachel), x1 = Math.floor((px + breite / 2) / kachel)
+    const y0 = Math.max(0, Math.floor((py - hoehe / 2) / kachel)), y1 = Math.min(n - 1, Math.floor((py + hoehe / 2) / kachel))
+    if ((x1 - x0 + 1) * (y1 - y0 + 1) > 24) return
+    for (let x = x0; x <= x1; x++) {
+      for (let y = y0; y <= y1; y++) {
+        const xx = ((x % n) + n) % n
+        holen(vektor.tiles[0].replace('{z}', z).replace('{x}', xx).replace('{y}', y))
+        if (z >= 5 && z <= 12) holen(`${location.origin}/hoehe/${z}/${xx}/${y}.png`)
+      }
+    }
+  }).catch(() => { vorladen = null })
+  return vorladen
 }
 
 // ── Kategorien ───────────────────────────────────────────────────────────
@@ -207,6 +260,10 @@ export function getUserCoords() {
   if (!userLocationKnown) return { lat: null, lng: null }
   return { lat: userLat, lng: userLng }
 }
+/** Wo Orte gesucht werden: gesuchter Ort, sonst der eigene Standort. */
+export function getSuchMitte() {
+  return suchMitte ? { ...suchMitte } : getUserCoords()
+}
 
 // ── Karte ────────────────────────────────────────────────────────────────
 
@@ -246,10 +303,47 @@ const STIL_FARBEN = {
 
 /* Der Stil kommt als JSON und wird vor der Übergabe angepasst: Farben (s. o.),
    deutsche Namen, alle Adressen über den eigenen Proxy. */
+/* Stil und Kachelverzeichnis (TileJSON) kommen gleichzeitig und werden im
+   Browser gemerkt: beim nächsten Öffnen steht die Karte ohne Wartezeit, im
+   Hintergrund wird der Stand erneuert. */
+const STIL_KEY = 'mm_kartenstil_v1'
+const STIL_MAX_ALTER = 7 * 24 * 3600 * 1000
+
+function holeStilRoh() {
+  const frisch = Promise.all([
+    fetch(STIL_URL).then((r) => { if (!r.ok) throw new Error(`Kartenstil HTTP ${r.status}`); return r.json() }),
+    fetch(`${KACHEL_PROXY}planet`).then((r) => (r.ok ? r.json() : null)).catch(() => null),
+  ]).then(([roh, tj]) => {
+    try { localStorage.setItem(STIL_KEY, JSON.stringify({ zeit: Date.now(), roh, tj })) } catch {}
+    return { roh, tj }
+  })
+  let gemerkt = null
+  try { gemerkt = JSON.parse(localStorage.getItem(STIL_KEY) || 'null') } catch {}
+  if (gemerkt?.roh?.layers && Date.now() - gemerkt.zeit < STIL_MAX_ALTER) {
+    frisch.catch(() => {})
+    return Promise.resolve(gemerkt)
+  }
+  return frisch
+}
+
 async function ladeStil() {
-  const r = await fetch(STIL_URL)
-  if (!r.ok) throw new Error(`Kartenstil HTTP ${r.status}`)
-  const stil = await r.json()
+  const { roh: stil, tj } = await holeStilRoh()
+  // Kachelverzeichnis direkt eintragen — spart MapLibre eine Runde übers Netz
+  if (tj?.tiles?.length) {
+    for (const q of Object.values(stil.sources)) {
+      if (q.type !== 'vector' || !/\/planet$/.test(q.url || '')) continue
+      delete q.url
+      Object.assign(q, { tiles: tj.tiles, minzoom: tj.minzoom ?? 0, maxzoom: tj.maxzoom ?? 14, ...(tj.bounds ? { bounds: tj.bounds } : {}) })
+    }
+  }
+  // Grobes Relief aus Natural Earth (z0–6) käme direkt von OpenFreeMap und doppelt
+  // unsere eigene Schummerung — weg damit
+  for (const [id, q] of Object.entries(stil.sources)) {
+    if (q.type === 'raster' && /natural_earth|ne2/.test(id + JSON.stringify(q.tiles || q.url || ''))) {
+      delete stil.sources[id]
+      stil.layers = stil.layers.filter((l) => l.source !== id)
+    }
+  }
   // 3D-Gebäude kosten auf dem Handy Leistung und verdecken im Fahrmodus die Straße
   stil.layers = stil.layers.filter((l) => l.id !== 'building-3d')
   // Relief wie bei komoot: Schummerung aus freien Höhendaten (über die eigene Domain).
@@ -369,15 +463,16 @@ export async function initHubMap() {
   }
 
   try {
+    startTeileVorladen(el.clientWidth || innerWidth, el.clientHeight || innerHeight)
     const [, stil] = await Promise.all([ladeMapLibre(), ladeKartenStil()])
     if (token !== initToken || !document.body.contains(el)) return
     el.innerHTML = ''
-    const blick = !userLocationKnown && letzterBlick()
+    const blick = startBlick()
     karte = new ml.Map({
       container: el,
       style: stil,
-      center: blick ? [blick.lng, blick.lat] : [userLng, userLat],
-      zoom: userLocationKnown ? 12.5 : blick ? blick.zoom : 5.4,
+      center: [blick.lng, blick.lat],
+      zoom: blick.zoom,
       attributionControl: { compact: true },
       transformRequest: umleiten,
       cooperativeGestures: false,
@@ -386,6 +481,13 @@ export async function initHubMap() {
       maxPitch: 0,
     })
     karte.touchZoomRotate.disableRotation()
+    // Der OpenFreeMap-Stil nennt ein paar Symbole, die im Sprite fehlen (atm, gate …):
+    // leer auffüllen statt die Konsole vollzuschreiben. Eigene Bilder ausgenommen,
+    // die kommen gleich selbst.
+    karte.on('styleimagemissing', (e) => {
+      if (/^(ort-|kurven-|tour-|navi-)/.test(e.id) || karte.hasImage(e.id)) return
+      karte.addImage(e.id, { width: 1, height: 1, data: new Uint8Array(4) })
+    })
     if (import.meta.env.DEV) window.__mmKarte = karte // nur zum Prüfen im Dev-Server
     karteBereit = new Promise((ok) => karte.once('load', ok))
     karte.on('moveend', (e) => {
@@ -413,7 +515,7 @@ export async function initHubMap() {
 /** Standort kam an: hinfliegen und die aktive Kachel suchen. */
 function standortGefunden() {
   if (!karte) return
-  if (!orteAusgesetzt) {
+  if (!orteAusgesetzt && !suchMitte) {
     const c = karte.getCenter()
     // Weite Flüge laden unterwegs alle Zwischenzooms — dann lieber direkt springen
     if (haversineKm(c.lat, c.lng, userLat, userLng) > 60) karte.jumpTo({ center: [userLng, userLat], zoom: 12.5 })
@@ -425,7 +527,7 @@ function standortGefunden() {
 
 function sucheAktiveKachel() {
   const aktiv = document.querySelector('.hub-pill.active')
-  if (aktiv && userLocationKnown) searchNearby(aktiv.dataset.query, letzterRadius || 5000)
+  if (aktiv && (userLocationKnown || suchMitte)) searchNearby(aktiv.dataset.query, letzterRadius || 5000)
   else emitResultsUpdate()
 }
 
@@ -441,6 +543,7 @@ export function recenterHubMap() {
   if (!karte) return
   if (!userLocationKnown) { retryHubLocation(); return }
   karte.flyTo({ center: [userLng, userLat], zoom: 13 })
+  if (suchMitte) { suchMitte = null; sucheAktiveKachel() } // Orte wieder um mich
 }
 export function zoomHubMap(delta) {
   if (!karte) return
@@ -454,9 +557,7 @@ export function panHubToCoords(lat, lng) {
 
 /** Suchmitte verlegen (Ortssuche, "Hier suchen") und neu suchen. */
 export function searchNearbyAt(lat, lng) {
-  userLat = lat
-  userLng = lng
-  userLocationKnown = true
+  suchMitte = { lat, lng }
   if (!karte) { initHubMap(); return }
   if (!orteAusgesetzt) karte.flyTo({ center: [lng, lat], zoom: 12.5 })
   const aktiv = document.querySelector('.konf-karte-hub .hub-pill.active') || document.querySelector('.hub-pill.active')
@@ -532,13 +633,16 @@ function setzeOrteAufKarte() {
  * die den Kreis berühren — höchstens vier bei 50 km.
  */
 export async function searchNearby(filter, radius = 5000) {
+  // Andere Kategorie: alte Treffer sofort weg, sonst stünden bis zum Laden
+  // Werkstätten unter "Tankstelle"
+  if (filter !== letzterFilter && treffer.length) { treffer = []; setzeOrteAufKarte() }
   letzterFilter = filter
   letzterRadius = radius
   if (orteAusgesetzt) return
   const gen = ++suchGeneration
   popup?.remove()
   const kat = KATEGORIE[filter] || 'werkstatt'
-  const lat = userLat, lng = userLng
+  const { lat = userLat, lng = userLng } = suchMitte || (userLocationKnown ? { lat: userLat, lng: userLng } : {})
   const km = radius / 1000
   try {
     const index = await ladeOrteIndex()
@@ -592,7 +696,8 @@ function zeigeAlleTreffer(lat, lng) {
 }
 
 export function getHubSearchResults() {
-  return treffer.map((t) => ({ ...t, distanceKm: haversineKm(userLat, userLng, t.lat, t.lng) }))
+  const m = suchMitte || { lat: userLat, lng: userLng }
+  return treffer.map((t) => ({ ...t, distanceKm: haversineKm(m.lat, m.lng, t.lat, t.lng) }))
 }
 export function getHubMarkers() {
   return treffer.map((t) => ({ title: t.name, position: { lat: t.lat, lng: t.lng } }))

@@ -11,6 +11,7 @@
    ═══════════════════════════════════════════════════ */
 
 import { esc } from './util.js'
+import { hinweisen, fragen, standortGesperrt } from './meldung.js'
 import { getHubMap, getMapLib } from './karte.js'
 import { starteAufzeichnung, unterbrocheneAufzeichnung, verwerfeUnterbrochene, formatiereDauer, standortVerfuegbar } from './ride-tracker.js'
 import { speichereFahrt, PRAEFIX } from './eigene-strecken.js'
@@ -97,10 +98,10 @@ function speichernFragen(fahrt) {
       const fertig = l.fertig
       abbauen()
       fertig?.(PRAEFIX + id)
-    } catch (err) { alert(err.message) }
+    } catch (err) { hinweisen('Nicht gespeichert', err.message) }
   })
-  l.el.querySelector('[data-auf="weg"]').addEventListener('click', () => {
-    if (confirm('Fahrt wirklich verwerfen?')) abbauen()
+  l.el.querySelector('[data-auf="weg"]').addEventListener('click', async () => {
+    if (await fragen('Fahrt verwerfen?', 'Die aufgezeichnete Strecke geht dabei verloren.', { ja: 'Verwerfen', gefahr: true })) abbauen()
   })
 }
 
@@ -113,11 +114,11 @@ export async function aufzeichnungStarten({ fertig } = {}) {
   const map = getHubMap()
   const host = document.querySelector('.konf-karte-hub .kv-map-wrap')
   if (!map || !host) return
-  if (!standortVerfuegbar()) { alert('Dieser Browser gibt keinen Standort frei — ohne GPS lässt sich nichts aufzeichnen.'); return }
+  if (!standortVerfuegbar()) { hinweisen('Kein Standort', 'Dieser Browser gibt keinen Standort frei — ohne GPS lässt sich nichts aufzeichnen.'); return }
   let fortsetzen = null
   const offen = unterbrocheneAufzeichnung()
   if (offen) {
-    if (confirm('Es gibt eine unterbrochene Aufzeichnung. Dort weitermachen?')) fortsetzen = offen
+    if (await fragen('Weiter aufzeichnen?', 'Es gibt eine unterbrochene Aufzeichnung. Dort weitermachen?', { ja: 'Weitermachen', nein: 'Neu starten' })) fortsetzen = offen
     else verwerfeUnterbrochene()
   }
 
@@ -163,7 +164,7 @@ export async function aufzeichnungStarten({ fertig } = {}) {
     if (b.dataset.auf === 'stopp') {
       if (!s) { abbauen(); return }
       const fahrt = s.beenden()
-      if (!fahrt || fahrt.km < 0.2) { alert('Zu wenig Strecke aufgezeichnet — es wurde nichts gespeichert.'); abbauen(); return }
+      if (!fahrt || fahrt.km < 0.2) { hinweisen('Nichts gespeichert', 'Zu wenig Strecke aufgezeichnet.'); abbauen(); return }
       speichernFragen(fahrt)
     }
   })
@@ -178,7 +179,12 @@ export async function aufzeichnungStarten({ fertig } = {}) {
     if (lauf !== l) { l.steuerung.abbrechen(); return }
     zeige(l.steuerung.stand())
   } catch (err) {
-    if (lauf === l) { abbauen(); alert(err.message) }
+    if (lauf === l) {
+      abbauen()
+      // Standort gesperrt: erklären, wie man ihn freigibt, und neu versuchen lassen
+      if (/Standort/i.test(err.message) && await standortGesperrt('Das Aufzeichnen')) aufzeichnungStarten({ fertig })
+      else if (!/Standort/i.test(err.message)) hinweisen('Aufzeichnung nicht möglich', err.message)
+    }
   }
 }
 

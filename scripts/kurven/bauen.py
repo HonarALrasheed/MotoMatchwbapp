@@ -11,6 +11,7 @@ Eingabe:  germany-latest.osm.pbf (download.geofabrik.de, © OpenStreetMap-Mitwir
 Ausgabe:  public/data/kurven/index.json + public/data/kurven/<lat>_<lng>.json (1°-Kacheln)
 
 Aufruf:   python scripts/kurven/bauen.py <pfad/germany-latest.osm.pbf>
+          danach python scripts/kurven/uebersicht.py (Datei für niedrige Zoomstufen)
           (braucht das Paket "osmium"; zwei Durchläufe, ~32 GB RAM reichen bequem)
 """
 

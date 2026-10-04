@@ -12,6 +12,7 @@
    ═══════════════════════════════════════════════════ */
 
 import { esc } from './util.js'
+import { hinweisen, eingeben } from './meldung.js'
 import { getHubMap, getMapLib, haversineKm, getUserCoords, resolveOrt } from './karte.js'
 import { route, naechster, RoutingFehler } from './routing.js'
 import { streckenIn } from './kurven.js'
@@ -206,61 +207,98 @@ async function neuRechnen() {
 
 function box() { return document.getElementById('tour-liste') }
 
+const PI = {
+  zurueck: '<svg viewBox="0 0 24 24"><path d="M15 5l-7 7 7 7"/></svg>',
+  undo: '<svg viewBox="0 0 24 24"><path d="M9 14L4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 0 1 0 11H11"/></svg>',
+  leeren: '<svg viewBox="0 0 24 24"><path d="M4 7h16M10 11v6M14 11v6M5 7l1 13h12l1-13M9 7V4h6v3"/></svg>',
+  suche: '<svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>',
+  plus: '<svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>',
+  standort: '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/><circle cx="12" cy="12" r="7"/></svg>',
+  kurvig: '<svg viewBox="0 0 24 24"><path d="M4 20c0-5 4-6 8-8s8-3 8-8"/></svg>',
+  schnell: '<svg viewBox="0 0 24 24"><path d="M13 3L5 13h6l-1 8 8-10h-6z"/></svg>',
+  rund: '<svg viewBox="0 0 24 24"><path d="M20 12a8 8 0 1 1-2.3-5.6"/><path d="M20 4v5h-5"/></svg>',
+  ziel: '<svg viewBox="0 0 24 24"><path d="M5 21V4h11l-2 4 2 4H5"/></svg>',
+  zauber: '<svg viewBox="0 0 24 24"><path d="M5 19L17 7M14 4l1.5 1.5M19 9l1.5 1.5M18 3v3M21 6h-3"/></svg>',
+  tippen: '<svg viewBox="0 0 24 24"><path d="M9 11V5.5a1.5 1.5 0 0 1 3 0V11M12 10.5V9a1.5 1.5 0 0 1 3 0v2M15 10.5a1.5 1.5 0 0 1 3 0V15a6 6 0 0 1-6 6h-1a6 6 0 0 1-5.2-3l-1.6-2.8a1.5 1.5 0 0 1 2.5-1.6L9 15"/></svg>',
+}
+
 function renderInfo() {
   const p = plan, el = document.getElementById('plan-info')
   if (!p || !el) return
   const r = p.ergebnis
   const nPunkte = p.punkte.length
+  // Werkzeuge im Kopf aktuell halten (Punkte kommen auch über die Karte dazu)
+  const undo = box()?.querySelector('[data-plan="zurueck"]')
+  if (undo) undo.disabled = !p.verlauf.length
+  const leeren = box()?.querySelector('[data-plan="leeren"]')
+  if (leeren) leeren.hidden = !nPunkte
+  const vorschlag = box()?.querySelector('.plan-vorschlag-karte')
+  if (vorschlag) vorschlag.hidden = !(p.rund && nPunkte >= 1)
+  // Handy: Kurzfassung direkt unter dem Kopf — bleibt bei eingeklapptem Panel sichtbar
+  const mini = box()?.querySelector('#plan-mini')
+  if (mini) {
+    mini.innerHTML = r
+      ? `<span class="plan-mini-werte"><strong>${km1(r.meter)} km</strong> · ${dauer(r.sekunden * (p.modus === 'kurvig' ? 1.1 : 1))} · ↗ ${r.auf} m</span>
+         <button type="button" class="tour-btn" data-plan="speichern">Speichern</button>
+         <button type="button" class="fahrt-los" data-plan="fahren">Los</button>`
+      : `<span class="plan-mini-text">${p.rechnet ? 'Route wird berechnet …' : nPunkte === 0 ? 'Tippe auf die Karte, um den Start zu setzen.' : nPunkte === 1 && !p.rund && !p.vorschlagVias ? 'Jetzt das Ziel auf der Karte antippen.' : p.fehler ? esc(p.fehler) : ''}</span>`
+  }
+  const standort = box()?.querySelector('[data-plan="standort"]')
+  if (standort) standort.hidden = nPunkte > 0
+  const name = (i) => p.punkte[i]?.[2] || (i === 0 ? 'Start' : i === nPunkte - 1 && !p.rund ? 'Ziel' : `Zwischenpunkt ${i}`)
   el.innerHTML = `
-    ${nPunkte === 0 ? '<p class="plan-tipp">Tippe auf die Karte, um den Start zu setzen — oder nimm deinen Standort. Später kannst du die blaue Linie greifen und ziehen, um die Route umzulegen.</p>'
-      : nPunkte === 1 && !p.vorschlagVias ? '<p class="plan-tipp">Jetzt das Ziel antippen. Oder lass dir eine Rundtour ab hier vorschlagen.</p>' : ''}
+    ${nPunkte === 0 ? `<p class="plan-tipp">${PI.tippen}<span>Tippe auf die Karte, um den Start zu setzen.</span></p>`
+      : nPunkte === 1 && !p.vorschlagVias && !p.rund ? `<p class="plan-tipp">${PI.tippen}<span>Jetzt das Ziel auf der Karte antippen.</span></p>` : ''}
     ${p.fehler ? `<p class="fahrt-start-fehler">${esc(p.fehler)}</p>` : ''}
+    ${nPunkte ? `<ol class="plan-liste">${p.punkte.map((pt, i) => `<li class="plan-liste-punkt plan-liste-punkt--${i === 0 ? 'start' : i === nPunkte - 1 && !p.rund ? 'ziel' : 'via'}">
+        <span class="plan-nr">${i === 0 ? 'S' : i === nPunkte - 1 && !p.rund ? 'Z' : i}</span><span class="plan-liste-name">${name(i)}</span>
+        <button type="button" class="plan-weg" data-plan-weg="${i}" aria-label="${name(i)} entfernen">×</button></li>`).join('')}
+        ${p.rund && nPunkte ? '<li class="plan-liste-punkt plan-liste-punkt--zurueck"><span class="plan-nr">↺</span><span class="plan-liste-name">Zurück zum Start</span></li>' : ''}</ol>` : ''}
     ${r ? `<div class="plan-zahlen${p.rechnet ? ' plan-zahlen--alt' : ''}">
       <div><strong>${km1(r.meter)} km</strong><span>Distanz</span></div>
       <div><strong>${dauer(r.sekunden * (p.modus === 'kurvig' ? 1.1 : 1))}</strong><span>Fahrzeit</span></div>
       <div><strong>${r.auf} m</strong><span>Bergauf</span></div>
       <div><strong>${(r.kurven ??= kurvigkeit(r.pts))}°/km</strong><span>Kurvigkeit</span></div>
     </div>` : p.rechnet ? '<div class="fahrt-laedt"><span class="hub-map-spinner"></span> Route wird berechnet…</div>' : ''}
-    ${nPunkte ? `<ol class="plan-liste">${p.punkte.map((pt, i) => `<li><span class="plan-nr">${i === 0 ? 'S' : i === nPunkte - 1 && !p.rund ? 'Z' : i}</span><span>${i === 0 ? 'Start' : i === nPunkte - 1 && !p.rund ? 'Ziel' : `Zwischenpunkt ${i}`}</span><button type="button" class="plan-weg" data-plan-weg="${i}" aria-label="Punkt entfernen">×</button></li>`).join('')}</ol>` : ''}
     ${r ? `<div class="plan-aktionen">
       <button type="button" class="fahrt-los" data-plan="fahren">Losfahren</button>
       <button type="button" class="tour-btn" data-plan="speichern">Speichern</button>
     </div>` : ''}`
+  document.dispatchEvent(new CustomEvent('mm:kv-peek'))
 }
 
 function renderPanel() {
   const p = plan, b = box()
   if (!p || !b) return
   b.innerHTML = `<div class="fahrt-start plan">
-    <button type="button" class="tour-zurueck" data-plan="schliessen">‹ Zurück</button>
-    <h2 class="fahrt-start-titel">Route planen</h2>
-    <div class="fahrt-wahl">
-      <div class="fahrt-wahl-zeile"><span>Strecke</span>
-        <div class="fahrt-schalter" role="group">
-          <button type="button" data-plan-modus="kurvig" aria-pressed="${p.modus === 'kurvig'}">Kurvig</button>
-          <button type="button" data-plan-modus="schnell" aria-pressed="${p.modus === 'schnell'}">Schnell</button>
-        </div>
-      </div>
-      <div class="fahrt-wahl-zeile"><span>Zurück zum Start</span>
-        <div class="fahrt-schalter" role="group">
-          <button type="button" data-plan-rund="1" aria-pressed="${p.rund}">Rundtour</button>
-          <button type="button" data-plan-rund="0" aria-pressed="${!p.rund}">Bis zum Ziel</button>
-        </div>
-      </div>
+    <div class="plan-kopf">
+      <button type="button" class="plan-icon" data-plan="schliessen" aria-label="Zurück">${PI.zurueck}</button>
+      <h2>Route planen</h2>
+      <button type="button" class="plan-icon" data-plan="zurueck" aria-label="Rückgängig" title="Rückgängig" ${p.verlauf.length ? '' : 'disabled'}>${PI.undo}</button>
+      <button type="button" class="plan-icon" data-plan="leeren" aria-label="Alles löschen" title="Alles löschen" ${p.punkte.length ? '' : 'hidden'}>${PI.leeren}</button>
     </div>
+    <div class="plan-mini" id="plan-mini"></div>
     <form class="plan-suche" data-plan-suche>
+      <span class="plan-suche-icon" aria-hidden="true">${PI.suche}</span>
       <input type="search" placeholder="Ort oder PLZ hinzufügen" aria-label="Ort oder PLZ hinzufügen" enterkeyhint="go">
-      <button type="submit" class="tour-btn">Hinzufügen</button>
+      <button type="submit" class="plan-suche-los" aria-label="Hinzufügen">${PI.plus}</button>
     </form>
-    <div class="plan-werkzeuge">
-      <button type="button" class="tour-btn" data-plan="standort">Mein Standort als Start</button>
-      <button type="button" class="tour-btn" data-plan="zurueck" ${p.verlauf.length ? '' : 'disabled'} aria-label="Rückgängig">↶</button>
-      <button type="button" class="tour-btn" data-plan="vorschlag" ${p.punkte.length ? '' : 'disabled'}>Rundtour vorschlagen</button>
-      <button type="button" class="tour-link-btn" data-plan="leeren" ${p.punkte.length ? '' : 'hidden'}>Alles löschen</button>
+    <button type="button" class="plan-standort" data-plan="standort" ${p.punkte.length ? 'hidden' : ''}>${PI.standort}<span>Mein Standort als Start</span></button>
+    <div class="plan-optionen">
+      <div class="plan-segment" role="group" aria-label="Strecke">
+        <button type="button" data-plan-modus="kurvig" aria-pressed="${p.modus === 'kurvig'}">${PI.kurvig}Kurvig</button>
+        <button type="button" data-plan-modus="schnell" aria-pressed="${p.modus === 'schnell'}">${PI.schnell}Schnell</button>
+      </div>
+      <div class="plan-segment" role="group" aria-label="Art der Route">
+        <button type="button" data-plan-rund="1" aria-pressed="${p.rund}">${PI.rund}Rundtour</button>
+        <button type="button" data-plan-rund="0" aria-pressed="${!p.rund}">${PI.ziel}Bis zum Ziel</button>
+      </div>
     </div>
-    <div class="plan-vorschlag" id="plan-vorschlag" hidden>
-      <span>Wie lang?</span>
-      ${[60, 100, 150, 200].map((k) => `<button type="button" class="tour-option" data-vorschlag-km="${k}">${k} km</button>`).join('')}
+    <div class="plan-vorschlag-karte" ${p.rund && p.punkte.length ? '' : 'hidden'}>
+      <button type="button" class="plan-vorschlag-knopf" data-plan="vorschlag">${PI.zauber}<span><strong>Rundtour vorschlagen</strong><em>Die kurvigste Runde ab deinem Start</em></span></button>
+      <div class="plan-vorschlag" id="plan-vorschlag" hidden>
+        ${[60, 100, 150, 200].map((k) => `<button type="button" class="tour-option" data-vorschlag-km="${k}">${k} km</button>`).join('')}
+      </div>
     </div>
     <div id="plan-info"></div>
   </div>`
@@ -304,6 +342,7 @@ function schliessen(nach = null) {
   map?.off('click', p.klick)
   map?.getCanvas().classList.remove('plan-aktiv')
   document.body.classList.remove('mm-plant')
+  document.dispatchEvent(new CustomEvent('mm:kv-peek'))
   if (nach) nach()
   else import('./touren.js').then((m) => m.zeigeTourenListe())
 }
@@ -334,6 +373,9 @@ export async function planerOeffnen({ fertig } = {}) {
   box().addEventListener('click', planKlick)
   box().addEventListener('submit', planSuche)
   linieZiehenAn(map)
+  // Weit herausgezoomt tippt man keine sinnvollen Punkte — zum eigenen Standort
+  const u = getUserCoords()
+  if (map.getZoom() < 9 && u.lat != null) map.flyTo({ center: [u.lng, u.lat], zoom: 11, duration: 800 })
 }
 
 /** Ort aus der Suche als nächsten Punkt setzen. */
@@ -349,7 +391,8 @@ async function planSuche(e) {
   if (!ort.ok) { feld.setCustomValidity('Ort nicht gefunden'); feld.reportValidity(); setTimeout(() => feld.setCustomValidity(''), 1500); return }
   merken()
   p.vorschlagVias = null
-  p.punkte.push([ort.lat, ort.lng])
+  // Gesuchter Name bleibt am Punkt (3. Feld) — die Liste zeigt dann "Titisee" statt "Zwischenpunkt 2"
+  p.punkte.push([ort.lat, ort.lng, ort.label || text])
   feld.value = ''
   renderPanel()
   neuRechnen()
@@ -466,15 +509,15 @@ async function planKlick(e) {
     const u = getUserCoords()
     const setze = (lat, lng) => { p.punkte.unshift([lat, lng]); p.vorschlagVias = null; renderPanel(); neuRechnen(); getHubMap()?.flyTo({ center: [lng, lat], zoom: Math.max(getHubMap().getZoom(), 10) }) }
     if (u.lat != null) setze(u.lat, u.lng)
-    else navigator.geolocation?.getCurrentPosition((pos) => setze(pos.coords.latitude, pos.coords.longitude), () => alert('Standort nicht verfügbar — tippe den Start auf der Karte an.'), { enableHighAccuracy: true, timeout: 12000 })
+    else navigator.geolocation?.getCurrentPosition((pos) => setze(pos.coords.latitude, pos.coords.longitude), () => hinweisen('Standort nicht verfügbar', 'Tippe den Start einfach auf der Karte an.'), { enableHighAccuracy: true, timeout: 12000 })
   }
   if (was === 'speichern' && p.ergebnis) {
-    const name = prompt('Name der Strecke', standardName())
+    const name = await eingeben('Name der Strecke', standardName())
     if (name == null) return
     try {
       const id = await speichern(name.trim() || standardName())
       schliessen(() => p.fertig?.(PRAEFIX + id))
-    } catch (err) { alert(err.message) }
+    } catch (err) { hinweisen('Nicht gespeichert', err.message) }
   }
   if (was === 'fahren' && p.ergebnis) {
     try {
@@ -485,7 +528,7 @@ async function planKlick(e) {
       schliessen(() => {})
       const { fahrtVorbereiten } = await import('./tour-fahren.js')
       fahrtVorbereiten(tour, d, { zurueck: () => p.fertig?.(PRAEFIX + id) })
-    } catch (err) { alert(err.message) }
+    } catch (err) { hinweisen('Das hat nicht geklappt', err.message) }
   }
 }
 

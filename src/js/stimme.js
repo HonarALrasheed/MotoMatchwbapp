@@ -1,9 +1,9 @@
 /* ═══════════════════════════════════════════════════
-   HEIKO — die Stimme des Navis.
+   HEIKE — die Stimme des Navis.
 
-   "Hei-ko" wie "heimkommen": Er erinnert daran, vorsichtig zu fahren, weil
+   "Hei-ke" wie "heimkehren": Sie erinnert daran, vorsichtig zu fahren, weil
    zu Hause jemand wartet. Die Ansagen sind vorab mit einer freien neuronalen
-   Stimme eingesprochen (public/stimme/heiko/, gebaut von scripts/stimme/bauen.py
+   Stimme eingesprochen (public/stimme/heike/, gebaut von scripts/stimme/bauen.py
    aus src/js/stimme-saetze.json) und klingen auf jedem Gerät gleich menschlich.
    Fehlt eine Ansage (oder der ganze Ordner), spricht die beste Stimme des
    Geräts den Text — Straßennamen gibt es nur dort, die Bildschirmanzeige
@@ -13,11 +13,11 @@
 import SAETZE from './stimme-saetze.json'
 
 export const PERSONA = {
-  name: 'Heiko',
-  zeile: 'Hei-ko wie heimkommen: Er bringt dich sicher ans Ziel und wieder nach Hause.',
+  name: 'Heike',
+  zeile: 'Hei-ke wie heimkehren: Sie bringt dich sicher ans Ziel und wieder nach Hause.',
 }
 
-const ORDNER = '/stimme/heiko/'
+const ORDNER = '/stimme/heike/'
 const WARTET_KEY = 'mm_wartet_auf_dich_v1'
 
 /** Wer zu Hause wartet (frei eingegeben, nur lokal gespeichert). */
@@ -47,9 +47,10 @@ export function manoever([, art, richtung, , ausfahrt]) {
     case 'exit roundabout': case 'exit rotary': return 'kreisel-raus'
     case 'merge': return 'einfaedeln'
     case 'on ramp': return 'auffahrt'
-    case 'off ramp': return seite(richtung) ? `ausfahrt-${seite(richtung)}` : null
-    case 'fork': return seite(richtung) ? `gabel-${seite(richtung)}` : null
-    case 'end of road': return seite(richtung) ? `ende-${seite(richtung)}` : null
+    // Ohne Seitenangabe die allgemeine Ansage — nie die Gerätestimme
+    case 'off ramp': return seite(richtung) ? `ausfahrt-${seite(richtung)}` : 'ausfahrt'
+    case 'fork': return seite(richtung) ? `gabel-${seite(richtung)}` : 'gabel'
+    case 'end of road': return seite(richtung) ? `ende-${seite(richtung)}` : 'geradeaus'
     default:
       if (richtung === 'uturn') return 'wenden'
       if (RICHTUNG_KEY[richtung]) return `abbiegen-${RICHTUNG_KEY[richtung]}`
@@ -111,15 +112,15 @@ export function stimmeEntsperren() {
 // ── Gerätestimme als Rückfall ────────────────────────────────────────────
 
 /* Neuronale/Premium-Stimmen zuerst, die Spaßstimmen von macOS/iOS (Grandpa,
-   Rocko …) nie. Männliche Stimmen leicht bevorzugt, weil Heiko ein Mann ist. */
+   Rocko …) nie. Weibliche Stimmen leicht bevorzugt, weil Heike eine Frau ist. */
 const SPASS = /eddy|flo\b|grandma|grandpa|reed|rocko|sandy|shelley|albert|bad news|bahh|bells|boing|bubbles|cellos|good news|jester|organ|superstar|trinoids|whisper|wobble|zarvox|fred|junior|ralph|kathy/i
 function punkte(v) {
   let p = 0
   if (/natural|neural|online/i.test(v.name)) p += 60
   if (/premium|enhanced|erweitert|siri/i.test(v.name)) p += 45
   if (/google/i.test(v.name)) p += 25
-  if (/markus|yannick|martin|viktor|conrad|killian|stefan|jonas|ralf|florian|bernd/i.test(v.name)) p += 12
-  if (/anna|petra|helena|katja|amala|hedda|vicki/i.test(v.name)) p += 6
+  if (/anna|petra|helena|katja|amala|hedda|vicki|seraphina|marlene/i.test(v.name)) p += 12
+  if (/markus|yannick|martin|viktor|conrad|killian|stefan|jonas|ralf|florian|bernd/i.test(v.name)) p += 6
   if (/^de[-_]DE/i.test(v.lang)) p += 5
   if (SPASS.test(v.name)) p -= 200
   return p

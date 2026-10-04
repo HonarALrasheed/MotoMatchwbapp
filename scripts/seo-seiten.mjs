@@ -762,6 +762,10 @@ function ratgeberKarte(r) {
   const bild = heldBild(r.held);
   return `<li><a href="/ratgeber/${r.slug}/">${bild ? `<img src="${esc(bild)}" alt="" loading="lazy" width="640" height="480" />` : ""}<strong>${esc(r.h1)}</strong><span>${esc(r.beschreibung)}</span></a></li>`;
 }
+// Daten für die Ratgeber-Pins (scripts/pins/ratgeber.mjs liest sie nach dem Build)
+writeFileSync(join(DIST, "ratgeber/pins.json"), JSON.stringify(ratgeber.map((r) => ({
+  slug: r.slug, h1: r.h1, titel: r.titel, beschreibung: r.beschreibung, fakten: r.fakten || [], bild: heldBild(r.held),
+})), null, 1));
 schreibe("/ratgeber/", kopf({ titel: "Motorrad-Ratgeber: Führerschein, Kauf, Kosten", beschreibung: "Ratgeber rund ums erste und nächste Motorrad: Führerscheinklassen, A2-Drosselung, Gebrauchtkauf, Steuer, Sitzhöhe — mit Zahlen aus über 1.000 Modellen.", pfad: "/ratgeber/", krumen: [["Start", "/"], ["Ratgeber", "/ratgeber/"]] }) + `
     <h1>Motorrad-Ratgeber</h1>
     <p class="intro">Antworten auf die Fragen vor dem Motorradkauf — mit Zahlen aus unserem Katalog von ${zahl(bikes.length)} Modellen.</p>

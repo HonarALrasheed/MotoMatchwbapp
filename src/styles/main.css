@@ -16155,3 +16155,61 @@ body.mm-plant .kv-sidebar .kv-search-row { display: none; }
 /* Lange Markennamen ("Aprilia;Piaggio;Lambretta;…") kürzen statt über den Rand laufen */
 .kv-result-meta { min-width: 0; max-width: 100%; overflow: hidden; }
 .kv-result-marke { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* ── Standort-Fenster: Leute hinzufügen, Anfragen, Nachricht ────────── */
+.leute-suche { display: flex; align-items: center; gap: 8px; height: 40px; padding: 0 12px; border-radius: 12px; background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.1); }
+.leute-suche:focus-within { border-color: #4263eb; }
+.leute-suche svg { width: 16px; height: 16px; flex: none; fill: none; stroke: rgba(255,255,255,0.5); stroke-width: 2; stroke-linecap: round; }
+.leute-suche input { flex: 1; min-width: 0; height: 100%; border: 0; background: none; color: #fff; font: 500 14px/1 var(--font); outline: none; }
+.leute-suche input::placeholder { color: rgba(255,255,255,0.4); }
+.leute-suche input::-webkit-search-cancel-button { display: none; }
+.leute-mini { flex: none; display: inline-flex; align-items: center; gap: 5px; height: 30px; padding: 0 11px; border: 0; border-radius: 999px; background: rgba(255,255,255,0.1); color: #fff; font: 650 12px/1 var(--font); cursor: pointer; white-space: nowrap; }
+.leute-mini:hover { background: rgba(255,255,255,0.18); }
+.leute-mini--ja { background: #fff; color: #111; }
+.leute-mini--ja:hover { background: #e9e9e9; }
+.leute-mini--still { background: none; color: rgba(255,255,255,0.45); cursor: default; }
+.leute-mini svg { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.leute-chat { flex: none; display: grid; place-items: center; width: 36px; height: 36px; border: 0; border-radius: 50%; background: rgba(66,99,235,0.18); color: #8ea2ff; cursor: pointer; }
+.leute-chat:hover { background: rgba(66,99,235,0.3); color: #fff; }
+.leute-chat svg { width: 17px; height: 17px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.leute-hinweis--klein { font-size: 12px; }
+.leute-info-knoepfe { display: flex; gap: 6px; }
+.leute-info-knoepfe .kurve-fahren { flex: 1; }
+.leute-info-nachricht { background: rgba(255,255,255,0.12) !important; color: #fff !important; }
+
+/* ── Suchzeile: Umkreis-Knopf | Suchfeld (immer offen) | + Neu ─────────── */
+.kv-search-row { gap: 8px; }
+.kv-search-row .kv-radius-group { display: none !important; } /* Quelle für den Umkreis-Knopf */
+.kv-search-row .kv-search-toggle { display: none !important; }
+.kv-search-row .kv-search-wrap { flex: 1; min-width: 0; display: flex; }
+.kv-search-row .kv-search-field.kv-search-field--open { height: 36px !important; }
+.kv-search-row .kv-search-input { font-size: 14px !important; }
+.kv-umkreis-wahl { position: relative; flex: none; }
+.kv-umkreis-knopf {
+  display: inline-flex; align-items: center; gap: 6px; height: 36px; padding: 0 10px 0 9px;
+  border: 0; border-radius: 11px; background: rgba(255,255,255,0.06); color: #fff;
+  font: 650 13px/1 var(--font); white-space: nowrap; cursor: pointer;
+}
+.kv-umkreis-knopf:hover, .kv-umkreis-knopf[aria-expanded="true"] { background: rgba(255,255,255,0.12); }
+.kv-umkreis-knopf svg { width: 15px; height: 15px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; opacity: 0.75; }
+.kv-umkreis-knopf .kv-umkreis-pfeil { width: 13px; height: 13px; opacity: 0.55; }
+.kv-umkreis-menue {
+  position: absolute; left: 0; top: calc(100% + 6px); z-index: 40; min-width: 150px; padding: 6px;
+  display: flex; flex-direction: column; border-radius: 14px; background: #262626; border: 1px solid rgba(255,255,255,0.1);
+  box-shadow: 0 12px 30px rgba(0,0,0,0.45); animation: kvResultIn 0.18s ease both;
+}
+.kv-umkreis-menue[hidden] { display: none; }
+.kv-umkreis-menue button { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 9px 10px; border: 0; border-radius: 9px; background: none; color: #fff; font: 600 13.5px/1.2 var(--font); text-align: left; cursor: pointer; }
+.kv-umkreis-menue button:hover { background: rgba(255,255,255,0.08); }
+.kv-umkreis-menue button[aria-checked="true"]::after { content: '✓'; color: #7fb2ff; font-weight: 800; }
+.kv-search-row .tour-neu-wrap { flex: none; }
+.kv-search-row .tour-neu { height: 36px; border-radius: 11px; padding: 0 12px 0 10px; font-size: 13px; }
+.kv-search-row .tour-neu-menue { right: 0; z-index: 40; }
+.kv-sidebar[data-modus="orte"] .kv-search-row .tour-neu-wrap { display: none; }
+
+/* Suchfeld = Routenplanung: Sondereintrag oben in den Vorschlägen */
+.kv-vorschlag--aktion { background: rgba(66,99,235,0.14); margin-bottom: 4px; }
+.kv-vorschlag--aktion svg { stroke: #8ea2ff; }
+.kv-vorschlag--aktion:hover { background: rgba(66,99,235,0.24); }
+/* "Mein Standort" gibt es als runden Knopf auf der Karte — im Feld wäre es doppelt */
+.kv-search-row .kv-recenter-btn { display: none; }

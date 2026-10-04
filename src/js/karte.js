@@ -454,8 +454,9 @@ let initToken = 0
  * Wartet NICHT auf den Standort: die Karte steht sofort (Deutschland bzw. der
  * letzte Standort), der Standort springt nach, sobald er da ist.
  */
-export async function initHubMap() {
-  const el = document.getElementById('hub-gmap')
+export async function initHubMap(ziel = null) {
+  // ziel: wenn mehrere Bereiche ein #hub-gmap haben (Profil + verdeckter Karten-Reiter)
+  const el = ziel || document.getElementById('hub-gmap')
   if (!el) return
   const token = ++initToken
 

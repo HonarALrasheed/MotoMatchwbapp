@@ -4,7 +4,8 @@
 -- Jeder hat höchstens eine Zeile: seine letzte Position. Geteilt wird nur,
 -- wer es in der Karte selbst einschaltet (Standard: aus). Ausschalten löscht
 -- die Zeile. Freunde sehen die genaue Position, alle anderen nur über
--- oeffentliche_standorte() und nur auf ~1 km gerundet.
+-- oeffentliche_standorte() und nur auf ~1 km gerundet. Wer in verborgen_vor
+-- steht, sieht die Position gar nicht.
 
 CREATE TABLE IF NOT EXISTS standorte (
   user_id      uuid PRIMARY KEY REFERENCES profiles(id) ON DELETE CASCADE,
@@ -15,6 +16,11 @@ CREATE TABLE IF NOT EXISTS standorte (
   sichtbar     text NOT NULL DEFAULT 'freunde' CHECK (sichtbar IN ('freunde', 'oeffentlich')),
   aktualisiert timestamptz NOT NULL DEFAULT now()
 );
+-- Vor einzelnen Freunden verbergen (uids, die mich nicht sehen dürfen)
+ALTER TABLE standorte ADD COLUMN IF NOT EXISTS verborgen_vor uuid[] NOT NULL DEFAULT '{}';
+ALTER TABLE standorte DROP CONSTRAINT IF EXISTS standorte_verborgen_max;
+ALTER TABLE standorte ADD CONSTRAINT standorte_verborgen_max CHECK (cardinality(verborgen_vor) <= 500);
+
 CREATE INDEX IF NOT EXISTS standorte_oeffentlich_idx ON standorte (aktualisiert) WHERE sichtbar = 'oeffentlich';
 
 ALTER TABLE standorte ENABLE ROW LEVEL SECURITY;
@@ -28,6 +34,7 @@ CREATE POLICY "standorte_eigen" ON standorte FOR ALL
 DROP POLICY IF EXISTS "standorte_freunde" ON standorte;
 CREATE POLICY "standorte_freunde" ON standorte FOR SELECT USING (
   aktualisiert > now() - interval '24 hours'
+  AND NOT (auth.uid() = ANY (verborgen_vor))
   AND EXISTS (
     SELECT 1 FROM friendships f
      WHERE (f.user_a = auth.uid() AND f.user_b = standorte.user_id)
@@ -64,6 +71,7 @@ LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public AS $$
      AND st.aktualisiert > now() - interval '30 minutes'
      AND st.lat BETWEEN s AND n
      AND st.lng BETWEEN w AND o
+     AND NOT (auth.uid() = ANY (st.verborgen_vor))
      AND NOT EXISTS (
        SELECT 1 FROM blocks b
         WHERE (b.blocker = auth.uid() AND b.blocked = st.user_id)

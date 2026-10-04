@@ -1212,20 +1212,38 @@ export function initTouren({ mountThumb } = {}) {
   }))
 
   // Kopf (Touren/Orte, Umkreis, Filter) beim Runterscrollen ausblenden, beim
-  // Hochscrollen wieder zeigen — mehr Platz für die Liste
+  // Hochscrollen wieder zeigen — mehr Platz für die Liste.
+  // Das Ein-/Ausklappen ändert die Höhe der Liste und damit selbst scrollTop
+  // (am Listenende klemmt der Browser ihn zurück). Ohne Sperre las das der
+  // nächste Scroll-Event als "hoch", der Kopf kam wieder, die Liste schrumpfte,
+  // scrollTop sprang erneut — beim schnellen Scrollen ein Flackern ohne Ende.
   const box = document.getElementById('tour-liste')
   const seitenleiste = ansicht.closest('.kv-sidebar')
-  let letzteY = 0
-  box?.addEventListener('scroll', () => {
-    const y = box.scrollTop
-    if (y < 24) seitenleiste?.classList.remove('kv-kopf-weg')
-    else if (y > letzteY + 6) {
-      seitenleiste?.classList.add('kv-kopf-weg')
+  let wendeY = 0 // tiefster bzw. höchster Punkt seit dem letzten Umschalten
+  let sperreBis = 0
+  const kopfWeg = (weg) => {
+    if (!seitenleiste || seitenleiste.classList.contains('kv-kopf-weg') === weg) return
+    seitenleiste.classList.toggle('kv-kopf-weg', weg)
+    sperreBis = performance.now() + 400 // Dauer der Klapp-Animation (main.css)
+    if (weg) {
       const menue = document.querySelector('.konf-karte-hub .tour-neu-menue')
       if (menue && !menue.hidden) { menue.hidden = true; document.getElementById('tour-neu')?.setAttribute('aria-expanded', 'false') }
     }
-    else if (y < letzteY - 6) seitenleiste?.classList.remove('kv-kopf-weg')
-    if (Math.abs(y - letzteY) > 6 || y < 24) letzteY = y
+  }
+  box?.addEventListener('scroll', () => {
+    const y = box.scrollTop
+    if (performance.now() < sperreBis) { wendeY = y; return }
+    const weg = seitenleiste?.classList.contains('kv-kopf-weg')
+    const amEnde = y + box.clientHeight >= box.scrollHeight - 4
+    if (y < 24) { kopfWeg(false); wendeY = y; return }
+    if (weg) {
+      if (y > wendeY) wendeY = y
+      // Erst nach einem deutlichen Stück nach oben wieder zeigen — und nie am Listenende
+      else if (y < wendeY - 40 && !amEnde) { kopfWeg(false); wendeY = y }
+    } else {
+      if (y < wendeY) wendeY = y
+      else if (y > wendeY + 12) { kopfWeg(true); wendeY = y }
+    }
   }, { passive: true })
 
   /* "+ Neu" sitzt oben in der Suchzeile (Umkreis | Suche | + Neu) — dorthin

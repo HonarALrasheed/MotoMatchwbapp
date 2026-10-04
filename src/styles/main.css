@@ -16213,3 +16213,6 @@ body.mm-plant .kv-sidebar .kv-search-row { display: none; }
 .kv-vorschlag--aktion:hover { background: rgba(66,99,235,0.24); }
 /* "Mein Standort" gibt es als runden Knopf auf der Karte — im Feld wäre es doppelt */
 .kv-search-row .kv-recenter-btn { display: none; }
+
+.leute-info-knoepfe { margin-top: 8px; }
+.leute-info-still { opacity: 0.6; cursor: default !important; }

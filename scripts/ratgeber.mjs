@@ -10,11 +10,11 @@
  * vorsichtig formuliert ("in der Regel"), nie als Rechtsberatung.
  *
  * Aufruf aus scripts/seo-seiten.mjs: artikel(h) liefert [{ slug, titel, h1, beschreibung, inhalt, held, fakten }].
- * held = Bike fürs Titelbild, fakten = [[Zahl, Erklärung]] für "Auf einen Blick".
+ * held = Bike fürs Titelbild (oder Liste von Kandidaten), fakten = [[Zahl, Erklärung]] für "Auf einen Blick".
  */
 
 export function artikel(h) {
-  const { bikes, preis, zahl, dez, darfA2, bikePfad, themaPfad, esc, STIL, karte, hatFoto } = h;
+  const { bikes, preis, zahl, dez, darfA2, bikePfad, themaPfad, esc, STIL, karte, hatFoto } = h; // h.ausruestung: Produkte aus gear.js
   // Bike-Karten mit Bild mitten im Text — liest sich besser als eine Namensliste
   const reihe = (l) => (l.length ? `<ul class="raster mini">${l.map(karte).join("")}</ul>` : "");
   const mitFoto = (l) => l.filter((b) => hatFoto(b));
@@ -356,6 +356,178 @@ export function artikel(h) {
       <p>Hersteller geben oft das Trockengewicht an — ohne Benzin, Öl und Batterie. Fahrfertig ist ein Motorrad 15 bis 25 kg schwerer. Vergleiche deshalb immer gleiche Angaben.</p>
       <h2>Weiter stöbern</h2>
       <p>${thema("motorrad-unter-150-kg", "Unter 150 kg")} · ${thema("leichte-motorraeder", "Unter 180 kg")} · ${thema("motorrad-unter-200-kg", "Unter 200 kg")} · ${thema("leichte-a2-motorraeder", "Leichte A2-Motorräder")}</p>`,
+    });
+  }
+
+  // ── 11. Bestes A2-Motorrad ───────────────────────────────────────────
+  {
+    const a2alle = bikes.filter((b) => b.style !== "Roller" && (b.license === "A2" || (b.license === "A" && b.a2)));
+    const top = beliebt(a2alle, 10);
+    // Ohne "Sportbike": der Katalog führt dort auch Naked Bikes (z. B. MT-07) — die Zeile wäre irreführend
+    const jeArt = ["Naked", "Enduro", "Klassiker", "Cruiser", "Supermoto"]
+      .map((stil) => [stil, beliebt(a2alle.filter((b) => b.style === stil), 1)[0]]).filter(([, b]) => b);
+    const mp = mitPreis(a2alle);
+    const guenstig = [...mp].sort((a, b) => preis(a) - preis(b)).filter((b) => b.ps >= 30)[0];
+    const leicht = a2alle.filter((b) => b.weight > 0 && b.ps >= 30).sort((a, b) => a.weight - b.weight)[0];
+    liste.push({
+      slug: "bestes-a2-motorrad",
+      titel: "Bestes A2-Motorrad 2026: die gefragtesten Modelle im Vergleich",
+      h1: "Die besten A2-Motorräder 2026",
+      beschreibung: `Die 10 gefragtesten A2-Motorräder mit Preis, PS, Gewicht und Sitzhöhe — plus die beste Wahl je Bauart. Ausgewertet aus ${zahl(a2alle.length)} A2-tauglichen Modellen.`,
+      held: mitFoto(top), // Kandidaten: das erste noch nicht vergebene wird Titelbild
+      fakten: [[zahl(a2alle.length), "A2-taugliche Modelle"], [euro(median(mp.map(preis))), "mittlerer Gebrauchtpreis"], ["48 PS", "Grenze für A2"]],
+      inhalt: `
+      <p>„Das beste“ A2-Motorrad gibt es nicht — aber es gibt Modelle, die besonders viele Käufer überzeugen. Wir haben alle ${zahl(a2alle.length)} A2-tauglichen Motorräder aus unserem Katalog nach ihrer Nachfrage auf dem deutschen Gebrauchtmarkt sortiert. Offen A2-taugliche und drosselbare Modelle stehen gemeinsam in der Liste.</p>
+      <h2>Die 10 gefragtesten A2-Motorräder</h2>
+      ${tabelle(["#", "Modell", "Preis", "PS (offen)", "Gewicht", "Sitzhöhe"], top.map((b, i) => [`${i + 1}`, link(b), preis(b) ? euro(preis(b)) : "–", `${b.ps || "–"}${b.license === "A" ? " · drosselbar" : ""}`, b.weight ? `${b.weight} kg` : "–", b.seat_height ? `${dez(b.seat_height)} cm` : "–"]))}
+      ${reihe(mitFoto(top).slice(0, 4))}
+      <h2>Die beste Wahl je Bauart</h2>
+      ${tabelle(["Bauart", "Gefragtestes A2-Modell", "Preis"], jeArt.map(([stil, b]) => [esc(STIL[stil]?.einzahl || stil), link(b), preis(b) ? euro(preis(b)) : "–"]))}
+      <h2>Spartipp und Leichtgewicht</h2>
+      <p>${guenstig ? `Am günstigsten mit mindestens 30 PS ist gebraucht die ${link(guenstig)} für rund ${euro(preis(guenstig))}.` : ""} ${leicht ? `Das leichteste A2-Motorrad mit mindestens 30 PS ist die ${link(leicht)} mit ${leicht.weight} kg.` : ""}</p>
+      <h2>Offen oder gedrosselt?</h2>
+      <p>Offen A2-taugliche Motorräder sind meist leichter und günstiger, gedrosselte haben nach dem Aufstieg auf A mehr Reserven. Mehr dazu im Ratgeber <a href="/ratgeber/a2-drosselung/">A2-Drosselung</a>. Alle Modelle: ${thema("fuehrerschein-a2", "A2-Motorräder")}.</p>`,
+    });
+  }
+
+  // ── 12. Kleine Fahrer ────────────────────────────────────────────────
+  {
+    const klein = bikes.filter((b) => b.style !== "Roller" && b.seat_height > 0 && b.seat_height <= 76 && b.weight > 0 && b.weight <= 200);
+    const jeKlasse = [["A1 / B196", (b) => b.license === "A1"], ["A2 und A", (b) => b.license !== "A1"]]
+      .map(([k, f]) => [k, beliebt(klein.filter(f), 4)]);
+    liste.push({
+      slug: "motorrad-fuer-kleine-fahrer",
+      titel: "Motorrad für kleine Fahrer (unter 1,65 m): niedrig, leicht, sicher",
+      h1: "Motorräder für kleine Fahrerinnen und Fahrer",
+      beschreibung: `${zahl(klein.length)} Motorräder mit höchstens 76 cm Sitzhöhe und 200 kg — die besten je Führerscheinklasse und Tipps, wie du sicher auf den Boden kommst.`,
+      held: mitFoto(beliebt(klein.filter((b) => b.style !== "Cruiser"), 6)),
+      fakten: [[zahl(klein.length), "Modelle bis 76 cm und 200 kg"], ["76 cm", "passt ab ca. 1,60 m"]],
+      inhalt: `
+      <p>Wer kleiner als etwa 1,65 m ist, fragt sich vor allem eins: Komme ich an der Ampel sicher auf den Boden? Zwei Werte entscheiden: die Sitzhöhe — und das Gewicht, denn ein leichtes Motorrad lässt sich auch mit einem Fuß gut halten. Viele Fahrerinnen suchen genau danach; die Auswahl ist größer, als man denkt. ${zahl(klein.length)} Modelle in unserem Katalog haben höchstens 76 cm Sitzhöhe und wiegen höchstens 200 kg.</p>
+      ${jeKlasse.map(([k, l]) => l.length ? `<h2>Für Führerschein ${k}</h2>${reihe(mitFoto(l))}` : "").join("\n      ")}
+      <h2>So kommst du sicherer auf den Boden</h2>
+      <ul class="punkte">
+        <li>Viele Hersteller bieten eine Niedrigsitzbank oder eine Tieferlegung ab Werk an — frag beim Händler nach.</li>
+        <li>Eine schmale Sitzbank zählt fast so viel wie die Höhe: Die Beine gehen gerader nach unten.</li>
+        <li>An der Ampel reicht oft ein Fuß sicher auf dem Boden — dafür vorher leicht zur Seite rutschen.</li>
+        <li>Motorradstiefel mit etwas dickerer Sohle bringen ein bis zwei Zentimeter.</li>
+      </ul>
+      <p>Wie viel Sitzhöhe zu deiner Größe passt, zeigt die Tabelle im Ratgeber <a href="/ratgeber/sitzhoehe-koerpergroesse/">Sitzhöhe und Körpergröße</a>. Nach Größe sortiert: ${thema("motorrad-fuer-155-cm", "1,55 m")} · ${thema("motorrad-fuer-160-cm", "1,60 m")} · ${thema("motorrad-fuer-165-cm", "1,65 m")}.</p>`,
+    });
+  }
+
+  // ── 13. Erste Ausrüstung ─────────────────────────────────────────────
+  if (h.ausruestung?.length) {
+    // Nur die Grundausstattung zählen: kein Regenzeug, keine MX-Trikots, keine Jeans unter "Helm"
+    const KAT = [["helmet", "Helm", /helm/i, "ECE 22.06"], ["jacket", "Jacke", /^(?!.*regen)(?!.*jersey).*(jacke|kombi)/i, "EN 17092"], ["pants", "Hose", /^(?!.*regen).*(hose|jeans)/i, "EN 17092"], ["gloves", "Handschuhe", /handschuh/i, "EN 13594"], ["boots", "Stiefel", /stiefel/i, "EN 13634"], ["backprotector", "Rückenprotektor", null, "EN 1621-2"]];
+    const mitte = (x) => (x.priceMin + x.priceMax) / 2;
+    const zeilen = KAT.map(([k, name, filter, norm]) => {
+      const l = h.ausruestung.filter((x) => x.k === k && (!filter || filter.test(x.type))).map(mitte).sort((a, b) => a - b);
+      return { name, norm, einstieg: l[Math.floor(l.length * 0.25)] || 0, mittel: median(l), n: l.length };
+    });
+    const summe = (f) => Math.round(zeilen.reduce((a, z) => a + z[f], 0) / 10) * 10;
+    const beispiele = KAT.slice(0, 5).map(([k, , filter]) => h.ausruestung.filter((x) => x.k === k && x.image && (!filter || filter.test(x.type))).sort((a, b) => mitte(a) - mitte(b))).map((l) => l[Math.floor(l.length / 2)]).filter(Boolean);
+    liste.push({
+      slug: "erste-motorradausruestung",
+      titel: "Erste Motorradausrüstung: was du brauchst und was sie kostet",
+      h1: "Die erste Motorradausrüstung: Liste und Kosten",
+      beschreibung: `Helm, Jacke, Hose, Handschuhe, Stiefel, Protektor: Was du brauchst, worauf du achtest und was es kostet — ab rund ${euro(summe("einstieg"))} für die Grundausstattung, ausgewertet aus ${zahl(h.ausruestung.length)} Produkten.`,
+      held: beliebt(mitFoto(bikes.filter((b) => b.style === "Touring")), 8),
+      fakten: [[euro(summe("einstieg")), "Grundausstattung Einstieg"], [euro(summe("mittel")), "solide Mittelklasse"], [zahl(h.ausruestung.length), "Produkte ausgewertet"]],
+      checkliste: true,
+      inhalt: `
+      <p>Vorgeschrieben ist in Deutschland nur der Helm. Alles andere ist freiwillig — und trotzdem sinnvoll: Bei einem Sturz rutschst du ohne Schutzkleidung über Asphalt. Die Preise unten stammen aus ${zahl(h.ausruestung.length)} Produkten aus unserem Ausrüstungs-Bereich: „Einstieg“ ist das günstigere Viertel, „Mittelklasse“ der typische Preis.</p>
+      <h2>Was es kostet</h2>
+      ${tabelle(["Teil", "Einstieg", "Mittelklasse", "Prüfnorm"], [...zeilen.map((z) => [z.name, euro(Math.round(z.einstieg / 5) * 5), euro(Math.round(z.mittel / 5) * 5), z.norm]), ["<strong>Zusammen</strong>", `<strong>${euro(summe("einstieg"))}</strong>`, `<strong>${euro(summe("mittel"))}</strong>`, ""]])}
+      <h2>Die Liste</h2>
+      <ul class="punkte">
+        <li><strong>Helm</strong> — Pflicht. Achte auf die Prüfnorm ECE 22.06. Integralhelme schützen das Kinn, Klapphelme sind bequemer auf Tour.</li>
+        <li><strong>Jacke und Hose</strong> — Textil oder Leder, mit Protektoren an Schultern, Ellbogen, Hüfte und Knien. Die Norm EN 17092 zeigt die Schutzklasse (AAA am höchsten, A am niedrigsten).</li>
+        <li><strong>Handschuhe</strong> — die Hände berühren beim Sturz zuerst den Boden. Norm EN 13594.</li>
+        <li><strong>Stiefel</strong> — fester Knöchelschutz statt Sneaker. Norm EN 13634.</li>
+        <li><strong>Rückenprotektor</strong> — oft als Einsatz in der Jacke; Level 2 schützt mehr als Level 1 (EN 1621-2).</li>
+      </ul>
+      <h2>Beispiele aus dem Ausrüstungs-Bereich</h2>
+      <ul class="raster mini">${beispiele.map((x) => `<li class="karte"><span class="g">${x.image ? `<img src="${esc(x.image)}" alt="${esc(x.name)}" loading="lazy" width="420" height="300" />` : ""}<strong>${esc(x.name)}</strong><span class="preis">${x.priceMin === x.priceMax ? euro(x.priceMin) : `${euro(x.priceMin)}–${euro(x.priceMax)}`}</span><span class="info">${esc(x.type)}</span></span></li>`).join("")}</ul>
+      <h2>Spartipps</h2>
+      <ul class="punkte">
+        <li>Beim Helm nicht sparen und ihn nie gebraucht kaufen — einem Helm sieht man einen früheren Sturz nicht an.</li>
+        <li>Jacken und Hosen vom Vorjahr gibt es oft deutlich günstiger.</li>
+        <li>Anprobieren: Protektoren müssen auch in Sitzposition an der richtigen Stelle sitzen.</li>
+      </ul>
+      <p>Passend zu deinem Motorrad zeigt MotoMatch im Reiter „Ausrüstung“ Helme, Jacken und mehr für jede Bauart.</p>`,
+    });
+  }
+
+  // ── 14. Versicherung ─────────────────────────────────────────────────
+  {
+    const kw = (b) => b.kw || (b.ps ? b.ps * 0.7355 : 0);
+    const stufen = [["bis 11 kW (A1)", (x) => x <= 11], ["11–35 kW (A2)", (x) => x > 11 && x <= 35], ["35–70 kW", (x) => x > 35 && x <= 70], ["über 70 kW", (x) => x > 70]]
+      .map(([n, f]) => [n, zahl(bikes.filter((b) => kw(b) > 0 && f(kw(b))).length)]);
+    liste.push({
+      slug: "motorradversicherung",
+      titel: "Motorradversicherung: wovon der Beitrag abhängt und wie du sparst",
+      h1: "Motorradversicherung: Haftpflicht, Teilkasko, Vollkasko",
+      beschreibung: "Welche Versicherung brauchst du fürs Motorrad, wovon hängt der Beitrag ab und wie sparst du? Leistung, Alter, Schadenfreiheitsklasse, Saisonkennzeichen — verständlich erklärt.",
+      held: beliebt(mitFoto(bikes.filter((b) => b.style === "Sportbike")), 8),
+      fakten: [["Pflicht", "Haftpflicht"], ["eVB", "Nummer für die Zulassung"], ["Saison", "spart Beitrag"]],
+      inhalt: `
+      <p>Ohne Versicherung darf kein Motorrad auf die Straße. Bevor du es zulassen kannst, brauchst du eine eVB-Nummer (elektronische Versicherungsbestätigung) — die bekommst du vom Versicherer, sobald du einen Vertrag abschließt.</p>
+      <h2>Haftpflicht, Teilkasko, Vollkasko</h2>
+      ${tabelle(["Art", "Was sie zahlt", "Für wen"], [["Haftpflicht", "Schäden, die du anderen zufügst", "Pflicht für alle"], ["Teilkasko", "zusätzlich z. B. Diebstahl, Brand, Sturm, Wildunfall", "neuere und gebrauchte Motorräder mit Wert"], ["Vollkasko", "zusätzlich Schäden am eigenen Motorrad, auch selbst verschuldet", "neue oder teure Motorräder, Finanzierung"]])}
+      <h2>Wovon der Beitrag abhängt</h2>
+      <ul class="punkte">
+        <li><strong>Leistung und Hubraum</strong> — stärkere Motorräder kosten in der Regel mehr.</li>
+        <li><strong>Alter und Erfahrung</strong> — junge Fahrer und Führerscheinneulinge zahlen meist mehr.</li>
+        <li><strong>Schadenfreiheitsklasse</strong> — je länger unfallfrei, desto günstiger. Manche Versicherer rechnen Jahre vom Auto teilweise an; frag danach.</li>
+        <li><strong>Wohnort</strong> — die Region beeinflusst den Beitrag.</li>
+        <li><strong>Abstellort und Fahrerkreis</strong> — Garage und ein kleiner Fahrerkreis senken den Preis oft.</li>
+      </ul>
+      <h2>Wie stark sind die Motorräder im Katalog?</h2>
+      ${tabelle(["Leistung", "Modelle"], stufen)}
+      <h2>So sparst du</h2>
+      <ul class="punkte">
+        <li><strong>Saisonkennzeichen:</strong> Du zahlst Versicherung und Steuer nur für die Monate, in denen du fährst. Außerhalb der Saison bleibt das abgestellte Motorrad in der Regel weiter gegen Diebstahl und Brand versichert, wenn es auf privatem Grund steht.</li>
+        <li><strong>Vergleichen</strong> — vor dem Kauf, nicht erst bei der Zulassung. Der Beitrag kann je nach Modell deutlich schwanken.</li>
+        <li><strong>Selbstbeteiligung</strong> in Teil- und Vollkasko senkt den Beitrag.</li>
+      </ul>
+      <p>Kosten außer der Versicherung: <a href="/ratgeber/motorradsteuer/">Motorradsteuer</a> · <a href="/ratgeber/erste-motorradausruestung/">Ausrüstung</a>.</p>`,
+    });
+  }
+
+  // ── 15. Überwintern ──────────────────────────────────────────────────
+  {
+    const steuern = bikes.filter((b) => b.cc > 0).map((b) => Math.ceil(b.cc / 25) * 1.84);
+    const ersparnis = median(steuern) * 4 / 12;
+    liste.push({
+      slug: "motorrad-ueberwintern",
+      titel: "Motorrad überwintern: Checkliste für Batterie, Tank, Reifen und Kette",
+      h1: "Motorrad richtig überwintern",
+      beschreibung: "Waschen, Ölwechsel, Batterie, Tank, Reifen, Kette, Abdeckung: die Checkliste fürs Einwintern — und was du im Frühjahr prüfen solltest.",
+      held: beliebt(mitFoto(bikes.filter((b) => b.style === "Klassiker")), 8),
+      fakten: [["7", "Schritte zum Einwintern"], [`${dez(ersparnis.toFixed(2))} €`, "Steuer gespart (4 Monate, Mittel)"]],
+      checkliste: true,
+      inhalt: `
+      <p>Monatelang stehen ist für ein Motorrad Stress: Die Batterie entlädt sich, Kondenswasser lässt Teile rosten, Reifen bekommen Standplatten. Mit dieser Checkliste startet es im Frühjahr ohne Ärger.</p>
+      <h2>Die Checkliste</h2>
+      <ul class="punkte">
+        <li><strong>Gründlich waschen und trocknen</strong> — Salz und Schmutz greifen den Lack und blanke Teile an.</li>
+        <li><strong>Ölwechsel vor dem Einwintern</strong> — altes Öl enthält Säuren, die im Stand den Motor angreifen können.</li>
+        <li><strong>Tank voll machen</strong> — ein voller Tank rostet innen nicht. Bei Vergasermotoren die Schwimmerkammer leeren.</li>
+        <li><strong>Batterie</strong> — ausbauen und kühl, aber frostfrei lagern, oder ein Erhaltungsladegerät anschließen.</li>
+        <li><strong>Reifen</strong> — Luftdruck etwas erhöhen oder das Motorrad auf den Montageständer stellen, gegen Standplatten.</li>
+        <li><strong>Kette</strong> — reinigen und schmieren; blanke Teile mit Pflegemittel einsprühen.</li>
+        <li><strong>Trocken abstellen</strong> — unter einer atmungsaktiven Plane. Luftdichte Folie hält Feuchtigkeit fest.</li>
+      </ul>
+      <h2>Saisonkennzeichen</h2>
+      <p>Mit einem Saisonkennzeichen, zum Beispiel von März bis Oktober, zahlst du Steuer und Versicherung nur für diese Monate. Bei der Steuer sind das im Mittel unseres Katalogs rund ${dez(ersparnis.toFixed(2))} € weniger im Jahr — bei der Versicherung meist deutlich mehr. Siehe <a href="/ratgeber/motorradsteuer/">Motorradsteuer</a> und <a href="/ratgeber/motorradversicherung/">Versicherung</a>.</p>
+      <h2>Im Frühjahr</h2>
+      <ul class="punkte">
+        <li>Batterie laden und einbauen, Reifendruck auf Normalwert.</li>
+        <li>Bremsen prüfen: Beläge, Flüssigkeit, Druckpunkt.</li>
+        <li>Licht, Hupe und Blinker testen, Kette spannen und schmieren.</li>
+        <li>Die ersten Kilometer vorsichtig fahren — Reifen und Fahrer sind aus der Übung.</li>
+      </ul>`,
     });
   }
 

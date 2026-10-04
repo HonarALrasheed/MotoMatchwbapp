@@ -115,6 +115,32 @@ export function partnerLink(url) {
 }
 
 /**
+ * Link für ein Ausrüstungsteil. Ein Teil kann neben `url` (Louis/FC-Moto)
+ * eine Amazon-ASIN in `amazon` tragen. Genommen wird der erste Link, dessen
+ * Partnerprogramm aktiv ist: zuerst der Shop aus `url`, dann Amazon. Ist
+ * keins aktiv, bleibt es beim Shop-Link, damit sich ohne Kennungen nichts
+ * ändert.
+ *
+ * @param {{url?: string, amazon?: string}} item
+ * @param {string} ersatz Adresse, falls das Teil gar keinen Link hat
+ * @returns {{ href: string, partner: boolean }}
+ */
+export function produktLink(item, ersatz) {
+  const shop = item.url ? partnerLink(item.url) : null
+  if (shop?.partner) return shop
+  if (item.amazon) {
+    const amazon = partnerLink(`https://www.amazon.de/dp/${encodeURIComponent(item.amazon)}`)
+    if (amazon.partner || !shop) return amazon
+  }
+  return shop || partnerLink(ersatz)
+}
+
+/** Ist das Amazon-PartnerNet eingerichtet? Amazon verlangt dann einen eigenen Hinweissatz. */
+export function hatAmazonPartner() {
+  return Boolean(AMAZON_TAG)
+}
+
+/**
  * Ist mindestens ein Partnerprogramm eingerichtet?
  * Steuert den Kennzeichnungshinweis in der Oberfläche.
  */

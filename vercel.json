@@ -3,6 +3,9 @@
   "outputDirectory": "dist",
   "framework": "vite",
   "installCommand": "npm install",
+  "redirects": [
+    { "source": "/:path*", "has": [{ "type": "host", "value": "www.motomatch.studio" }], "destination": "https://motomatch.studio/:path*", "permanent": true }
+  ],
   "rewrites": [
     { "source": "/pins/feed/:art.xml", "destination": "/api/pins-feed?art=:art" },
     { "source": "/kacheln/:path*", "destination": "https://tiles.openfreemap.org/:path*" },

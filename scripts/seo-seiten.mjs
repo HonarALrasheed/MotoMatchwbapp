@@ -22,6 +22,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { setCatalog, findSimilarBikes } from "../src/js/matching.js";
 import { bikeBild, hatFoto } from "../src/js/bike-bild.js";
+import { artikel } from "./ratgeber.mjs";
 
 const WURZEL = join(dirname(fileURLToPath(import.meta.url)), "..");
 const DIST = join(WURZEL, "dist");
@@ -312,7 +313,7 @@ function kopf({ titel, beschreibung, pfad, bild, krumen, ld: extraLd = [] }) {
 <body>
   <header class="kopf">
     <a class="logo" href="/">MOTOMATCH</a>
-    <nav><a href="/motorraeder/">Motorräder</a><a class="knopf klein" href="/">Quiz starten</a></nav>
+    <nav><a href="/motorraeder/">Motorräder</a><a href="/ratgeber/">Ratgeber</a><a class="knopf klein" href="/">Quiz starten</a></nav>
   </header>
   <nav class="krumen" aria-label="Brotkrumen">${krumen.map(([n, p], i) =>
     i === krumen.length - 1 ? `<span>${esc(n)}</span>` : `<a href="${p}">${esc(n)}</a>`).join(" › ")}</nav>
@@ -328,7 +329,7 @@ const fuss = () => `
   </main>
   <footer class="fuss">
     <p>Preise: mittlere Marktpreise gebraucht${STAND ? `, Stand ${esc(STAND)}` : ""}. Alle Angaben ohne Gewähr.</p>
-    <p><a href="/motorraeder/">Alle Themen</a> · <a href="/impressum.html">Impressum</a> · <a href="/datenschutz.html">Datenschutz</a> · <a href="/agb.html">AGB</a></p>
+    <p><a href="/motorraeder/">Alle Themen</a> · <a href="/ratgeber/">Ratgeber</a> · <a href="/impressum.html">Impressum</a> · <a href="/datenschutz.html">Datenschutz</a> · <a href="/agb.html">AGB</a></p>
   </footer>
 </body>
 </html>
@@ -618,6 +619,31 @@ schreibe("/vergleich/", kopf({
 
 // ── Stylesheet und Sitemap ─────────────────────────────────────────────────
 
+// ── Ratgeber ───────────────────────────────────────────────────────────────
+const RATGEBER_DATUM = "2026-10-05";
+const ratgeber = artikel({ bikes, preis, zahl, dez, darfA2, bikePfad, themaPfad, esc, STIL });
+for (const r of ratgeber) {
+  r.pfad = `/ratgeber/${r.slug}/`;
+  const krumen = [["Start", "/"], ["Ratgeber", "/ratgeber/"], [r.h1, r.pfad]];
+  const ld = { "@context": "https://schema.org", "@type": "Article", headline: r.titel.slice(0, 110), description: r.beschreibung,
+    datePublished: RATGEBER_DATUM, dateModified: STAND || RATGEBER_DATUM, inLanguage: "de-DE", mainEntityOfPage: url(r.pfad),
+    author: { "@type": "Organization", name: "MotoMatch", url: BASIS }, publisher: { "@type": "Organization", name: "MotoMatch", url: BASIS } };
+  const bild = r.bikes.find((b) => hatFoto(b));
+  schreibe(r.pfad, kopf({ titel: r.titel, beschreibung: r.beschreibung, pfad: r.pfad, krumen, bild: bild ? bikeBild(bild, "titel") : null, ld: [ld] }) + `
+    <article class="artikel">
+      <h1>${esc(r.h1)}</h1>
+      ${r.inhalt}
+    </article>
+    ${r.bikes.length ? `<section><h2>Modelle aus diesem Artikel</h2><ul class="raster">${r.bikes.map(karte).join("")}</ul></section>` : ""}
+    <section><h2>Weitere Ratgeber</h2><ul class="themen">${ratgeber.filter((x) => x !== r).map((x) => `<li><a href="/ratgeber/${x.slug}/">${esc(x.h1)}</a></li>`).join("")}</ul></section>
+` + fuss());
+}
+schreibe("/ratgeber/", kopf({ titel: "Motorrad-Ratgeber: Führerschein, Kauf, Kosten", beschreibung: "Ratgeber rund ums erste und nächste Motorrad: Führerscheinklassen, A2-Drosselung, Gebrauchtkauf, Steuer, Sitzhöhe — mit Zahlen aus über 1.000 Modellen.", pfad: "/ratgeber/", krumen: [["Start", "/"], ["Ratgeber", "/ratgeber/"]] }) + `
+    <h1>Motorrad-Ratgeber</h1>
+    <p class="intro">Antworten auf die Fragen vor dem Motorradkauf — mit Zahlen aus unserem Katalog von ${zahl(bikes.length)} Modellen.</p>
+    <ul class="ratgeber-liste">${ratgeber.map((r) => `<li><a href="/ratgeber/${r.slug}/"><strong>${esc(r.h1)}</strong><span>${esc(r.beschreibung)}</span></a></li>`).join("")}</ul>
+` + fuss());
+
 writeFileSync(join(DIST, "seo.css"), `@font-face{font-family:Barlow;font-weight:400;font-display:swap;src:url(/fonts/barlow-400.woff2) format("woff2")}
 @font-face{font-family:Barlow;font-weight:600;font-display:swap;src:url(/fonts/barlow-600.woff2) format("woff2")}
 @font-face{font-family:Barlow;font-weight:800;font-display:swap;src:url(/fonts/barlow-800.woff2) format("woff2")}
@@ -663,6 +689,18 @@ h2{font-size:22px;font-weight:600;margin:40px 0 14px}
 .cta p{color:var(--dim);max-width:560px;margin:0 auto 18px}
 .knopf{display:inline-block;background:#fff;color:#000;padding:12px 26px;text-decoration:none;font-weight:600}
 .knopf.klein{padding:7px 14px;font-size:14px}
+.artikel{max-width:760px}
+.artikel p{margin:12px 0;font-size:17px;color:rgba(255,255,255,.85)}
+.artikel a{text-decoration:underline;text-underline-offset:3px}
+.artikel .punkte{margin:10px 0}
+.tabelle{border-collapse:collapse;margin:18px 0;width:100%;max-width:760px;font-size:15px}
+.tabelle th,.tabelle td{text-align:left;padding:8px 14px 8px 0;border-bottom:1px solid var(--rand);vertical-align:top}
+.tabelle th{color:var(--dim);font-weight:400}
+.ratgeber-liste{list-style:none;display:grid;gap:12px;margin-top:24px;max-width:860px}
+.ratgeber-liste a{display:block;padding:18px;background:var(--fl);border:1px solid var(--rand);border-radius:14px;text-decoration:none}
+.ratgeber-liste a:hover{border-color:rgba(255,255,255,.3)}
+.ratgeber-liste strong{display:block;font-size:18px}
+.ratgeber-liste span{color:var(--dim);font-size:15px}
 .knopf.zweit{background:transparent;color:#fff;border:1px solid rgba(255,255,255,.35)}
 .aktionen{display:flex;flex-wrap:wrap;gap:10px;margin:14px 0 4px}
 .fuss{max-width:1200px;margin:0 auto;padding:24px 16px 40px;border-top:1px solid var(--rand);color:var(--dim);font-size:13px}
@@ -730,7 +768,7 @@ ${gruppe("Marke")}
 /* lastmod = Stand des Katalogs, nicht das Build-Datum: Wer bei jedem Deploy "heute" meldet,
    dem glaubt Google das Datum nicht mehr und ignoriert es (Search Console, 2026-10-05). */
 const heute = /^\d{4}-\d{2}-\d{2}$/.test(STAND) ? STAND : new Date().toISOString().slice(0, 10);
-const adressen = ["/", "/motorraeder/", "/vergleich/", ...themen.map((t) => t.pfad), ...bikes.map((b) => bikePfad.get(b)), ...vergleiche.map((v) => v.pfad)];
+const adressen = ["/", "/motorraeder/", "/vergleich/", "/ratgeber/", ...ratgeber.map((r) => r.pfad), ...themen.map((t) => t.pfad), ...bikes.map((b) => bikePfad.get(b)), ...vergleiche.map((v) => v.pfad)];
 /* Bild-Sitemap (Google-Erweiterung): die echten Fotos je Bike-Seite, damit sie in der Bildersuche
    erscheinen. Nur echte Fotos — Platzhalter-Silhouetten gehören nicht in die Bildersuche. */
 const bilderJeSeite = new Map();

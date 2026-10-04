@@ -125,10 +125,27 @@ thema({ slug: "niedrige-sitzhoehe", gruppe: "Für wen",
   intro: "Sitzhöhe bis 78 cm — für kleinere Fahrerinnen und Fahrer, die mit beiden Füßen sicher auf den Boden kommen wollen.",
   liste: hat((b) => b.seat_height > 0 && b.seat_height <= 78) });
 thema({ slug: "leichte-motorraeder", gruppe: "Für wen",
-  h1: "Leichte Motorräder bis 180 kg",
-  titel: "Leichtes Motorrad: Modelle bis 180 kg fahrfertig",
+  h1: "Leichte Motorräder unter 180 kg",
+  titel: "Leichtes Motorrad unter 180 kg: alle Modelle mit Preis",
   intro: "Wenig Gewicht heißt: leichter rangieren, leichter aufheben, weniger Respekt beim Wenden. Alle Modelle hier wiegen höchstens 180 kg.",
   liste: hat((b) => b.weight > 0 && b.weight <= 180) });
+/* Gewicht ist eine eigene Suche (Search Console, 2026-10-04: "leichte motorräder unter 200 kg",
+   "motorräder unter 180 kg") — je Grenze eine Seite statt nur der 180-kg-Liste. */
+thema({ slug: "motorrad-unter-150-kg", gruppe: "Für wen",
+  h1: "Motorräder unter 150 kg",
+  titel: "Motorrad unter 150 kg: die leichtesten Modelle mit Preis",
+  intro: "Unter 150 kg fahrfertig: fast schon Fahrrad-Gefühl beim Rangieren. Meist 125er, Supermotos und kleine Naked Bikes.",
+  liste: hat((b) => b.weight > 0 && b.weight <= 150) });
+thema({ slug: "motorrad-unter-200-kg", gruppe: "Für wen",
+  h1: "Leichte Motorräder unter 200 kg",
+  titel: "Leichte Motorräder unter 200 kg: alle Modelle mit Preis",
+  intro: "Bis 200 kg bleibt ein Motorrad gut beherrschbar — auch Mittelklasse-Bikes mit 70 bis 100 PS liegen oft darunter.",
+  liste: hat((b) => b.weight > 0 && b.weight <= 200) });
+thema({ slug: "leichte-a2-motorraeder", gruppe: "Für wen",
+  h1: "Leichte A2-Motorräder unter 190 kg",
+  titel: "Leichtes A2 Motorrad: Modelle unter 190 kg mit Preis",
+  intro: "A2-tauglich und höchstens 190 kg: die Kombination, nach der die meisten Fahranfänger suchen.",
+  liste: hat((b) => darfA2(b) && b.license !== "A1" && b.weight > 0 && b.weight <= 190) });
 
 for (const [stil, s] of Object.entries(STIL)) {
   thema({ slug: s.slug, gruppe: "Bauart", h1: s.mehrzahl, stil,
@@ -372,6 +389,8 @@ function bikeFragen(b) {
   paare.push([`Welchen Führerschein brauche ich für die ${b.name}?`, `Für die ${b.name} brauchst du ${lizenz}.`]);
   if (preis(b)) paare.push([`Was kostet die ${b.name} gebraucht?`,
     `Gebraucht kostet die ${b.name} ${preisText(b)}${b.priceYear ? ` (Baujahr ${b.priceYear})` : ""}, mittlerer Marktpreis, Stand ${STAND}.`]);
+  if (b.priceNew) paare.push([`Was kostet die ${b.name} neu?`,
+    `Der Neupreis der ${b.name} liegt bei ca. ${zahl(b.priceNew)} € (Stand ${STAND}); Händlerpreise können je nach Ausstattung und Aktion abweichen.`]);
   if (b.seat_height) paare.push([`Wie hoch ist die Sitzhöhe der ${b.name}?`,
     `Die Sitzhöhe beträgt ${dez(b.seat_height)} cm. Als Faustregel kommt man ab etwa ${abGroesse(b.seat_height)} cm Körpergröße mit beiden Füßen sicher auf den Boden.`]);
   paare.push([`Ist die ${b.name} für Anfänger geeignet?`, b.beginner
@@ -466,11 +485,15 @@ for (const b of bikes) {
     speed: menge(b.topSpeed, "KMH"), vehicleTransmission: b.gear || undefined,
     bodyType: s?.einzahl || b.style,
   };
-  schreibe(pfad, kopf({ titel: `${b.name} gebraucht: Preis, technische Daten & Führerschein`, beschreibung, pfad, krumen, bild: hatFoto(b) ? bikeBild(b, "titel") : null, ld: [motorrad, ...faqLd(fragen)] }) + `
+  const seitenTitel = b.priceNew
+    ? `${b.name}: Neupreis, Gebrauchtpreis & technische Daten`
+    : `${b.name} gebraucht: Preis, technische Daten & Führerschein`;
+  schreibe(pfad, kopf({ titel: seitenTitel, beschreibung, pfad, krumen, bild: hatFoto(b) ? bikeBild(b, "titel") : null, ld: [motorrad, ...faqLd(fragen)] }) + `
     <article class="bike">
       <h1>${esc(b.name)}</h1>
       <figure><img src="${esc(bikeBild(b, "titel"))}" alt="${esc(altText(b, "titel"))}" width="1600" height="437" fetchpriority="high" />${hatFoto(b) ? "" : "<figcaption>Foto folgt</figcaption>"}</figure>
-      <p class="preis gross">${preisText(b)}${b.priceYear && preis(b) ? ` <span>gebraucht, Baujahr ${b.priceYear}</span>` : ""}</p>
+      <p class="preis gross">${preisText(b)}${b.priceYear && preis(b) ? ` <span>gebraucht, Baujahr ${b.priceYear}</span>` : ""}</p>${b.priceNew ? `
+      <p class="preis">Neupreis ca. ${zahl(b.priceNew)} €</p>` : ""}
       <p class="aktionen"><a class="knopf" href="/?motorrad=${esc(b.slug.replace(/_/g, "-"))}">In MotoMatch ansehen</a> <a class="knopf zweit" href="/">Passt sie zu mir? Quiz starten</a></p>
       <section><h2>Passt die ${esc(b.name)} zu dir?</h2><ul class="punkte">${fuerWen.map((x) => `<li>${esc(x)}</li>`).join("")}</ul></section>
       <section><h2>Technische Daten</h2><dl class="daten">${fakten.map(([k, v]) => `<dt>${esc(k)}</dt><dd>${esc(v)}</dd>`).join("")}</dl></section>
@@ -546,7 +569,7 @@ for (const v of vergleiche) {
   const beschreibung = `${a.name} oder ${b.name}? Preis (${preisText(a)} vs. ${preisText(b)}), Leistung, Gewicht, Sitzhöhe und Führerschein im direkten Vergleich.`;
   const weitere = [...(vergleicheVon.get(a) || []), ...(vergleicheVon.get(b) || [])].filter((x) => x !== v).slice(0, 8);
 
-  schreibe(v.pfad, kopf({ titel: `${a.name} oder ${b.name}? Vergleich von Preis, PS & Gewicht`, beschreibung, pfad: v.pfad, krumen, bild: hatFoto(a) ? bikeBild(a, "titel") : null }) + `
+  schreibe(v.pfad, kopf({ titel: `${a.name} vs. ${b.name}: Unterschied bei Preis, PS & Gewicht`, beschreibung, pfad: v.pfad, krumen, bild: hatFoto(a) ? bikeBild(a, "titel") : null }) + `
     <h1>${esc(a.name)} vs. ${esc(b.name)}</h1>
     <p class="intro">${esc(a.name)} oder ${esc(b.name)}? Zwei ${esc(STIL[a.style]?.mehrzahl || a.style)} im direkten Vergleich — mit Gebrauchtpreis, Technik und Führerschein.</p>
     <div class="vs">${[a, b].map((x) => `<a href="${bikePfad.get(x)}"><img src="${esc(bikeBild(x, "kachel"))}" alt="${esc(altText(x, "kachel"))}" width="420" height="300" /><strong>${esc(x.name)}</strong><span class="preis">${preisText(x)}</span></a>`).join("")}</div>

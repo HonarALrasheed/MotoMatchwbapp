@@ -16239,3 +16239,5 @@ body.mm-plant .kv-sidebar .kv-search-row { display: none; }
 }
 /* Während Navi/Aufzeichnung kein Feedback-Knopf — er lag über Tempo/Übersicht */
 body.mm-faehrt .mm-fb-fab { display: none !important; }
+.leute-info-knoepfe { margin-top: 8px; }
+.leute-info-still { opacity: 0.6; cursor: default !important; }

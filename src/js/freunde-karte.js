@@ -242,9 +242,37 @@ function zeigeInfo(p) {
     <span class="hub-info-name">${esc(p.name)}</span>
     <span class="hub-info-type">${p.unterwegs ? 'Fährt gerade' : 'Steht'}${p.freund ? '' : ' · ungefähre Position'}</span>
     <span class="hub-info-addr">${km != null ? `${km < 10 ? km.toFixed(1).replace('.', ',') : Math.round(km)} km entfernt · ` : ''}${vor(p.zeit)}</span>
-    ${p.freund ? `<div class="leute-info-knoepfe"><button type="button" class="kurve-fahren" data-hinfahren>Hinfahren</button><button type="button" class="kurve-fahren leute-info-nachricht" data-nachricht>Nachricht</button></div>` : ''}`
-  el.querySelector('[data-hinfahren]')?.addEventListener('click', () => hinfahren(p))
-  el.querySelector('[data-nachricht]')?.addEventListener('click', () => nachricht(p.username))
+    <div class="leute-info-knoepfe"></div>`
+  const knoepfe = el.querySelector('.leute-info-knoepfe')
+  // Freund: Hinfahren + Nachricht. Andere: Hinzufügen (bzw. Angefragt/Annehmen) + Nachricht
+  const zeigeKnoepfe = async () => {
+    if (!angemeldet() && !zustand.demo) { knoepfe.innerHTML = '<span class="hub-info-addr">Melde dich an, um Fahrern zu schreiben.</span>'; return }
+    let freund = p.freund, angefragt = false, anfrage = null
+    try {
+      const api = await import('./community-api.js')
+      const name = p.username.toLowerCase()
+      freund = freund || (api.getFriends() || []).some((f) => f.toLowerCase() === name)
+      angefragt = api.outgoingRequests().some((r) => r.to.toLowerCase() === name)
+      anfrage = api.incomingRequests().find((r) => r.from.toLowerCase() === name) || null
+    } catch { /* ohne Community-Daten nur Nachricht */ }
+    knoepfe.innerHTML = `${freund ? '<button type="button" class="kurve-fahren" data-hinfahren>Hinfahren</button>'
+      : anfrage ? `<button type="button" class="kurve-fahren" data-annehmen="${esc(anfrage.id)}">Annehmen</button>`
+      : angefragt ? '<button type="button" class="kurve-fahren leute-info-still" disabled>Angefragt</button>'
+      : '<button type="button" class="kurve-fahren" data-hinzu>Hinzufügen</button>'}
+      <button type="button" class="kurve-fahren leute-info-nachricht" data-nachricht>Nachricht</button>`
+  }
+  knoepfe.addEventListener('click', async (e) => {
+    if (e.target.closest('[data-hinfahren]')) hinfahren(p)
+    if (e.target.closest('[data-nachricht]')) nachricht(p.username)
+    if (e.target.closest('[data-hinzu]')) { await anfrageSenden(p.username); zeigeKnoepfe() }
+    const an = e.target.closest('[data-annehmen]')
+    if (an) {
+      const r = await (await import('./community-api.js')).acceptRequest(an.dataset.annehmen)
+      if (!r?.ok && r?.error) hinweisen('Hat nicht geklappt', r.error)
+      zeigeKnoepfe(); liste(); aktualisieren()
+    }
+  })
+  zeigeKnoepfe()
   popup = new ml.Popup({ offset: 46, closeButton: true, className: 'mm-popup', maxWidth: '240px' }).setLngLat([p.lng, p.lat]).setDOMContent(el).addTo(map)
 }
 
@@ -339,7 +367,7 @@ function panelUmschalten(an) {
       if (m) { await teilenSetzen(m.dataset.teilen); liste(); aktualisieren(); return }
       const p = e.target.closest('[data-person]')
       if (p) {
-        const d = zustand.freundesListe.find((x) => x.username === p.dataset.person)
+        const d = [...zustand.freundesListe, ...zustand.naheListe].find((x) => x.username === p.dataset.person)
         if (d) { getHubMap()?.flyTo({ center: [d.lng, d.lat], zoom: Math.max(getHubMap().getZoom(), 13), duration: 800 }); zeigeInfo(d) }
       }
     })

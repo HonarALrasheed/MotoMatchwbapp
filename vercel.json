@@ -3,6 +3,12 @@
   "outputDirectory": "dist",
   "framework": "vite",
   "installCommand": "npm install",
+  "rewrites": [
+    { "source": "/kacheln/:path*", "destination": "https://tiles.openfreemap.org/:path*" },
+    { "source": "/hoehe/:path*", "destination": "https://s3.amazonaws.com/elevation-tiles-prod/terrarium/:path*" },
+    { "source": "/wetter/:path*", "destination": "https://api.brightsky.dev/:path*" },
+    { "source": "/satellit/:path*", "destination": "https://tiles.maps.eox.at/wmts/1.0.0/s2cloudless_3857/default/g/:path*" }
+  ],
   "headers": [
     {
       "source": "/(.*)",

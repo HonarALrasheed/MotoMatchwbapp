@@ -64,9 +64,16 @@ export default function devApi() {
       // serverseitig und lesen process.env (LIVEKIT_API_SECRET, OPENAI_KEY, …),
       // also alles aus den .env-Dateien nachziehen — echte Shell-Variablen
       // behalten dabei Vorrang.
+      // Beim Neustart (Vite startet nach jeder .env-Änderung neu, im selben
+      // Prozess) dürfen Werte, die von hier stammen, überschrieben werden —
+      // sonst bliebe ein alter Wert bis zum Beenden des Dev-Servers hängen.
       const env = loadEnv(server.config.mode, root, '')
+      const ausDatei = (globalThis.__mmDevEnvKeys ||= new Set())
       for (const [k, v] of Object.entries(env)) {
-        if (process.env[k] === undefined) process.env[k] = v
+        if (process.env[k] === undefined || ausDatei.has(k)) {
+          process.env[k] = v
+          ausDatei.add(k)
+        }
       }
 
       server.middlewares.use(async (req, res, next) => {

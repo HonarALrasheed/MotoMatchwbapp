@@ -9,11 +9,15 @@
  * Rechtliches (Führerscheinklassen, Kraftradsteuer) nach FeV und KraftStG, Stand 2026; im Zweifel
  * vorsichtig formuliert ("in der Regel"), nie als Rechtsberatung.
  *
- * Aufruf aus scripts/seo-seiten.mjs: artikel(h) liefert [{ slug, titel, h1, beschreibung, inhalt, bikes }].
+ * Aufruf aus scripts/seo-seiten.mjs: artikel(h) liefert [{ slug, titel, h1, beschreibung, inhalt, held, fakten }].
+ * held = Bike fürs Titelbild, fakten = [[Zahl, Erklärung]] für "Auf einen Blick".
  */
 
 export function artikel(h) {
-  const { bikes, preis, zahl, dez, darfA2, bikePfad, themaPfad, esc, STIL } = h;
+  const { bikes, preis, zahl, dez, darfA2, bikePfad, themaPfad, esc, STIL, karte, hatFoto } = h;
+  // Bike-Karten mit Bild mitten im Text — liest sich besser als eine Namensliste
+  const reihe = (l) => (l.length ? `<ul class="raster mini">${l.map(karte).join("")}</ul>` : "");
+  const mitFoto = (l) => l.filter((b) => hatFoto(b));
   const link = (b) => `<a href="${bikePfad.get(b)}">${esc(b.name)}</a>`;
   const thema = (slug, text) => (themaPfad(slug) ? `<a href="${themaPfad(slug)}">${text}</a>` : text);
   const beliebt = (liste, n) => [...liste].sort((a, b) => (b.pop || 0) - (a.pop || 0)).slice(0, n);
@@ -42,16 +46,19 @@ export function artikel(h) {
       titel: "Motorradführerschein A1, A2, A und B196: der Unterschied einfach erklärt",
       h1: "A1, A2, A oder B196 — welcher Motorradführerschein für welches Motorrad?",
       beschreibung: "Mindestalter, Leistungsgrenzen und welche Motorräder du mit A1, B196, A2 und A fahren darfst — mit Modellzahlen aus über 1.000 Motorrädern.",
-      bikes: [...beliebt(a1, 2), ...beliebt(a2offen.concat(a2gedrosselt), 2)],
+      held: beliebt(mitFoto(a2gedrosselt), 2)[1],
+      fakten: [["16", "Jahre: A1"], ["18", "Jahre: A2"], ["35 kW", "Grenze für A2"], [zahl(bikes.length), "Modelle mit A"]],
       inhalt: `
       <p>In Deutschland gibt es drei Motorradklassen und eine Abkürzung über den Autoführerschein. Welche du brauchst, hängt an zwei Dingen: deinem Alter und der Leistung des Motorrads. Die Tabelle zeigt die Grenzen und wie viele Modelle aus unserem Katalog du jeweils fahren darfst.</p>
       ${tabelle(["Klasse", "Mindestalter", "Grenze", "Modelle bei MotoMatch"], zeilen)}
       <h2>A1: der Einstieg ab 16</h2>
       <p>Mit A1 fährst du Leichtkrafträder: höchstens 125 ccm, 11 kW und ein Leistungsgewicht bis 0,1 kW pro Kilogramm. Das reicht für die Stadt und die Landstraße, auf der Autobahn wird es knapp. Im Katalog sind ${a1.length} Modelle, beliebt sind zum Beispiel ${beliebt(a1, 3).map(link).join(", ")}. Alle zeigt die Seite ${thema("fuehrerschein-a1", "A1-Motorräder")}.</p>
+      ${reihe(beliebt(mitFoto(a1), 4))}
       <h2>B196: 125er mit dem Autoführerschein</h2>
       <p>Wer mindestens 25 Jahre alt ist und den Autoführerschein seit fünf Jahren hat, kann sich die Schlüsselzahl 196 eintragen lassen. Dafür gibt es keine Prüfung, sondern eine Schulung in der Fahrschule. Danach fährst du dieselben Motorräder wie mit A1 — allerdings nur in Deutschland. Mehr dazu im Ratgeber <a href="/ratgeber/b196-125er-mit-autofuehrerschein/">B196</a>.</p>
       <h2>A2: die Mittelklasse ab 18</h2>
       <p>A2 erlaubt bis 35 kW (48 PS) und 0,2 kW pro Kilogramm. Dazu kommen gedrosselte Motorräder: Ein Bike mit ursprünglich bis zu 70 kW darf auf 35 kW gedrosselt werden. Im Katalog sind ${a2offen.length} Modelle offen A2-tauglich, ${a2gedrosselt.length} weitere lassen sich drosseln. Wie das funktioniert, steht im Ratgeber <a href="/ratgeber/a2-drosselung/">A2-Drosselung</a>.</p>
+      ${reihe(beliebt(mitFoto(a2offen.concat(a2gedrosselt)), 4))}
       <h2>A: ohne Grenze</h2>
       <p>Den offenen Führerschein A gibt es direkt ab 24 Jahren. Schneller geht es über den Aufstieg: Wer zwei Jahre A2 hat, kann ab 20 mit einer praktischen Prüfung auf A wechseln — eine neue Theorieprüfung ist dafür nicht nötig. Mit A darfst du alle ${bikes.length} Motorräder im Katalog fahren.</p>
       <h2>Welche Klasse passt zu dir?</h2>
@@ -67,7 +74,8 @@ export function artikel(h) {
       titel: "A2-Drosselung: wie sie funktioniert, was erlaubt ist und welche Motorräder gehen",
       h1: "A2-Drosselung: so fährst du ein stärkeres Motorrad mit A2",
       beschreibung: `Welche Motorräder darf man auf 35 kW drosseln, wie läuft die Eintragung und was passiert beim Aufstieg auf A? ${a2gedrosselt.length} drosselbare Modelle mit Preisen.`,
-      bikes: beliebt(a2gedrosselt, 4),
+      held: beliebt(mitFoto(a2gedrosselt), 1)[0],
+      fakten: [["35 kW", "nach der Drosselung"], ["70 kW", "höchstens ab Werk"], [zahl(a2gedrosselt.length), "drosselbare Modelle"], [euro(median(gp.map(preis))), "mittlerer Gebrauchtpreis"]],
       inhalt: `
       <p>Mit dem A2-Führerschein darfst du höchstens 35 kW (48 PS) fahren. Viele beliebte Mittelklasse-Motorräder haben mehr — sie lassen sich aber drosseln. ${a2gedrosselt.length} Modelle in unserem Katalog sind für die A2-Drosselung geeignet; der mittlere Gebrauchtpreis liegt bei ${euro(median(gp.map(preis)))}.</p>
       <h2>Die Regeln</h2>
@@ -81,9 +89,11 @@ export function artikel(h) {
       <h2>Und nach zwei Jahren?</h2>
       <p>Nach dem Aufstieg auf A kannst du die Drosselung wieder ausbauen lassen — auch das wird eingetragen. Genau das macht gedrosselte Motorräder so beliebt: Du kaufst einmal und wächst mit dem Bike mit.</p>
       <h2>Beliebte drosselbare Motorräder</h2>
-      <p>Besonders gefragt sind ${beliebt(a2gedrosselt, 5).map(link).join(", ")}. Alle A2-tauglichen Modelle — offen und gedrosselt — zeigt die Seite ${thema("fuehrerschein-a2", "A2-Motorräder")}, nach Budget sortiert ${thema("a2-unter-5000-euro", "A2 unter 5.000 €")}.</p>
+      ${reihe(beliebt(mitFoto(a2gedrosselt), 4))}
+      <p>Alle A2-tauglichen Modelle — offen und gedrosselt — zeigt die Seite ${thema("fuehrerschein-a2", "A2-Motorräder")}, nach Budget sortiert ${thema("a2-unter-5000-euro", "A2 unter 5.000 €")}.</p>
       <h2>Offen A2 oder gedrosselt?</h2>
-      <p>Ein offen A2-taugliches Motorrad (${a2offen.length} Modelle, z. B. ${beliebt(a2offen, 2).map(link).join(" oder ")}) ist meist leichter und günstiger. Ein gedrosseltes Bike fühlt sich in den zwei A2-Jahren oft etwas zäh an, hat aber danach deutlich mehr Reserven. Wer weiß, dass er schnell auf A aufsteigt, fährt mit der Drossel gut; wer sparen will, mit einem offenen A2-Modell.</p>`,
+      <p>Ein offen A2-taugliches Motorrad (${a2offen.length} Modelle) ist meist leichter und günstiger. Ein gedrosseltes Bike fühlt sich in den zwei A2-Jahren oft etwas zäh an, hat aber danach deutlich mehr Reserven. Wer weiß, dass er schnell auf A aufsteigt, fährt mit der Drossel gut; wer sparen will, mit einem offenen A2-Modell.</p>
+      ${reihe(beliebt(mitFoto(a2offen.filter((b) => b.style !== "Roller")), 4))}`,
     });
   }
 
@@ -96,7 +106,8 @@ export function artikel(h) {
       titel: "B196: 125er mit dem Autoführerschein fahren — Voraussetzungen und passende Modelle",
       h1: "B196: Motorrad fahren mit dem Autoführerschein",
       beschreibung: `Wer darf mit B196 fahren, wie läuft die Schulung, und welche 125er lohnen sich? ${a1.length} Modelle, typischer Gebrauchtpreis ${euro(median(p.map(preis)))}.`,
-      bikes: beliebt(a1, 4),
+      held: beliebt(mitFoto(a1.filter((b) => b.style !== "Roller")), 1)[0],
+      fakten: [["25", "Jahre Mindestalter"], ["5 Jahre", "Klasse B"], ["125 ccm", "11 kW höchstens"], [zahl(a1.length), "passende Modelle"]],
       inhalt: `
       <p>Mit der Schlüsselzahl 196 dürfen Autofahrer Leichtkrafträder bis 125 ccm und 11 kW fahren — ohne Motorradprüfung. Das ist der günstigste Weg aufs Motorrad, mit einem Haken: Die Erweiterung gilt nur in Deutschland.</p>
       <h2>Voraussetzungen</h2>
@@ -106,7 +117,8 @@ export function artikel(h) {
         <li>Schulung in der Fahrschule: Theorie und praktische Fahrstunden, aber keine Prüfung. Danach trägt die Führerscheinstelle die 196 ein.</li>
       </ul>
       <h2>Welche Motorräder?</h2>
-      <p>Dieselben wie mit A1: ${a1.length} Modelle in unserem Katalog, davon ${roller.length} Roller. Der mittlere Gebrauchtpreis liegt bei ${euro(median(p.map(preis)))}. Gefragt sind ${beliebt(a1, 4).map(link).join(", ")}. Die ganze Liste: ${thema("fuehrerschein-b196", "Motorräder für B196")}.</p>
+      <p>Dieselben wie mit A1: ${a1.length} Modelle in unserem Katalog, davon ${roller.length} Roller. Der mittlere Gebrauchtpreis liegt bei ${euro(median(p.map(preis)))}. Die ganze Liste: ${thema("fuehrerschein-b196", "Motorräder für B196")}.</p>
+      ${reihe(beliebt(mitFoto(a1), 4))}
       <h2>Roller oder Motorrad?</h2>
       <p>Wer vor allem pendelt, ist mit einem 125er-Roller gut bedient: Automatik, Stauraum, Wetterschutz (${thema("motorroller-125", "125er-Roller")}). Wer Landstraße fahren will, nimmt ein Naked Bike oder eine kleine Enduro — mit Schaltung, aber mehr Fahrspaß (${thema("naked-bike-125", "125er Naked Bikes")}).</p>
       <h2>Lohnt sich B196 statt A1?</h2>
@@ -123,7 +135,8 @@ export function artikel(h) {
       titel: "Erstes Motorrad kaufen: worauf Anfänger achten sollten",
       h1: "Das erste Motorrad: sieben Fragen vor dem Kauf",
       beschreibung: `Führerschein, Sitzhöhe, Gewicht, Budget: Was beim ersten Motorrad wirklich zählt — mit ${einsteiger.length} einsteigerfreundlichen Modellen ab ${euro(Math.min(...ep.map(preis)))}.`,
-      bikes: beliebt(einsteiger, 4),
+      held: beliebt(mitFoto(leichtEinst), 1)[0],
+      fakten: [[zahl(einsteiger.length), "Einsteiger-Modelle"], [zahl(leichtEinst.length), "davon unter 190 kg"], [euro(median(ep.map(preis))), "mittlerer Gebrauchtpreis"]],
       inhalt: `
       <p>Beim ersten Motorrad entscheidet nicht die Leistung, sondern ob du dich darauf sicher fühlst. Diese sieben Fragen helfen beim Aussortieren.</p>
       <h2>1. Was erlaubt mein Führerschein?</h2>
@@ -131,7 +144,8 @@ export function artikel(h) {
       <h2>2. Komme ich mit beiden Füßen auf den Boden?</h2>
       <p>Das ist für Anfänger wichtiger als jedes Datenblatt. Als Faustregel passt eine Sitzhöhe bis etwa 46 % deiner Körpergröße. Für 1,70 m sind das rund 79 cm. Mehr im Ratgeber <a href="/ratgeber/sitzhoehe-koerpergroesse/">Sitzhöhe und Körpergröße</a>.</p>
       <h2>3. Wie schwer darf es sein?</h2>
-      <p>Rangieren, Wenden, ein umgefallenes Motorrad aufheben: Unter 190 kg ist das für die meisten gut machbar. ${leichtEinst.length} einsteigerfreundliche Modelle bleiben darunter — zum Beispiel ${beliebt(leichtEinst, 3).map(link).join(", ")}.</p>
+      <p>Rangieren, Wenden, ein umgefallenes Motorrad aufheben: Unter 190 kg ist das für die meisten gut machbar. ${leichtEinst.length} einsteigerfreundliche Modelle bleiben darunter, zum Beispiel:</p>
+      ${reihe(beliebt(mitFoto(leichtEinst), 4))}
       <h2>4. Was will ich damit fahren?</h2>
       <p>Pendeln, Landstraße, Reisen, Schotter? Naked Bikes sind die vielseitigsten Einsteiger-Motorräder, Enduros bieten bequeme Sitzpositionen, Sportler sind für Anfänger eher anstrengend. Ein Überblick steht im Ratgeber <a href="/ratgeber/motorradtypen/">Motorradtypen</a>.</p>
       <h2>5. Neu oder gebraucht?</h2>
@@ -149,7 +163,9 @@ export function artikel(h) {
     titel: "Motorrad gebraucht kaufen: Checkliste für die Besichtigung",
     h1: "Gebrauchtes Motorrad kaufen: die Checkliste",
     beschreibung: "Kette, Reifenalter, Bremsen, Gabel, Papiere: Worauf du bei der Besichtigung eines gebrauchten Motorrads achten solltest — Schritt für Schritt.",
-    bikes: [],
+    held: beliebt(mitFoto(bikes.filter((b) => b.style === "Naked")), 1)[0],
+    fakten: [["6 Jahre", "Reifenalter: dann tauschen"], ["4", "Schritte: Rundgang, Kaltstart, Probefahrt, Papiere"]],
+    checkliste: true,
     inhalt: `
       <p>Ein gebrauchtes Motorrad ist oft die klügere Wahl — wenn du weißt, worauf du schaust. Nimm diese Liste zur Besichtigung mit, am besten zusammen mit jemandem, der sich auskennt.</p>
       <h2>Vor dem Termin</h2>
@@ -197,7 +213,8 @@ export function artikel(h) {
       titel: "Motorradsteuer berechnen: was dein Motorrad im Jahr kostet (mit Tabelle)",
       h1: "Motorradsteuer: so wird sie berechnet",
       beschreibung: `1,84 € je angefangene 25 ccm: So berechnest du die Kfz-Steuer fürs Motorrad, mit Beispielen von 125 bis über 1.000 ccm. Im Mittel ${dez(median(alleSteuer).toFixed(2))} € im Jahr.`,
-      bikes: [],
+      held: beispiele.filter((b) => hatFoto(b)).at(-1),
+      fakten: [["1,84 €", "je angefangene 25 ccm"], ["9,20 €", "für eine 125er"], [`${dez(median(alleSteuer).toFixed(2))} €`, "im Mittel pro Jahr"]],
       inhalt: `
       <p>Die Kfz-Steuer für Motorräder hängt nur am Hubraum: 1,84 € pro angefangene 25 ccm und Jahr. Abgaswerte oder CO₂ spielen keine Rolle. Über alle ${zahl(alleSteuer.length)} Modelle in unserem Katalog liegt die Steuer im Mittel bei ${dez(median(alleSteuer).toFixed(2))} € im Jahr.</p>
       <h2>Rechenbeispiel</h2>
@@ -217,13 +234,14 @@ export function artikel(h) {
       const n = bikes.filter((b) => b.seat_height > 0 && b.seat_height <= bis).length;
       return [`${dez((cm / 100).toFixed(2))} m`, `bis ca. ${dez(bis)} cm`, cm <= 175 ? thema(`motorrad-fuer-${cm}-cm`, `${zahl(n)} Modelle`) : `${zahl(n)} Modelle`];
     });
-    const tief = beliebt(bikes.filter((b) => b.seat_height > 0 && b.seat_height <= 72), 4);
+    const tief = beliebt(bikes.filter((b) => b.seat_height > 0 && b.seat_height <= 72 && hatFoto(b)), 4);
     liste.push({
       slug: "sitzhoehe-koerpergroesse",
       titel: "Motorrad Sitzhöhe und Körpergröße: welche Sitzhöhe passt zu mir? (Tabelle)",
       h1: "Welche Sitzhöhe passt zu meiner Körpergröße?",
       beschreibung: "Faustregel und Tabelle von 1,50 bis 1,90 m: welche Sitzhöhe du sicher fährst und wie viele Motorräder dazu passen — plus Tipps für kleinere Fahrer.",
-      bikes: tief,
+      held: mitFoto(tief)[0],
+      fakten: [["45 %", "der Körpergröße + 3 % Reserve"], [zahl(bikes.filter((b) => b.seat_height > 0 && b.seat_height <= 74.2).length), "Modelle für 1,60 m"], [zahl(bikes.filter((b) => b.seat_height > 0 && b.seat_height <= 78).length), "Modelle bis 78 cm"]],
       inhalt: `
       <p>Sicher fühlst du dich auf einem Motorrad, wenn du an der Ampel mit beiden Fußballen auf den Boden kommst. Als Faustregel passt eine Sitzhöhe bis etwa 45 % der Körpergröße plus drei Prozent Reserve. Die Tabelle zeigt, was das bedeutet — und wie viele Modelle aus unserem Katalog jeweils passen.</p>
       ${tabelle(["Körpergröße", "Sitzhöhe", "Passende Motorräder"], zeilen)}
@@ -235,7 +253,9 @@ export function artikel(h) {
         <li>Stiefel mit etwas dickerer Sohle bringen ein bis zwei Zentimeter.</li>
         <li>Leichte Motorräder verzeihen es eher, wenn nur ein Fuß sicher steht.</li>
       </ul>
-      <p>Besonders niedrig sitzt man zum Beispiel auf ${tief.map(link).join(", ")}. Alle Modelle bis 78 cm: ${thema("niedrige-sitzhoehe", "Motorräder mit niedriger Sitzhöhe")}. Für große Fahrer: ${thema("motorrad-fuer-grosse-fahrer", "Motorräder ab 1,85 m")}.</p>`,
+      <h2>Besonders niedrige Motorräder</h2>
+      ${reihe(mitFoto(tief))}
+      <p>Alle Modelle bis 78 cm: ${thema("niedrige-sitzhoehe", "Motorräder mit niedriger Sitzhöhe")}. Für große Fahrer: ${thema("motorrad-fuer-grosse-fahrer", "Motorräder ab 1,85 m")}.</p>`,
     });
   }
 
@@ -260,13 +280,14 @@ export function artikel(h) {
       titel: "Motorradtypen erklärt: Naked Bike, Enduro, Sportler, Cruiser & Co.",
       h1: "Motorradtypen: welche Bauart passt zu dir?",
       beschreibung: "Naked Bike, Reiseenduro, Sportler, Tourer, Cruiser, Retro, Supermoto, Roller: Was die Bauarten können — mit typischem Preis und Sitzhöhe aus über 1.000 Modellen.",
-      bikes: [],
+      held: beliebt(mitFoto(bikes.filter((b) => b.style === "Enduro")), 1)[0],
+      fakten: [["8", "Bauarten"], [zahl(bikes.length), "Modelle im Vergleich"]],
       inhalt: `
       <p>Die Bauart sagt mehr über ein Motorrad als die PS-Zahl: Sie bestimmt Sitzposition, Komfort und wofür es gemacht ist. Die Tabelle zeigt die acht Typen mit mittlerem Gebrauchtpreis und typischer Sitzhöhe aus unserem Katalog.</p>
       ${tabelle(["Bauart", "Modelle", "Preis (Mitte)", "Sitzhöhe (Mitte)"], zeilen)}
       ${Object.entries(ERKL).map(([stil, text]) => {
-        const top = beliebt(bikes.filter((b) => b.style === stil), 3);
-        return `<h2>${esc(STIL[stil]?.mehrzahl || stil)}</h2><p>${text} Beliebt: ${top.map(link).join(", ")}.</p>`;
+        const top = beliebt(mitFoto(bikes.filter((b) => b.style === stil)), 4);
+        return `<h2>${esc(STIL[stil]?.mehrzahl || stil)}</h2><p>${text}</p>${reihe(top)}`;
       }).join("\n      ")}
       <p>Unsicher? Das Quiz fragt, wofür du fahren willst, und schlägt passende Bauarten vor.</p>`,
     });
@@ -287,10 +308,12 @@ export function artikel(h) {
       titel: "Motorrad neu oder gebraucht kaufen? Wertverlust in Zahlen",
       h1: "Neu oder gebraucht: was ein Motorrad pro Jahr an Wert verliert",
       beschreibung: `Ein Motorrad verliert im Mittel rund ${dez((proJahr * 100).toFixed(1))} % Wert pro Baujahr — ausgewertet aus ${zahl(raten.length)} Preispaaren. Wann sich neu lohnt und wann gebraucht.`,
-      bikes: beispiel ? [beispiel] : [],
+      held: beispiel,
+      fakten: [[`${dez((proJahr * 100).toFixed(1))} %`, "Wertverlust pro Baujahr"], [zahl(raten.length), "ausgewertete Preispaare"]],
       inhalt: `
       <p>Wir haben für alle Modelle im Katalog die Marktpreise nach Baujahr verglichen: ${zahl(raten.length)} Paare aufeinanderfolgender Baujahre. Im Mittel ist ein Motorrad pro Jahr Alter rund <strong>${dez((proJahr * 100).toFixed(1))} %</strong> günstiger als das ein Jahr jüngere Baujahr.</p>
-      ${beispiel ? `<h2>Beispiel: ${esc(beispiel.name)}</h2>${tabelle(["Baujahr", "Gebrauchtpreis ca."], bj.map(([y, v]) => [y, euro(v)]))}` : ""}
+      ${beispiel ? `<h2>Beispiel: ${esc(beispiel.name)}</h2>
+      <div class="balken">${bj.map(([y, v]) => `<div class="balken-zeile"><span>${y}</span><div><i style="width:${Math.round((v / bj[0][1]) * 100)}%"></i></div><strong>${euro(v)}</strong></div>`).join("")}</div>` : ""}
       <h2>Wann sich neu lohnt</h2>
       <ul class="punkte">
         <li>Du willst das Motorrad viele Jahre fahren — dann verteilt sich der höhere Preis.</li>
@@ -322,11 +345,13 @@ export function artikel(h) {
       titel: "Leichtes Motorrad: warum das Gewicht so wichtig ist — die leichtesten Modelle je Klasse",
       h1: "Leichte Motorräder: warum Gewicht zählt",
       beschreibung: `Rangieren, Aufheben, Handlichkeit: warum ein leichtes Motorrad gerade für Einsteiger zählt. ${unter180} Modelle unter 180 kg und die leichtesten je Führerscheinklasse.`,
-      bikes: [],
+      held: beliebt(mitFoto(bikes.filter((b) => b.weight > 0 && b.weight <= 180 && b.license !== "A1")), 1)[0],
+      fakten: [[zahl(unter180), "Modelle unter 180 kg"], ["15–25 kg", "Unterschied trocken/fahrfertig"]],
       inhalt: `
       <p>Auf der Straße merkst du das Gewicht kaum — beim Rangieren, Wenden auf engem Raum oder wenn das Motorrad einmal umfällt, dafür umso mehr. Für Einsteiger und kleinere Fahrer ist ein leichtes Motorrad oft wichtiger als ein paar PS mehr. ${unter180} Modelle in unserem Katalog wiegen fahrfertig höchstens 180 kg.</p>
       <h2>Die leichtesten je Führerscheinklasse</h2>
       ${tabelle(["Klasse", "Leichteste Modelle"], zeilen)}
+      ${reihe(beliebt(mitFoto(bikes.filter((b) => b.weight > 0 && b.weight <= 180 && b.license !== "A1")), 4))}
       <h2>Fahrfertig oder trocken?</h2>
       <p>Hersteller geben oft das Trockengewicht an — ohne Benzin, Öl und Batterie. Fahrfertig ist ein Motorrad 15 bis 25 kg schwerer. Vergleiche deshalb immer gleiche Angaben.</p>
       <h2>Weiter stöbern</h2>

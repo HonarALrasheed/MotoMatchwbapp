@@ -621,27 +621,54 @@ schreibe("/vergleich/", kopf({
 
 // ── Ratgeber ───────────────────────────────────────────────────────────────
 const RATGEBER_DATUM = "2026-10-05";
-const ratgeber = artikel({ bikes, preis, zahl, dez, darfA2, bikePfad, themaPfad, esc, STIL });
+const ratgeber = artikel({ bikes, preis, zahl, dez, darfA2, bikePfad, themaPfad, esc, STIL, karte, hatFoto });
+const MONAT = new Date(`${STAND || RATGEBER_DATUM}T12:00:00`).toLocaleDateString("de-DE", { month: "long", year: "numeric" });
+const ankerVon = (t) => t.toLowerCase().replace(/ä/g, "ae").replace(/ö/g, "oe").replace(/ü/g, "ue").replace(/ß/g, "ss").replace(/<[^>]+>/g, "").replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+const heldBild = (b) => (b ? (b.studio || bikeBild(b, "titel")) : null);
 for (const r of ratgeber) {
   r.pfad = `/ratgeber/${r.slug}/`;
+  // Zwischenüberschriften bekommen Anker — daraus wird das Inhaltsverzeichnis
+  const kapitel = [];
+  const inhalt = r.inhalt.replace(/<h2>(.*?)<\/h2>/g, (_, t) => { const id = ankerVon(t); kapitel.push([id, t]); return `<h2 id="${id}">${t}</h2>`; });
+  const woerter = inhalt.replace(/<[^>]+>/g, " ").split(/\s+/).filter(Boolean).length;
   const krumen = [["Start", "/"], ["Ratgeber", "/ratgeber/"], [r.h1, r.pfad]];
+  const bild = heldBild(r.held);
   const ld = { "@context": "https://schema.org", "@type": "Article", headline: r.titel.slice(0, 110), description: r.beschreibung,
     datePublished: RATGEBER_DATUM, dateModified: STAND || RATGEBER_DATUM, inLanguage: "de-DE", mainEntityOfPage: url(r.pfad),
+    image: bild ? url(bild) : undefined,
     author: { "@type": "Organization", name: "MotoMatch", url: BASIS }, publisher: { "@type": "Organization", name: "MotoMatch", url: BASIS } };
-  const bild = r.bikes.find((b) => hatFoto(b));
-  schreibe(r.pfad, kopf({ titel: r.titel, beschreibung: r.beschreibung, pfad: r.pfad, krumen, bild: bild ? bikeBild(bild, "titel") : null, ld: [ld] }) + `
-    <article class="artikel">
-      <h1>${esc(r.h1)}</h1>
-      ${r.inhalt}
-    </article>
-    ${r.bikes.length ? `<section><h2>Modelle aus diesem Artikel</h2><ul class="raster">${r.bikes.map(karte).join("")}</ul></section>` : ""}
-    <section><h2>Weitere Ratgeber</h2><ul class="themen">${ratgeber.filter((x) => x !== r).map((x) => `<li><a href="/ratgeber/${x.slug}/">${esc(x.h1)}</a></li>`).join("")}</ul></section>
+  const verzeichnis = kapitel.length > 2 ? `<nav class="r-inhalt" aria-label="Inhalt"><strong>Inhalt</strong><ol>${kapitel.map(([id, t]) => `<li><a href="#${id}">${t}</a></li>`).join("")}</ol></nav>` : "";
+  schreibe(r.pfad, kopf({ titel: r.titel, beschreibung: r.beschreibung, pfad: r.pfad, krumen, bild, ld: [ld] }) + `
+    <header class="r-held">
+      ${bild ? `<img src="${esc(bild)}" alt="${esc(altText(r.held, "studio"))}" width="1280" height="960" fetchpriority="high" />` : ""}
+      <div class="r-held-text">
+        <span class="r-marke">Ratgeber</span>
+        <h1>${esc(r.h1)}</h1>
+        <p>${esc(r.beschreibung)}</p>
+        <span class="r-meta">${Math.max(2, Math.round(woerter / 200))} Min. Lesezeit · Stand ${esc(MONAT)}</span>
+      </div>
+    </header>
+    ${r.fakten?.length ? `<section class="r-fakten" aria-label="Auf einen Blick">${r.fakten.map(([z, t]) => `<div><strong>${esc(String(z))}</strong><span>${esc(t)}</span></div>`).join("")}</section>` : ""}
+    <div class="r-layout">
+      <article class="artikel${r.checkliste ? " checkliste" : ""}">
+        ${inhalt}
+      </article>
+      <aside class="r-seite">
+        ${verzeichnis}
+        <div class="r-quiz"><strong>Welches Motorrad passt zu dir?</strong><p>8 Fragen, über ${zahl(Math.floor(bikes.length / 100) * 100)} Modelle.</p><a class="knopf" href="/?utm_source=ratgeber">Quiz starten</a></div>
+      </aside>
+    </div>
+    <section><h2>Weitere Ratgeber</h2><ul class="r-karten">${ratgeber.filter((x) => x !== r).slice(0, 6).map(ratgeberKarte).join("")}</ul></section>
 ` + fuss());
+}
+function ratgeberKarte(r) {
+  const bild = heldBild(r.held);
+  return `<li><a href="/ratgeber/${r.slug}/">${bild ? `<img src="${esc(bild)}" alt="" loading="lazy" width="640" height="480" />` : ""}<strong>${esc(r.h1)}</strong><span>${esc(r.beschreibung)}</span></a></li>`;
 }
 schreibe("/ratgeber/", kopf({ titel: "Motorrad-Ratgeber: Führerschein, Kauf, Kosten", beschreibung: "Ratgeber rund ums erste und nächste Motorrad: Führerscheinklassen, A2-Drosselung, Gebrauchtkauf, Steuer, Sitzhöhe — mit Zahlen aus über 1.000 Modellen.", pfad: "/ratgeber/", krumen: [["Start", "/"], ["Ratgeber", "/ratgeber/"]] }) + `
     <h1>Motorrad-Ratgeber</h1>
     <p class="intro">Antworten auf die Fragen vor dem Motorradkauf — mit Zahlen aus unserem Katalog von ${zahl(bikes.length)} Modellen.</p>
-    <ul class="ratgeber-liste">${ratgeber.map((r) => `<li><a href="/ratgeber/${r.slug}/"><strong>${esc(r.h1)}</strong><span>${esc(r.beschreibung)}</span></a></li>`).join("")}</ul>
+    <ul class="r-karten">${ratgeber.map(ratgeberKarte).join("")}</ul>
 ` + fuss());
 
 writeFileSync(join(DIST, "seo.css"), `@font-face{font-family:Barlow;font-weight:400;font-display:swap;src:url(/fonts/barlow-400.woff2) format("woff2")}
@@ -689,18 +716,58 @@ h2{font-size:22px;font-weight:600;margin:40px 0 14px}
 .cta p{color:var(--dim);max-width:560px;margin:0 auto 18px}
 .knopf{display:inline-block;background:#fff;color:#000;padding:12px 26px;text-decoration:none;font-weight:600}
 .knopf.klein{padding:7px 14px;font-size:14px}
+.r-held{position:relative;margin:8px 0 0;border-radius:22px;overflow:hidden;background:#141414;min-height:380px;display:flex;align-items:center}
+.r-held img{position:absolute;right:0;top:0;width:62%;height:100%;object-fit:cover;object-position:center}
+.r-held::after{content:"";position:absolute;inset:0;background:linear-gradient(90deg,#141414 34%,rgba(20,20,20,.75) 46%,rgba(20,20,20,0) 66%)}
+.r-held-text{position:relative;z-index:1;padding:36px;max-width:560px}
+.r-held h1{margin:10px 0 12px;font-size:clamp(30px,4.4vw,46px)}
+.r-held p{font-size:17px;color:rgba(255,255,255,.78)}
+.r-marke{display:inline-block;font-size:12px;font-weight:600;letter-spacing:.16em;text-transform:uppercase;padding:5px 12px;border:1px solid rgba(255,255,255,.35);border-radius:99px}
+.r-meta{display:block;margin-top:12px;font-size:14px;color:var(--dim)}
+.r-fakten{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:12px;margin:18px 0 8px}
+.r-fakten div{background:var(--fl);border:1px solid var(--rand);border-radius:16px;padding:16px 18px}
+.r-fakten strong{display:block;font-size:28px;font-weight:800;line-height:1.1}
+.r-fakten span{color:var(--dim);font-size:14px}
+.r-layout{display:grid;grid-template-columns:minmax(0,1fr) 280px;gap:48px;align-items:start;margin-top:12px}
+.r-seite{position:sticky;top:16px;display:grid;gap:14px}
+.r-inhalt,.r-quiz{background:var(--fl);border:1px solid var(--rand);border-radius:16px;padding:18px}
+.r-inhalt strong{display:block;font-size:13px;letter-spacing:.14em;text-transform:uppercase;color:var(--dim);margin-bottom:8px}
+.r-inhalt ol{list-style:none;display:grid;gap:6px;counter-reset:k}
+.r-inhalt li{counter-increment:k;font-size:15px;line-height:1.35}
+.r-inhalt li::before{content:counter(k);display:inline-block;width:22px;color:var(--dim)}
+.r-inhalt a{text-decoration:none}
+.r-inhalt a:hover{text-decoration:underline}
+.r-quiz strong{display:block;font-size:18px}
+.r-quiz p{color:var(--dim);font-size:14px;margin:4px 0 14px}
 .artikel{max-width:760px}
-.artikel p{margin:12px 0;font-size:17px;color:rgba(255,255,255,.85)}
+.artikel h2{font-size:26px;font-weight:800;margin:44px 0 12px;scroll-margin-top:16px}
+.artikel p{margin:12px 0;font-size:17px;line-height:1.7;color:rgba(255,255,255,.85)}
 .artikel a{text-decoration:underline;text-underline-offset:3px}
-.artikel .punkte{margin:10px 0}
-.tabelle{border-collapse:collapse;margin:18px 0;width:100%;max-width:760px;font-size:15px}
-.tabelle th,.tabelle td{text-align:left;padding:8px 14px 8px 0;border-bottom:1px solid var(--rand);vertical-align:top}
-.tabelle th{color:var(--dim);font-weight:400}
-.ratgeber-liste{list-style:none;display:grid;gap:12px;margin-top:24px;max-width:860px}
-.ratgeber-liste a{display:block;padding:18px;background:var(--fl);border:1px solid var(--rand);border-radius:14px;text-decoration:none}
-.ratgeber-liste a:hover{border-color:rgba(255,255,255,.3)}
-.ratgeber-liste strong{display:block;font-size:18px}
-.ratgeber-liste span{color:var(--dim);font-size:15px}
+.artikel .punkte{list-style:none;padding:0;display:grid;gap:10px;margin:16px 0}
+.artikel .punkte li{position:relative;background:var(--fl);border:1px solid var(--rand);border-radius:14px;padding:14px 16px 14px 46px;font-size:16px;margin:0}
+.artikel .punkte li::before{content:"";position:absolute;left:16px;top:17px;width:18px;height:18px;border-radius:50%;background:rgba(255,255,255,.12)}
+.checkliste .punkte li::before{content:"✓";background:#fff;color:#0a0a0a;font-size:12px;font-weight:800;text-align:center;line-height:18px}
+.raster.mini{grid-template-columns:repeat(auto-fill,minmax(170px,1fr));gap:12px;margin:18px 0 8px}
+.raster.mini .karte a{padding:10px}
+.raster.mini .karte .info{font-size:12px}
+.tabelle{border-collapse:separate;border-spacing:0;margin:18px 0;width:100%;font-size:15px;background:var(--fl);border:1px solid var(--rand);border-radius:14px;overflow:hidden}
+.tabelle th,.tabelle td{text-align:left;padding:11px 16px;border-bottom:1px solid var(--rand);vertical-align:top}
+.tabelle tr:last-child td{border-bottom:0}
+.tabelle th{color:var(--dim);font-weight:400;background:rgba(255,255,255,.03)}
+.balken{display:grid;gap:8px;margin:18px 0}
+.balken-zeile{display:grid;grid-template-columns:52px 1fr 92px;gap:12px;align-items:center;font-size:15px}
+.balken-zeile div{height:12px;background:rgba(255,255,255,.07);border-radius:99px;overflow:hidden}
+.balken-zeile i{display:block;height:100%;background:#fff;border-radius:99px}
+.balken-zeile strong{text-align:right;font-weight:600}
+.r-karten{list-style:none;display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:14px;margin-top:20px}
+.r-karten a{display:flex;flex-direction:column;height:100%;background:var(--fl);border:1px solid var(--rand);border-radius:16px;overflow:hidden;text-decoration:none}
+.r-karten a:hover{border-color:rgba(255,255,255,.3)}
+.r-karten img{width:100%;height:auto;aspect-ratio:4/3;object-fit:cover}
+.r-karten strong{display:block;font-size:18px;padding:14px 16px 4px;line-height:1.25}
+.r-karten span{color:var(--dim);font-size:14px;padding:0 16px 16px}
+.knopf.klein{white-space:nowrap}
+@media (max-width:520px){.kopf{padding:14px 16px}.logo{letter-spacing:.18em;font-size:14px}.kopf nav{gap:14px}.kopf nav a{font-size:14px}.kopf nav a:first-child{display:none}.r-fakten{grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}.r-fakten div{padding:14px}.r-fakten strong{font-size:22px}.raster.mini{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media (max-width:900px){.r-layout{grid-template-columns:1fr;gap:8px}.r-seite{position:static;order:-1}.r-quiz{display:none}.r-held{display:block;min-height:0}.r-held img{position:static;width:100%;height:auto;aspect-ratio:4/3}.r-held::after{background:linear-gradient(180deg,rgba(20,20,20,0) 40%,#141414 74%)}.r-held-text{margin-top:-90px;padding:0 18px 22px}}
 .knopf.zweit{background:transparent;color:#fff;border:1px solid rgba(255,255,255,.35)}
 .aktionen{display:flex;flex-wrap:wrap;gap:10px;margin:14px 0 4px}
 .fuss{max-width:1200px;margin:0 auto;padding:24px 16px 40px;border-top:1px solid var(--rand);color:var(--dim);font-size:13px}

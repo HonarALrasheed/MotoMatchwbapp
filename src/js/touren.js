@@ -206,6 +206,7 @@ const ICON = {
   rec: '<svg width="15" height="15" viewBox="0 0 24 24"><circle cx="12" cy="12" r="6.5" fill="#e63946"/><circle cx="12" cy="12" r="10" fill="none" stroke="currentColor" stroke-width="1.8"/></svg>',
   hochladen: '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 16V4M7 9l5-5 5 5M5 20h14"/></svg>',
   teilen: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><path d="M8.6 13.5l6.8 4M15.4 6.5l-6.8 4"/></svg>',
+  regler: '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M4 7h10M18 7h2M4 17h4M12 17h8"/><circle cx="16" cy="7" r="2"/><circle cx="10" cy="17" r="2"/></svg>',
   pfeil: '<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg>',
 }
 
@@ -309,6 +310,15 @@ export function buildTourenAnsicht() {
           <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 3v18M3 7l4-4 4 4M17 21V3M13 17l4 4 4-4"/></svg>
           <span id="tour-sort-label"></span>
         </button>
+        <div class="tour-neu-wrap">
+          <button type="button" class="tour-neu" id="tour-neu" aria-haspopup="menu" aria-expanded="false">${ICON.plus}<span>Neu</span></button>
+          <div class="tour-neu-menue" role="menu" hidden>
+            <button type="button" role="menuitem" data-aktion="planen">${ICON.plus}Route planen</button>
+            <button type="button" role="menuitem" data-aktion="aufzeichnen">${ICON.rec}Fahrt aufzeichnen</button>
+            <button type="button" role="menuitem" data-aktion="import">${ICON.hochladen}GPX-Datei laden</button>
+          </div>
+        </div>
+        <input type="file" accept=".gpx,application/gpx+xml" id="tour-gpx-datei" hidden>
       </div>
     </div>
     <div class="tour-liste" id="tour-liste"><div class="kv-results-empty"><span>…</span></div></div>
@@ -327,18 +337,20 @@ function renderFilter() {
   const n = gemerkt().length
   const kurvenChip = `<button type="button" class="kv-chip tour-filter-chip tour-kurven-chip" data-filter="kurvenebene" data-active="${zustand.kurvenEbene}" aria-pressed="${zustand.kurvenEbene}" title="Alle kurvigen Straßen auf der Karte">${ICON.kurve}Kurvenstrecken</button>`
   const meineChip = `<button type="button" class="kv-chip tour-filter-chip tour-meine-chip" data-filter="meine" data-active="${zustand.meine}" aria-pressed="${zustand.meine}" title="Deine aufgezeichneten, geplanten und importierten Strecken">${ICON.meine}Meine<span class="kv-chip-count">${eigeneTouren().length}</span></button>`
-  leiste.innerHTML = zustand.meine ? meineChip + kurvenChip : meineChip + Object.entries(FILTER).map(([key, f]) => {
-    const wert = zustand[key]
-    const aktiv = wert !== 'alle'
-    const text = aktiv ? f.werte.find((w) => w[0] === wert)[1] : f.label
-    return `<button type="button" class="kv-chip tour-filter-chip" data-filter="${key}" data-active="${aktiv}" aria-expanded="${zustand.offenerFilter === key}">${esc(text)}${ICON.pfeil}</button>`
-  }).join('') + kurvenChip + `<button type="button" class="kv-chip kv-chip--fav" data-filter="gemerkt" data-active="${zustand.gemerkt}" aria-pressed="${zustand.gemerkt}" aria-label="Gemerkte Touren">${ICON.merken(false)}<span class="kv-chip-count">${n}</span></button>`
+  const gemerktChip = `<button type="button" class="kv-chip kv-chip--fav" data-filter="gemerkt" data-active="${zustand.gemerkt}" aria-pressed="${zustand.gemerkt}" aria-label="Gemerkte Touren">${ICON.merken(false)}<span class="kv-chip-count">${n}</span></button>`
+  // Länge, Kurven und Art stecken zusammen hinter "Filter" — die Leiste bleibt eine Zeile
+  const aktiveFilter = Object.keys(FILTER).filter((k) => zustand[k] !== 'alle').length
+  const offen = zustand.offenerFilter === 'filter' && !zustand.meine
+  const filterChip = `<button type="button" class="kv-chip tour-filter-chip" data-filter="filter" data-active="${aktiveFilter > 0}" aria-expanded="${offen}">${ICON.regler}Filter${aktiveFilter ? `<span class="kv-chip-count">${aktiveFilter}</span>` : ''}</button>`
+  leiste.innerHTML = (zustand.meine ? '' : filterChip) + meineChip + kurvenChip + (zustand.meine ? '' : gemerktChip)
 
   const opt = document.getElementById('tour-optionen')
-  const f = FILTER[zustand.offenerFilter]
   if (!opt) return
-  opt.hidden = !f
-  opt.innerHTML = f ? f.werte.map(([id, label]) => `<button type="button" class="tour-option${zustand[zustand.offenerFilter] === id ? ' tour-option--aktiv' : ''}" data-wert="${id}">${esc(label)}</button>`).join('') : ''
+  opt.hidden = !offen
+  opt.innerHTML = offen ? Object.entries(FILTER).map(([key, f]) => `<div class="tour-opt-gruppe">
+      <span class="tour-opt-titel">${esc(f.label)}</span>
+      <div class="tour-opt-werte">${f.werte.map(([id, label]) => `<button type="button" class="tour-option${zustand[key] === id ? ' tour-option--aktiv' : ''}" data-gruppe="${key}" data-wert="${id}">${esc(id === 'alle' ? 'Alle' : label)}</button>`).join('')}</div>
+    </div>`).join('') + (aktiveFilter ? '<button type="button" class="tour-opt-reset" data-filter-reset>Filter zurücksetzen</button>' : '') : ''
 
   const sortLabel = document.getElementById('tour-sort-label')
   if (sortLabel) sortLabel.textContent = { entfernung: 'Entfernung', kurven: 'Kurvigkeit', laenge: 'Länge' }[sortWirksam()]
@@ -411,7 +423,6 @@ function aktionsleiste() {
     <button type="button" class="tour-aktion" data-aktion="planen">${ICON.plus}<span>Planen</span></button>
     <button type="button" class="tour-aktion" data-aktion="aufzeichnen">${ICON.rec}<span>Aufzeichnen</span></button>
     <button type="button" class="tour-aktion" data-aktion="import">${ICON.hochladen}<span>GPX laden</span></button>
-    <input type="file" accept=".gpx,application/gpx+xml" id="tour-gpx-datei" hidden>
   </div>`
 }
 
@@ -453,13 +464,13 @@ function renderListe({ karteAnpassen = false } = {}) {
   if (count) count.textContent = liste.length ? `${von + 1}–${von + seite.length} von ${liste.length} ${zustand.meine ? 'eigenen Strecken' : 'Touren'}` : ''
 
   if (!liste.length) {
-    box.innerHTML = aktionsleiste() + leer()
+    box.innerHTML = (zustand.meine ? aktionsleiste() : '') + leer()
     zeichneListe([], karteAnpassen)
     return
   }
   const mitSammlung = zustand.seite === 1 && !zustand.gemerkt && !zustand.meine && zustand.typ !== 'rund'
   const mitKurven = zustand.seite === 1 && !zustand.gemerkt && !zustand.meine && herkunft()
-  box.innerHTML = (zustand.seite === 1 ? aktionsleiste() : '') + (zustand.meine && zustand.seite === 1 ? '<div class="meine-bilanz" id="meine-bilanz" hidden></div>' : '') + seite.map(({ t, km }, i) => karte(t, km, i)
+  box.innerHTML = (zustand.meine && zustand.seite === 1 ? '<div class="meine-bilanz" id="meine-bilanz" hidden></div>' : '') + seite.map(({ t, km }, i) => karte(t, km, i)
     + (mitSammlung && i === 1 ? sammlung() : '')
     + (mitKurven && i === Math.min(4, seite.length - 1) ? '<section class="tour-sammlung" id="kurven-band" hidden></section>' : '')).join('') + seiten(liste.length)
   if (mitKurven) fuelleKurvenBand()
@@ -1151,7 +1162,7 @@ export function initTouren({ mountThumb } = {}) {
         zustand.gemerkt = false
         zustand.offenerFilter = null
       } else {
-        zustand.offenerFilter = zustand.offenerFilter === key ? null : key
+        zustand.offenerFilter = zustand.offenerFilter === 'filter' ? null : 'filter'
         renderFilter()
         return
       }
@@ -1159,14 +1170,22 @@ export function initTouren({ mountThumb } = {}) {
       renderListe({ karteAnpassen: true })
       return
     }
-    const option = e.target.closest('.tour-option')
-    if (option && zustand.offenerFilter) {
-      zustand[zustand.offenerFilter] = option.dataset.wert
-      zustand.offenerFilter = null
+    const option = e.target.closest('.tour-option[data-gruppe]')
+    if (option) {
+      zustand[option.dataset.gruppe] = option.dataset.wert
       zustand.seite = 1
       renderListe({ karteAnpassen: true })
       return
     }
+    const neu = e.target.closest('#tour-neu')
+    const menue = ansicht.querySelector('.tour-neu-menue')
+    if (neu) {
+      const auf = menue.hidden
+      menue.hidden = !auf
+      neu.setAttribute('aria-expanded', String(auf))
+      return
+    }
+    if (menue && !menue.hidden && !e.target.closest('.tour-neu-menue')) { menue.hidden = true; ansicht.querySelector('#tour-neu')?.setAttribute('aria-expanded', 'false') }
     if (e.target.closest('#tour-sort')) {
       const reihe = herkunft() ? ['entfernung', 'kurven', 'laenge'] : ['kurven', 'laenge']
       zustand.sort = reihe[(reihe.indexOf(sortWirksam()) + 1) % reihe.length]
@@ -1200,6 +1219,7 @@ export function initTouren({ mountThumb } = {}) {
     const aktion = e.target.closest('[data-aktion]')
     if (aktion) {
       const was = aktion.dataset.aktion
+      if (menue) { menue.hidden = true; ansicht.querySelector('#tour-neu')?.setAttribute('aria-expanded', 'false') }
       if (was === 'import') document.getElementById('tour-gpx-datei')?.click()
       if (was === 'aufzeichnen') import('./aufzeichnen.js').then((m) => m.aufzeichnungStarten({ fertig: zeigeEigene }))
       if (was === 'planen') import('./planer.js').then((m) => m.planerOeffnen({ fertig: zeigeEigene }))

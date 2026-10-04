@@ -15827,3 +15827,31 @@ body.mm-faehrt .leute-panel, body.mm-fliegt .leute-panel, body.mm-plant .leute-p
 @media (max-width: 768px) {
   .leute-panel { top: 118px; left: 12px; right: 64px; width: auto; max-height: 52vh; }
 }
+
+/* ── Tourenliste: aufgeräumter Kopf (Filter gebündelt, "+ Neu"-Menü) ── */
+.tour-filters .kv-chip-count { margin-left: 2px; }
+.tour-optionen { flex-direction: column; flex-wrap: nowrap; gap: 10px; padding-top: 12px; }
+.tour-opt-gruppe { display: flex; flex-direction: column; gap: 6px; }
+.tour-opt-titel { font-size: 11px; font-weight: 600; color: rgba(255,255,255,0.45); }
+.tour-opt-werte { display: flex; flex-wrap: wrap; gap: 6px; }
+.tour-opt-reset { align-self: flex-start; padding: 0; border: 0; background: none; color: rgba(255,255,255,0.55); font: 600 12px/1.4 var(--font); text-decoration: underline; cursor: pointer; }
+.tour-list-bar { position: relative; z-index: 6; }
+.tour-neu-wrap { position: relative; }
+.tour-neu {
+  display: inline-flex; align-items: center; gap: 5px; height: var(--kv-ctl-h, 28px); padding: 0 12px 0 9px;
+  border: 0; border-radius: 999px; background: #fff; color: #111; font: 700 12px/1 var(--font); cursor: pointer;
+}
+.tour-neu svg { width: 13px; height: 13px; }
+.tour-neu-menue {
+  position: absolute; right: 0; top: calc(100% + 6px); z-index: 30; min-width: 200px; padding: 6px;
+  display: flex; flex-direction: column; border-radius: 14px; background: #262626; border: 1px solid rgba(255,255,255,0.1);
+  box-shadow: 0 12px 30px rgba(0,0,0,0.45); animation: kvResultIn 0.2s ease both;
+}
+.tour-neu-menue[hidden] { display: none; }
+.tour-neu-menue button {
+  display: flex; align-items: center; gap: 10px; padding: 10px; border: 0; border-radius: 9px; background: none;
+  color: #fff; font: 600 13px/1.2 var(--font); text-align: left; cursor: pointer;
+}
+.tour-neu-menue button:hover { background: rgba(255,255,255,0.08); }
+.tour-neu-menue svg { width: 16px; height: 16px; flex: none; }
+

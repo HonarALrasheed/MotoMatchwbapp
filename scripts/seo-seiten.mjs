@@ -299,6 +299,7 @@ function kopf({ titel, beschreibung, pfad, bild, krumen, ld: extraLd = [] }) {
   <title>${esc(titel)} | MotoMatch</title>
   <meta name="description" content="${esc(beschreibung)}" />
   <link rel="canonical" href="${url(pfad)}" />
+  <link rel="icon" href="/favicon.ico" sizes="32x32" />
   <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
   <meta name="theme-color" content="#0a0a0a" />
   <meta property="og:type" content="website" />

@@ -3075,9 +3075,11 @@ function bindKarteViewEvents() {
       const alt = JSON.parse(localStorage.getItem('mm_recent_kv') || '[]').filter(x => (x?.titel ?? x) !== v.titel)
       localStorage.setItem('mm_recent_kv', JSON.stringify([{ titel: v.titel, zusatz: v.zusatz, lat: v.lat, lng: v.lng, zoom: v.zoom }, ...alt].slice(0, 6)))
     } catch { /* gesperrter Speicher: dann eben ohne Verlauf */ }
-    const genau = (v.zoom || 0) >= 15
+    /* Zielkarte (Route ab dem Standort + "Touren in der Nähe"): bei Adressen
+       immer, im Touren-Modus auch bei Städten und Orten. Regionen (Kreis,
+       Land) und die Orte-Suche bleiben beim Umkreis. */
+    const genau = (v.zoom || 0) >= (modus === 'touren' ? 12 : 15)
     setzeSuchPin(v.lat, v.lng, v.titel, v.zusatz)
-    // Adresse (Straße, Hausnummer, Geschäft): Zielkarte mit Route ab dem Standort
     if (genau) { zielZeigen(v); return }
     if (modus === 'touren') {
       setTourenHerkunft(v.lat, v.lng)

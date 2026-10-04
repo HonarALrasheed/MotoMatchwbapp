@@ -20,6 +20,7 @@ import { esc } from './util.js'
 import { getHubMap, getMapLib, haversineKm, getUserCoords } from './karte.js'
 import { wetterEntlang, wetterWarnung, wetterSymbol } from './wetter.js'
 import { starteAufzeichnung } from './ride-tracker.js'
+import { sage, verstummen, manoever, stimmeEntsperren, wartetAufDich, wartetSetzen, PERSONA } from './stimme.js'
 
 const LS_MITSCHNEIDEN = 'mm_fahrt_aufzeichnen_v1'
 const mitschneidenGemerkt = () => { try { return localStorage.getItem(LS_MITSCHNEIDEN) !== '0' } catch { return true } }
@@ -78,19 +79,21 @@ const mSprache = (m) => (m >= 1000 ? `${(m / 1000).toFixed(m >= 10000 ? 0 : 1).r
 const dauer = (min) => (min >= 60 ? `${Math.floor(min / 60)}:${String(Math.round(min % 60)).padStart(2, '0')} Std` : `${Math.max(1, Math.round(min))} Min`)
 const uhr = (minAb) => new Date(Date.now() + minAb * 60000).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' })
 
-let stimme = null
-function sprich(text, ton = fahrt?.ton) {
-  if (!ton || !('speechSynthesis' in window)) return
-  try {
-    if (!stimme) stimme = speechSynthesis.getVoices().find((v) => v.lang?.startsWith('de')) || null
-    const u = new SpeechSynthesisUtterance(text)
-    u.lang = 'de-DE'
-    if (stimme) u.voice = stimme
-    u.rate = 1.03
-    speechSynthesis.cancel()
-    speechSynthesis.speak(u)
-  } catch {}
+/** Heiko sagt an (stimme.js): eingesprochene Ansage, sonst die Gerätestimme mit text. */
+function sprich(schluessel, text, { ton = fahrt?.ton, anhaengen = false } = {}) {
+  if (!ton) return
+  // Die Begrüßung läuft aus, die erste Ansage stellt sich hinten an
+  sage(schluessel, text, { anhaengen: anhaengen || Date.now() < (fahrt?.begruessungBis || 0) })
 }
+/** "In 250 Metern rechts abbiegen" — klein nach der Entfernung. */
+const nachEntfernung = (satzText) => satzText.replace(/^(Links|Rechts|Leicht|Scharf|Geradeaus|Wenden|Einfädeln|Im|Am|An)\b/, (w) => w.toLowerCase())
+/** Ansage-Schlüssel "800-abbiegen-links" bzw. "abbiegen-links" (kurz davor). */
+function ansageFuer(stufe, s) {
+  const m = manoever(s)
+  if (!m) return null
+  return stufe === 60 ? m : `${stufe}-${m}`
+}
+const PAUSE_NACH_MS = 90 * 60_000
 
 // ── Standort ─────────────────────────────────────────────────────────────
 
@@ -334,6 +337,17 @@ function zeigePlan(v, { abstand }) {
     </ol>
     <div class="fahrt-wetter" id="fahrt-wetter"><div class="fahrt-laedt"><span class="hub-map-spinner"></span> Wetter unterwegs…</div></div>
     ${v.anfahrtFehler && !v.anfahrt && abstand > ANFAHRT_AB_M ? `<p class="fahrt-start-fehler">${esc(v.anfahrtFehler)} Das Navi zeigt dir dann die Richtung zur Strecke.</p>` : ''}
+    <div class="fahrt-heiko">
+      <div class="fahrt-heiko-kopf">
+        <span class="fahrt-heiko-zeichen" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M3 11.5L12 4l9 7.5"/><path d="M5.5 10v9.5h13V10"/><path d="M12 17.2s-3-1.9-3-3.9a1.6 1.6 0 0 1 3-.8 1.6 1.6 0 0 1 3 .8c0 2-3 3.9-3 3.9z"/></svg></span>
+        <span class="fahrt-heiko-text"><strong>${PERSONA.name} sagt an</strong><em>${esc(PERSONA.zeile)}</em></span>
+        <button type="button" class="fahrt-heiko-probe" data-probe aria-label="Stimme anhören"><svg viewBox="0 0 24 24"><path d="M8 5.5v13l10.5-6.5z"/></svg></button>
+      </div>
+      <label class="fahrt-heiko-wartet">
+        <span>Wer wartet auf dich?</span>
+        <input type="text" data-wartet maxlength="40" placeholder="z. B. Lena, Mama, die Kids" value="${esc(wartetAufDich())}" autocomplete="off">
+      </label>
+    </div>
     <label class="fahrt-mitschnitt">
       <input type="checkbox" data-mitschneiden ${mitschneidenGemerkt() ? 'checked' : ''}>
       <span><strong>Fahrt aufzeichnen</strong><em>Landet danach in „Meine“ und im Fahrtenbuch — nur auf diesem Gerät.</em></span>
@@ -346,7 +360,15 @@ function zeigePlan(v, { abstand }) {
   zeigeWetter(v, { anfM, anfMin, tourMin, tourM })
   el.querySelectorAll('[data-einstieg]').forEach((b) => b.addEventListener('click', () => { if (v.einstieg !== b.dataset.einstieg) { v.einstieg = b.dataset.einstieg; planen() } }))
   el.querySelectorAll('[data-richtung]').forEach((b) => b.addEventListener('click', () => { const u = b.dataset.richtung === 'gegen'; if (v.umgekehrt !== u) { v.umgekehrt = u; planen() } }))
+  el.querySelector('[data-probe]').addEventListener('click', () => {
+    stimmeEntsperren()
+    const w = el.querySelector('[data-wartet]').value.trim()
+    sage(w ? 'hallo' : 'probe', w ? `Hi, ich bin ${PERSONA.name}. Fahr vorsichtig. ${w} wartet auf dich.` : null)
+  })
+  el.querySelector('[data-wartet]').addEventListener('change', (e) => wartetSetzen(e.target.value))
   el.querySelector('[data-losfahren]').addEventListener('click', () => {
+    stimmeEntsperren()
+    wartetSetzen(el.querySelector('[data-wartet]').value)
     const strecke = v.anfahrt ? verbinde(v.anfahrt, v.tour, 'Start der Tour') : v.tour
     const info = { anfahrtM: v.anfahrt ? v.anfahrt.kum[v.anfahrt.kum.length - 1] : 0, anfahrtSek: v.anfahrt?.sekunden || 0, tourMinJeM: tourMin / Math.max(1, tourM) }
     const t = v.t, zurueck = v.zurueck
@@ -551,9 +573,9 @@ function zeichne() {
       const schluessel = `${f.dVersion}-${f.schritt}-${stufe}`
       if (bis <= stufe && !f.angesagt.has(schluessel)) {
         ANSAGEN_M.filter((x) => x >= stufe).forEach((x) => f.angesagt.add(`${f.dVersion}-${f.schritt}-${x}`))
-        if (naechsterS[1] === 'waypoint') sprich(bis < 80 ? `${satz(naechsterS)} erreicht. Viel Spaß auf der Tour.` : `In ${mSprache(bis)}: ${satz(naechsterS)}`)
-        else if (naechsterS[1] === 'arrive') sprich(bis < 80 ? 'Ziel erreicht.' : `In ${mSprache(bis)} erreichst du das Ziel.`)
-        else sprich(stufe === 60 ? satz(naechsterS) : `In ${mSprache(bis)} ${satz(naechsterS)}`)
+        if (naechsterS[1] === 'waypoint') sprich(bis < 80 ? 'start-erreicht' : ansageFuer(stufe, naechsterS), bis < 80 ? `${satz(naechsterS)} erreicht. Viel Spaß, und fahr vorsichtig.` : `In ${mSprache(bis)} beginnt die Tour.`)
+        else if (naechsterS[1] === 'arrive') sprich(bis < 80 ? 'angekommen' : ansageFuer(stufe, naechsterS), bis < 80 ? 'Du bist angekommen.' : `In ${mSprache(bis)} erreichst du dein Ziel.`)
+        else sprich(ansageFuer(stufe, naechsterS), stufe === 60 ? satz(naechsterS) : `In ${mSprache(bis)} ${nachEntfernung(satz(naechsterS))}`)
         break
       }
     }
@@ -595,6 +617,17 @@ function position(pos) {
   if (!f.gestartet) { f.anzeigeM = f.meter; f.frei = [lat, lng] }
   f.gestartet = true
   f.letztePos = { lat, lng }
+  // Pause-Erinnerung nach 90 min Fahrt; wer 10 min steht, hat Pause gemacht
+  const jetztMs = Date.now()
+  if ((f.tempo ?? 0) < 5) f.stehtSeit ||= jetztMs
+  else {
+    if (f.stehtSeit && jetztMs - f.stehtSeit > 10 * 60_000) f.pauseAb = jetztMs + PAUSE_NACH_MS
+    f.stehtSeit = 0
+  }
+  if (jetztMs > f.pauseAb && (f.tempo ?? 0) >= 5) {
+    f.pauseAb = jetztMs + PAUSE_NACH_MS
+    sprich('pause', 'Du bist jetzt seit anderthalb Stunden unterwegs. Gönn dir eine kurze Pause. Ausgeruht fährt es sich sicherer.', { anhaengen: true })
+  }
   // Nach 8 s neben der Strecke: Rückführung berechnen
   if (f.abseitsSeit && Date.now() - f.abseitsSeit > 8000 && !f.neuBerechnung && Date.now() - (f.letzteNeuberechnung || 0) > 20000) neuBerechnen()
   zeichne()
@@ -678,7 +711,7 @@ async function neuBerechnen() {
     f.anzeigeM = 0
     if (f.fix) f.fix = { ...f.fix, meter: 0, aufStrecke: true }
     zeichneNaviLinie()
-    sprich('Route neu berechnet.')
+    sprich('neu', 'Kein Problem, ich habe die Route neu berechnet.')
   } catch (err) {
     console.warn('[fahrt] Neuberechnung', err)
   } finally {
@@ -776,7 +809,7 @@ export function starteFahrt(t, strecke, { info = {}, onEnde, mitschneiden = fals
     t, d, el, onEnde, info,
     gesamt: d.kum.at(-1), anfahrtEnde: info.anfahrtM || 0,
     index: 0, meter: 0, schritt: 0, abstand: 0, gestartet: false, folgen: true, ton: true, tempo: null,
-    angesagt: new Set(), dVersion: 0, anflug: true,
+    angesagt: new Set(), dVersion: 0, anflug: true, pauseAb: Date.now() + PAUSE_NACH_MS, stehtSeit: 0,
     marker: new ml.Marker({ element: puck, rotationAlignment: 'map', pitchAlignment: 'map' }).setLngLat([d.pts[0][1], d.pts[0][0]]).addTo(map),
     watch: null, wach: null,
   }
@@ -821,7 +854,7 @@ export function starteFahrt(t, strecke, { info = {}, onEnde, mitschneiden = fals
       fahrt.ton = !fahrt.ton
       b.innerHTML = fahrt.ton ? ICON.ton : ICON.stumm
       b.setAttribute('aria-pressed', String(fahrt.ton))
-      if (!fahrt.ton) try { speechSynthesis.cancel() } catch {}
+      if (!fahrt.ton) verstummen()
     }
   })
   f.sichtbar = () => { if (document.visibilityState === 'visible' && fahrt && !fahrt.wach) wachHalten() }
@@ -845,7 +878,10 @@ export function starteFahrt(t, strecke, { info = {}, onEnde, mitschneiden = fals
     if (fahrt?.el !== el) return
     el.querySelector('.fahrt-name').textContent = n < g ? `${t.name} · Karte wird offline gespeichert ${Math.round((n / g) * 100)} %` : `${t.name} · Karte offline verfügbar`
   })).catch(() => {})
-  sprich(info.anfahrtM ? `Los geht's. Erst ${mSprache(info.anfahrtM)} zum Start der Tour.` : `Tour ${t.name}. Gute Fahrt.`)
+  const wartet = wartetAufDich()
+  f.begruessungBis = Date.now() + 9000
+  sprich('hallo', `Hi, ich bin ${PERSONA.name}. Fahr vorsichtig. ${wartet ? `${wartet} wartet auf dich.` : 'Zu Hause wartet jemand auf dich.'}`)
+  sprich(info.anfahrtM ? 'los-anfahrt' : 'los', info.anfahrtM ? `Los geht's. Erst ${mSprache(info.anfahrtM)} zum Start der Tour.` : "Los geht's. Gute Fahrt, und komm gut heim.", { anhaengen: true })
   zeichne()
   return true
 }
@@ -870,10 +906,44 @@ export function beenden(ziel = false) {
   document.querySelector('.konf-karte-hub')?.classList.remove('kv-faehrt')
   document.body.classList.remove('mm-faehrt')
   if (map) { map.easeTo({ pitch: 0, bearing: 0, duration: 700, padding: { top: 0, bottom: 0, left: 0, right: 0 } }); map.once('moveend', () => map.setMaxPitch(0)) }
-  if (ziel) sprich('Ziel erreicht. Schöne Tour gewesen.', f.ton)
+  if (ziel) {
+    sprich('angekommen', 'Du bist angekommen. Schön, dass du heil zurück bist.', { ton: f.ton })
+    heimMelden()
+  } else verstummen()
   const aufnahme = f.aufnahme?.beenden()
   if (aufnahme && aufnahme.km >= 1) aufnahmeSpeichern(f, aufnahme)
   else f.onEnde?.(ziel)
+}
+
+/** Am Ziel: kurz Bescheid geben, dass man heil angekommen ist. */
+function heimMelden() {
+  const wer = wartetAufDich()
+  const host = document.querySelector('.konf-karte-hub .kv-map-wrap')
+  if (!host) return
+  host.querySelector('.fahrt-heim')?.remove()
+  const el = document.createElement('div')
+  el.className = 'fahrt-heim'
+  el.setAttribute('role', 'status')
+  el.innerHTML = `<strong>Gut angekommen</strong>
+    <span>${wer ? `Sag ${esc(wer)} Bescheid, dass du heil da bist.` : 'Sag zu Hause Bescheid, dass du heil da bist.'}</span>
+    <div class="fahrt-heim-knoepfe">
+      <button type="button" data-heim="nein">Später</button>
+      <button type="button" data-heim="ja" class="fahrt-heim-haupt">Bescheid geben</button>
+    </div>`
+  host.appendChild(el)
+  const weg = setTimeout(() => el.remove(), 60_000)
+  el.addEventListener('click', async (e) => {
+    const b = e.target.closest('[data-heim]')
+    if (!b) return
+    clearTimeout(weg)
+    el.remove()
+    if (b.dataset.heim !== 'ja') return
+    const text = 'Bin gut angekommen 🏍️ – bis gleich!'
+    try {
+      if (navigator.share) await navigator.share({ text })
+      else location.href = `sms:?&body=${encodeURIComponent(text)}`
+    } catch {}
+  })
 }
 
 /** Nach der Fahrt: mitgeschnittene Strecke unter dem Namen der Tour speichern. */

@@ -198,6 +198,8 @@ function zeigeStandort() {
     const el = document.createElement('div')
     el.className = 'mm-standort-punkt'
     userMarker = new ml.Marker({ element: el }).setLngLat([userLng, userLat]).addTo(karte)
+    // Profilbild statt blauem Punkt (wie bei "Wo ist?")
+    import('./freunde-karte.js').then((m) => m.eigenesBild(el)).catch(() => {})
   } else userMarker.setLngLat([userLng, userLat])
 }
 
@@ -391,6 +393,7 @@ export async function initHubMap() {
     karte.__mmBereit = true
     await richteOrteEbenenEin()
     zeigeStandort()
+    import('./freunde-karte.js').then((m) => m.leuteStarten()).catch((err) => console.warn('[karte] Freunde', err))
     emitMapReady()
     if (userLocationKnown) sucheAktiveKachel()
     else getUserLocation().then((ok) => { if (ok) standortGefunden() })

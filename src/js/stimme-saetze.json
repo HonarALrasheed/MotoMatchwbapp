@@ -1,0 +1,42 @@
+{
+  "_hinweis": "Sätze der Navi-Stimme Heiko. Schlüssel = Dateiname der Ansage unter public/stimme/heiko/. scripts/stimme/bauen.py spricht daraus die Ansagen ein; src/js/stimme.js nutzt die Texte, wenn eine Ansage fehlt.",
+  "abstaende": { "800": "In 800 Metern", "250": "In 250 Metern" },
+  "manoever": {
+    "abbiegen-links": "links abbiegen",
+    "abbiegen-rechts": "rechts abbiegen",
+    "abbiegen-leicht-links": "leicht links abbiegen",
+    "abbiegen-leicht-rechts": "leicht rechts abbiegen",
+    "abbiegen-scharf-links": "scharf links abbiegen",
+    "abbiegen-scharf-rechts": "scharf rechts abbiegen",
+    "wenden": "bitte wenden",
+    "geradeaus": "geradeaus weiter",
+    "kreisel": "in den Kreisverkehr fahren",
+    "kreisel-1": "im Kreisverkehr die erste Ausfahrt nehmen",
+    "kreisel-2": "im Kreisverkehr die zweite Ausfahrt nehmen",
+    "kreisel-3": "im Kreisverkehr die dritte Ausfahrt nehmen",
+    "kreisel-4": "im Kreisverkehr die vierte Ausfahrt nehmen",
+    "kreisel-5": "im Kreisverkehr die fünfte Ausfahrt nehmen",
+    "kreisel-6": "im Kreisverkehr die sechste Ausfahrt nehmen",
+    "kreisel-raus": "den Kreisverkehr verlassen",
+    "einfaedeln": "vorsichtig einfädeln",
+    "auffahrt": "die Auffahrt nehmen",
+    "ausfahrt-links": "die Ausfahrt links nehmen",
+    "ausfahrt-rechts": "die Ausfahrt rechts nehmen",
+    "gabel-links": "an der Gabelung links halten",
+    "gabel-rechts": "an der Gabelung rechts halten",
+    "ende-links": "am Ende der Straße links abbiegen",
+    "ende-rechts": "am Ende der Straße rechts abbiegen",
+    "ziel": "erreichst du dein Ziel",
+    "start-tour": "beginnt die Tour"
+  },
+  "einzeln": {
+    "hallo": "Hi, ich bin Heiko. Fahr vorsichtig. Zu Hause wartet jemand auf dich.",
+    "los": "Los geht's. Gute Fahrt, und komm gut heim.",
+    "los-anfahrt": "Los geht's. Erst fahren wir zum Start der Tour.",
+    "start-erreicht": "Start der Tour erreicht. Viel Spaß, und fahr vorsichtig.",
+    "neu": "Kein Problem, ich habe die Route neu berechnet.",
+    "pause": "Du bist jetzt seit anderthalb Stunden unterwegs. Gönn dir eine kurze Pause. Ausgeruht fährt es sich sicherer.",
+    "angekommen": "Du bist angekommen. Schön, dass du heil zurück bist.",
+    "probe": "Hi, ich bin Heiko. Ich bringe dich sicher ans Ziel, und wieder nach Hause."
+  }
+}

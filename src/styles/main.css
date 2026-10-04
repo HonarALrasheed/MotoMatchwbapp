@@ -15751,3 +15751,105 @@ body.mm-plant .kurven-legende { display: none; }
 @media (max-width: 768px) {
   .kurven-legende { right: auto; left: 50%; top: 128px; transform: translateX(-50%); gap: 9px; padding: 6px 11px; font-size: 11px; }
 }
+
+/* ── Heiko: Navi-Stimme auf dem Startbildschirm ─────────────────────── */
+.fahrt-heiko { display: flex; flex-direction: column; gap: 10px; padding: 12px; border-radius: 14px; background: linear-gradient(160deg, rgba(255,170,90,0.16), rgba(255,170,90,0.04)); border: 1px solid rgba(255,170,90,0.25); }
+.fahrt-heiko-kopf { display: flex; align-items: center; gap: 10px; }
+.fahrt-heiko-zeichen { flex: none; display: grid; place-items: center; width: 38px; height: 38px; border-radius: 50%; background: #ffb15e; }
+.fahrt-heiko-zeichen svg { width: 22px; height: 22px; fill: none; stroke: #3a1d00; stroke-width: 1.9; stroke-linecap: round; stroke-linejoin: round; }
+.fahrt-heiko-text { flex: 1; min-width: 0; }
+.fahrt-heiko-text strong { display: block; font-size: 13.5px; color: #fff; }
+.fahrt-heiko-text em { display: block; margin-top: 2px; font-style: normal; font-size: 11.5px; line-height: 1.4; color: rgba(255,255,255,0.6); }
+.fahrt-heiko-probe { flex: none; display: grid; place-items: center; width: 36px; height: 36px; border: 0; border-radius: 50%; background: rgba(255,255,255,0.1); color: #fff; cursor: pointer; }
+.fahrt-heiko-probe:hover { background: rgba(255,255,255,0.18); }
+.fahrt-heiko-probe svg { width: 16px; height: 16px; fill: currentColor; margin-left: 2px; }
+.fahrt-heiko-wartet { display: flex; flex-direction: column; gap: 5px; font-size: 11.5px; color: rgba(255,255,255,0.6); }
+.fahrt-heiko-wartet input { height: 40px; padding: 0 12px; border-radius: 10px; border: 1px solid rgba(255,255,255,0.14); background: #1b1b1b; color: #fff; font: 500 14px/1 var(--font); }
+.fahrt-heiko-wartet input:focus { outline: none; border-color: #ffb15e; }
+
+/* Am Ziel: "Bescheid geben" */
+.fahrt-heim { position: absolute; left: 50%; top: 18px; transform: translateX(-50%); z-index: 30; width: min(360px, calc(100% - 32px)); display: flex; flex-direction: column; gap: 6px; padding: 16px; border-radius: 18px; background: rgba(20,20,20,0.96); color: #fff; box-shadow: 0 10px 30px rgba(0,0,0,0.35); animation: fahrt-heim-ein .35s ease-out; }
+.fahrt-heim strong { font-size: 17px; }
+.fahrt-heim > span { font-size: 13.5px; line-height: 1.45; color: rgba(255,255,255,0.7); }
+.fahrt-heim-knoepfe { display: flex; gap: 8px; margin-top: 6px; }
+.fahrt-heim-knoepfe button { flex: 1; height: 42px; border: 0; border-radius: 12px; background: rgba(255,255,255,0.1); color: #fff; font: 600 14px/1 var(--font); cursor: pointer; }
+.fahrt-heim-knoepfe .fahrt-heim-haupt { background: #ffb15e; color: #2a1500; }
+@keyframes fahrt-heim-ein { from { opacity: 0; transform: translate(-50%, -10px); } }
+
+/* ── Freunde auf der Karte ("Wo ist?") ──────────────────────────────── */
+/* Eigener Standort mit Profilbild */
+.mm-standort-punkt.mm-standort-punkt--avatar {
+  width: 40px; height: 40px; padding: 0; border: 0; background: none;
+  box-shadow: none; animation: none; position: relative;
+}
+.mm-standort-punkt--avatar::before {
+  content: ''; position: absolute; inset: -6px; border-radius: 50%;
+  background: rgba(0,122,255,0.28); animation: mmStandortPuls 2.2s ease-out infinite;
+}
+.mm-standort-bild, .leute-marker-bild, .leute-liste-bild {
+  position: relative; display: block; border-radius: 50%; overflow: hidden;
+  background: #fff; border: 3px solid #fff; box-shadow: 0 3px 10px rgba(0,0,0,0.3);
+}
+.mm-standort-bild { width: 40px; height: 40px; box-sizing: border-box; outline: 2px solid #007aff; outline-offset: -1px; }
+.mm-standort-bild img, .leute-marker-bild img, .leute-liste-bild img { display: block; width: 100%; height: 100%; object-fit: cover; }
+.mm-standort-bild span, .leute-marker-bild span, .leute-liste-bild span {
+  display: grid; place-items: center; width: 100%; height: 100%;
+  color: #fff; font: 700 14px/1 var(--font); letter-spacing: 0.02em;
+}
+
+/* Freunde und andere Fahrer */
+.leute-marker { display: flex; flex-direction: column; align-items: center; gap: 3px; padding: 0; border: 0; background: none; cursor: pointer; }
+.leute-marker-bild { width: 44px; height: 44px; box-sizing: border-box; transition: transform .15s ease; }
+.leute-marker:hover .leute-marker-bild { transform: scale(1.08); }
+.leute-marker-name {
+  max-width: 110px; padding: 2px 7px; border-radius: 999px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  background: rgba(255,255,255,0.95); color: #1b1b1b; font: 600 11px/1.35 var(--font); box-shadow: 0 1px 4px rgba(0,0,0,0.2);
+}
+.leute-marker--unterwegs .leute-marker-bild { border-color: #2fb35a; }
+.leute-marker--unterwegs .leute-marker-bild::after {
+  content: ''; position: absolute; right: -2px; bottom: -2px; width: 12px; height: 12px; border-radius: 50%;
+  background: #2fb35a; border: 2px solid #fff;
+}
+.leute-marker--alt { opacity: 0.6; }
+.leute-marker--oeffentlich .leute-marker-bild { width: 34px; height: 34px; border-width: 2px; }
+.leute-marker--oeffentlich .leute-marker-bild span { font-size: 11px; }
+.leute-marker--oeffentlich .leute-marker-name { font-size: 10px; background: rgba(255,255,255,0.85); }
+
+/* Knöpfe über dem Zoom */
+.leute-knoepfe { display: flex; flex-direction: column; gap: 10px; pointer-events: auto; }
+.leute-knopf svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+.leute-knopf[aria-pressed="true"] { background: #fff; color: #111; border-color: #fff; }
+
+/* Liste */
+.leute-panel {
+  position: absolute; top: 76px; right: 68px; z-index: 12; width: 300px; max-height: calc(100% - 160px);
+  display: flex; flex-direction: column; gap: 10px; padding: 14px; overflow: auto;
+  border-radius: 18px; background: rgba(24,24,24,0.97); border: 1px solid rgba(255,255,255,0.12);
+  box-shadow: 0 14px 34px rgba(0,0,0,0.4); color: #fff;
+}
+.kv-map-wrap:has(.leute-panel) .kurven-legende { display: none; }
+.leute-kopf { display: flex; align-items: center; justify-content: space-between; }
+.leute-kopf strong { font-size: 17px; }
+.leute-zu { width: 30px; height: 30px; border: 0; border-radius: 50%; background: rgba(255,255,255,0.1); color: #fff; font-size: 18px; line-height: 1; cursor: pointer; }
+.leute-hinweis { margin: 0; font-size: 13px; line-height: 1.5; color: rgba(255,255,255,0.65); }
+.leute-liste { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; }
+.leute-liste button {
+  display: flex; align-items: center; gap: 10px; width: 100%; padding: 8px; border: 0; border-radius: 12px;
+  background: none; color: inherit; text-align: left; cursor: pointer;
+}
+.leute-liste button:hover:not([disabled]) { background: rgba(255,255,255,0.07); }
+.leute-liste button[disabled] { cursor: default; opacity: 0.55; }
+.leute-liste-bild { flex: none; width: 40px; height: 40px; box-sizing: border-box; border-width: 2px; }
+.leute-liste-text { flex: 1; min-width: 0; }
+.leute-liste-text strong { display: block; font-size: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.leute-liste-text em { display: block; font-style: normal; font-size: 12px; color: rgba(255,255,255,0.55); }
+.leute-liste-km { flex: none; font-size: 12.5px; font-weight: 600; color: rgba(255,255,255,0.75); }
+.leute-teilen { display: flex; flex-direction: column; gap: 7px; padding-top: 10px; border-top: 1px solid rgba(255,255,255,0.1); font-size: 12.5px; color: rgba(255,255,255,0.7); }
+.leute-teilen em { font-style: normal; font-size: 11.5px; line-height: 1.45; color: rgba(255,255,255,0.5); }
+.leute-teilen .fahrt-schalter { display: flex; }
+.leute-teilen .fahrt-schalter button { flex: 1; }
+body.mm-faehrt .leute-panel, body.mm-fliegt .leute-panel, body.mm-plant .leute-panel { display: none; }
+
+@media (max-width: 768px) {
+  .leute-panel { top: 118px; left: 12px; right: 64px; width: auto; max-height: 52vh; }
+}

@@ -58,6 +58,8 @@ Wichtigste Module in `src/js/`:
 - `vorschau.js` — Kartenausschnitte für Liste/Detail: ein unsichtbarer MapLibre-Renderer zeichnet je Strecke ein Bild (Browser-Cache `mm-vorschau`, Version `VERSION` hochzählen bei Stiländerungen); die Linie liegt als SVG darüber (animiert im Detail).
 - `eigene-strecken.js` — eigene Strecken nur lokal: Aufzeichnungen im Fahrtenbuch (`mm_rides_v1`, Format wie im Profil), geplante/importierte in `mm_strecken_v1`; `alsTour()` macht daraus Tour-Objekte; GPX lesen/schreiben; Teilen per Link `#strecke=…` (Strecke steckt im Link, `app.js` übernimmt sie); `bilanz()` = gesammelte Kurvenstrecken.
 - `planer.js` — Routenplaner: Punkte per Tipp, Ortssuche oder Ziehen an der Linie (`plan-griff`), Rückgängig, „Kurvig“ legt die Route über die besten Kurvenstrecken im Korridor, „Rundtour vorschlagen“ rechnet 6 ORS-Rundtouren und nimmt die kurvigste passender Länge.
+- `stimme.js` — Navi-Stimme „Heiko“ (Hei-ko = heimkommen): vorab eingesprochene Ansagen unter `public/stimme/heiko/` (Sätze in `stimme-saetze.json`, neu einsprechen mit `scripts/stimme/bauen.py`, Werkstatt `~/motomatch-stimme` mit Piper + Thorsten-Voice), sonst Gerätestimme. Pausen-Erinnerung nach 90 min, „Wer wartet auf dich?“ nur lokal.
+- `freunde-karte.js` — „Wo ist“ für Freunde: eigenes Profilbild als Standort, Freunde (genau) und „Öffentlich“ (auf ~1 km gerundet, RPC `oeffentliche_standorte`), Teilen Aus/Freunde/Öffentlich. Tabelle `standorte` aus Migration a18. Dev-Test ohne Anmeldung: `window.__mmLeute.zeigen([...])`.
 - `aufzeichnen.js` — Aufzeichnen auf der Karte (Messung: `ride-tracker.js`), speichert ins Fahrtenbuch. `wetter.js` — DWD-Vorhersage zur Ankunftszeit je Streckenpunkt. `offline.js` — Kacheln im Korridor vorladen.
 
 ## Konventionen

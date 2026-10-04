@@ -6,6 +6,7 @@
  * pro Nutzer aendert und fuers Navi im Funkloch gebraucht wird:
  *   /kacheln/*  Kartenkacheln, Schriften, Symbole (OpenFreeMap ueber die eigene Domain)
  *   /hoehe/*    Hoehendaten fuers Relief
+ *   /stimme/*   Ansagen der Navi-Stimme (auch im Funkloch)
  *   /data/touren|kurven|orte/*  die statischen Strecken- und Ortsdaten
  * Alles andere (App, Supabase, API) geht unveraendert durchs Netz.
  * Vorladen entlang einer Strecke: src/js/offline.js.
@@ -56,7 +57,7 @@ self.addEventListener('fetch', event => {
   if (req.method !== 'GET') return
   const url = new URL(req.url)
   if (url.origin !== self.location.origin) return
-  if (/^\/(kacheln|hoehe)\//.test(url.pathname) || /^\/data\/(touren|kurven|orte)\//.test(url.pathname)) {
+  if (/^\/(kacheln|hoehe|stimme)\//.test(url.pathname) || /^\/data\/(touren|kurven|orte)\//.test(url.pathname)) {
     event.respondWith(kartenAntwort(req))
   }
 })

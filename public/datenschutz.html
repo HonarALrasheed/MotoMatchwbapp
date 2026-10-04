@@ -527,6 +527,43 @@
     </section>
 
     <section>
+      <h2>8c. Standort mit Freunden teilen, Fahrer in der Nähe</h2>
+      <p>
+        In der Karte können Sie unter „Freunde“ einstellen, ob Sie Ihren Standort teilen: „Aus“
+        (Voreinstellung), „Freunde“ oder „Öffentlich“. Solange Sie teilen und MotoMatch geöffnet ist,
+        liest die Website über die Standortschnittstelle Ihres Browsers Ihre Position und speichert
+        höchstens alle 20 Sekunden Ihre letzte Position (Breite, Länge, Geschwindigkeit, ob Sie gerade
+        fahren, Zeitpunkt) in unserer Datenbank bei Supabase (siehe Abschnitt zum Hosting). Es wird immer
+        nur die letzte Position gespeichert, kein Verlauf.
+      </p>
+      <p>
+        Bei „Freunde“ sehen nur Nutzer, mit denen Sie in der Community befreundet sind, Ihre genaue
+        Position, und nur, solange sie nicht älter als 24 Stunden ist. Bei „Öffentlich“ sehen Ihre
+        Freunde Sie genau, alle anderen angemeldeten Nutzer nur auf etwa einen Kilometer gerundet,
+        zusammen mit Ihrem Benutzernamen und Profilbild, und nur, solange Ihre Position nicht älter als
+        30 Minuten ist. Nutzer, die Sie gesperrt haben oder die Sie gesperrt haben, sehen Sie nicht.
+        Mit „Aus“ wird Ihre gespeicherte Position sofort gelöscht; spätestens nach sieben Tagen ohne
+        Aktualisierung löschen wir sie automatisch. Wenn Sie die Freunde- oder Öffentlich-Ansicht
+        einschalten, fragt die Website diese Positionen regelmäßig ab.
+      </p>
+      <p>
+        Rechtsgrundlage ist Ihre Einwilligung nach Art. 6 Abs. 1 lit. a DSGVO sowie § 25 Abs. 1 TDDDG,
+        die Sie mit der Wahl „Freunde“ oder „Öffentlich“ erteilen und mit „Aus“ jederzeit widerrufen.
+      </p>
+    </section>
+
+    <section>
+      <h2>8d. Navi-Stimme „Heiko“</h2>
+      <p>
+        Die Ansagen des Navis sind vorab aufgenommene Tondateien, die von unserer eigenen Domain geladen
+        und im Speicher Ihres Browsers abgelegt werden. Fehlt eine Aufnahme, spricht die Sprachausgabe
+        Ihres Geräts den Text. Den Namen, den Sie bei „Wer wartet auf dich?“ eintragen, speichert die
+        Website nur in Ihrem Browser (localStorage); er wird nicht übertragen. „Bescheid geben“ am Ziel
+        öffnet die Teilen-Funktion Ihres Geräts; was Sie dort an wen senden, entscheiden Sie.
+      </p>
+    </section>
+
+    <section>
       <h2>9. Speicherdauer</h2>
       <p>
         Server-Logfiles werden nach kurzer Zeit automatisch gelöscht. Kontodaten und Inhalte

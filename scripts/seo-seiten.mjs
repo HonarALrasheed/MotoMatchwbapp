@@ -318,7 +318,12 @@ function kopf({ titel, beschreibung, pfad, bild, krumen, ld: extraLd = [] }) {
 </head>
 <body>
   <header class="kopf">
-    <a class="logo" href="/">MOTOMATCH</a>
+    <div class="kopf-links">
+      <!-- Zurück: kam man von unserer eigenen Seite, ein Schritt im Verlauf; sonst (Google, Direktlink)
+           eine Ebene höher laut Brotkrumen — nie raus aus MotoMatch. -->
+      <a class="zurueck" href="${krumen.length > 1 ? krumen[krumen.length - 2][1] : "/"}" aria-label="Zurück" onclick="try{if(document.referrer&&new URL(document.referrer).origin===location.origin&&history.length>1){history.back();return false}}catch(e){}"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 12H5M12 19l-7-7 7-7"/></svg></a>
+      <a class="logo" href="/">MOTOMATCH</a>
+    </div>
     <nav class="kopf-nav" aria-label="Bereiche">${BEREICHE.map(([name, ziel, test]) =>
       `<a href="${ziel}"${test(pfad) ? ' aria-current="page"' : ""}>${name}</a>`).join("")}</nav>
     <a class="kopf-quiz" href="/">Quiz<span> starten</span></a>
@@ -723,6 +728,9 @@ writeFileSync(join(DIST, "seo.css"), `@font-face{font-family:Barlow;font-weight:
 body{background:var(--bg);color:var(--text);font-family:var(--font);font-size:16px;line-height:1.6;-webkit-font-smoothing:antialiased}
 a{color:inherit}
 .kopf{position:sticky;top:0;z-index:20;display:grid;grid-template-columns:1fr auto 1fr;align-items:center;gap:12px;padding:12px max(16px,calc((100% - 1168px) / 2));background:rgba(10,10,10,.82);-webkit-backdrop-filter:blur(18px);backdrop-filter:blur(18px);border-bottom:1px solid var(--rand)}
+.kopf-links{display:flex;align-items:center;gap:14px;min-width:0}
+.zurueck{flex:none;display:flex;align-items:center;justify-content:center;width:36px;height:36px;border-radius:50%;background:rgba(255,255,255,.08);border:1px solid var(--rand);color:#fff;transition:background .2s}
+.zurueck:hover{background:rgba(255,255,255,.18)}
 .kopf-nav{display:flex;gap:4px;padding:4px;background:rgba(255,255,255,.06);border:1px solid var(--rand);border-radius:14px}
 .kopf-nav a{padding:8px 18px;border-radius:10px;font-size:15px;color:rgba(255,255,255,.72);text-decoration:none;transition:background .2s,color .2s}
 .kopf-nav a:hover{color:#fff;background:rgba(255,255,255,.08)}
@@ -845,7 +853,7 @@ h2{font-size:22px;font-weight:600;margin:40px 0 14px}
 .intro a{text-decoration:underline;text-underline-offset:3px}
 .artikel .karte a{text-decoration:none}
 @media (max-width:760px){.kacheln--fs,.kacheln--bild{grid-template-columns:repeat(2,minmax(0,1fr))}.kacheln{grid-template-columns:repeat(2,minmax(0,1fr))}.kachel--fs strong{font-size:36px}.kachel:not(.kachel--bild){padding:14px}.kachel:not(.kachel--fs) strong{font-size:16px}.kachel--bild strong{padding:10px 12px 0}.kachel--bild span{padding:0 12px 12px}}
-@media (max-width:520px){.kopf{grid-template-columns:auto 1fr auto;gap:8px}.kopf-nav{justify-self:center}.kopf-nav a{padding:7px 12px;font-size:14px}.logo{letter-spacing:.14em;font-size:13px}.kopf-quiz{padding:8px 12px;font-size:14px}.kopf-quiz span{display:none}.r-fakten{grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}.r-fakten div{padding:14px}.r-fakten strong{font-size:22px}.raster.mini{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media (max-width:520px){.kopf{grid-template-columns:auto 1fr auto;gap:8px}.kopf-nav{justify-self:center}.kopf-nav a{padding:7px 12px;font-size:14px}.logo{display:none}.zurueck{width:34px;height:34px}.kopf-quiz{padding:8px 12px;font-size:14px}.kopf-quiz span{display:none}.r-fakten{grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}.r-fakten div{padding:14px}.r-fakten strong{font-size:22px}.raster.mini{grid-template-columns:repeat(2,minmax(0,1fr))}}
 @media (max-width:900px){.r-layout{grid-template-columns:1fr;gap:8px}.r-seite{position:static;order:-1}.r-quiz{display:none}.r-held{display:block;min-height:0}.r-held img{position:static;width:100%;height:auto;aspect-ratio:4/3}.r-held::after{background:linear-gradient(180deg,rgba(20,20,20,0) 40%,#141414 74%)}.r-held-text{margin-top:-90px;padding:0 18px 22px}}
 .knopf.zweit{background:transparent;color:#fff;border:1px solid rgba(255,255,255,.35)}
 .aktionen{display:flex;flex-wrap:wrap;gap:10px;margin:14px 0 4px}

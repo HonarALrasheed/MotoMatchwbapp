@@ -8469,7 +8469,22 @@ body.mm-faehrt .fahrt { padding-top: calc(12px + var(--sa-top)); padding-bottom:
 
 
 .fahrt-name { grid-column: 1 / -1; font-size: 11px; color: rgba(235,235,245,0.38); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+@keyframes fahrtEin { from { opacity: 0; transform: translateY(-8px) scale(0.98); } to { opacity: 1; transform: none; } }
 .fahrt-unten { animation-name: fahrtEinUnten; }
+@keyframes fahrtEinUnten { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: none; } }
+/* Positions-Puck: flach auf der Karte, weiße Scheibe mit blauem Pfeil */
+.navi-puck { width: 44px; height: 44px; display: flex; align-items: center; justify-content: center; pointer-events: none; }
+.navi-puck-scheibe {
+  width: 38px;
+  height: 38px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 2px 6px rgba(0,0,0,0.3), 0 0 0 7px rgba(31,123,255,0.16);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.navi-puck-scheibe svg { width: 26px; height: 26px; fill: #1f7bff; }
 body.mm-faehrt .mm-standort-punkt { display: none; }
 /* Startbildschirm im Panel */
 .fahrt-start-titel { margin: 10px 0 0; font-size: 21px; font-weight: 800; color: #fff; letter-spacing: -0.01em; }
@@ -9594,6 +9609,31 @@ body.mm-faehrt .mm-standort-punkt { display: none; }
 .meine-bilanz-liste span { padding: 4px 8px; border-radius: 999px; background: rgba(255,255,255,0.08); font-size: 11px; color: rgba(255,255,255,0.85); }
 .meine-bilanz-liste span.extrem { background: rgba(214,32,74,0.25); color: #ffb3c2; }
 .meine-bilanz-tipp { margin: 8px 0 0; font-size: 11.5px; line-height: 1.45; color: rgba(255,255,255,0.55); }
+/* Streckenflug (touren.js): Anzeige oben, Punkt auf der Route */
+.flug-hud {
+  position: absolute;
+  top: calc(84px + var(--sa-top));
+  left: 50%;
+  z-index: 30;
+  transform: translateX(-50%);
+  width: min(360px, calc(100% - 32px));
+  padding: 12px 16px 12px;
+  border-radius: 18px;
+  background: rgba(28,28,30,0.82);
+  -webkit-backdrop-filter: saturate(160%) blur(18px);
+  backdrop-filter: saturate(160%) blur(18px);
+  color: #fff;
+  font-family: -apple-system, "SF Pro Display", var(--font);
+  box-shadow: 0 10px 30px rgba(0,0,0,0.3);
+  pointer-events: none;
+  animation: fahrtEin .5s cubic-bezier(.2,.9,.25,1) both;
+}
+.flug-hud strong { display: block; font-size: 15px; font-weight: 650; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.flug-hud-zeile { display: flex; justify-content: space-between; margin-top: 3px; font-size: 13px; color: rgba(235,235,245,0.7); font-variant-numeric: tabular-nums; }
+.flug-hud-balken { height: 4px; margin-top: 9px; border-radius: 2px; background: rgba(255,255,255,0.18); overflow: hidden; }
+.flug-hud-balken i { display: block; height: 100%; width: 0; border-radius: 2px; background: #fff; }
+@media (min-width: 760px) { .flug-hud { left: calc(50% + 200px); } }
+.flug-punkt { width: 18px; height: 18px; border-radius: 50%; background: #fff; border: 4px solid #1f7bff; box-shadow: 0 0 0 8px rgba(31,123,255,0.25), 0 2px 8px rgba(0,0,0,0.35); }
 /* Schwebende Knöpfe auf der Karte (touren.js): Route erstellen + Aufnahme */
 .tour-fab {
   position: absolute;
@@ -9654,6 +9694,7 @@ body.mm-faehrt .mm-standort-punkt { display: none; }
 .plan-suche input:focus { outline: none; border-color: #3b5bdb; }
 .plan-suche .tour-btn { flex: none; }
 .plan-punkt--geist { background: #fff; border-color: #3b5bdb; box-shadow: 0 0 0 6px rgba(59,91,219,0.25); }
+body.mm-plant .kv-search-here { display: none !important; }
 
 .acc-backdrop {
   position: absolute;

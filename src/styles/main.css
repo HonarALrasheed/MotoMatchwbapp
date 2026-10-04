@@ -16206,3 +16206,10 @@ body.mm-plant .kv-sidebar .kv-search-row { display: none; }
 .kv-search-row .tour-neu { height: 36px; border-radius: 11px; padding: 0 12px 0 10px; font-size: 13px; }
 .kv-search-row .tour-neu-menue { right: 0; z-index: 40; }
 .kv-sidebar[data-modus="orte"] .kv-search-row .tour-neu-wrap { display: none; }
+
+/* Suchfeld = Routenplanung: Sondereintrag oben in den Vorschlägen */
+.kv-vorschlag--aktion { background: rgba(66,99,235,0.14); margin-bottom: 4px; }
+.kv-vorschlag--aktion svg { stroke: #8ea2ff; }
+.kv-vorschlag--aktion:hover { background: rgba(66,99,235,0.24); }
+/* "Mein Standort" gibt es als runden Knopf auf der Karte — im Feld wäre es doppelt */
+.kv-search-row .kv-recenter-btn { display: none; }

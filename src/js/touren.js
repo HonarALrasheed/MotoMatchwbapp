@@ -314,7 +314,6 @@ export function buildTourenAnsicht() {
         <div class="tour-neu-wrap">
           <button type="button" class="tour-neu" id="tour-neu" aria-haspopup="menu" aria-expanded="false">${ICON.plus}<span>Neu</span></button>
           <div class="tour-neu-menue" role="menu" hidden>
-            <button type="button" role="menuitem" data-aktion="planen">${ICON.plus}Route planen</button>
             <button type="button" role="menuitem" data-aktion="aufzeichnen">${ICON.rec}Fahrt aufzeichnen</button>
             <button type="button" role="menuitem" data-aktion="import">${ICON.hochladen}GPX-Datei laden</button>
           </div>
@@ -1133,6 +1132,11 @@ let umkreisThumb = null
 function renderUmkreis() {
   document.querySelectorAll('.tour-umkreis .kv-radius-pill').forEach((b) => b.classList.toggle('kv-radius-pill--active', +b.dataset.umkreis === zustand.umkreis))
   umkreisThumb?.()
+}
+
+/** Planer leer öffnen (Suchfeld: "Route auf der Karte planen"). */
+export function planeNeu() {
+  return import('./planer.js').then((m) => m.planerOeffnen({ fertig: zeigeEigene }))
 }
 
 /** Route vom eigenen Standort zu einer gesuchten Adresse planen (Ortssuche). */

@@ -1730,7 +1730,7 @@ function buildKarteView(data) {
                 </button>
                 <div class="kv-search-field" id="kv-search-field">
                   <svg class="kv-search-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>
-                  <input type="search" class="kv-search-input" id="kv-search-input" placeholder="Ort oder Adresse" autocomplete="off" enterkeyhint="search" role="combobox" aria-controls="kv-vorschlaege" aria-expanded="false">
+                  <input type="search" class="kv-search-input" id="kv-search-input" placeholder="Wohin fahren?" autocomplete="off" enterkeyhint="search" role="combobox" aria-controls="kv-vorschlaege" aria-expanded="false">
                   <button class="kv-recenter-btn" id="kv-recenter-btn" aria-label="Mein Standort" title="Mein Standort">
                     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M12 1v4M12 19v4M1 12h4M19 12h4"/></svg>
                   </button>
@@ -3085,7 +3085,7 @@ function bindKarteViewEvents() {
     const query = eingabe?.value.trim()
     if (!query) return
     // Vorschlag steht schon da (Pfeiltasten markieren einen) — den nehmen
-    if (vorschlaege.length) { ortWaehlen(vorschlaege[Math.max(markiert, 0)]); return }
+    if (vorschlaege.length && !vorschlaege[Math.max(markiert, 0)].aktion) { ortWaehlen(vorschlaege[Math.max(markiert, 0)]); return }
     eingabe.blur()
     eingabe.placeholder = 'Suche \u2026'
     let treffer = null
@@ -3099,7 +3099,7 @@ function bindKarteViewEvents() {
         return
       }
     }
-    eingabe.placeholder = 'Ort oder Adresse'
+    eingabe.placeholder = 'Wohin fahren?'
     ortWaehlen(treffer)
   }
 
@@ -3132,6 +3132,7 @@ function bindKarteViewEvents() {
   const vorschlagBox = document.getElementById('kv-vorschlaege')
   let vorschlaege = [], markiert = -1, suchTimer = 0, suchAbbruch = null
   const ICON_PIN = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0z"/><circle cx="12" cy="10" r="3"/></svg>'
+  const ICON_PLAN = '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="6" cy="19" r="2.5"/><circle cx="18" cy="5" r="2.5"/><path d="M8.5 19H16a3.5 3.5 0 0 0 0-7H8a3.5 3.5 0 0 1 0-7h7.5"/></svg>'
   const ICON_UHR = '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>'
   function vorschlaegeZu() {
     clearTimeout(suchTimer); suchAbbruch?.abort()
@@ -3143,8 +3144,9 @@ function bindKarteViewEvents() {
     vorschlaege = liste; markiert = -1
     if (!vorschlagBox) return
     if (!liste.length && !leer) { vorschlaegeZu(); return }
-    vorschlagBox.innerHTML = `${kopf ? `<div class="kv-vorschlag-kopf">${kopf}</div>` : ''}${liste.map((v, i) => `
-      <button type="button" class="kv-vorschlag" role="option" data-i="${i}">${v.alt ? ICON_UHR : ICON_PIN}
+    const start = liste.findIndex(v => !v.aktion)
+    vorschlagBox.innerHTML = `${liste.map((v, i) => `${i === start && kopf ? `<div class="kv-vorschlag-kopf">${kopf}</div>` : ''}
+      <button type="button" class="kv-vorschlag${v.aktion ? ' kv-vorschlag--aktion' : ''}" role="option" data-i="${i}">${v.aktion ? ICON_PLAN : v.alt ? ICON_UHR : ICON_PIN}
         <span><strong>${esc(v.titel)}</strong>${v.zusatz ? `<em>${esc(v.zusatz)}</em>` : ''}</span></button>`).join('')}${leer && !liste.length ? `<div class="kv-vorschlag-leer">${leer}</div>` : ''}`
     vorschlagBox.hidden = false
     document.getElementById('kv-search-input')?.setAttribute('aria-expanded', 'true')
@@ -3154,7 +3156,12 @@ function bindKarteViewEvents() {
   }
   const vorschlaegeHolen = async () => {
     const text = document.getElementById('kv-search-input')?.value.trim() || ''
-    if (text.length < 3) { vorschlaegeZeigen(text ? [] : zuletztGesucht(), { kopf: text ? '' : 'Zuletzt gesucht' }); return }
+    if (text.length < 3) {
+      // Leeres Feld: oben "Route auf der Karte planen" (Touren), darunter die letzten Ziele
+      const planen = modus === 'touren' ? [{ aktion: 'planen', titel: 'Route auf der Karte planen', zusatz: 'Start, Ziel und Zwischenpunkte antippen' }] : []
+      vorschlaegeZeigen(text ? [] : [...planen, ...zuletztGesucht()], { kopf: text ? '' : 'Zuletzt gesucht' })
+      return
+    }
     suchAbbruch?.abort()
     suchAbbruch = new AbortController()
     try {
@@ -3168,7 +3175,15 @@ function bindKarteViewEvents() {
   vorschlagBox?.addEventListener('pointerdown', (e) => e.preventDefault()) // Feld behält den Fokus
   vorschlagBox?.addEventListener('click', (e) => {
     const b = e.target.closest('[data-i]')
-    if (b) ortWaehlen(vorschlaege[+b.dataset.i])
+    if (!b) return
+    const v = vorschlaege[+b.dataset.i]
+    if (v?.aktion === 'planen') {
+      vorschlaegeZu()
+      document.getElementById('kv-search-input')?.blur()
+      import('./touren.js').then((m) => m.planeNeu())
+      return
+    }
+    ortWaehlen(v)
   })
 
   searchToggle?.addEventListener('click', () => {

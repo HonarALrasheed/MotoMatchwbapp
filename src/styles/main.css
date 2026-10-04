@@ -8331,122 +8331,125 @@ body.mm-faehrt .fahrt { padding-top: calc(12px + var(--sa-top)); padding-bottom:
   display: flex;
   flex-direction: column;
   padding: 76px 12px calc(12px + var(--tb-mobile-h, 0px));
-  font-family: var(--font);
+  font-family: -apple-system, "SF Pro Display", var(--font);
+  -webkit-font-smoothing: antialiased;
 }
 .fahrt > * > * { pointer-events: auto; }
 
-.fahrt-oben { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; max-width: 460px; width: 100%; margin: 0 auto; }
+.fahrt-oben { display: flex; flex-direction: column; align-items: stretch; gap: 8px; max-width: 440px; width: 100%; margin: 0 auto; }
+/* Banner: dunkel, ruhig, große Entfernung, Straßenname darunter */
+.fahrt-banner {
+  border-radius: 22px;
+  background: rgba(28,28,30,0.97);
+  -webkit-backdrop-filter: saturate(160%) blur(20px);
+  backdrop-filter: saturate(160%) blur(20px);
+  color: #fff;
+  box-shadow: 0 12px 32px rgba(0,0,0,0.28), 0 1px 0 rgba(255,255,255,0.06) inset;
+  overflow: hidden;
+  animation: fahrtEin .45s cubic-bezier(.2,.9,.25,1) both;
+}
+.fahrt-banner-haupt { display: flex; align-items: center; gap: 16px; padding: 16px 20px 16px 16px; }
 /* Abbiegekarte: dunkel, groß, mit Handschuhen und aus der Halterung lesbar */
-.fahrt-hinweis-karte {
+
+.fahrt-pfeil { flex: none; width: 58px; height: 58px; display: flex; align-items: center; justify-content: center; }
+.fahrt-pfeil svg { width: 54px; height: 54px; fill: none; stroke: #fff; stroke-width: 2.4; stroke-linecap: round; stroke-linejoin: round; }
+.fahrt-hinweis { min-width: 0; }
+.fahrt-bis { font-size: 34px; font-weight: 700; line-height: 1; letter-spacing: -0.02em; font-variant-numeric: tabular-nums; }
+.fahrt-satz { margin-top: 4px; font-size: 19px; font-weight: 600; line-height: 1.2; color: rgba(255,255,255,0.86); overflow: hidden; text-overflow: ellipsis; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+.fahrt-danach {
   display: flex;
   align-items: center;
-  gap: 14px;
-  width: 100%;
-  padding: 14px 18px 14px 14px;
-  border-radius: 20px;
-  background: #0f5132;
-  background: linear-gradient(160deg, #1d6b45, #0f4a2e);
-  color: #fff;
-  box-shadow: 0 14px 34px rgba(0,0,0,0.38);
+  gap: 8px;
+  padding: 9px 20px;
+  border-top: 1px solid rgba(255,255,255,0.08);
+  background: rgba(255,255,255,0.04);
+  font-size: 15px;
+  font-weight: 600;
+  color: rgba(255,255,255,0.8);
 }
-.fahrt-pfeil { flex: none; width: 64px; height: 64px; display: flex; align-items: center; justify-content: center; }
-.fahrt-pfeil svg { width: 56px; height: 56px; fill: none; stroke: #fff; stroke-width: 2.6; stroke-linecap: round; stroke-linejoin: round; }
-.fahrt-hinweis { min-width: 0; }
-.fahrt-bis { font-size: 36px; font-weight: 800; line-height: 1; letter-spacing: -0.02em; font-variant-numeric: tabular-nums; }
-.fahrt-satz { margin-top: 5px; font-size: 17px; font-weight: 650; line-height: 1.25; color: rgba(255,255,255,0.92); }
-.fahrt-danach {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  margin-left: 10px;
-  padding: 6px 12px 6px 14px;
-  border-radius: 0 0 14px 14px;
-  margin-top: -8px;
-  background: #0b3a24;
-  color: #fff;
-  font-size: 14px;
-  font-weight: 650;
-  box-shadow: 0 8px 20px rgba(0,0,0,0.3);
-}
-.fahrt-danach svg { width: 22px; height: 22px; fill: none; stroke: #fff; stroke-width: 2.6; stroke-linecap: round; stroke-linejoin: round; }
+.fahrt-danach > span:first-child { color: rgba(255,255,255,0.5); }
+.fahrt-danach > span:last-child { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fahrt-danach svg { flex: none; width: 20px; height: 20px; fill: none; stroke: #fff; stroke-width: 2.6; stroke-linecap: round; stroke-linejoin: round; }
 .fahrt-danach[hidden] { display: none; }
 .fahrt-abseits {
   align-self: center;
   padding: 9px 16px;
   border-radius: 999px;
-  background: #fff;
-  color: #1f1f1f;
+  background: rgba(28,28,30,0.92);
+  color: #fff;
   font-size: 14px;
-  font-weight: 750;
+  font-weight: 600;
   box-shadow: 0 8px 22px rgba(0,0,0,0.25);
 }
 .fahrt-abseits[hidden] { display: none; }
-.fahrt-mitte { flex: 1; display: flex; align-items: flex-end; justify-content: space-between; max-width: 460px; width: 100%; margin: 0 auto 10px; }
+.fahrt-mitte { flex: 1; display: flex; align-items: flex-end; justify-content: space-between; max-width: 440px; width: 100%; margin: 0 auto 10px; }
 .fahrt-tempo {
-  width: 64px;
-  height: 64px;
+  width: 58px;
+  height: 58px;
   border-radius: 50%;
-  background: #fff;
-  color: #111;
+  background: rgba(255,255,255,0.97);
+  color: #1c1c1e;
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  box-shadow: 0 6px 18px rgba(0,0,0,0.3);
+  box-shadow: 0 6px 18px rgba(0,0,0,0.22);
 }
-.fahrt-tempo strong { font-size: 22px; font-weight: 800; line-height: 1; font-variant-numeric: tabular-nums; }
-.fahrt-tempo span { font-size: 10px; font-weight: 700; color: #666; }
+.fahrt-tempo strong { font-size: 21px; font-weight: 700; line-height: 1; font-variant-numeric: tabular-nums; }
+.fahrt-tempo span { font-size: 9.5px; font-weight: 600; color: #8e8e93; margin-top: 1px; }
+.fahrt-seite { display: flex; flex-direction: column; gap: 10px; }
 .fahrt-rund {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
+  width: 48px;
   height: 48px;
-  padding: 0 18px;
   border: 0;
-  border-radius: 999px;
-  background: #fff;
-  color: #1f1f1f;
-  font: 750 15px/1 var(--font);
-  box-shadow: 0 6px 18px rgba(0,0,0,0.3);
-  cursor: pointer;
-}
-.fahrt-rund svg { width: 18px; height: 18px; fill: #3b5bdb; }
-.fahrt-rund[hidden] { display: none; }
-.fahrt-unten {
-  max-width: 460px;
-  width: 100%;
-  margin: 0 auto;
-  border-radius: 20px;
-  overflow: hidden;
-  background: rgba(14,14,14,0.96);
-  -webkit-backdrop-filter: blur(14px);
-  backdrop-filter: blur(14px);
-  border: 1px solid rgba(255,255,255,0.1);
-  box-shadow: 0 -8px 30px rgba(0,0,0,0.35);
-}
-.fahrt-fortschritt { height: 4px; background: rgba(255,255,255,0.1); }
-.fahrt-fortschritt i { display: block; height: 100%; width: 0; background: #3b5bdb; transition: width 0.6s ease; }
-.fahrt-leiste { display: flex; align-items: center; gap: 10px; padding: 12px 12px 8px; }
-.fahrt-ankunft { flex: 1; min-width: 0; text-align: center; }
-.fahrt-an { display: block; font-size: 26px; font-weight: 800; line-height: 1.05; color: #fff; font-variant-numeric: tabular-nums; }
-.fahrt-rest { display: block; margin-top: 2px; font-size: 13px; font-weight: 600; color: rgba(255,255,255,0.55); white-space: nowrap; }
-.fahrt-knopf {
-  flex: none;
-  width: 52px;
-  height: 52px;
   border-radius: 50%;
-  border: 1px solid rgba(255,255,255,0.14);
-  background: rgba(255,255,255,0.07);
-  color: #fff;
+  background: rgba(255,255,255,0.97);
+  color: #1c1c1e;
   display: flex;
   align-items: center;
   justify-content: center;
+  box-shadow: 0 6px 18px rgba(0,0,0,0.22);
+  cursor: pointer;
+  transition: transform .15s ease;
+}
+.fahrt-rund:active { transform: scale(0.94); }
+.fahrt-rund svg { width: 21px; height: 21px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.fahrt-rund[aria-pressed="false"] { color: #8e8e93; }
+.fahrt-rund--folgen { color: #1f7bff; }
+.fahrt-rund--folgen svg { fill: #1f7bff; stroke: none; }
+.fahrt-rund[hidden] { display: none; }
+.fahrt-unten {
+  position: relative;
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: center;
+  gap: 12px;
+  max-width: 440px;
+  width: 100%;
+  margin: 0 auto;
+  padding: 14px 14px 10px 20px;
+  border-radius: 22px;
+  background: rgba(28,28,30,0.97);
+  -webkit-backdrop-filter: saturate(160%) blur(20px);
+  backdrop-filter: saturate(160%) blur(20px);
+  box-shadow: 0 -6px 28px rgba(0,0,0,0.25);
+  animation: fahrtEin .45s cubic-bezier(.2,.9,.25,1) .08s both;
+}
+.fahrt-werte { display: grid; grid-template-columns: repeat(3, auto); justify-content: start; gap: 22px; }
+.fahrt-werte strong { display: block; white-space: nowrap; font-size: 22px; font-weight: 700; line-height: 1.05; color: #fff; font-variant-numeric: tabular-nums; letter-spacing: -0.01em; }
+.fahrt-werte span { display: block; margin-top: 3px; font-size: 12px; font-weight: 500; color: rgba(235,235,245,0.6); }
+.fahrt-ende {
+  height: 44px;
+  padding: 0 20px;
+  border: 0;
+  border-radius: 999px;
+  background: #ff3b30;
+  color: #fff;
+  font: 600 16px/1 -apple-system, "SF Pro Text", var(--font);
   cursor: pointer;
 }
-.fahrt-knopf svg { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
-.fahrt-knopf[aria-pressed="false"] { color: rgba(255,255,255,0.45); }
-.fahrt-knopf--ende { background: #e63946; border-color: #e63946; }
-.fahrt-knopf--ende svg { stroke-width: 2.6; }
+.fahrt-ende:active { filter: brightness(0.92); }
+@media (max-width: 400px) { .fahrt-werte { gap: 16px; } .fahrt-werte strong { font-size: 20px; } .fahrt-unten { padding-left: 16px; } }
 
 
 
@@ -8454,7 +8457,20 @@ body.mm-faehrt .fahrt { padding-top: calc(12px + var(--sa-top)); padding-bottom:
 
 
 
-.fahrt-name { padding: 0 12px 10px; text-align: center; font-size: 11px; color: rgba(255,255,255,0.38); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+
+
+
+
+
+
+
+
+
+
+.fahrt-name { grid-column: 1 / -1; font-size: 11px; color: rgba(235,235,245,0.38); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fahrt-unten { animation-name: fahrtEinUnten; }
+body.mm-faehrt .mm-standort-punkt { display: none; }
 /* Startbildschirm im Panel */
 .fahrt-start-titel { margin: 10px 0 0; font-size: 21px; font-weight: 800; color: #fff; letter-spacing: -0.01em; }
 .fahrt-start-name { margin-top: 2px; font-size: 13px; color: rgba(255,255,255,0.55); }
@@ -8502,14 +8518,8 @@ body.mm-faehrt .fahrt { padding-top: calc(12px + var(--sa-top)); padding-bottom:
 .fahrt-plan-strecke::before { content: ""; position: absolute; left: 8px; top: -2px; bottom: -2px; width: 3px; border-radius: 2px; background: #3b5bdb; }
 .fahrt-plan-strecke--anfahrt::before { background: repeating-linear-gradient(to bottom, rgba(255,255,255,0.6) 0 3px, transparent 3px 7px); }
 /* Eigene Position als Pfeil in Fahrtrichtung */
-.fahrt-position { width: 30px; height: 30px; }
-.fahrt-position-pfeil {
-  width: 100%;
-  height: 100%;
-  transform: rotate(var(--kurs, 0deg));
-  background: no-repeat center / contain url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M12 2l8 19-8-4.5L4 21z' fill='%23007aff' stroke='%23fff' stroke-width='2' stroke-linejoin='round'/%3E%3C/svg%3E");
-  filter: drop-shadow(0 2px 6px rgba(0,0,0,0.5));
-}
+
+
 
 /* Kurvenstrecken (kurven.js) */
 .kurve-fahren {

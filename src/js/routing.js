@@ -155,3 +155,47 @@ export function stuetzpunkte(pts, n) {
   out.push(pts[pts.length - 1])
   return out
 }
+
+/** Punkt auf der Linie bei m Metern (zwischen den Stützpunkten interpoliert). */
+export function punktBei(strecke, m) {
+  const { kum, pts } = strecke
+  if (m <= 0) return pts[0]
+  if (m >= kum[kum.length - 1]) return pts[pts.length - 1]
+  let lo = 0, hi = kum.length - 1
+  while (lo < hi) { const k = (lo + hi) >> 1; if (kum[k] < m) lo = k + 1; else hi = k }
+  const a = pts[lo - 1], b = pts[lo], f = (m - kum[lo - 1]) / Math.max(1e-6, kum[lo] - kum[lo - 1])
+  return [a[0] + (b[0] - a[0]) * f, a[1] + (b[1] - a[1]) * f]
+}
+
+/** Kompasskurs von a nach b in Grad. */
+export function kursZwischen(a, b) {
+  const r = Math.PI / 180
+  const y = Math.sin((b[1] - a[1]) * r) * Math.cos(b[0] * r)
+  const x = Math.cos(a[0] * r) * Math.sin(b[0] * r) - Math.sin(a[0] * r) * Math.cos(b[0] * r) * Math.cos((b[1] - a[1]) * r)
+  return (Math.atan2(y, x) / r + 360) % 360
+}
+
+/** Fahrtrichtung der Linie bei m Metern (über ein kurzes Stück voraus geglättet). */
+export function kursBei(strecke, m, voraus = 25) {
+  const gesamt = strecke.kum[strecke.kum.length - 1]
+  const von = Math.max(0, Math.min(m, gesamt - 1))
+  return kursZwischen(punktBei(strecke, von), punktBei(strecke, Math.min(gesamt, von + voraus)))
+}
+
+/** Genaue Lage auf der Linie: Lot auf die Abschnitte neben Punkt i → Meter ab Start. */
+export function projiziere(strecke, lat, lng, i) {
+  const { pts, kum } = strecke
+  const k = Math.cos((lat * Math.PI) / 180)
+  let best = { meter: kum[i], abstand: Infinity }
+  for (const j of [i - 1, i]) {
+    if (j < 0 || j >= pts.length - 1) continue
+    const a = pts[j], b = pts[j + 1]
+    const bx = (b[1] - a[1]) * k, by = b[0] - a[0], px = (lng - a[1]) * k, py = lat - a[0]
+    const l2 = bx * bx + by * by
+    const t = l2 ? Math.max(0, Math.min(1, (px * bx + py * by) / l2)) : 0
+    const dx = px - bx * t, dy = py - by * t
+    const abstand = Math.sqrt(dx * dx + dy * dy) * 111320
+    if (abstand < best.abstand) best = { meter: kum[j] + (kum[j + 1] - kum[j]) * t, abstand }
+  }
+  return best
+}

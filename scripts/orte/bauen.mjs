@@ -41,6 +41,8 @@ const KATEGORIEN = {
     /* Motorradhändler haben in Deutschland fast immer eine Werkstatt, in OSM
        ist das aber selten vermerkt — ohne sie fehlten die meisten Werkstätten. */
     mitHaendlern: true,
+    // Reine Bekleidungs-/Zubehörketten haben keine Werkstatt
+    ausschluss: /\b(louis|polo|hein gericke|fc[- ]?moto|motoin|motorradbekleidung|bekleidung|outlet)\b/i,
   },
   haendler: {
     query: `nwr["shop"="motorcycle"](area.de);

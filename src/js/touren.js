@@ -1135,6 +1135,11 @@ function renderUmkreis() {
   umkreisThumb?.()
 }
 
+/** Route vom eigenen Standort zu einer gesuchten Adresse planen (Ortssuche). */
+export function planeZu(ziel) {
+  return import('./planer.js').then((m) => m.planerOeffnen({ fertig: zeigeEigene, ziel }))
+}
+
 /** Eigene Strecken zeigen, optional gleich eine davon öffnen. */
 function zeigeEigene(id) {
   eigeneGeaendert()

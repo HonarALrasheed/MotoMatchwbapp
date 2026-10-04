@@ -27,7 +27,7 @@ function loadThree() {
   return _threePromise
 }
 import { getGear } from './gear.js'
-import { initHubMap, searchNearby, getHubSearchResults, onHubResults, focusHubResult, recenterHubMap, zoomHubMap, getUserCoords, searchNearbyAt, retryHubLocation, hasMapsConsent, onHubMapMoved, panHubToCoords, haversineKm, resolveOrt, setHubPlacesPausiert, hatHubTreffer, setHubKarteOhneStandort, getHubMap as getHubMapReady, karteVorwaermen, getSuchMitte, sucheAdressen, setzeSuchPin, entferneSuchPin } from './karte.js'
+import { initHubMap, searchNearby, getHubSearchResults, onHubResults, focusHubResult, recenterHubMap, zoomHubMap, getUserCoords, searchNearbyAt, retryHubLocation, hasMapsConsent, onHubMapMoved, panHubToCoords, haversineKm, resolveOrt, setHubPlacesPausiert, hatHubTreffer, setHubKarteOhneStandort, getHubMap as getHubMapReady, karteVorwaermen, getSuchMitte, getHubRadius, sucheAdressen, setzeSuchPin, entferneSuchPin } from './karte.js'
 import { esc, safeUrl, fmtRelative, LS_QUIZ_ANSWERS } from './util.js'
 import { buildTourenAnsicht, buildTourenUmkreis, initTouren, setTourenAktiv, setTourenHerkunft } from './touren.js'
 import { produktLink, hatPartnerLinks, hatAmazonPartner } from './affiliate.js'
@@ -2316,13 +2316,14 @@ function syncKvPeek() {
   // Umkreis-Zeile — Filter und Liste kommen erst beim Hochwischen. Beim Planen
   // der Kopf mit der Kurzfassung (Strecke, Speichern, Los).
   const plant = document.body.classList.contains('mm-plant')
-  const filters = sheet?.querySelector(plant ? '.plan-mini' : sheet.dataset.modus === 'orte' ? '.hub-filters' : '.kv-search-row')
+  const ziel = sheet?.querySelector('.ziel-panel .ziel-kurz')
+  const filters = ziel || sheet?.querySelector(plant ? '.plan-mini' : sheet.dataset.modus === 'orte' ? '.hub-filters' : '.kv-search-row')
   if (!sheet || !filters) return
   const top = sheet.getBoundingClientRect().top
   const bottom = filters.getBoundingClientRect().bottom
   if (bottom <= top) return
   // Touren: knapp unter der Umkreis-Zeile kappen, sonst lugt der Rand der Filter-Chips hervor
-  const peek = Math.round(bottom - top + (sheet.dataset.modus === 'orte' && !plant ? 12 : 6)) + 'px'
+  const peek = Math.round(bottom - top + (sheet.dataset.modus === 'orte' && !plant && !ziel ? 12 : 6)) + 'px'
   sheet.style.setProperty('--kv-peek', peek)
   // Zusaetzlich global: der Beta-Feedback-Knopf steht ausserhalb des Sheets
   // und weicht ueber dessen Kante aus (main.css, 767px-Block).
@@ -2718,7 +2719,7 @@ function bindKarteViewEvents() {
     // Ohne Treffer bleibt die Zeile leer statt einen Gedankenstrich zu zeigen:
     // der stand allein links neben den Schaltern und sah aus wie ein Fehler.
     const countEl = document.getElementById('kv-list-count')
-    if (countEl) countEl.textContent = results.length ? `${results.length} Treffer` : ''
+    if (countEl) countEl.textContent = results.length ? `${results.length} Treffer${!favOnly && getSuchMitte().ungefaehr ? ' · um Kartenmitte' : ''}` : ''
 
     /* Notdienst: OpenStreetMap kennt keine Pannendienste. Statt einer Liste,
        die so tut, steht oben, wen man wirklich anruft — darunter die
@@ -2785,7 +2786,7 @@ function bindKarteViewEvents() {
         const lat = parseFloat(card.dataset.lat), lng = parseFloat(card.dataset.lng)
         if (Number.isNaN(lat) || Number.isNaN(lng)) return
         document.dispatchEvent(new CustomEvent('mm:kv-sheet', { detail: { auf: false } }))
-        zielZeigen({ titel: card.querySelector('.kv-result-name')?.textContent || 'Ziel', zusatz: card.querySelector('.kv-result-address')?.textContent || '', lat, lng }, { sofortRoute: true })
+        zielZeigen({ titel: card.querySelector('.kv-result-name')?.textContent || 'Ziel', zusatz: card.querySelector('.kv-result-address')?.textContent || '', lat, lng })
       })
       card.addEventListener('click', () => {
         const id = card.dataset.placeId
@@ -2867,7 +2868,17 @@ function bindKarteViewEvents() {
   })
 
   // Subscribe to result updates from the map
-  onHubResults(() => { searchPending = false; renderResults() })
+  onHubResults(() => {
+    searchPending = false
+    // Die Suche hat den Umkreis selbst erweitert (zu wenig in der Nähe): Knöpfe nachziehen
+    const r = getHubRadius()
+    if (r && r !== currentRadius) {
+      currentRadius = r
+      document.querySelectorAll('.kv-orte-radius .kv-radius-pill').forEach(p => p.classList.toggle('kv-radius-pill--active', +p.dataset.radius === r))
+      moveRadiusThumb?.()
+    }
+    renderResults()
+  })
 
   /* Karte verschoben -> "Hier suchen" anbieten. Die Suche laeuft weiter um die
      alte Mitte, bis der Nutzer das ausdruecklich will — ein automatisches
@@ -3064,12 +3075,12 @@ function bindKarteViewEvents() {
       const alt = JSON.parse(localStorage.getItem('mm_recent_kv') || '[]').filter(x => (x?.titel ?? x) !== v.titel)
       localStorage.setItem('mm_recent_kv', JSON.stringify([{ titel: v.titel, zusatz: v.zusatz, lat: v.lat, lng: v.lng, zoom: v.zoom }, ...alt].slice(0, 6)))
     } catch { /* gesperrter Speicher: dann eben ohne Verlauf */ }
-    setzeSuchPin(v.lat, v.lng, v.titel, v.zusatz)
-    zielZeigen(v)
     const genau = (v.zoom || 0) >= 15
+    setzeSuchPin(v.lat, v.lng, v.titel, v.zusatz)
+    // Adresse (Straße, Hausnummer, Geschäft): Zielkarte mit Route ab dem Standort
+    if (genau) { zielZeigen(v); return }
     if (modus === 'touren') {
-      setTourenHerkunft(v.lat, v.lng, { karteAnpassen: !genau })
-      if (genau) getHubMapReady()?.flyTo({ center: [v.lng, v.lat], zoom: 15.5, duration: 900 })
+      setTourenHerkunft(v.lat, v.lng)
     } else {
       searchNearbyAt(v.lat, v.lng)
     }

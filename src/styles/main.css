@@ -16115,3 +16115,43 @@ body.mm-plant .kv-sidebar .kv-search-row { display: none; }
 .ziel-route[disabled] { opacity: 0.7; cursor: default; }
 .ziel-route svg { width: 15px; height: 15px; fill: none; stroke: currentColor; stroke-width: 2.2; stroke-linecap: round; stroke-linejoin: round; }
 .ziel-los { background: #2f9e44; color: #fff; }
+
+/* ── Zielkarte über dem Panel (ziel.js) ─────────────────────────────── */
+.ziel-panel {
+  position: absolute; inset: 0; z-index: 20; display: flex; flex-direction: column; gap: 14px;
+  padding: 18px 16px 16px; overflow-y: auto; border-radius: inherit;
+  background: #1c1c1c; color: #fff; animation: kvResultIn .2s ease both;
+}
+/* Handy: Griff des Sheets bleibt frei, damit man es weiter ziehen kann */
+@container (max-width: 759.98px) { .ziel-panel { top: 22px; padding-top: 4px; border-radius: 0; } }
+.ziel-panel svg { fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.ziel-kopf { display: flex; align-items: flex-start; gap: 8px; }
+.ziel-kopf .plan-icon { margin-left: -6px; background: none; }
+.ziel-kopf .plan-icon svg { width: 20px; height: 20px; }
+.ziel-name { min-width: 0; display: flex; flex-direction: column; gap: 3px; padding-top: 4px; }
+.ziel-name strong { font-size: 19px; font-weight: 800; letter-spacing: -0.01em; line-height: 1.2; }
+.ziel-name em { font-style: normal; font-size: 13px; color: rgba(255,255,255,0.55); }
+.ziel-kurz { display: flex; align-items: center; gap: 12px; min-height: 56px; padding: 10px 10px 10px 14px; border-radius: 16px; background: rgba(31,123,255,0.12); border: 1px solid rgba(31,123,255,0.35); }
+.ziel-zeit { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.ziel-zeit strong { font-size: 22px; font-weight: 800; color: #7fb2ff; letter-spacing: -0.01em; }
+.ziel-zeit em { font-style: normal; font-size: 12.5px; color: rgba(255,255,255,0.6); }
+.ziel-zeit--laedt { flex-direction: row; align-items: center; gap: 10px; }
+.ziel-los { flex: none; width: auto !important; height: 44px; padding: 0 18px !important; display: inline-flex; align-items: center; gap: 8px; margin: 0 !important; background: #1f7bff !important; }
+.ziel-los svg { width: 17px; height: 17px; }
+.ziel-nochmal { flex: none; width: auto; height: 38px; padding: 0 14px; margin: 0; }
+.ziel-weg { list-style: none; margin: 0; padding: 0 4px; display: flex; flex-direction: column; gap: 10px; position: relative; }
+.ziel-weg li { display: flex; align-items: center; gap: 12px; font-size: 14px; font-weight: 600; position: relative; }
+.ziel-weg li svg { width: 20px; height: 20px; flex: none; color: #7fb2ff; }
+.ziel-weg li:last-child svg { color: #ff6b6b; }
+.ziel-weg li:first-child::after { content: ''; position: absolute; left: 9px; top: 22px; height: 12px; border-left: 2px dotted rgba(255,255,255,0.3); }
+.ziel-mehr { display: flex; flex-direction: column; gap: 8px; margin-top: 4px; }
+.ziel-option { display: flex; align-items: center; gap: 12px; width: 100%; padding: 12px; border: 1px solid rgba(255,255,255,0.08); border-radius: 14px; background: rgba(255,255,255,0.04); color: #fff; text-align: left; cursor: pointer; }
+.ziel-option:hover { background: rgba(255,255,255,0.08); }
+.ziel-option svg { width: 20px; height: 20px; flex: none; color: rgba(255,255,255,0.7); }
+.ziel-option span { display: flex; flex-direction: column; gap: 2px; }
+.ziel-option strong { font-size: 14px; }
+.ziel-option em { font-style: normal; font-size: 12px; color: rgba(255,255,255,0.5); }
+
+/* Lange Markennamen ("Aprilia;Piaggio;Lambretta;…") kürzen statt über den Rand laufen */
+.kv-result-meta { min-width: 0; max-width: 100%; overflow: hidden; }
+.kv-result-marke { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

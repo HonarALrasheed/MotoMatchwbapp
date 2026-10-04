@@ -121,9 +121,10 @@ function markerSetzen() {
   plan.marker.forEach((m) => m.remove())
   plan.marker = plan.punkte.map((p, i) => {
     const el = document.createElement('div')
-    const letzter = i === plan.punkte.length - 1 && i > 0 && !plan.rund
-    el.className = `plan-punkt${i === 0 ? ' plan-punkt--start' : letzter ? ' plan-punkt--ziel' : ''}`
-    el.textContent = i === 0 ? 'S' : letzter ? 'Z' : String(i)
+    const letzter = i === plan.punkte.length - 1 && (i > 0 || plan.startFehlt) && !plan.rund
+    const start = i === 0 && !plan.startFehlt
+    el.className = `plan-punkt${start ? ' plan-punkt--start' : letzter ? ' plan-punkt--ziel' : ''}`
+    el.textContent = start ? 'S' : letzter ? 'Z' : String(i)
     const m = new ml.Marker({ element: el, draggable: true }).setLngLat([p[1], p[0]]).addTo(map)
     m.on('dragstart', () => merken())
     m.on('dragend', () => {
@@ -241,17 +242,17 @@ function renderInfo() {
       ? `<span class="plan-mini-werte"><strong>${km1(r.meter)} km</strong> · ${dauer(r.sekunden * (p.modus === 'kurvig' ? 1.1 : 1))} · ↗ ${r.auf} m</span>
          <button type="button" class="tour-btn" data-plan="speichern">Speichern</button>
          <button type="button" class="fahrt-los" data-plan="fahren">Los</button>`
-      : `<span class="plan-mini-text">${p.rechnet ? 'Route wird berechnet …' : nPunkte === 0 ? 'Tippe auf die Karte, um den Start zu setzen.' : nPunkte === 1 && !p.rund && !p.vorschlagVias ? 'Jetzt das Ziel auf der Karte antippen.' : p.fehler ? esc(p.fehler) : ''}</span>`
+      : `<span class="plan-mini-text">${p.rechnet ? 'Route wird berechnet …' : p.fehler ? esc(p.fehler) : nPunkte === 0 ? 'Tippe auf die Karte, um den Start zu setzen.' : nPunkte === 1 && !p.rund && !p.vorschlagVias ? 'Jetzt das Ziel auf der Karte antippen.' : p.fehler ? esc(p.fehler) : ''}</span>`
   }
   const standort = box()?.querySelector('[data-plan="standort"]')
   if (standort) standort.hidden = nPunkte > 0
   const name = (i) => p.punkte[i]?.[2] || (i === 0 ? 'Start' : i === nPunkte - 1 && !p.rund ? 'Ziel' : `Zwischenpunkt ${i}`)
   el.innerHTML = `
     ${nPunkte === 0 ? `<p class="plan-tipp">${PI.tippen}<span>Tippe auf die Karte, um den Start zu setzen.</span></p>`
-      : nPunkte === 1 && !p.vorschlagVias && !p.rund ? `<p class="plan-tipp">${PI.tippen}<span>Jetzt das Ziel auf der Karte antippen.</span></p>` : ''}
+      : nPunkte === 1 && !p.vorschlagVias && !p.rund && !p.startFehlt ? `<p class="plan-tipp">${PI.tippen}<span>Jetzt das Ziel auf der Karte antippen.</span></p>` : ''}
     ${p.fehler ? `<p class="fahrt-start-fehler">${esc(p.fehler)}</p>` : ''}
-    ${nPunkte ? `<ol class="plan-liste">${p.punkte.map((pt, i) => `<li class="plan-liste-punkt plan-liste-punkt--${i === 0 ? 'start' : i === nPunkte - 1 && !p.rund ? 'ziel' : 'via'}">
-        <span class="plan-nr">${i === 0 ? 'S' : i === nPunkte - 1 && !p.rund ? 'Z' : i}</span><span class="plan-liste-name">${name(i)}</span>
+    ${nPunkte ? `<ol class="plan-liste">${p.punkte.map((pt, i) => `<li class="plan-liste-punkt plan-liste-punkt--${i === 0 && !p.startFehlt ? 'start' : i === nPunkte - 1 && !p.rund ? 'ziel' : 'via'}">
+        <span class="plan-nr">${i === 0 && !p.startFehlt ? 'S' : i === nPunkte - 1 && !p.rund ? 'Z' : i}</span><span class="plan-liste-name">${name(i)}</span>
         <button type="button" class="plan-weg" data-plan-weg="${i}" aria-label="${name(i)} entfernen">×</button></li>`).join('')}
         ${p.rund && nPunkte ? '<li class="plan-liste-punkt plan-liste-punkt--zurueck"><span class="plan-nr">↺</span><span class="plan-liste-name">Zurück zum Start</span></li>' : ''}</ol>` : ''}
     ${r ? `<div class="plan-zahlen${p.rechnet ? ' plan-zahlen--alt' : ''}">
@@ -316,7 +317,8 @@ function aufKarteGetippt(e) {
   if (p.ziehtGerade) return
   merken()
   p.vorschlagVias = null
-  p.punkte.push([e.lngLat.lat, e.lngLat.lng])
+  if (p.startFehlt) { p.startFehlt = false; p.fehler = null; p.punkte.unshift([e.lngLat.lat, e.lngLat.lng]); p.einpassen = true }
+  else p.punkte.push([e.lngLat.lat, e.lngLat.lng])
   if (p.punkte.length === 1) renderPanel()
   neuRechnen()
 }
@@ -351,7 +353,7 @@ function schliessen(nach = null) {
  * Planer öffnen (Knopf "Planen" im Touren-Panel).
  * @param {{ fertig?: (id: string) => void }} opts  fertig öffnet eine gespeicherte Strecke
  */
-export async function planerOeffnen({ fertig } = {}) {
+export async function planerOeffnen({ fertig, ziel = null } = {}) {
   const map = getHubMap()
   if (!map?.__mmBereit || !box()) return
   if (plan) schliessen(() => {})
@@ -373,9 +375,34 @@ export async function planerOeffnen({ fertig } = {}) {
   box().addEventListener('click', planKlick)
   box().addEventListener('submit', planSuche)
   linieZiehenAn(map)
-  // Weit herausgezoomt tippt man keine sinnvollen Punkte — zum eigenen Standort
   const u = getUserCoords()
+  if (ziel) { mitZiel(ziel, u); return }
+  // Weit herausgezoomt tippt man keine sinnvollen Punkte — zum eigenen Standort
   if (map.getZoom() < 9 && u.lat != null) map.flyTo({ center: [u.lng, u.lat], zoom: 11, duration: 800 })
+}
+
+/* Aus der Adresssuche: wie "Route" bei Google Maps — Start ist der eigene
+   Standort, Ziel die Adresse, die Route steht sofort. Ohne Standort bleibt
+   das Ziel gesetzt und der nächste Tipp auf die Karte wird der Start. */
+function mitZiel(ziel, u) {
+  const p = plan
+  p.punkte = [[ziel.lat, ziel.lng, ziel.titel]]
+  p.modus = ziel.modus || 'schnell' // zu einer Adresse will man ankommen; "Kurvig" ist einen Tipp entfernt
+  const start = (lat, lng) => {
+    if (plan !== p) return
+    p.startFehlt = false
+    p.fehler = null
+    p.punkte.unshift([lat, lng, 'Mein Standort'])
+    p.einpassen = true
+    renderPanel()
+    neuRechnen()
+  }
+  if (u.lat != null) { start(u.lat, u.lng); return }
+  p.startFehlt = true
+  p.fehler = 'Dein Standort fehlt — tippe den Start auf der Karte an.'
+  renderPanel()
+  getHubMap()?.flyTo({ center: [ziel.lng, ziel.lat], zoom: 12, duration: 800 })
+  navigator.geolocation?.getCurrentPosition((pos) => { if (p.startFehlt) start(pos.coords.latitude, pos.coords.longitude) }, () => {}, { enableHighAccuracy: true, timeout: 12000, maximumAge: 60000 })
 }
 
 /** Ort aus der Suche als nächsten Punkt setzen. */

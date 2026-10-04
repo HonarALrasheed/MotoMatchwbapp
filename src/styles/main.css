@@ -9634,61 +9634,6 @@ body.mm-faehrt .mm-standort-punkt { display: none; }
 .flug-hud-balken i { display: block; height: 100%; width: 0; border-radius: 2px; background: #fff; }
 @media (min-width: 760px) { .flug-hud { left: calc(50% + 200px); } }
 .flug-punkt { width: 18px; height: 18px; border-radius: 50%; background: #fff; border: 4px solid #1f7bff; box-shadow: 0 0 0 8px rgba(31,123,255,0.25), 0 2px 8px rgba(0,0,0,0.35); }
-/* Schwebende Knöpfe auf der Karte (touren.js): Route erstellen + Aufnahme */
-.tour-fab {
-  position: absolute;
-  right: 74px;
-  bottom: calc(40px + var(--sa-bottom));
-  z-index: 20;
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  pointer-events: none;
-}
-.tour-fab > * { pointer-events: auto; }
-.tour-fab[hidden], body.mm-faehrt .tour-fab, body.mm-plant .tour-fab, body.mm-fliegt .tour-fab { display: none; }
-.tour-fab-planen {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  height: 50px;
-  padding: 0 20px 0 16px;
-  border: 0;
-  border-radius: 999px;
-  background: #fff;
-  color: #1c1c1e;
-  font: 650 15px/1 -apple-system, "SF Pro Text", var(--font);
-  box-shadow: 0 8px 24px rgba(0,0,0,0.22);
-  cursor: pointer;
-  transition: transform .15s ease, box-shadow .15s ease;
-}
-.tour-fab-planen svg { width: 20px; height: 20px; fill: none; stroke: #1f7bff; stroke-width: 2.2; stroke-linecap: round; }
-.tour-fab-aufnahme {
-  width: 62px;
-  height: 62px;
-  border-radius: 50%;
-  border: 4px solid #fff;
-  background: #ff3b30;
-  box-shadow: 0 8px 24px rgba(255,59,48,0.4), 0 2px 6px rgba(0,0,0,0.25);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  cursor: pointer;
-  transition: transform .15s ease;
-}
-.tour-fab-punkt { width: 20px; height: 20px; border-radius: 50%; background: #fff; }
-.tour-fab-planen:active, .tour-fab-aufnahme:active { transform: scale(0.95); }
-@media (hover: hover) and (pointer: fine) {
-  .tour-fab-planen:hover { box-shadow: 0 10px 28px rgba(0,0,0,0.28); transform: translateY(-1px); }
-  .tour-fab-aufnahme:hover { transform: scale(1.04); }
-}
-/* Handy: über dem eingeklappten Panel, rechts */
-@media (max-width: 759.98px) {
-  /* links — rechts sitzen Zoom-Knöpfe und die Chat-Blase */
-  .tour-fab { left: 14px; right: auto; flex-direction: row-reverse; bottom: calc(var(--kv-peek, 180px) + 16px + var(--tb-mobile-h, 0px)); }
-  .tour-fab-planen { height: 46px; font-size: 14px; }
-  .tour-fab-aufnahme { width: 56px; height: 56px; }
-}
 .plan-suche { display: flex; gap: 8px; }
 .plan-suche input { flex: 1; min-width: 0; height: 40px; padding: 0 12px; border-radius: 11px; border: 1px solid rgba(255,255,255,0.14); background: #1b1b1b; color: #fff; font: 500 14px/1 var(--font); }
 .plan-suche input:focus { outline: none; border-color: #3b5bdb; }

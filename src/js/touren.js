@@ -1041,36 +1041,8 @@ function neuZeichnen(anpassen = false) {
   zeichneListe(passendeTouren.slice(von, von + PRO_SEITE).map((x) => x.t), anpassen)
 }
 
-/** Schwebende Knöpfe auf der Karte: Aufzeichnen und Route erstellen — von überall erreichbar. */
-function kartenKnoepfe() {
-  const host = document.querySelector('.konf-karte-hub .kv-map-wrap')
-  if (!host) return
-  let el = host.querySelector('.tour-fab')
-  if (!el) {
-    el = document.createElement('div')
-    el.className = 'tour-fab'
-    el.innerHTML = `
-      <button type="button" class="tour-fab-planen" data-fab="planen">
-        <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="6" cy="18" r="2.4"/><circle cx="18" cy="6" r="2.4"/><path d="M8.2 16.6c4-1 2.6-5.7 6.4-6.9 1.2-.4 1.6-1 1.9-1.6"/></svg>
-        <span>Route erstellen</span>
-      </button>
-      <button type="button" class="tour-fab-aufnahme" data-fab="aufzeichnen" aria-label="Fahrt aufzeichnen">
-        <span class="tour-fab-punkt"></span>
-      </button>`
-    el.addEventListener('click', (e) => {
-      const b = e.target.closest('[data-fab]')
-      if (!b) return
-      if (b.dataset.fab === 'aufzeichnen') import('./aufzeichnen.js').then((m) => m.aufzeichnungStarten({ fertig: zeigeEigene }))
-      if (b.dataset.fab === 'planen') import('./planer.js').then((m) => m.planerOeffnen({ fertig: zeigeEigene }))
-    })
-    host.appendChild(el)
-  }
-  el.hidden = !zustand.aktiv
-}
-
 export function setTourenAktiv(an) {
   zustand.aktiv = an
-  kartenKnoepfe()
   setKurvenSichtbar(an && zustand.kurvenEbene)
   if (!an) { entferneListe(); entferneDetail(); return }
   renderUmkreis() // war versteckt und ist erst jetzt messbar
@@ -1326,7 +1298,6 @@ export function initTouren({ mountThumb } = {}) {
   })
   ansicht.addEventListener('pointerleave', () => { if (hoverId) markiere(null) })
 
-  kartenKnoepfe()
   // Karte steht erst, wenn der Standort da ist — dann Entfernungen neu rechnen
   onHubMapReady(() => { if (touren.length && !zustand.offeneTour) tourenStandortGeaendert(); else neuZeichnen(true) })
 

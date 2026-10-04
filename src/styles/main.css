@@ -15864,7 +15864,7 @@ body.mm-plant .kurven-legende { display: none; }
 .leute-regel { margin: 0; display: grid; gap: 7px; padding: 10px 12px; border-radius: 12px; background: rgba(255,255,255,0.04); text-align: left; }
 .leute-regel div { display: grid; grid-template-columns: 70px 1fr; gap: 10px; align-items: baseline; font-size: 12.5px; line-height: 1.4; }
 .leute-regel dt { color: rgba(255,255,255,0.42); font-weight: 400; }
-.leute-regel dd { margin: 0; color: rgba(255,255,255,0.82); font-weight: 400; }
+.leute-regel dd { margin: 0; color: rgba(255,255,255,0.82); font-weight: 400; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .leute-abschnitt { display: flex; align-items: baseline; justify-content: space-between; margin-top: 2px; font-size: 12px; font-weight: 700; letter-spacing: 0.02em; text-transform: uppercase; color: rgba(255,255,255,0.5); }
 .leute-abschnitt span { font-weight: 500; text-transform: none; letter-spacing: 0; }
 .leute-fuss { margin: 0; font-size: 11px; color: rgba(255,255,255,0.4); text-align: center; }

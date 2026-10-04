@@ -330,8 +330,8 @@ async function liste() {
     .sort((a, b) => (a.ohne - b.ohne) || new Date(b.zeit || 0) - new Date(a.zeit || 0))
   const ERKL = {
     aus: { siehst: 'Niemanden', sehen: 'Niemand' },
-    freunde: { siehst: 'Nur deine Freunde', sehen: 'Nur Freunde, bei denen das Auge offen ist' },
-    oeffentlich: { siehst: 'Freunde und Fahrer in der Nähe', sehen: 'Freunde genau, alle anderen ungefähr (~1 km)' },
+    freunde: { siehst: 'Nur deine Freunde', sehen: 'Freunde mit offenem Auge' },
+    oeffentlich: { siehst: 'Freunde + Fahrer in der Nähe', sehen: 'Freunde genau, andere ~1 km' },
   }[modus]
   const zeile = (p, mitAuge) => {
     const km = !p.ohne && c.lat != null ? haversineKm(c.lat, c.lng, p.lat, p.lng) : null

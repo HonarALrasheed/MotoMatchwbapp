@@ -2592,7 +2592,7 @@ function bindKarteViewEvents() {
   // Init the Google Map (re-uses garage's hub map implementation)
   // Ergebnisliste danach einmal aktualisieren, damit sie bei fehlendem
   // Standort sofort "Standort nicht verfügbar" statt für immer "Suche läuft…" zeigt.
-  initHubMap().then(() => {
+  initHubMap(document.querySelector('.konf-karte-hub .hub-map')).then(() => {
     /* Nur dort abschalten, wo gar keine Suche laufen kann. Steht Karte und
        Standort, hat initHubMap() gerade selbst eine angestossen — dann bleibt
        der Platzhalter, bis onHubResults() meldet. */
@@ -2920,7 +2920,7 @@ function bindKarteViewEvents() {
     setHubKarteOhneStandort(modus === 'touren')
     setTourenAktiv(modus === 'touren')
     // Ohne Standort ist die Karte im Orte-Modus noch nicht gebaut
-    if (modus === 'touren' && !getHubMapReady()) initHubMap()
+    if (modus === 'touren' && !getHubMapReady()) initHubMap(document.querySelector('.konf-karte-hub .hub-map'))
     if (modus === 'orte') {
       // Erst die Leiste sichtbar machen, dann messen — versteckt ist sie 0 breit
       moveFilterThumb?.()

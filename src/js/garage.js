@@ -49,7 +49,19 @@ import { bikeBild, hatFoto, kachelFuerHero } from "./bike-bild.js";
 import { getGear } from "./gear.js";
 import { buildSearchUrls } from "./marketplace.js";
 import { esc } from "./util.js";
-import { initHubMap, searchNearby, retryHubLocation, getHubMap, panHubToCoords, resetHubSuche } from "./karte.js";
+import { initHubMap, searchNearby, retryHubLocation, getHubMap, panHubToCoords, resetHubSuche, setHubPlacesPausiert } from "./karte.js";
+
+/* Die Karte hier ist dieselbe wie im Karten-Reiter. Stand der dort zuletzt auf
+   "Touren", waren die Orte pausiert und die Tourlinien an — hier sollen
+   Werkstätten, Händler und Fahrschulen kommen. */
+async function hubAlsOrte() {
+  try { (await import("./touren.js")).setTourenAktiv(false); } catch {}
+  setHubPlacesPausiert(false);
+  const bereich = document.querySelector("#garage-container #gr-hub-section");
+  await initHubMap(bereich?.querySelector(".hub-map"));
+  const aktiv = bereich?.querySelector(".hub-pill.active");
+  searchNearby(aktiv?.dataset.query || "Motorradwerkstatt");
+}
 
 // Einmaliger, dezenter Puls auf der Tab-Leiste, damit Nutzer merken, dass
 // hinter "Profil"/"Ausrüstung"/etc. mehr Inhalt steckt.
@@ -710,13 +722,13 @@ function bindEvents(bikeData, answers) {
   // Hub-Bereich (Werkstätten/Händler/Fahrschulen) lädt erst, wenn er
   // tatsächlich in Sicht kommt — die Tab-Buttons springen zwar direkt in
   // den Konfigurator, der Bereich bleibt aber per Scrollen erreichbar.
-  const hubSection = document.getElementById("gr-hub-section");
+  const hubSection = document.querySelector("#garage-container #gr-hub-section");
   if (hubSection) {
     const hubObserver = new IntersectionObserver(
       (entries) => {
         entries.forEach((entry) => {
           if (entry.isIntersecting) {
-            initHubMap();
+            hubAlsOrte();
             hubObserver.unobserve(entry.target);
           }
         });
@@ -763,16 +775,17 @@ function bindEvents(bikeData, answers) {
   });
 
   // Hub filter pills
-  document.querySelectorAll(".hub-pill").forEach((pill) => {
+  document.querySelectorAll("#garage-container .hub-pill").forEach((pill) => {
     pill.addEventListener("click", () => {
       document
-        .querySelectorAll(".hub-pill")
+        .querySelectorAll("#garage-container .hub-pill")
         .forEach((p) => p.classList.remove("active"));
       pill.classList.add("active");
-      searchNearby(pill.dataset.query);
-      // Falls die Karte noch nicht (oder nicht mehr) verfügbar ist, im
-      // Hintergrund einen neuen Ladeversuch starten (z. B. nach Netzwerkfehler)
-      if (!getHubMap()) initHubMap();
+      // Orte nicht pausiert lassen (siehe hubAlsOrte) und Karte notfalls neu laden
+      // Karte muss im Profil-Bereich stehen (sie wandert zwischen Profil und Karten-Reiter)
+      const feld = getHubMap()?.getContainer()
+      if (!feld || !feld.closest("#garage-container")) hubAlsOrte();
+      else { setHubPlacesPausiert(false); searchNearby(pill.dataset.query); }
     });
   });
 
@@ -880,9 +893,9 @@ function renderTab(tab, bikeData, answers) {
   } else if (tab === "map") {
     // Redirect to hub section
     document
-      .getElementById("gr-hub-section")
+      .querySelector("#garage-container #gr-hub-section")
       ?.scrollIntoView({ behavior: "smooth" });
-    initHubMap();
+    hubAlsOrte();
   }
 }
 

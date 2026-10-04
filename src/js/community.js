@@ -55,7 +55,7 @@ import {
   getInvites, createInvite, revokeInvite, redeemInvite, activeInvitesForGroup,
   // Nachrichten (Gruppen)
   ATTACH_MAX, ATTACH_MAX_LOCAL,
-  sendGroupMessage, editMessageInGroup, deleteGroupMessage, toggleReactionInGroup,
+  sendGroupMessage, crewAntworten, editMessageInGroup, deleteGroupMessage, toggleReactionInGroup,
   // Nachrichten (DMs)
   getDMs, sendDM, editMessageInDM, deleteDMMessage, toggleReactionInDM,
   // Ungelesen
@@ -132,6 +132,10 @@ function avatarColor(username) {
 }
 function displayName(username) {
   return getProfile(username).displayName || username
+}
+function aiBadge(username) {
+  // Im Chat kein Badge; die Kennzeichnung steht im Profil (siehe mmc-up-ki).
+  return ''
 }
 /** Innerer Avatar-Inhalt: echtes Profilbild, falls vorhanden, sonst Initialen des Anzeigenamens. */
 function avatarInner(username) {
@@ -985,7 +989,7 @@ function _appendMessageToGroupChat(root, msg) {
       <div class="mmc-avatar mmc-avatar--sm ${clickable ? 'mmc-avatar--clickable' : ''}" ${clickable ? `data-user="${esc(msg.author)}"` : ''} style="background:${avatarColor(msg.author)}">${avatarInner(msg.author)}</div>
       <div class="mmc-msg-body">
         <div class="mmc-msg-head">
-          <span class="mmc-msg-author${clickable ? ' mmc-msg-author--clickable' : ''}" ${clickable ? `data-user="${esc(msg.author)}"` : ''}>${esc(displayName(msg.author))}</span>
+          <span class="mmc-msg-author${clickable ? ' mmc-msg-author--clickable' : ''}" ${clickable ? `data-user="${esc(msg.author)}"` : ''}>${esc(displayName(msg.author))}${aiBadge(msg.author)}</span>
           <span class="mmc-msg-time">${fmtTime(msg.ts)}</span>
         </div>
         ${replyQuote}
@@ -1117,7 +1121,7 @@ function _appendMessageToDMChat(root, msg) {
       <div class="mmc-avatar mmc-avatar--sm ${clickable ? 'mmc-avatar--clickable' : ''}" ${clickable ? `data-user="${esc(msg.author)}"` : ''} style="background:${avatarColor(msg.author)}">${avatarInner(msg.author)}</div>
       <div class="mmc-msg-body">
         <div class="mmc-msg-head">
-          <span class="mmc-msg-author${clickable ? ' mmc-msg-author--clickable' : ''}" ${clickable ? `data-user="${esc(msg.author)}"` : ''}>${esc(displayName(msg.author))}</span>
+          <span class="mmc-msg-author${clickable ? ' mmc-msg-author--clickable' : ''}" ${clickable ? `data-user="${esc(msg.author)}"` : ''}>${esc(displayName(msg.author))}${aiBadge(msg.author)}</span>
           <span class="mmc-msg-time">${fmtTime(msg.ts)}</span>
         </div>
         <div class="mmc-msg-text">${renderText(msg.text)}</div>
@@ -2366,6 +2370,7 @@ function openUserProfile(root, username, anchorEl) {
     const bikeLine = uProf.showBike && uProf.bikeText
       ? `<div class="mmc-up-bike">🏍️ ${esc(uProf.bikeText)}</div>` : ''
     const bioLine = uProf.bio ? `<div class="mmc-up-bio">${esc(uProf.bio)}</div>` : ''
+      + (uProf.isAi ? '<div class="mmc-up-ki">KI-Mitglied der MotoMatch-Crew</div>' : '')
     const statusLine = uProf.statusText ? `<div class="mmc-up-statustext">${esc(uProf.statusText)}</div>` : ''
     const pop = document.createElement('div')
     pop.className = 'mmc-userprofile'
@@ -3858,6 +3863,13 @@ function renderGroupChatMain(root) {
     const gg = getGroups().find(x => x.id === activeGroup)
     if (gg) { groupDefaults(gg); const ch = gg.channels.find(c => c.id === activeChannel); renderMessagesInto(root, main.querySelector('#mmc-messages'), ch?.messages || [], { title: ch?.name || '', text: '', avatar: gg.name, hash: true }, gg) }
     input.focus()
+    const crewG = activeGroup, crewC = activeChannel
+    crewAntworten(crewG, crewC, text, () => {
+      if (activeGroup !== crewG || activeChannel !== crewC) return
+      const g2 = getGroups().find(x => x.id === crewG); const c2 = g2?.channels.find(c => c.id === crewC)
+      const box = main.querySelector('#mmc-messages')
+      if (g2 && c2 && box) renderMessagesInto(root, box, c2.messages, { title: c2.name, text: '', avatar: g2.name, hash: true }, g2)
+    })
   })
   requestAnimationFrame(() => main.querySelector('#mmc-compose-input')?.focus())
 }
@@ -4799,7 +4811,7 @@ function renderMessagesInto(root, box, msgs, empty, groupCtx = null, prevReadTs 
           <div class="mmc-avatar mmc-avatar--sm ${clickable(m) ? 'mmc-avatar--clickable' : ''}" ${clickable(m) ? `data-user="${esc(m.author)}"` : ''} style="background:${avatarColor(m.author)}">${avatarInner(m.author)}</div>
           <div class="mmc-msg-body">
             <div class="mmc-msg-head">
-              <span class="mmc-msg-author${clickable(m) ? ' mmc-msg-author--clickable' : ''}" ${clickable(m) ? `data-user="${esc(m.author)}"` : ''}>${esc(displayName(m.author))}</span>
+              <span class="mmc-msg-author${clickable(m) ? ' mmc-msg-author--clickable' : ''}" ${clickable(m) ? `data-user="${esc(m.author)}"` : ''}>${esc(displayName(m.author))}${aiBadge(m.author)}</span>
               <span class="mmc-msg-time">${fmtTime(m.ts)}${editLabel}</span>
             </div>
             ${replyQuote}
@@ -4989,7 +5001,7 @@ function renderMessagesInto(root, box, msgs, empty, groupCtx = null, prevReadTs 
       <div class="mmc-avatar mmc-avatar--sm ${clickable ? 'mmc-avatar--clickable' : ''}" ${clickable ? `data-user="${esc(m.author)}"` : ''} style="background:${avatarColor(m.author)};opacity:.55">${avatarInner(m.author)}</div>
       <div class="mmc-msg-body" style="opacity:.65">
         <div class="mmc-msg-head">
-          <span class="mmc-msg-author">${esc(displayName(m.author))}</span>
+          <span class="mmc-msg-author">${esc(displayName(m.author))}${aiBadge(m.author)}</span>
           <span class="mmc-msg-time">${fmtTime(m.ts)}</span>
         </div>
         <div class="mmc-msg-text">${renderText(m.text, mentionNames)}</div>

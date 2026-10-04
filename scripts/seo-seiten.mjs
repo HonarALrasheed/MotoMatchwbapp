@@ -23,6 +23,7 @@ import { fileURLToPath } from "node:url";
 import { setCatalog, findSimilarBikes } from "../src/js/matching.js";
 import { bikeBild, hatFoto } from "../src/js/bike-bild.js";
 import { artikel } from "./ratgeber.mjs";
+import { getGear } from "../src/js/gear.js";
 
 const WURZEL = join(dirname(fileURLToPath(import.meta.url)), "..");
 const DIST = join(WURZEL, "dist");
@@ -443,13 +444,29 @@ function schreibe(pfad, html) {
 
 // ── Ratgeber (Inhalt) — vor den Seiten, damit Themen- und Bike-Seiten auf passende Artikel verweisen
 const RATGEBER_DATUM = "2026-10-05";
-const ratgeber = artikel({ bikes, preis, zahl, dez, darfA2, bikePfad, themaPfad, esc, STIL, karte, hatFoto });
+// Ausrüstung aus gear.js: alle Bauarten zusammen, jedes Produkt einmal
+const ausruestung = [...new Map(Object.keys(STIL).flatMap((stil) => Object.entries(getGear(stil))
+  .flatMap(([k, l]) => l.map((x) => [`${k}|${x.name}`, { k, ...x }])))).values()];
+const ratgeber = artikel({ bikes, preis, zahl, dez, darfA2, bikePfad, themaPfad, esc, STIL, karte, hatFoto, ausruestung });
+// Jedes Titelbild nur einmal
+{
+  const benutzt = new Set();
+  // Erst die festen Titelbilder vergeben, dann die Kandidatenlisten (erstes freies Bike)
+  for (const r of ratgeber) if (r.held && !Array.isArray(r.held)) benutzt.add(r.held.slug);
+  for (const r of ratgeber) {
+    if (!Array.isArray(r.held)) continue;
+    r.held = r.held.find((b) => b.studio && !benutzt.has(b.slug)) || r.held[0];
+    if (r.held) benutzt.add(r.held.slug);
+  }
+}
 const ratgeberVon = new Map(ratgeber.map((r) => [r.slug, r]));
 /* Interne Links Seite → Artikel: Google gewichtet Seiten höher, auf die viele eigene Seiten zeigen,
    und Leser finden die Erklärung genau dort, wo die Frage entsteht. */
 function ratgeberFuerThema(t) {
   const s = t.slug, l = [];
+  if (s === "fuehrerschein-a2" || /^a2-unter|-a2$/.test(s)) l.push("bestes-a2-motorrad");
   if (/a2/.test(s)) l.push("a2-drosselung");
+  if (/niedrige-sitzhoehe|motorrad-fuer-1(50|55|60|65)-cm/.test(s)) l.push("motorrad-fuer-kleine-fahrer");
   if (/^fuehrerschein-/.test(s)) l.push("fuehrerscheinklassen-a1-a2-a");
   if (/b196|a1|-125$/.test(s)) l.push("b196-125er-mit-autofuehrerschein");
   if (s === "einsteiger") l.push("erstes-motorrad-kaufen");
@@ -465,8 +482,9 @@ function ratgeberFuerBike(b) {
   if (b.license === "A" && b.a2) l.push("a2-drosselung");
   if (b.license === "A1") l.push("b196-125er-mit-autofuehrerschein");
   if (b.beginner) l.push("erstes-motorrad-kaufen");
+  if (b.seat_height && b.seat_height <= 76 && b.style !== "Roller") l.push("motorrad-fuer-kleine-fahrer");
   if (b.seat_height) l.push("sitzhoehe-koerpergroesse");
-  l.push("motorrad-gebraucht-kaufen-checkliste", "motorradsteuer");
+  l.push("motorrad-gebraucht-kaufen-checkliste", "motorradversicherung", "motorradsteuer");
   return [...new Set(l)].slice(0, 3).map((x) => ratgeberVon.get(x)).filter(Boolean);
 }
 const ratgeberBox = (liste) => (liste.length ? `<section><h2>Passende Ratgeber</h2><ul class="r-links">${liste.map((r) => `<li><a href="/ratgeber/${r.slug}/"><strong>${esc(r.h1)}</strong><span>Ratgeber lesen ›</span></a></li>`).join("")}</ul></section>` : "");
@@ -887,6 +905,8 @@ h2{font-size:22px;font-weight:600;margin:40px 0 14px}
 .marken span{color:var(--dim);font-size:12px}
 .intro a{text-decoration:underline;text-underline-offset:3px}
 .artikel .karte a{text-decoration:none}
+.karte .g{display:flex;flex-direction:column;gap:2px;height:100%;padding:10px;background:var(--fl);border:1px solid var(--rand);border-radius:14px}
+.karte .g img{width:100%;height:auto;aspect-ratio:7/5;object-fit:contain;margin-bottom:8px;background:#fff;border-radius:10px}
 @media (max-width:760px){.kacheln--fs,.kacheln--bild{grid-template-columns:repeat(2,minmax(0,1fr))}.kacheln{grid-template-columns:repeat(2,minmax(0,1fr))}.kachel--fs strong{font-size:36px}.kachel:not(.kachel--bild){padding:14px}.kachel:not(.kachel--fs) strong{font-size:16px}.kachel--bild strong{padding:10px 12px 0}.kachel--bild span{padding:0 12px 12px}}
 @media (max-width:520px){.kopf{grid-template-columns:auto 1fr auto;gap:8px}.kopf-nav{justify-self:center}.kopf-nav a{padding:7px 12px;font-size:14px}.logo{display:none}.zurueck{width:34px;height:34px}.kopf-quiz{padding:8px 12px;font-size:14px}.kopf-quiz span{display:none}.r-fakten{grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}.r-fakten div{padding:14px}.r-fakten strong{font-size:22px}.raster.mini{grid-template-columns:repeat(2,minmax(0,1fr))}}
 @media (max-width:900px){.r-layout{grid-template-columns:1fr;gap:8px}.r-seite{position:static;order:-1}.r-quiz{display:none}.r-held{display:block;min-height:0}.r-held img{position:static;width:100%;height:auto;aspect-ratio:4/3}.r-held::after{background:linear-gradient(180deg,rgba(20,20,20,0) 40%,#141414 74%)}.r-held-text{margin-top:-90px;padding:0 18px 22px}}

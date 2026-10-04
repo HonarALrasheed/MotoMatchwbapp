@@ -285,6 +285,9 @@ function kopf({ titel, beschreibung, pfad, bild, krumen, ld: extraLd = [] }) {
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="robots" content="max-image-preview:large" />
+  <!-- www → ohne www; Rückfall, falls die Umleitung in Vercel fehlt (Search Console führte beide) -->
+  <script>if(location.hostname==="www.motomatch.studio")location.replace("https://motomatch.studio"+location.pathname+location.search+location.hash)</script>
   <title>${esc(titel)} | MotoMatch</title>
   <meta name="description" content="${esc(beschreibung)}" />
   <link rel="canonical" href="${url(pfad)}" />
@@ -724,7 +727,9 @@ ${gruppe("Marke")}
 `);
 }
 
-const heute = new Date().toISOString().slice(0, 10);
+/* lastmod = Stand des Katalogs, nicht das Build-Datum: Wer bei jedem Deploy "heute" meldet,
+   dem glaubt Google das Datum nicht mehr und ignoriert es (Search Console, 2026-10-05). */
+const heute = /^\d{4}-\d{2}-\d{2}$/.test(STAND) ? STAND : new Date().toISOString().slice(0, 10);
 const adressen = ["/", "/motorraeder/", "/vergleich/", ...themen.map((t) => t.pfad), ...bikes.map((b) => bikePfad.get(b)), ...vergleiche.map((v) => v.pfad)];
 /* Bild-Sitemap (Google-Erweiterung): die echten Fotos je Bike-Seite, damit sie in der Bildersuche
    erscheinen. Nur echte Fotos — Platzhalter-Silhouetten gehören nicht in die Bildersuche. */

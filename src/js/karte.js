@@ -237,6 +237,12 @@ async function ladeStil() {
   stil.sources.gelaende = hoehen
   const { attribution: _quelle, ...ohneQuelle } = hoehen // Quellenangabe nur einmal
   stil.sources['gelaende-3d'] = ohneQuelle
+  // Satellitenbild für "Strecke abfliegen" — normal ausgeblendet (touren.js schaltet es zu)
+  stil.sources.satellit = {
+    type: 'raster', tileSize: 256, maxzoom: 15,
+    tiles: [`${location.origin}/satellit/{z}/{y}/{x}.jpg`],
+    attribution: '<a href="https://s2maps.eu" target="_blank" rel="noopener">Sentinel-2 cloudless by EOX</a> (Copernicus Sentinel 2016)',
+  }
   const vorStrassen = stil.layers.findIndex((l) => /^(tunnel_|road_|bridge_)/.test(l.id))
   stil.layers.splice(vorStrassen < 0 ? stil.layers.length : vorStrassen, 0, {
     id: 'relief', type: 'hillshade', source: 'gelaende', minzoom: 5,
@@ -247,6 +253,9 @@ async function ladeStil() {
       'hillshade-accent-color': 'rgba(70, 80, 60, 0.25)',
       'hillshade-illumination-direction': 315,
     },
+  }, {
+    id: 'satellit', type: 'raster', source: 'satellit', layout: { visibility: 'none' },
+    paint: { 'raster-saturation': 0.12, 'raster-contrast': 0.08, 'raster-brightness-max': 0.95, 'raster-fade-duration': 200 },
   })
   for (const l of stil.layers) {
     if (STIL_FARBEN[l.id]) l.paint = { ...l.paint, ...STIL_FARBEN[l.id] }

@@ -13,6 +13,12 @@ const WETTER_PROXY = {
   changeOrigin: true,
   rewrite: (p) => p.replace(/^\/wetter/, ''),
 }
+// Satellitenbild für den Streckenflug (Sentinel-2 cloudless 2016, EOX, CC BY 4.0)
+const SATELLIT_PROXY = {
+  target: 'https://tiles.maps.eox.at',
+  changeOrigin: true,
+  rewrite: (p) => p.replace(/^\/satellit/, '/wmts/1.0.0/s2cloudless_3857/default/g'),
+}
 // Höhendaten fürs Relief (Terrarium-Kacheln, AWS Open Data) — wie der Rewrite in vercel.json
 const HOEHEN_PROXY = {
   target: 'https://s3.amazonaws.com',
@@ -27,10 +33,10 @@ export default defineConfig(() => ({
     strictPort: false,
     open: true,
     // Kartenkacheln über die eigene Adresse — wie der Rewrite in vercel.json
-    proxy: { '/kacheln': KACHEL_PROXY, '/hoehe': HOEHEN_PROXY, '/wetter': WETTER_PROXY },
+    proxy: { '/kacheln': KACHEL_PROXY, '/hoehe': HOEHEN_PROXY, '/wetter': WETTER_PROXY, '/satellit': SATELLIT_PROXY },
   },
   preview: {
-    proxy: { '/kacheln': KACHEL_PROXY, '/hoehe': HOEHEN_PROXY, '/wetter': WETTER_PROXY },
+    proxy: { '/kacheln': KACHEL_PROXY, '/hoehe': HOEHEN_PROXY, '/wetter': WETTER_PROXY, '/satellit': SATELLIT_PROXY },
   },
   build: {
     outDir: 'dist',

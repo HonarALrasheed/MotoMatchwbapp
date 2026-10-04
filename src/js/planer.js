@@ -12,8 +12,8 @@
    ═══════════════════════════════════════════════════ */
 
 import { esc } from './util.js'
-import { getHubMap, getMapLib, haversineKm, getUserCoords } from './karte.js'
-import { route, RoutingFehler } from './routing.js'
+import { getHubMap, getMapLib, haversineKm, getUserCoords, resolveOrt } from './karte.js'
+import { route, naechster, RoutingFehler } from './routing.js'
 import { streckenIn } from './kurven.js'
 import { speichereStrecke, profilAus, alsTour, kurvigkeit, PRAEFIX } from './eigene-strecken.js'
 
@@ -105,6 +105,8 @@ function ebene(map) {
   map.addSource('plan', { type: 'geojson', data: LEER })
   map.addLayer({ id: 'plan-rand', type: 'line', source: 'plan', layout: { 'line-join': 'round', 'line-cap': 'round' }, paint: { 'line-color': '#fff', 'line-width': 9 } })
   map.addLayer({ id: 'plan-linie', type: 'line', source: 'plan', layout: { 'line-join': 'round', 'line-cap': 'round' }, paint: { 'line-color': '#3b5bdb', 'line-width': 5 } })
+  // unsichtbare, breite Greiffläche — die Linie selbst ist zum Greifen zu schmal
+  map.addLayer({ id: 'plan-griff', type: 'line', source: 'plan', layout: { 'line-join': 'round', 'line-cap': 'round' }, paint: { 'line-color': '#000', 'line-opacity': 0.001, 'line-width': 26 } })
 }
 
 function zeichneLinie(pts) {
@@ -122,6 +124,7 @@ function markerSetzen() {
     el.className = `plan-punkt${i === 0 ? ' plan-punkt--start' : letzter ? ' plan-punkt--ziel' : ''}`
     el.textContent = i === 0 ? 'S' : letzter ? 'Z' : String(i)
     const m = new ml.Marker({ element: el, draggable: true }).setLngLat([p[1], p[0]]).addTo(map)
+    m.on('dragstart', () => merken())
     m.on('dragend', () => {
       const ll = m.getLngLat()
       plan.punkte[i] = [ll.lat, ll.lng]
@@ -138,6 +141,26 @@ function einpassen(pts) {
   const panel = document.querySelector('.konf-karte-hub .kv-sidebar')
   const mobil = window.matchMedia('(max-width: 759.98px)').matches
   getHubMap()?.fitBounds([[w, s], [o, n]], { padding: mobil ? { top: 90, bottom: 260, left: 30, right: 30 } : { top: 80, bottom: 50, left: (panel?.getBoundingClientRect().width || 0) + 50, right: 80 }, duration: 800 })
+}
+
+/** Stand vor einer Änderung merken (für "Rückgängig"). */
+function merken() {
+  const p = plan
+  if (!p) return
+  p.verlauf.push({ punkte: p.punkte.map((x) => x.slice()), rund: p.rund, vorschlagVias: p.vorschlagVias, ergebnis: p.ergebnis })
+  if (p.verlauf.length > 40) p.verlauf.shift()
+}
+
+/** Punkt an der richtigen Stelle einfügen: zwischen die Wegpunkte, auf deren Abschnitt er liegt. */
+function einfuegen(lat, lng) {
+  const p = plan
+  const r = p.ergebnis
+  if (!r || p.punkte.length < 2) { p.punkte.push([lat, lng]); return }
+  const ort = naechster(r, lat, lng).index
+  const lage = p.punkte.map((pt) => naechster(r, pt[0], pt[1]).index)
+  let nach = 0
+  for (let i = 0; i < lage.length; i++) if (lage[i] <= ort) nach = i
+  p.punkte.splice(nach + 1, 0, [lat, lng])
 }
 
 // ── Rechnen ──────────────────────────────────────────────────────────────
@@ -189,7 +212,7 @@ function renderInfo() {
   const r = p.ergebnis
   const nPunkte = p.punkte.length
   el.innerHTML = `
-    ${nPunkte === 0 ? '<p class="plan-tipp">Tippe auf die Karte, um den Start zu setzen — oder nimm deinen Standort.</p>'
+    ${nPunkte === 0 ? '<p class="plan-tipp">Tippe auf die Karte, um den Start zu setzen — oder nimm deinen Standort. Später kannst du die blaue Linie greifen und ziehen, um die Route umzulegen.</p>'
       : nPunkte === 1 && !p.vorschlagVias ? '<p class="plan-tipp">Jetzt das Ziel antippen. Oder lass dir eine Rundtour ab hier vorschlagen.</p>' : ''}
     ${p.fehler ? `<p class="fahrt-start-fehler">${esc(p.fehler)}</p>` : ''}
     ${r ? `<div class="plan-zahlen${p.rechnet ? ' plan-zahlen--alt' : ''}">
@@ -225,8 +248,13 @@ function renderPanel() {
         </div>
       </div>
     </div>
+    <form class="plan-suche" data-plan-suche>
+      <input type="search" placeholder="Ort oder PLZ hinzufügen" aria-label="Ort oder PLZ hinzufügen" enterkeyhint="go">
+      <button type="submit" class="tour-btn">Hinzufügen</button>
+    </form>
     <div class="plan-werkzeuge">
       <button type="button" class="tour-btn" data-plan="standort">Mein Standort als Start</button>
+      <button type="button" class="tour-btn" data-plan="zurueck" ${p.verlauf.length ? '' : 'disabled'} aria-label="Rückgängig">↶</button>
       <button type="button" class="tour-btn" data-plan="vorschlag" ${p.punkte.length ? '' : 'disabled'}>Rundtour vorschlagen</button>
       <button type="button" class="tour-link-btn" data-plan="leeren" ${p.punkte.length ? '' : 'hidden'}>Alles löschen</button>
     </div>
@@ -247,6 +275,8 @@ function aufKarteGetippt(e) {
   const treffer = map.queryRenderedFeatures(e.point, { layers: ['kurven-linie', 'orte-symbole'].filter((l) => map.getLayer(l)) })
   if (treffer.length) return
   if (p.punkte.length >= 25) return
+  if (p.ziehtGerade) return
+  merken()
   p.vorschlagVias = null
   p.punkte.push([e.lngLat.lat, e.lngLat.lng])
   if (p.punkte.length === 1) renderPanel()
@@ -273,6 +303,7 @@ function schliessen(nach = null) {
   const map = getHubMap()
   map?.off('click', p.klick)
   map?.getCanvas().classList.remove('plan-aktiv')
+  document.body.classList.remove('mm-plant')
   if (nach) nach()
   else import('./touren.js').then((m) => m.zeigeTourenListe())
 }
@@ -288,10 +319,11 @@ export async function planerOeffnen({ fertig } = {}) {
   const { tourenKarteLeeren } = await import('./touren.js')
   tourenKarteLeeren()
   ebene(map)
-  plan = { punkte: [], marker: [], modus: 'kurvig', rund: false, ergebnis: null, rechnet: false, lauf: 0, fertig, vorschlagVias: null, fehler: null }
+  plan = { punkte: [], marker: [], modus: 'kurvig', rund: false, ergebnis: null, rechnet: false, lauf: 0, fertig, vorschlagVias: null, fehler: null, verlauf: [] }
   plan.klick = aufKarteGetippt
   map.on('click', plan.klick)
   map.getCanvas().classList.add('plan-aktiv')
+  document.body.classList.add('mm-plant')
   // Filterleiste und Zähler der Liste ausblenden wie in der Detailansicht
   document.getElementById('kv-touren')?.classList.add('kv-ansicht--detail')
   const zaehler = document.getElementById('tour-count')
@@ -300,6 +332,68 @@ export async function planerOeffnen({ fertig } = {}) {
   document.dispatchEvent(new CustomEvent('mm:kv-sheet', { detail: { auf: false } }))
 
   box().addEventListener('click', planKlick)
+  box().addEventListener('submit', planSuche)
+  linieZiehenAn(map)
+}
+
+/** Ort aus der Suche als nächsten Punkt setzen. */
+async function planSuche(e) {
+  if (!e.target.matches('[data-plan-suche]')) return
+  e.preventDefault()
+  const p = plan
+  const feld = e.target.querySelector('input')
+  const text = feld.value.trim()
+  if (!p || !text) return
+  const ort = await resolveOrt(text)
+  if (plan !== p) return
+  if (!ort.ok) { feld.setCustomValidity('Ort nicht gefunden'); feld.reportValidity(); setTimeout(() => feld.setCustomValidity(''), 1500); return }
+  merken()
+  p.vorschlagVias = null
+  p.punkte.push([ort.lat, ort.lng])
+  feld.value = ''
+  renderPanel()
+  neuRechnen()
+  if (p.punkte.length === 1) getHubMap()?.flyTo({ center: [ort.lng, ort.lat], zoom: 10.5, duration: 900 })
+  else p.einpassen = true
+}
+
+/** Die blaue Linie greifen und ziehen: an der Stelle entsteht ein neuer Zwischenpunkt. */
+function linieZiehenAn(map) {
+  if (map.__mmPlanZiehen) return
+  map.__mmPlanZiehen = true
+  const ml = getMapLib()
+  let geist = null
+  const start = (e) => {
+    const p = plan
+    if (!p?.ergebnis || e.originalEvent?.button > 0) return
+    e.preventDefault()
+    p.ziehtGerade = true
+    map.dragPan.disable()
+    const el = document.createElement('div')
+    el.className = 'plan-punkt plan-punkt--geist'
+    geist = new ml.Marker({ element: el }).setLngLat(e.lngLat).addTo(map)
+    const bewegen = (ev) => geist?.setLngLat(ev.lngLat)
+    const ende = (ev) => {
+      map.off('mousemove', bewegen); map.off('touchmove', bewegen)
+      map.off('mouseup', ende); map.off('touchend', ende)
+      map.dragPan.enable()
+      const ll = (ev.lngLat || geist.getLngLat())
+      geist?.remove(); geist = null
+      setTimeout(() => { if (plan) plan.ziehtGerade = false }, 50)
+      if (plan !== p) return
+      merken()
+      p.vorschlagVias = null
+      einfuegen(ll.lat, ll.lng)
+      renderPanel()
+      neuRechnen()
+    }
+    map.on('mousemove', bewegen); map.on('touchmove', bewegen)
+    map.on('mouseup', ende); map.on('touchend', ende)
+  }
+  map.on('mousedown', 'plan-griff', start)
+  map.on('touchstart', 'plan-griff', start)
+  map.on('mouseenter', 'plan-griff', () => { if (plan) map.getCanvas().style.cursor = 'grab' })
+  map.on('mouseleave', 'plan-griff', () => { map.getCanvas().style.cursor = '' })
 }
 
 async function planKlick(e) {
@@ -315,9 +409,9 @@ async function planKlick(e) {
     return
   }
   const rund = t.closest('[data-plan-rund]')
-  if (rund) { p.rund = rund.dataset.planRund === '1'; p.vorschlagVias = null; renderPanel(); neuRechnen(); return }
+  if (rund) { merken(); p.rund = rund.dataset.planRund === '1'; p.vorschlagVias = null; renderPanel(); neuRechnen(); return }
   const weg = t.closest('[data-plan-weg]')
-  if (weg) { p.punkte.splice(+weg.dataset.planWeg, 1); p.vorschlagVias = null; if (!p.punkte.length) p.ergebnis = null; renderPanel(); neuRechnen(); return }
+  if (weg) { merken(); p.punkte.splice(+weg.dataset.planWeg, 1); p.vorschlagVias = null; if (!p.punkte.length) p.ergebnis = null; renderPanel(); neuRechnen(); return }
   const km = t.closest('[data-vorschlag-km]')
   if (km && p.punkte.length) {
     document.getElementById('plan-vorschlag').hidden = true
@@ -359,7 +453,14 @@ async function planKlick(e) {
   if (!a) return
   const was = a.dataset.plan
   if (was === 'schliessen') schliessen()
-  if (was === 'leeren') { p.punkte = []; p.ergebnis = null; p.vorschlagVias = null; renderPanel(); neuRechnen() }
+  if (was === 'zurueck' && p.verlauf.length) {
+    const alt = p.verlauf.pop()
+    Object.assign(p, { punkte: alt.punkte, rund: alt.rund, vorschlagVias: alt.vorschlagVias })
+    renderPanel()
+    if (alt.ergebnis && alt.vorschlagVias) { p.ergebnis = alt.ergebnis; zeichneLinie(alt.ergebnis.pts); markerSetzen(); renderInfo() } else neuRechnen()
+    return
+  }
+  if (was === 'leeren') { merken(); p.punkte = []; p.ergebnis = null; p.vorschlagVias = null; renderPanel(); neuRechnen() }
   if (was === 'vorschlag') { const v = document.getElementById('plan-vorschlag'); v.hidden = !v.hidden }
   if (was === 'standort') {
     const u = getUserCoords()

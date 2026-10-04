@@ -839,6 +839,67 @@ function punktBei(d, m) {
   return [a[0] + (b[0] - a[0]) * f, a[1] + (b[1] - a[1]) * f]
 }
 
+/* Während des Flugs: Satellitenbild statt Kartenflächen, Straßen und Symbole
+   aus, nur Ortsnamen und die Route bleiben — wie ein Überflug bei Apple. */
+const FLUG_AUS = /^(tunnel_|road_|bridge_|building|landuse|landcover|park|aeroway|relief|poi_|highway-|road_shield|boundary|kurven-linie|touren-|waterway)/
+
+function flugKarte(map, an, f) {
+  if (an) {
+    f.aus = []
+    for (const l of map.getStyle().layers) {
+      if (!FLUG_AUS.test(l.id) || map.getLayoutProperty(l.id, 'visibility') === 'none') continue
+      map.setLayoutProperty(l.id, 'visibility', 'none')
+      f.aus.push(l.id)
+    }
+    if (map.getLayer('satellit')) map.setLayoutProperty('satellit', 'visibility', 'visible')
+    // Ortsnamen hell mit dunklem Rand — auf dem Satellitenbild sonst unlesbar
+    f.schrift = []
+    for (const l of map.getStyle().layers) {
+      if (l.type !== 'symbol' || !/^(label_|water_name)/.test(l.id)) continue
+      f.schrift.push([l.id, map.getPaintProperty(l.id, 'text-color'), map.getPaintProperty(l.id, 'text-halo-color'), map.getPaintProperty(l.id, 'text-halo-width')])
+      map.setPaintProperty(l.id, 'text-color', '#ffffff')
+      map.setPaintProperty(l.id, 'text-halo-color', 'rgba(0,0,0,0.75)')
+      map.setPaintProperty(l.id, 'text-halo-width', 1.6)
+    }
+    f.himmel = map.getSky?.()
+    try {
+      map.setSky({
+        'sky-color': '#6fa6dc', 'horizon-color': '#e4eef8', 'fog-color': '#dfe8f0',
+        'sky-horizon-blend': 0.55, 'horizon-fog-blend': 0.7, 'fog-ground-blend': 0.35, 'atmosphere-blend': 0.6,
+      })
+    } catch {}
+    try { if (map.getSource('gelaende-3d')) map.setTerrain({ source: 'gelaende-3d', exaggeration: 1.7 }) } catch {}
+    f.breite = [map.getPaintProperty('tour-detail-linie', 'line-width'), map.getPaintProperty('tour-detail-rand', 'line-width')]
+    map.setPaintProperty('tour-detail-linie', 'line-width', ['interpolate', ['linear'], ['zoom'], 10, 4, 14, 8])
+    map.setPaintProperty('tour-detail-rand', 'line-width', ['interpolate', ['linear'], ['zoom'], 10, 9, 14, 15])
+  } else {
+    for (const id of f.aus || []) if (map.getLayer(id)) map.setLayoutProperty(id, 'visibility', 'visible')
+    if (map.getLayer('satellit')) map.setLayoutProperty('satellit', 'visibility', 'none')
+    for (const [id, farbe, halo, breite] of f.schrift || []) {
+      if (!map.getLayer(id)) continue
+      map.setPaintProperty(id, 'text-color', farbe)
+      map.setPaintProperty(id, 'text-halo-color', halo)
+      map.setPaintProperty(id, 'text-halo-width', breite)
+    }
+    try { map.setSky(f.himmel || {}) } catch {}
+    try { map.setTerrain(null) } catch {}
+    if (f.breite?.[0] != null) {
+      map.setPaintProperty('tour-detail-linie', 'line-width', f.breite[0])
+      map.setPaintProperty('tour-detail-rand', 'line-width', f.breite[1])
+    }
+  }
+}
+
+function hoeheBei(d, km) {
+  const p = d.profil || []
+  if (!p.length) return null
+  let j = 0
+  while (j < p.length - 1 && p[j + 1][0] < km) j++
+  const a = p[j], b = p[Math.min(j + 1, p.length - 1)]
+  const f = b[0] > a[0] ? (km - a[0]) / (b[0] - a[0]) : 0
+  return Math.round(a[1] + (b[1] - a[1]) * Math.max(0, Math.min(1, f)))
+}
+
 export function flugStoppen(zurueck = true) {
   if (!flug) return
   const f = flug
@@ -846,46 +907,77 @@ export function flugStoppen(zurueck = true) {
   cancelAnimationFrame(f.raf)
   f.map.off('dragstart', f.abbruch); f.map.off('wheel', f.abbruch)
   f.punkt?.remove()
-  try { f.map.setTerrain(null) } catch {}
+  f.hud?.remove()
+  flugKarte(f.map, false, f)
+  document.body.classList.remove('mm-fliegt')
+  document.getElementById('tour-profil-cursor')?.classList.remove('an')
   document.querySelectorAll('[data-flug]').forEach((b) => { b.classList.remove('an'); b.lastChild.textContent = ' Strecke abfliegen' })
-  if (zurueck) f.map.fitBounds(grenzen(f.d.pts), { padding: rand(), pitch: 0, bearing: 0, duration: 900 })
+  if (zurueck) f.map.fitBounds(grenzen(f.d.pts), { padding: rand(), pitch: 0, bearing: 0, duration: 1400 })
+  else f.map.easeTo({ pitch: 0, bearing: 0, duration: 800 })
   f.map.once('moveend', () => { if (!flug) f.map.setMaxPitch(0) })
 }
 
-function abfliegen(d) {
+function abfliegen(d, t) {
   const map = getHubMap(), ml = getMapLib()
   if (!map || !ml) return
   if (flug) { flugStoppen(); return }
   const gesamt = d.kum[d.kum.length - 1]
-  const dauer = Math.min(48, Math.max(18, (gesamt / 1000) * 0.2)) * 1000
+  const dauer = Math.min(60, Math.max(24, (gesamt / 1000) * 0.26)) * 1000
   const el = document.createElement('div')
-  el.className = 'tour-profil-punkt tour-flug-punkt'
-  map.setMaxPitch(70)
-  // Echte Berge beim Abfliegen (Höhendaten aus karte.js), danach wieder flach
-  try { if (map.getSource('gelaende-3d')) map.setTerrain({ source: 'gelaende-3d', exaggeration: 1.35 }) } catch {}
-  const f = flug = { map, d, raf: 0, punkt: new ml.Marker({ element: el }).setLngLat([d.pts[0][1], d.pts[0][0]]).addTo(map), kurs: null, t0: 0 }
+  el.className = 'flug-punkt'
+  map.setMaxPitch(76)
+  const f = flug = { map, d, raf: 0, punkt: new ml.Marker({ element: el }).setLngLat([d.pts[0][1], d.pts[0][0]]).addTo(map), kurs: null, t0: 0, tLetzt: 0 }
+  flugKarte(map, true, f)
+  document.body.classList.add('mm-fliegt')
+  // Anzeige oben auf der Karte: Name, Fortschritt, Kilometer und Höhe
+  const host = document.querySelector('.konf-karte-hub .kv-map-wrap')
+  if (host) {
+    f.hud = document.createElement('div')
+    f.hud.className = 'flug-hud'
+    f.hud.innerHTML = `<strong>${esc(t?.name || 'Strecke')}</strong><div class="flug-hud-zeile"><span class="flug-km">km 0</span><span class="flug-hoehe"></span></div><div class="flug-hud-balken"><i></i></div>`
+    host.appendChild(f.hud)
+  }
   f.abbruch = (e) => { if (e.originalEvent) flugStoppen(false) }
   map.on('dragstart', f.abbruch); map.on('wheel', f.abbruch)
   document.querySelectorAll('[data-flug]').forEach((b) => { b.classList.add('an'); b.lastChild.textContent = ' Flug stoppen' })
   const pad = rand()
-  const padding = { top: Math.round(pad.top + 40), bottom: pad.bottom, left: pad.left, right: pad.right }
-  // Anflug auf den Start, dann gleichmäßig die Strecke entlang
-  map.flyTo({ center: [d.pts[0][1], d.pts[0][0]], zoom: 12.6, pitch: 62, bearing: winkelZu(d.pts[0], punktBei(d, 1500)), padding, duration: 1800 })
+  const padding = { top: Math.round(pad.top + (window.innerHeight * 0.18)), bottom: pad.bottom, left: pad.left, right: pad.right }
+  const cursor = document.getElementById('tour-profil-cursor')
+  const wert = document.getElementById('tour-profil-wert')
+  // Anflug: aus der Übersicht hinter den Start, langsam absenken
+  map.flyTo({ center: [d.pts[0][1], d.pts[0][0]], zoom: 12.9, pitch: 68, bearing: winkelZu(d.pts[0], punktBei(d, 2000)), padding, duration: 3200, curve: 1.6 })
   map.once('moveend', () => {
     if (flug !== f) return
     f.t0 = performance.now()
+    f.tLetzt = f.t0
     const schritt = (jetzt) => {
       if (flug !== f) return
+      const dt = Math.min(0.1, (jetzt - f.tLetzt) / 1000)
+      f.tLetzt = jetzt
       const t = Math.min(1, (jetzt - f.t0) / dauer)
-      const m = t * gesamt
+      // sanft anfahren und ausrollen, dazwischen gleichmäßig
+      const p = t < 0.06 ? (t * t) / 0.12 : t > 0.94 ? 1 - ((1 - t) * (1 - t)) / 0.12 : 0.03 + (t - 0.06) * (0.94 / 0.88)
+      const m = Math.min(1, Math.max(0, p)) * gesamt
       const hier = punktBei(d, m)
-      const ziel = winkelZu(hier, punktBei(d, Math.min(gesamt, m + 1800)))
-      // Kurs weich nachführen, sonst wackelt das Bild in jeder Kehre
+      const ziel = winkelZu(hier, punktBei(d, Math.min(gesamt, m + 2200)))
+      // Kurs weich nachführen (unabhängig von der Bildrate), sonst wackelt das Bild in jeder Kehre
       if (f.kurs == null) f.kurs = ziel
-      let diff = ((ziel - f.kurs + 540) % 360) - 180
-      f.kurs += diff * 0.04
-      map.jumpTo({ center: [hier[1], hier[0]], bearing: f.kurs, pitch: 62, zoom: 12.6, padding })
+      f.kurs += ((((ziel - f.kurs) % 360) + 540) % 360 - 180) * Math.min(1, dt * 1.6)
+      map.jumpTo({ center: [hier[1], hier[0]], bearing: f.kurs, pitch: 68, zoom: 12.9, padding })
       f.punkt.setLngLat([hier[1], hier[0]])
+      if (f.hud && jetzt - (f.hudZeit || 0) > 120) {
+        f.hudZeit = jetzt
+        const km = m / 1000
+        const h = hoeheBei(d, km)
+        f.hud.querySelector('.flug-km').textContent = `km ${zahl(km)} von ${zahl(gesamt / 1000)}`
+        f.hud.querySelector('.flug-hoehe').textContent = h != null ? `${zahl(h)} m` : ''
+        f.hud.querySelector('.flug-hud-balken i').style.width = `${(m / gesamt) * 100}%`
+        if (cursor) {
+          const x = String((m / gesamt) * 320)
+          cursor.setAttribute('x1', x); cursor.setAttribute('x2', x); cursor.classList.add('an')
+          if (wert && h != null) wert.textContent = `km ${zahl(km)} · ${zahl(h)} m`
+        }
+      }
       if (t < 1) f.raf = requestAnimationFrame(schritt)
       else flugStoppen()
     }
@@ -949,8 +1041,36 @@ function neuZeichnen(anpassen = false) {
   zeichneListe(passendeTouren.slice(von, von + PRO_SEITE).map((x) => x.t), anpassen)
 }
 
+/** Schwebende Knöpfe auf der Karte: Aufzeichnen und Route erstellen — von überall erreichbar. */
+function kartenKnoepfe() {
+  const host = document.querySelector('.konf-karte-hub .kv-map-wrap')
+  if (!host) return
+  let el = host.querySelector('.tour-fab')
+  if (!el) {
+    el = document.createElement('div')
+    el.className = 'tour-fab'
+    el.innerHTML = `
+      <button type="button" class="tour-fab-planen" data-fab="planen">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="6" cy="18" r="2.4"/><circle cx="18" cy="6" r="2.4"/><path d="M8.2 16.6c4-1 2.6-5.7 6.4-6.9 1.2-.4 1.6-1 1.9-1.6"/></svg>
+        <span>Route erstellen</span>
+      </button>
+      <button type="button" class="tour-fab-aufnahme" data-fab="aufzeichnen" aria-label="Fahrt aufzeichnen">
+        <span class="tour-fab-punkt"></span>
+      </button>`
+    el.addEventListener('click', (e) => {
+      const b = e.target.closest('[data-fab]')
+      if (!b) return
+      if (b.dataset.fab === 'aufzeichnen') import('./aufzeichnen.js').then((m) => m.aufzeichnungStarten({ fertig: zeigeEigene }))
+      if (b.dataset.fab === 'planen') import('./planer.js').then((m) => m.planerOeffnen({ fertig: zeigeEigene }))
+    })
+    host.appendChild(el)
+  }
+  el.hidden = !zustand.aktiv
+}
+
 export function setTourenAktiv(an) {
   zustand.aktiv = an
+  kartenKnoepfe()
   setKurvenSichtbar(an && zustand.kurvenEbene)
   if (!an) { entferneListe(); entferneDetail(); return }
   renderUmkreis() // war versteckt und ist erst jetzt messbar
@@ -1135,7 +1255,7 @@ export function initTouren({ mountThumb } = {}) {
     }
     if (e.target.closest('[data-flug]')) {
       const d = details.get(zustand.offeneTour)
-      if (d) abfliegen(d)
+      if (d) abfliegen(d, findeTour(zustand.offeneTour))
       return
     }
     if (e.target.closest('[data-zurueck]')) {
@@ -1206,6 +1326,7 @@ export function initTouren({ mountThumb } = {}) {
   })
   ansicht.addEventListener('pointerleave', () => { if (hoverId) markiere(null) })
 
+  kartenKnoepfe()
   // Karte steht erst, wenn der Standort da ist — dann Entfernungen neu rechnen
   onHubMapReady(() => { if (touren.length && !zustand.offeneTour) tourenStandortGeaendert(); else neuZeichnen(true) })
 

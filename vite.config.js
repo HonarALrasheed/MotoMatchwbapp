@@ -19,6 +19,12 @@ const SATELLIT_PROXY = {
   changeOrigin: true,
   rewrite: (p) => p.replace(/^\/satellit/, '/wmts/1.0.0/s2cloudless_3857/default/g'),
 }
+// Adresssuche (Photon von komoot, OpenStreetMap-Daten) — wie der Rewrite in vercel.json
+const ADRESS_PROXY = {
+  target: 'https://photon.komoot.io',
+  changeOrigin: true,
+  rewrite: (p) => p.replace(/^\/adresse/, ''),
+}
 // Höhendaten fürs Relief (Terrarium-Kacheln, AWS Open Data) — wie der Rewrite in vercel.json
 const HOEHEN_PROXY = {
   target: 'https://s3.amazonaws.com',
@@ -33,10 +39,10 @@ export default defineConfig(() => ({
     strictPort: false,
     open: true,
     // Kartenkacheln über die eigene Adresse — wie der Rewrite in vercel.json
-    proxy: { '/kacheln': KACHEL_PROXY, '/hoehe': HOEHEN_PROXY, '/wetter': WETTER_PROXY, '/satellit': SATELLIT_PROXY },
+    proxy: { '/kacheln': KACHEL_PROXY, '/hoehe': HOEHEN_PROXY, '/wetter': WETTER_PROXY, '/satellit': SATELLIT_PROXY, '/adresse': ADRESS_PROXY },
   },
   preview: {
-    proxy: { '/kacheln': KACHEL_PROXY, '/hoehe': HOEHEN_PROXY, '/wetter': WETTER_PROXY, '/satellit': SATELLIT_PROXY },
+    proxy: { '/kacheln': KACHEL_PROXY, '/hoehe': HOEHEN_PROXY, '/wetter': WETTER_PROXY, '/satellit': SATELLIT_PROXY, '/adresse': ADRESS_PROXY },
   },
   build: {
     outDir: 'dist',

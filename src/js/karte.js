@@ -544,6 +544,7 @@ export function recenterHubMap() {
   if (!userLocationKnown) { retryHubLocation(); return }
   karte.flyTo({ center: [userLng, userLat], zoom: 13 })
   if (suchMitte) { suchMitte = null; sucheAktiveKachel() } // Orte wieder um mich
+  entferneSuchPin()
 }
 export function zoomHubMap(delta) {
   if (!karte) return
@@ -766,6 +767,55 @@ function ladeSuchIndex() {
  * Ort oder Postleitzahl zu Koordinaten auflösen.
  * @returns {Promise<{ok:true,lat:number,lng:number,label:string}|{ok:false,grund:'nicht_gefunden'|'technisch'}>}
  */
+/* ── Adresssuche wie bei Google Maps ─────────────────────────────────────
+   Photon (komoot, OpenStreetMap-Daten, ohne Schlüssel) über /adresse — die
+   Anfrage geht über die eigene Domain. Vorschläge nah an der Kartenmitte
+   zuerst; Straßen, Hausnummern, Orte, Geschäfte. */
+const PHOTON_TYPEN = { house: 17, street: 16, locality: 14, district: 13, city: 12, county: 10, state: 8, country: 5 }
+export async function sucheAdressen(text, { signal, limit = 6 } = {}) {
+  const q = text.trim()
+  if (q.length < 3) return []
+  const c = karte?.getCenter()
+  const par = new URLSearchParams({ q, lang: 'de', limit: String(limit + 4) })
+  if (c) { par.set('lat', c.lat.toFixed(4)); par.set('lon', c.lng.toFixed(4)); par.set('location_bias_scale', '0.3') }
+  const r = await fetch(`/adresse/api/?${par}`, { signal })
+  if (!r.ok) throw new Error(`Adresssuche HTTP ${r.status}`)
+  const j = await r.json()
+  const gesehen = new Set()
+  return (j.features || [])
+    .filter((f) => ['DE', 'AT', 'CH', 'LU', 'NL', 'BE', 'FR', 'DK', 'PL', 'CZ', 'IT', 'LI'].includes(f.properties?.countrycode))
+    .map((f) => {
+      const p = f.properties
+      const [lng, lat] = f.geometry.coordinates
+      const strasse = p.street ? `${p.street}${p.housenumber ? ' ' + p.housenumber : ''}` : ''
+      const ort = [p.postcode, p.city || p.town || p.village || p.locality].filter(Boolean).join(' ')
+      // Mit Hausnummer zählt die Adresse (wie bei Google), sonst der Name
+      const titel = p.housenumber && strasse ? strasse : p.name && p.name !== p.city ? p.name : strasse || ort || p.name || q
+      const zusatz = [titel !== p.name && p.name !== p.city ? p.name : '', titel !== strasse ? strasse : '', titel !== ort ? ort : '', p.countrycode !== 'DE' ? p.country : ''].filter(Boolean).join(', ')
+      return { titel, zusatz, lat, lng, zoom: PHOTON_TYPEN[p.type] || 15 }
+    })
+    .filter((v) => { const k = `${v.titel}|${v.zusatz}`; if (gesehen.has(k)) return false; gesehen.add(k); return true })
+    .slice(0, limit)
+}
+
+/** Stecknadel für das Suchergebnis (eine zur Zeit). */
+let suchPin = null
+export function setzeSuchPin(lat, lng, titel = '', zusatz = '') {
+  if (!karte || !ml) return
+  suchPin?.remove()
+  const el = document.createElement('div')
+  el.className = 'mm-such-pin'
+  el.innerHTML = `<svg viewBox="0 0 24 32" aria-hidden="true"><path d="M12 0C5.4 0 0 5.3 0 11.9 0 20.8 12 32 12 32s12-11.2 12-20.1C24 5.3 18.6 0 12 0z"/><circle cx="12" cy="12" r="4.5"/></svg>`
+  if (titel) el.title = titel
+  // Antippen öffnet wieder die Karte mit "Route"
+  el.addEventListener('click', (e) => { e.stopPropagation(); import('./ziel.js').then((m) => m.zielZeigen({ titel: titel || 'Ziel', zusatz, lat, lng })) })
+  suchPin = new ml.Marker({ element: el, anchor: 'bottom' }).setLngLat([lng, lat]).addTo(karte)
+}
+export function entferneSuchPin() {
+  suchPin?.remove(); suchPin = null
+  import('./ziel.js').then((m) => m.zielWeg()).catch(() => {})
+}
+
 export async function resolveOrt(query) {
   let idx
   try { idx = await ladeSuchIndex() } catch { return { ok: false, grund: 'technisch' } }

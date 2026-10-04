@@ -27,10 +27,11 @@ function loadThree() {
   return _threePromise
 }
 import { getGear } from './gear.js'
-import { initHubMap, searchNearby, getHubSearchResults, onHubResults, focusHubResult, recenterHubMap, zoomHubMap, getUserCoords, searchNearbyAt, retryHubLocation, hasMapsConsent, onHubMapMoved, panHubToCoords, haversineKm, resolveOrt, setHubPlacesPausiert, hatHubTreffer, setHubKarteOhneStandort, getHubMap as getHubMapReady, karteVorwaermen, getSuchMitte } from './karte.js'
+import { initHubMap, searchNearby, getHubSearchResults, onHubResults, focusHubResult, recenterHubMap, zoomHubMap, getUserCoords, searchNearbyAt, retryHubLocation, hasMapsConsent, onHubMapMoved, panHubToCoords, haversineKm, resolveOrt, setHubPlacesPausiert, hatHubTreffer, setHubKarteOhneStandort, getHubMap as getHubMapReady, karteVorwaermen, getSuchMitte, sucheAdressen, setzeSuchPin, entferneSuchPin } from './karte.js'
 import { esc, safeUrl, fmtRelative, LS_QUIZ_ANSWERS } from './util.js'
 import { buildTourenAnsicht, buildTourenUmkreis, initTouren, setTourenAktiv, setTourenHerkunft } from './touren.js'
 import { produktLink, hatPartnerLinks, hatAmazonPartner } from './affiliate.js'
+import { zielZeigen } from './ziel.js'
 import { ensureLandingRendered } from './landing.js'
 import { enterScreen, goBack } from './nav.js'
 import { findBikeByShortName, findTopMatches, findSimilarBikes, scoreBikeAgainst, begruendungFuer, MATCH_WEIGHTS } from './matching.js'
@@ -1725,13 +1726,14 @@ function buildKarteView(data) {
                 </button>
                 <div class="kv-search-field" id="kv-search-field">
                   <svg class="kv-search-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>
-                  <input type="text" class="kv-search-input" id="kv-search-input" placeholder="PLZ oder Ort eingeben…">
+                  <input type="search" class="kv-search-input" id="kv-search-input" placeholder="Adresse, Ort oder PLZ…" autocomplete="off" enterkeyhint="search" role="combobox" aria-controls="kv-vorschlaege" aria-expanded="false">
                   <button class="kv-recenter-btn" id="kv-recenter-btn" aria-label="Mein Standort" title="Mein Standort">
                     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M12 1v4M12 19v4M1 12h4M19 12h4"/></svg>
                   </button>
                 </div>
               </div>
             </div>
+            <div class="kv-vorschlaege" id="kv-vorschlaege" role="listbox" aria-label="Suchvorschläge" hidden></div>
 
             ${buildTourenAnsicht()}
 
@@ -2744,7 +2746,6 @@ function bindKarteViewEvents() {
       const meta = [rating, openStatus].filter(Boolean)
         .join('<span class="kv-result-dot">\u00b7</span>')
       const isFav = currentFavorites.includes(r.placeId)
-      const mapsUrl = `https://www.google.com/maps/dir/?api=1&destination=${r.lat},${r.lng}`
       // --i staffelt den Einlauf; ab Position 12 gedeckelt, sonst tropfen
       // lange Trefferlisten sekundenlang nach.
       return `
@@ -2764,10 +2765,10 @@ function bindKarteViewEvents() {
                 <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a14 14 0 0 1 0 18M12 3a14 14 0 0 0 0 18"/></svg>
                 Website
               </a>` : ''}
-              <a class="kv-action-btn" href="${mapsUrl}" target="_blank" rel="noopener" onclick="event.stopPropagation()">
+              <button type="button" class="kv-action-btn" data-hinfahren>
                 <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 11l18-8-8 18-2-7-8-3z"/></svg>
                 Route
-              </a>
+              </button>
               <button class="kv-action-btn kv-fav-btn ${isFav ? 'kv-fav-btn--active' : ''}" data-place-id="${r.placeId}" onclick="event.stopPropagation()">
                 <svg width="13" height="13" viewBox="0 0 24 24" fill="${isFav ? 'currentColor' : 'none'}" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"/></svg>
                 ${isFav ? 'Gespeichert' : 'Merken'}
@@ -2778,6 +2779,14 @@ function bindKarteViewEvents() {
 
     // Wire card click → focus on map
     list.querySelectorAll('.kv-result-card').forEach(card => {
+      // Route in der App (Navi mit Heike) statt Absprung zu Google Maps
+      card.querySelector('[data-hinfahren]')?.addEventListener('click', (e) => {
+        e.stopPropagation()
+        const lat = parseFloat(card.dataset.lat), lng = parseFloat(card.dataset.lng)
+        if (Number.isNaN(lat) || Number.isNaN(lng)) return
+        document.dispatchEvent(new CustomEvent('mm:kv-sheet', { detail: { auf: false } }))
+        zielZeigen({ titel: card.querySelector('.kv-result-name')?.textContent || 'Ziel', zusatz: card.querySelector('.kv-result-address')?.textContent || '', lat, lng }, { sofortRoute: true })
+      })
       card.addEventListener('click', () => {
         const id = card.dataset.placeId
         // Gemerkte Orte liegen oft ausserhalb der aktuellen Trefferliste — dann
@@ -3017,7 +3026,7 @@ function bindKarteViewEvents() {
     searchField?.classList.remove('kv-search-field--open')
     searchRow?.classList.remove('kv-searching')
     searchToggle?.setAttribute('aria-expanded', 'false')
-    document.getElementById('mm-recent-dd')?.remove()
+    vorschlaegeZu()
   }
   /* Ort/PLZ aufloesen und die Suche dorthin verlegen. Eine Stelle fuer beide
      Ausloeser: Eingabetaste und Lupe. */
@@ -3025,30 +3034,90 @@ function bindKarteViewEvents() {
     const eingabe = document.getElementById('kv-search-input')
     const query = eingabe?.value.trim()
     if (!query) return
-    try {
-      const zuletzt = JSON.parse(localStorage.getItem('mm_recent_kv') || '[]').filter(q => q !== query)
-      zuletzt.unshift(query)
-      localStorage.setItem('mm_recent_kv', JSON.stringify(zuletzt.slice(0, 5)))
-    } catch { /* gesperrter Speicher: dann eben ohne Verlauf */ }
-    document.getElementById('mm-recent-dd')?.remove()
+    // Vorschlag steht schon da (Pfeiltasten markieren einen) — den nehmen
+    if (vorschlaege.length) { ortWaehlen(vorschlaege[Math.max(markiert, 0)]); return }
     eingabe.blur()
     eingabe.placeholder = 'Suche \u2026'
-
-    const treffer = await resolveOrt(query)
-    if (treffer.ok) {
-      eingabe.placeholder = 'PLZ oder Ort eingeben\u2026'
-      searchNearbyAt(treffer.lat, treffer.lng)
-      if (modus === 'touren') setTourenHerkunft(treffer.lat, treffer.lng)
-      return
+    let treffer = null
+    try { treffer = (await sucheAdressen(query, { limit: 1 }))[0] || null } catch { /* gleich: eigener Ortsindex */ }
+    if (!treffer) {
+      const r = await resolveOrt(query)
+      if (r.ok) treffer = { titel: r.label || query, zusatz: '', lat: r.lat, lng: r.lng, zoom: 12 }
+      else {
+        eingabe.value = ''
+        eingabe.placeholder = r.grund === 'nicht_gefunden' ? `\u201e${query}\u201c nicht gefunden` : 'Ortssuche gerade nicht m\u00f6glich'
+        return
+      }
     }
-    /* Zwei Ursachen, zwei Meldungen. Vorher stand bei jedem Fehlschlag
-       "Ort nicht gefunden" — auch wenn Google den Aufruf abgelehnt hatte und
-       der Ort voellig in Ordnung war. */
-    eingabe.value = ''
-    eingabe.placeholder = treffer.grund === 'nicht_gefunden'
-      ? `\u201e${query}\u201c nicht gefunden`
-      : 'Ortssuche gerade nicht m\u00f6glich'
+    eingabe.placeholder = 'Adresse, Ort oder PLZ\u2026'
+    ortWaehlen(treffer)
   }
+
+  /* Gewählten Ort anfahren: Stecknadel wie bei Google Maps. Adresse/Straße →
+     nah heran; Stadt/Region → Umkreis drumherum (Touren) bzw. Orte suchen. */
+  const ortWaehlen = (v) => {
+    if (!v) return
+    const eingabe = document.getElementById('kv-search-input')
+    if (eingabe) { eingabe.value = v.titel; eingabe.blur() }
+    vorschlaegeZu()
+    try {
+      const alt = JSON.parse(localStorage.getItem('mm_recent_kv') || '[]').filter(x => (x?.titel ?? x) !== v.titel)
+      localStorage.setItem('mm_recent_kv', JSON.stringify([{ titel: v.titel, zusatz: v.zusatz, lat: v.lat, lng: v.lng, zoom: v.zoom }, ...alt].slice(0, 6)))
+    } catch { /* gesperrter Speicher: dann eben ohne Verlauf */ }
+    setzeSuchPin(v.lat, v.lng, v.titel, v.zusatz)
+    zielZeigen(v)
+    const genau = (v.zoom || 0) >= 15
+    if (modus === 'touren') {
+      setTourenHerkunft(v.lat, v.lng, { karteAnpassen: !genau })
+      if (genau) getHubMapReady()?.flyTo({ center: [v.lng, v.lat], zoom: 15.5, duration: 900 })
+    } else {
+      searchNearbyAt(v.lat, v.lng)
+    }
+    document.dispatchEvent(new CustomEvent('mm:kv-sheet', { detail: { auf: false } }))
+  }
+
+  // ── Vorschläge beim Tippen ──
+  const vorschlagBox = document.getElementById('kv-vorschlaege')
+  let vorschlaege = [], markiert = -1, suchTimer = 0, suchAbbruch = null
+  const ICON_PIN = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0z"/><circle cx="12" cy="10" r="3"/></svg>'
+  const ICON_UHR = '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>'
+  function vorschlaegeZu() {
+    clearTimeout(suchTimer); suchAbbruch?.abort()
+    vorschlaege = []; markiert = -1
+    if (vorschlagBox) { vorschlagBox.hidden = true; vorschlagBox.innerHTML = '' }
+    document.getElementById('kv-search-input')?.setAttribute('aria-expanded', 'false')
+  }
+  const vorschlaegeZeigen = (liste, { kopf = '', leer = '' } = {}) => {
+    vorschlaege = liste; markiert = -1
+    if (!vorschlagBox) return
+    if (!liste.length && !leer) { vorschlaegeZu(); return }
+    vorschlagBox.innerHTML = `${kopf ? `<div class="kv-vorschlag-kopf">${kopf}</div>` : ''}${liste.map((v, i) => `
+      <button type="button" class="kv-vorschlag" role="option" data-i="${i}">${v.alt ? ICON_UHR : ICON_PIN}
+        <span><strong>${esc(v.titel)}</strong>${v.zusatz ? `<em>${esc(v.zusatz)}</em>` : ''}</span></button>`).join('')}${leer && !liste.length ? `<div class="kv-vorschlag-leer">${leer}</div>` : ''}`
+    vorschlagBox.hidden = false
+    document.getElementById('kv-search-input')?.setAttribute('aria-expanded', 'true')
+  }
+  const zuletztGesucht = () => {
+    try { return JSON.parse(localStorage.getItem('mm_recent_kv') || '[]').filter(x => x && typeof x === 'object' && Number.isFinite(x.lat)).map(x => ({ ...x, alt: true })) } catch { return [] }
+  }
+  const vorschlaegeHolen = async () => {
+    const text = document.getElementById('kv-search-input')?.value.trim() || ''
+    if (text.length < 3) { vorschlaegeZeigen(text ? [] : zuletztGesucht(), { kopf: text ? '' : 'Zuletzt gesucht' }); return }
+    suchAbbruch?.abort()
+    suchAbbruch = new AbortController()
+    try {
+      const liste = await sucheAdressen(text, { signal: suchAbbruch.signal })
+      if (document.getElementById('kv-search-input')?.value.trim() !== text) return
+      vorschlaegeZeigen(liste, { leer: 'Nichts gefunden — Eingabetaste sucht trotzdem' })
+    } catch (err) {
+      if (err.name !== 'AbortError') vorschlaegeZeigen([], { leer: 'Vorschläge gerade nicht erreichbar — Eingabetaste sucht trotzdem' })
+    }
+  }
+  vorschlagBox?.addEventListener('pointerdown', (e) => e.preventDefault()) // Feld behält den Fokus
+  vorschlagBox?.addEventListener('click', (e) => {
+    const b = e.target.closest('[data-i]')
+    if (b) ortWaehlen(vorschlaege[+b.dataset.i])
+  })
 
   searchToggle?.addEventListener('click', () => {
     if (!searchField?.classList.contains('kv-search-field--open')) { openSearch(); return }
@@ -3105,56 +3174,28 @@ function bindKarteViewEvents() {
   // Floating zoom controls (right side of the map, Apple-Maps-style)
   document.getElementById('kv-zoom-in-btn')?.addEventListener('click', () => zoomHubMap(1))
   document.getElementById('kv-zoom-out-btn')?.addEventListener('click', () => zoomHubMap(-1))
-  // Location search (geocode + recenter) + recent searches
+  // Ortssuche: Vorschläge beim Tippen, Pfeiltasten, Eingabetaste
   const searchInput = document.getElementById('kv-search-input')
-  if (searchInput) {
-    searchInput.addEventListener('focus', () => {
-      let list = []
-      try { list = JSON.parse(localStorage.getItem('mm_recent_kv') || '[]') } catch {}
-      if (!list.length) return
-      document.getElementById('mm-recent-dd')?.remove()
-      const dd = document.createElement('div')
-      dd.id = 'mm-recent-dd'
-      dd.className = 'mm-recent-dropdown'
-      dd.innerHTML = `
-        <div class="mm-recent-head">
-          <span>Letzte Suchen</span>
-          <button class="mm-recent-clear">Löschen</button>
-        </div>
-        ${list.map(q => `<button class="mm-recent-item" data-q="${esc(q)}"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/></svg><span>${esc(q)}</span></button>`).join('')}
-      `
-      const rect = searchInput.getBoundingClientRect()
-      dd.style.top = (rect.bottom + 6) + 'px'
-      dd.style.left = rect.left + 'px'
-      dd.style.width = rect.width + 'px'
-      document.body.appendChild(dd)
-      dd.querySelectorAll('.mm-recent-item').forEach(btn => {
-        btn.addEventListener('mousedown', ev => {
-          ev.preventDefault()
-          searchInput.value = btn.dataset.q
-          dd.remove()
-          ortSuchen()
-        })
-      })
-      dd.querySelector('.mm-recent-clear')?.addEventListener('mousedown', ev => {
-        ev.preventDefault()
-        try { localStorage.removeItem('mm_recent_kv') } catch {}
-        dd.remove()
-      })
-      setTimeout(() => {
-        const h = (ev) => {
-          if (!dd.contains(ev.target) && ev.target !== searchInput) {
-            dd.remove(); document.removeEventListener('mousedown', h)
-          }
-        }
-        document.addEventListener('mousedown', h)
-      }, 0)
-    })
-  }
+  searchInput?.addEventListener('input', () => {
+    clearTimeout(suchTimer)
+    suchTimer = setTimeout(vorschlaegeHolen, 220)
+    if (!searchInput.value.trim()) entferneSuchPin()
+  })
+  searchInput?.addEventListener('focus', () => {
+    // Handy: Panel aufziehen, sonst liegen die Vorschläge unter dem Bildrand
+    document.dispatchEvent(new CustomEvent('mm:kv-sheet', { detail: { auf: true } }))
+    vorschlaegeHolen()
+  })
   /* keydown statt des veralteten keypress: Bildschirmtastaturen auf dem Handy
-     melden die Eingabetaste zuverlaessig nur hier. Genau dort wird die
-     Ortssuche aber gebraucht. */
+     melden die Eingabetaste zuverlaessig nur hier. */
   searchInput?.addEventListener('keydown', (e) => {
+    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+      if (!vorschlaege.length) return
+      e.preventDefault()
+      markiert = (markiert + (e.key === 'ArrowDown' ? 1 : -1) + vorschlaege.length) % vorschlaege.length
+      vorschlagBox?.querySelectorAll('.kv-vorschlag').forEach((b, i) => b.classList.toggle('kv-vorschlag--an', i === markiert))
+      return
+    }
     if (e.key !== 'Enter') return
     e.preventDefault()
     ortSuchen()

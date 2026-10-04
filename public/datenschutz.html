@@ -358,6 +358,37 @@
         eigenen Datenbestand (Daten © OpenStreetMap-Mitwirkende, ODbL), der zusammen mit der Website
         ausgeliefert wird. Suchanfragen und Ihr Standort werden dafür an niemanden übermittelt — Umkreis
         und Entfernungen berechnet Ihr Gerät.</p>
+        <p>Für das Relief (schattierte Berge, 3D-Ansicht beim Abfliegen einer Strecke) lädt der Browser
+        Höhendaten-Kacheln, ebenfalls über unsere eigene Adresse (motomatch.studio/hoehe/…). Vercel leitet
+        diese Anfragen an den öffentlichen Datensatz „Terrain Tiles“ bei Amazon Web Services (Amazon Web
+        Services EMEA SARL, Luxemburg; Speicherort kann in den USA liegen, Datenschutzrahmen EU–USA)
+        weiter. Übermittelt wird, welcher Kartenausschnitt geladen wird; Vercel kann dabei Ihre IP-Adresse
+        in einem technischen Weiterleitungsfeld mitsenden. Rechtsgrundlage: Art. 6 Abs. 1 lit. f DSGVO.</p>
+      </div>
+
+      <div class="service-card">
+        <h3>Routing (openrouteservice)</h3>
+        <p>Wenn Sie eine Route planen, sich zum Start einer Tour führen lassen oder unterwegs von der
+        Strecke abweichen, berechnet openrouteservice die Route. Anbieter ist die HeiGIT gGmbH
+        (Heidelberg Institute for Geoinformation Technology, Schloss-Wolfsbrunnenweg 33, 69118 Heidelberg).
+        Die Anfrage stellt <strong>unser Server</strong> (Vercel), nicht Ihr Browser — HeiGIT erhält also
+        nicht Ihre IP-Adresse, sondern nur die Koordinaten der Wegpunkte. Dazu kann Ihr aktueller
+        Standort gehören (bei „Anfahrt zum Start“ und bei der Neuberechnung unterwegs). Die Koordinaten
+        werden nicht mit Ihrem Konto verknüpft und bei uns nur kurz (bis zu zehn Minuten) im
+        Arbeitsspeicher zwischengehalten, damit dieselbe Route nicht zweimal berechnet wird.
+        Rechtsgrundlage: Art. 6 Abs. 1 lit. b DSGVO (die von Ihnen angeforderte Funktion) bzw. für den
+        Standort Ihre Einwilligung nach Art. 6 Abs. 1 lit. a DSGVO.</p>
+      </div>
+
+      <div class="service-card">
+        <h3>Wetter entlang der Strecke (Deutscher Wetterdienst über Bright Sky)</h3>
+        <p>Vor dem Losfahren zeigt die Website die Vorhersage für mehrere Punkte der Strecke. Die Daten
+        stammen vom Deutschen Wetterdienst und werden über die frei zugängliche Schnittstelle Bright Sky
+        (Open-Source-Projekt, betrieben von Jakob de Maeyer) abgerufen — über unsere eigene Adresse
+        (motomatch.studio/wetter/…), Vercel leitet weiter und kann dabei Ihre IP-Adresse in einem
+        technischen Weiterleitungsfeld mitsenden. Übermittelt werden die Koordinaten dieser
+        Streckenpunkte (auf etwa 100 m gerundet) und die Uhrzeit. Rechtsgrundlage: Art. 6 Abs. 1
+        lit. f DSGVO.</p>
       </div>
 
       <div class="service-card">
@@ -455,15 +486,38 @@
       <h2>8a. Tour fahren</h2>
       <p>
         Starten Sie bei einer Tour „Tour fahren“, liest die Website über die Standortschnittstelle Ihres Browsers fortlaufend Ihre Position aus, solange die Führung läuft. Abbiegehinweise, Restkilometer und der Abgleich mit der
-        Strecke werden auf Ihrem Gerät berechnet; Ihre Position wird nicht gespeichert und nicht
-        übermittelt. Damit die Karte mitläuft, lädt der Browser die Kartenkacheln für den jeweiligen
+        Strecke werden auf Ihrem Gerät berechnet. Ihre Position wird nur in zwei Fällen übermittelt:
+        für die Anfahrt zum Start der Tour und wenn Sie die Strecke verlassen und die Route neu
+        berechnet wird — dann geht sie als Startpunkt an den Routing-Dienst (siehe Abschnitt 5,
+        „Routing“). Damit die Karte mitläuft, lädt der Browser die Kartenkacheln für den jeweiligen
         Ausschnitt (siehe Abschnitt 5, „Karte“) — daraus ist der ungefähre Kartenbereich erkennbar,
-        nicht aber Ihre genaue Position. Die Führung endet mit „Beenden“ oder beim Schließen der Seite.
+        nicht aber Ihre genaue Position. Beim Losfahren legt der Browser die Kartenkacheln entlang der
+        Strecke in seinem eigenen Speicher ab, damit die Karte auch ohne Netz weiterläuft. Die Führung
+        endet mit „Beenden“ oder beim Schließen der Seite.
       </p>
       <p>
         Die Führung startet nur, wenn Sie sie ausdrücklich starten; zusätzlich fragt Ihr Browser um
         Erlaubnis für den Standort. Rechtsgrundlage ist Ihre Einwilligung nach Art. 6 Abs. 1 lit. a
         DSGVO sowie § 25 Abs. 1 TDDDG.
+      </p>
+    </section>
+
+    <section>
+      <h2>8b. Eigene Strecken, Aufzeichnungen und Teilen</h2>
+      <p>
+        Geplante, importierte (GPX) und aufgezeichnete Strecken speichert die Website ausschließlich im
+        Speicher Ihres Browsers (localStorage) auf diesem Gerät — nicht auf unseren Servern. Eine
+        Aufzeichnung startet nur auf Ihren Knopfdruck, ist während der ganzen Zeit sichtbar und kann
+        jederzeit beendet oder verworfen werden; beim „Tour fahren“ können Sie die Aufzeichnung vor dem
+        Losfahren ausschalten. Aus Ihren Aufzeichnungen berechnet Ihr Gerät, welche Kurvenstrecken Sie
+        gefahren sind; auch das bleibt lokal. Löschen können Sie jede Strecke in der Ansicht „Meine“.
+      </p>
+      <p>
+        „Teilen“ erzeugt einen Link, in dem die Strecke selbst steckt (ausgedünnt, ohne Zeitangaben und
+        ohne Geschwindigkeit). Wem Sie den Link schicken, entscheiden Sie; wir erhalten ihn nicht, weil der
+        Teil hinter dem „#“ beim Aufruf nicht an den Server übertragen wird. Bedenken Sie, dass eine
+        aufgezeichnete Strecke Rückschlüsse etwa auf Ihren Wohnort zulassen kann. Rechtsgrundlage ist Ihre
+        Einwilligung nach Art. 6 Abs. 1 lit. a DSGVO sowie § 25 Abs. 1 TDDDG.
       </p>
     </section>
 

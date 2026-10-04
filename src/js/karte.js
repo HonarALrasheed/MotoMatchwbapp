@@ -227,6 +227,27 @@ async function ladeStil() {
   const stil = await r.json()
   // 3D-Gebäude kosten auf dem Handy Leistung und verdecken im Fahrmodus die Straße
   stil.layers = stil.layers.filter((l) => l.id !== 'building-3d')
+  // Relief wie bei komoot: Schummerung aus freien Höhendaten (über die eigene Domain).
+  // Zwei Quellen — MapLibre empfiehlt getrennte für Schummerung und 3D-Gelände.
+  const hoehen = {
+    type: 'raster-dem', encoding: 'terrarium', tileSize: 256, maxzoom: 12,
+    tiles: [`${location.origin}/hoehe/{z}/{x}/{y}.png`],
+    attribution: '<a href="https://github.com/tilezen/joerd/blob/master/docs/attribution.md" target="_blank" rel="noopener">Höhen: Tilezen Joerd</a>',
+  }
+  stil.sources.gelaende = hoehen
+  const { attribution: _quelle, ...ohneQuelle } = hoehen // Quellenangabe nur einmal
+  stil.sources['gelaende-3d'] = ohneQuelle
+  const vorStrassen = stil.layers.findIndex((l) => /^(tunnel_|road_|bridge_)/.test(l.id))
+  stil.layers.splice(vorStrassen < 0 ? stil.layers.length : vorStrassen, 0, {
+    id: 'relief', type: 'hillshade', source: 'gelaende', minzoom: 5,
+    paint: {
+      'hillshade-exaggeration': ['interpolate', ['linear'], ['zoom'], 5, 0.25, 10, 0.4, 14, 0.3],
+      'hillshade-shadow-color': 'rgba(52, 66, 40, 0.55)',
+      'hillshade-highlight-color': 'rgba(255, 255, 250, 0.35)',
+      'hillshade-accent-color': 'rgba(70, 80, 60, 0.25)',
+      'hillshade-illumination-direction': 315,
+    },
+  })
   for (const l of stil.layers) {
     if (STIL_FARBEN[l.id]) l.paint = { ...l.paint, ...STIL_FARBEN[l.id] }
     // Deutsche Namen zuerst ("Niedersachsen" statt "Lower Saxony"), sonst der Ortsname —
@@ -238,7 +259,15 @@ async function ladeStil() {
   return stil
 }
 
-const umleiten = (url) => (url.startsWith(KACHEL_HOST) ? { url: KACHEL_PROXY + url.slice(KACHEL_HOST.length) } : { url })
+let stilPromise = null
+/** Fertig angepasster Kartenstil (einmal geladen, für Hauptkarte und Vorschaubilder). */
+export function ladeKartenStil() {
+  if (!stilPromise) stilPromise = ladeStil().catch((err) => { stilPromise = null; throw err })
+  // Kopie: MapLibre verändert das übergebene Objekt
+  return stilPromise.then((s) => structuredClone(s))
+}
+
+export const umleiten = (url) => (url.startsWith(KACHEL_HOST) ? { url: KACHEL_PROXY + url.slice(KACHEL_HOST.length) } : { url })
 
 let _onMapMovedCallback = null
 let _onMapReadyCallback = null
@@ -297,7 +326,7 @@ export async function initHubMap() {
   }
 
   try {
-    const [, stil] = await Promise.all([ladeMapLibre(), ladeStil()])
+    const [, stil] = await Promise.all([ladeMapLibre(), ladeKartenStil()])
     if (token !== initToken || !document.body.contains(el)) return
     el.innerHTML = ''
     karte = new ml.Map({
@@ -313,6 +342,7 @@ export async function initHubMap() {
       maxPitch: 0,
     })
     karte.touchZoomRotate.disableRotation()
+    if (import.meta.env.DEV) window.__mmKarte = karte // nur zum Prüfen im Dev-Server
     karteBereit = new Promise((ok) => karte.once('load', ok))
     karte.on('moveend', (e) => {
       // Nur Gesten des Nutzers — flyTo/fitBounds aus dem Code zählen nicht

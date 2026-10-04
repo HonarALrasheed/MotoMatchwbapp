@@ -54,7 +54,8 @@ function ladeKachel(zelle) {
   return kacheln.get(zelle)
 }
 
-async function streckenIn(s, w, n, o) {
+/** Alle Kurvenstrecken im Rechteck (Süd, West, Nord, Ost). */
+export async function streckenIn(s, w, n, o) {
   const index = await ladeIndex()
   const zellen = []
   for (let a = Math.floor(s); a <= Math.floor(n); a++)
@@ -174,10 +175,10 @@ export async function streckeFahren(k) {
   const kum = [0]
   for (let i = 1; i < k.pts.length; i++) kum.push(kum[i - 1] + haversineKm(k.pts[i - 1][0], k.pts[i - 1][1], k.pts[i][0], k.pts[i][1]) * 1000)
   const gesamt = kum[kum.length - 1]
-  const t = { id: k.id, name: k.name || 'Kurvenstrecke', min: Math.max(1, Math.round((gesamt / 1000 / 50) * 60)) }
+  const t = { id: k.id, name: k.name || 'Kurvenstrecke', typ: 'strecke', min: Math.max(1, Math.round((gesamt / 1000 / 50) * 60)) }
   const d = { pts: k.pts, kum, schritte: [[Math.round(gesamt), 'arrive', '', '', 0]] }
   const map = getHubMap()
   if (map?.getSource('tour-detail')) map.getSource('tour-detail').setData({ type: 'Feature', properties: {}, geometry: { type: 'LineString', coordinates: k.pts.map(([a, b]) => [b, a]) } })
-  const { starteFahrt } = await import('./tour-fahren.js')
-  starteFahrt(t, d)
+  const { fahrtVorbereiten } = await import('./tour-fahren.js')
+  fahrtVorbereiten(t, d, { zurueck: () => import('./touren.js').then((m) => m.zeigeTourenListe()) })
 }

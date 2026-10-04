@@ -4,7 +4,9 @@
   "framework": "vite",
   "installCommand": "npm install",
   "rewrites": [
-    { "source": "/kacheln/:path*", "destination": "https://tiles.openfreemap.org/:path*" }
+    { "source": "/kacheln/:path*", "destination": "https://tiles.openfreemap.org/:path*" },
+    { "source": "/hoehe/:path*", "destination": "https://s3.amazonaws.com/elevation-tiles-prod/terrarium/:path*" },
+    { "source": "/wetter/:path*", "destination": "https://api.brightsky.dev/:path*" }
   ],
   "headers": [
     {

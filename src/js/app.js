@@ -106,6 +106,16 @@ export function startApp() {
     return
   }
 
+  // Geteilte Strecke (#strecke=… aus eigene-strecken.js): in "Meine" übernehmen
+  // und direkt die Karte öffnen. Der Link enthält die Strecke selbst.
+  if (/[#&]strecke=/.test(window.location.hash)) {
+    sessionStorage.setItem('mm_strecke_import', window.location.hash)
+    history.replaceState(history.state, '', window.location.pathname + window.location.search)
+    initLanding()
+    window.dispatchEvent(new CustomEvent('mm:open-karte', { detail: {} }))
+    return
+  }
+
   // Nach dem Neuladen dort weitermachen, wo man war. Ohne das landete jeder
   // Reload auf der Startseite, weil alle Bildschirme dieselbe Adresse haben.
   // Der Eintrag steckt in sessionStorage: er ueberlebt das Neuladen, aber

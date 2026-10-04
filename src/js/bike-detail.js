@@ -2343,6 +2343,7 @@ function publishKvVisible(sheet, translate) {
   document.documentElement.style.setProperty('--kv-visible', visible + 'px')
 }
 
+let kvSheetHandler = null
 function bindKarteSheet() {
   const sheet = document.querySelector('.konf-karte-hub .kv-sidebar')
   const handle = document.getElementById('kv-sheet-handle')
@@ -2367,6 +2368,12 @@ function bindKarteSheet() {
     publishKvVisible(sheet, expanded ? 0 : sheet.offsetHeight - kvPeekPx(sheet))
   }
   const toggle = () => setExpanded(!isExpanded())
+
+  // Andere Module (Startbildschirm "Tour fahren", Aufzeichnung …) können das
+  // Sheet auf dem Handy auf- oder zuklappen: Ereignis 'mm:kv-sheet' { auf }.
+  if (kvSheetHandler) document.removeEventListener('mm:kv-sheet', kvSheetHandler)
+  kvSheetHandler = (e) => { if (mobileQuery.matches && sheet.isConnected) setExpanded(!!e.detail?.auf) }
+  document.addEventListener('mm:kv-sheet', kvSheetHandler)
 
   /**
    * Das Sheet auf eine frei gewaehlte Hoehe stellen.

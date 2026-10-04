@@ -8319,6 +8319,10 @@ select.p-auth-input {
 .kv-faehrt .kv-sidebar,
 .kv-faehrt .kv-map-controls,
 .kv-faehrt .kv-search-here { display: none !important; }
+/* Während der Fahrt gehört der ganze Bildschirm dem Navi */
+body.mm-faehrt #konf-taskbar,
+body.mm-faehrt #konf-back { display: none !important; }
+body.mm-faehrt .fahrt { padding-top: calc(12px + var(--sa-top)); padding-bottom: calc(12px + var(--sa-bottom)); }
 .fahrt {
   position: absolute;
   inset: 0;
@@ -8326,83 +8330,177 @@ select.p-auth-input {
   pointer-events: none;
   display: flex;
   flex-direction: column;
-  justify-content: space-between;
-  padding: 84px 14px calc(14px + var(--tb-mobile-h, 0px));
+  padding: 76px 12px calc(12px + var(--tb-mobile-h, 0px));
+  font-family: var(--font);
 }
-.fahrt > * { pointer-events: auto; }
-.fahrt-oben {
+.fahrt > * > * { pointer-events: auto; }
+
+.fahrt-oben { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; max-width: 460px; width: 100%; margin: 0 auto; }
+/* Abbiegekarte: dunkel, groß, mit Handschuhen und aus der Halterung lesbar */
+.fahrt-hinweis-karte {
   display: flex;
   align-items: center;
   gap: 14px;
-  max-width: 520px;
+  width: 100%;
+  padding: 14px 18px 14px 14px;
+  border-radius: 20px;
+  background: #0f5132;
+  background: linear-gradient(160deg, #1d6b45, #0f4a2e);
+  color: #fff;
+  box-shadow: 0 14px 34px rgba(0,0,0,0.38);
+}
+.fahrt-pfeil { flex: none; width: 64px; height: 64px; display: flex; align-items: center; justify-content: center; }
+.fahrt-pfeil svg { width: 56px; height: 56px; fill: none; stroke: #fff; stroke-width: 2.6; stroke-linecap: round; stroke-linejoin: round; }
+.fahrt-hinweis { min-width: 0; }
+.fahrt-bis { font-size: 36px; font-weight: 800; line-height: 1; letter-spacing: -0.02em; font-variant-numeric: tabular-nums; }
+.fahrt-satz { margin-top: 5px; font-size: 17px; font-weight: 650; line-height: 1.25; color: rgba(255,255,255,0.92); }
+.fahrt-danach {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: 10px;
+  padding: 6px 12px 6px 14px;
+  border-radius: 0 0 14px 14px;
+  margin-top: -8px;
+  background: #0b3a24;
+  color: #fff;
+  font-size: 14px;
+  font-weight: 650;
+  box-shadow: 0 8px 20px rgba(0,0,0,0.3);
+}
+.fahrt-danach svg { width: 22px; height: 22px; fill: none; stroke: #fff; stroke-width: 2.6; stroke-linecap: round; stroke-linejoin: round; }
+.fahrt-danach[hidden] { display: none; }
+.fahrt-abseits {
+  align-self: center;
+  padding: 9px 16px;
+  border-radius: 999px;
+  background: #fff;
+  color: #1f1f1f;
+  font-size: 14px;
+  font-weight: 750;
+  box-shadow: 0 8px 22px rgba(0,0,0,0.25);
+}
+.fahrt-abseits[hidden] { display: none; }
+.fahrt-mitte { flex: 1; display: flex; align-items: flex-end; justify-content: space-between; max-width: 460px; width: 100%; margin: 0 auto 10px; }
+.fahrt-tempo {
+  width: 64px;
+  height: 64px;
+  border-radius: 50%;
+  background: #fff;
+  color: #111;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 6px 18px rgba(0,0,0,0.3);
+}
+.fahrt-tempo strong { font-size: 22px; font-weight: 800; line-height: 1; font-variant-numeric: tabular-nums; }
+.fahrt-tempo span { font-size: 10px; font-weight: 700; color: #666; }
+.fahrt-rund {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  height: 48px;
+  padding: 0 18px;
+  border: 0;
+  border-radius: 999px;
+  background: #fff;
+  color: #1f1f1f;
+  font: 750 15px/1 var(--font);
+  box-shadow: 0 6px 18px rgba(0,0,0,0.3);
+  cursor: pointer;
+}
+.fahrt-rund svg { width: 18px; height: 18px; fill: #3b5bdb; }
+.fahrt-rund[hidden] { display: none; }
+.fahrt-unten {
+  max-width: 460px;
   width: 100%;
   margin: 0 auto;
-  padding: 14px 16px;
-  border-radius: 18px;
-  background: rgba(14,14,14,0.94);
+  border-radius: 20px;
+  overflow: hidden;
+  background: rgba(14,14,14,0.96);
   -webkit-backdrop-filter: blur(14px);
   backdrop-filter: blur(14px);
-  border: 1px solid rgba(255,255,255,0.12);
-  box-shadow: 0 16px 40px rgba(0,0,0,0.5);
+  border: 1px solid rgba(255,255,255,0.1);
+  box-shadow: 0 -8px 30px rgba(0,0,0,0.35);
 }
-.fahrt-pfeil {
-  flex-shrink: 0;
-  width: 58px;
-  height: 58px;
-  border-radius: 14px;
-  background: #fff;
+.fahrt-fortschritt { height: 4px; background: rgba(255,255,255,0.1); }
+.fahrt-fortschritt i { display: block; height: 100%; width: 0; background: #3b5bdb; transition: width 0.6s ease; }
+.fahrt-leiste { display: flex; align-items: center; gap: 10px; padding: 12px 12px 8px; }
+.fahrt-ankunft { flex: 1; min-width: 0; text-align: center; }
+.fahrt-an { display: block; font-size: 26px; font-weight: 800; line-height: 1.05; color: #fff; font-variant-numeric: tabular-nums; }
+.fahrt-rest { display: block; margin-top: 2px; font-size: 13px; font-weight: 600; color: rgba(255,255,255,0.55); white-space: nowrap; }
+.fahrt-knopf {
+  flex: none;
+  width: 52px;
+  height: 52px;
+  border-radius: 50%;
+  border: 1px solid rgba(255,255,255,0.14);
+  background: rgba(255,255,255,0.07);
+  color: #fff;
   display: flex;
   align-items: center;
   justify-content: center;
-}
-.fahrt-pfeil svg { width: 40px; height: 40px; fill: none; stroke: #000; stroke-width: 2.6; stroke-linecap: round; stroke-linejoin: round; }
-.fahrt-hinweis { min-width: 0; }
-.fahrt-bis { font-size: 30px; font-weight: 800; line-height: 1.05; color: #fff; font-variant-numeric: tabular-nums; letter-spacing: -0.02em; }
-.fahrt-satz { margin-top: 3px; font-size: 15px; font-weight: 600; line-height: 1.3; color: rgba(255,255,255,0.85); }
-.fahrt-abseits {
-  align-self: center;
-  margin-top: 10px;
-  padding: 9px 14px;
-  border-radius: 999px;
-  background: #e8c56d;
-  color: #111;
-  font-size: 13px;
-  font-weight: 750;
-}
-.fahrt-abseits[hidden] { display: none; }
-.fahrt-unten {
-  max-width: 520px;
-  width: 100%;
-  margin: auto auto 0;
-  padding: 12px 14px 12px;
-  border-radius: 18px;
-  background: rgba(14,14,14,0.94);
-  -webkit-backdrop-filter: blur(14px);
-  backdrop-filter: blur(14px);
-  border: 1px solid rgba(255,255,255,0.12);
-  box-shadow: 0 -10px 34px rgba(0,0,0,0.45);
-}
-.fahrt-fortschritt { height: 4px; border-radius: 2px; background: rgba(255,255,255,0.12); overflow: hidden; }
-.fahrt-fortschritt i { display: block; height: 100%; width: 0; background: #fff; transition: width 0.6s ease; }
-.fahrt-zahlen { display: grid; grid-template-columns: repeat(3, 1fr); margin: 10px 0; text-align: center; }
-.fahrt-zahlen strong { display: block; font-size: 19px; font-weight: 800; color: #fff; font-variant-numeric: tabular-nums; }
-.fahrt-zahlen span { font-size: 11px; font-weight: 600; color: rgba(255,255,255,0.45); }
-.fahrt-knoepfe { display: flex; gap: 8px; }
-.fahrt-btn {
-  flex: 1 1 0;
-  height: 46px;
-  border-radius: 13px;
-  border: 1px solid rgba(255,255,255,0.16);
-  background: rgba(255,255,255,0.06);
-  color: #fff;
-  font-family: inherit;
-  font-size: 14px;
-  font-weight: 700;
   cursor: pointer;
 }
-.fahrt-btn[hidden] { display: none; }
-.fahrt-btn--ende { background: #e63946; border-color: #e63946; }
-.fahrt-name { margin-top: 8px; text-align: center; font-size: 11px; color: rgba(255,255,255,0.4); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fahrt-knopf svg { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.fahrt-knopf[aria-pressed="false"] { color: rgba(255,255,255,0.45); }
+.fahrt-knopf--ende { background: #e63946; border-color: #e63946; }
+.fahrt-knopf--ende svg { stroke-width: 2.6; }
+
+
+
+
+
+
+
+.fahrt-name { padding: 0 12px 10px; text-align: center; font-size: 11px; color: rgba(255,255,255,0.38); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* Startbildschirm im Panel */
+.fahrt-start-titel { margin: 10px 0 0; font-size: 21px; font-weight: 800; color: #fff; letter-spacing: -0.01em; }
+.fahrt-start-name { margin-top: 2px; font-size: 13px; color: rgba(255,255,255,0.55); }
+.fahrt-start-inhalt { margin-top: 14px; display: flex; flex-direction: column; gap: 12px; }
+.fahrt-laedt { display: flex; align-items: center; gap: 10px; padding: 18px 4px; color: rgba(255,255,255,0.6); font-size: 13px; }
+.fahrt-karte { display: flex; gap: 12px; padding: 14px; border-radius: 14px; background: #1b1b1b; border: 1px solid rgba(255,255,255,0.07); }
+.fahrt-karte strong { display: block; font-size: 14px; color: #fff; }
+.fahrt-karte p { margin: 4px 0 0; font-size: 12.5px; line-height: 1.5; color: rgba(255,255,255,0.6); }
+.fahrt-karte-symbol { flex: none; width: 36px; height: 36px; border-radius: 10px; background: rgba(59,91,219,0.18); display: flex; align-items: center; justify-content: center; }
+.fahrt-karte-symbol svg { width: 20px; height: 20px; fill: none; stroke: #7b93f0; stroke-width: 2; }
+.fahrt-los {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 9px;
+  width: 100%;
+  height: 52px;
+  border: 0;
+  border-radius: 14px;
+  background: #3b5bdb;
+  color: #fff;
+  font: 800 16px/1 var(--font);
+  cursor: pointer;
+}
+@media (hover: hover) and (pointer: fine) { .fahrt-los:hover { background: #2f4bc4; } }
+.fahrt-start-hinweis { margin: 0; font-size: 11.5px; line-height: 1.5; color: rgba(255,255,255,0.45); }
+.fahrt-start-fehler { margin: 0; padding: 10px 12px; border-radius: 10px; background: rgba(230,57,70,0.12); color: #ff9aa2; font-size: 12.5px; line-height: 1.45; }
+.fahrt-wahl { display: flex; flex-direction: column; gap: 8px; }
+.fahrt-wahl-zeile { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.fahrt-wahl-zeile > span { font-size: 12.5px; font-weight: 650; color: rgba(255,255,255,0.6); }
+.fahrt-schalter { display: inline-flex; padding: 3px; border-radius: 10px; background: #1b1b1b; border: 1px solid rgba(255,255,255,0.07); }
+.fahrt-schalter button { height: 30px; padding: 0 11px; border: 0; border-radius: 8px; background: none; color: rgba(255,255,255,0.6); font: 650 12.5px/1 var(--font); cursor: pointer; }
+.fahrt-schalter button[aria-pressed="true"] { background: #fff; color: #111; }
+.fahrt-plan { list-style: none; margin: 4px 0 0; padding: 0 0 0 4px; }
+.fahrt-plan li { position: relative; padding-left: 24px; }
+.fahrt-plan-punkt { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; min-height: 22px; }
+.fahrt-plan-punkt strong { font-size: 13.5px; color: #fff; font-weight: 700; }
+.fahrt-plan-punkt em { font-style: normal; font-size: 12px; color: rgba(255,255,255,0.55); }
+.fahrt-plan-punkt::before { content: ""; position: absolute; left: 3px; top: 5px; width: 11px; height: 11px; border-radius: 50%; background: #3b5bdb; border: 2px solid #111; box-shadow: 0 0 0 1.5px #3b5bdb; }
+.fahrt-plan-punkt--du::before { background: #007aff; box-shadow: 0 0 0 1.5px #007aff; }
+.fahrt-plan-punkt--ziel::before { background: #fff; box-shadow: 0 0 0 1.5px #fff; }
+.fahrt-plan-strecke { display: flex; justify-content: space-between; gap: 10px; padding: 10px 0 10px 24px !important; font-size: 12.5px; color: rgba(255,255,255,0.6); }
+.fahrt-plan-strecke span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fahrt-plan-strecke strong { flex: none; color: #fff; font-weight: 700; }
+.fahrt-plan-strecke::before { content: ""; position: absolute; left: 8px; top: -2px; bottom: -2px; width: 3px; border-radius: 2px; background: #3b5bdb; }
+.fahrt-plan-strecke--anfahrt::before { background: repeating-linear-gradient(to bottom, rgba(255,255,255,0.6) 0 3px, transparent 3px 7px); }
 /* Eigene Position als Pfeil in Fahrtrichtung */
 .fahrt-position { width: 30px; height: 30px; }
 .fahrt-position-pfeil {
@@ -8597,6 +8695,24 @@ select.p-auth-input {
   background: #eef0e3;
   border: 1px solid rgba(255,255,255,0.07);
 }
+.tour-bild { position: relative; }
+/* Kartenausschnitt (vorschau.js) mit der Linie als SVG darüber */
+.vs-karte { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; display: block; animation: vsEin .35s ease both; }
+.vs-linie { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+.vs-rand, .vs-strich { fill: none; stroke-linejoin: round; stroke-linecap: round; }
+.vs-rand { stroke: #fff; }
+.vs-strich { stroke: #3b5bdb; }
+.vs-start { fill: #3b5bdb; stroke: #fff; stroke-width: 2.4; }
+.vs-ziel { fill: #1f1f1f; stroke: #fff; stroke-width: 2.2; }
+.vs-linie--animiert .vs-rand, .vs-linie--animiert .vs-strich { stroke-dasharray: 1000; stroke-dashoffset: 1000; animation: vsZeichnen 1.6s cubic-bezier(.33,0,.2,1) .15s forwards; }
+.vs-linie--animiert .vs-start { animation: vsEin .3s ease both; }
+.vs-linie--animiert .vs-ziel { opacity: 0; animation: vsEin .3s ease 1.6s forwards; }
+@keyframes vsZeichnen { to { stroke-dashoffset: 0; } }
+@keyframes vsEin { from { opacity: 0; } to { opacity: 1; } }
+@media (prefers-reduced-motion: reduce) {
+  .vs-linie--animiert .vs-rand, .vs-linie--animiert .vs-strich { animation: none; stroke-dashoffset: 0; }
+  .vs-linie--animiert .vs-ziel { animation: none; opacity: 1; }
+}
 /* Gezeichnete Landschaft (Touren ohne Foto, Kurvenstrecken) — Farben wie die Karte */
 .tour-landschaft { background: radial-gradient(120% 100% at 25% 15%, #f6f5ec, #e7ecd6); }
 .tb-wald { fill: #c3dda3; opacity: 0.85; }
@@ -8611,8 +8727,8 @@ select.p-auth-input {
 .tour-bild-linie { fill: none; stroke: #3b5bdb; stroke-width: 2.6; stroke-linejoin: round; stroke-linecap: round; }
 .tour-bild-start { fill: #3b5bdb; stroke: #fff; stroke-width: 2; }
 .tour-bild-ziel { fill: #1f1f1f; stroke: #fff; stroke-width: 1.8; }
-.tour-foto { display: block; width: 100%; height: 100%; object-fit: cover; }
-.tour-bild--foto { background: #1d1d1d; }
+
+
 
 .tour-card-body { min-width: 0; }
 .tour-badges { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
@@ -8731,7 +8847,7 @@ select.p-auth-input {
 @media (hover: hover) and (pointer: fine) { .tour-sammlung-karte:hover { border-color: rgba(255,255,255,0.22); } }
 .tour-sammlung-karte:active { transform: scale(0.98); }
 .tour-sammlung-bild { position: absolute; inset: 0; opacity: 0.9; }
-.tour-sammlung-bild--foto { opacity: 1; }
+
 .tour-sammlung-text {
   position: absolute;
   left: 0; right: 0; bottom: 0;
@@ -8773,9 +8889,11 @@ select.p-auth-input {
   .tour-seite:not(.tour-seite--aktiv):not(:disabled):hover { background: rgba(255,255,255,0.08); }
 }
 .tour-seite-luecke { color: rgba(255,255,255,0.4); }
+/* ── Detailansicht ── */
+.tour-detail, .fahrt-start { padding: 6px var(--kv-pad-x, 14px) 16px; animation: kvResultIn 0.36s cubic-bezier(0.22, 1, 0.36, 1) both; }
 
 /* ── Detailansicht ── */
-.tour-detail { padding: 6px var(--kv-pad-x, 14px) 16px; animation: kvResultIn 0.36s cubic-bezier(0.22, 1, 0.36, 1) both; }
+
 .tour-zurueck {
   display: inline-flex;
   align-items: center;
@@ -8801,42 +8919,33 @@ select.p-auth-input {
   background: #1d1d1d;
   border: 1px solid rgba(255,255,255,0.07);
 }
-.tour-detail-bild--foto::after {
-  content: "";
-  position: absolute;
-  inset: auto 0 0 0;
-  height: 56px;
-  background: linear-gradient(to top, rgba(0,0,0,0.7), transparent);
-  pointer-events: none;
-}
-.tour-foto-form {
-  position: absolute;
-  left: 10px;
-  top: 10px;
-  z-index: 1;
-  display: block;
-  width: 64px;
-  height: 44px;
-  border-radius: 9px;
-  background: rgba(0,0,0,0.45);
-  -webkit-backdrop-filter: blur(6px);
-  backdrop-filter: blur(6px);
-}
-.tour-foto-credit {
+.tour-flug-btn {
   position: absolute;
   right: 10px;
-  bottom: 7px;
-  left: 10px;
+  bottom: 10px;
   z-index: 1;
-  font-size: 10px;
-  line-height: 1.3;
-  text-align: right;
-  color: rgba(255,255,255,0.72);
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 30px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 999px;
+  background: rgba(17,17,17,0.82);
+  -webkit-backdrop-filter: blur(8px);
+  backdrop-filter: blur(8px);
+  color: #fff;
+  font: 650 12px/1 var(--font);
   white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  cursor: pointer;
 }
-.tour-foto-credit a { color: inherit; text-decoration: underline; text-decoration-color: rgba(255,255,255,0.35); }
+.tour-detail-bild .tour-flug-btn svg { flex: none; width: 13px; height: 13px; }
+.tour-flug-btn.an { background: #3b5bdb; }
+@media (hover: hover) and (pointer: fine) { .tour-flug-btn:hover { background: rgba(17,17,17,0.95); } .tour-flug-btn.an:hover { background: #2f4bc4; } }
+
+
+
+
 .tour-detail-name { margin: 8px 0 0; font-size: 19px; font-weight: 750; line-height: 1.25; color: #fff; letter-spacing: -0.01em; }
 .tour-detail .tour-sub { white-space: normal; }
 .tour-kennzahlen {
@@ -9337,6 +9446,144 @@ select.p-auth-input {
     padding-bottom: calc(48px + var(--tb-mobile-h));
   }
 }
+/* ═══ Eigene Strecken, Aufzeichnen, Planer (eigene-strecken.js, aufzeichnen.js, planer.js) ═══ */
+.tour-aktionsleiste { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; padding: 4px var(--kv-pad-x, 14px) 12px; }
+.tour-aktion {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  height: 64px;
+  border: 1px solid rgba(255,255,255,0.08);
+  border-radius: 14px;
+  background: #1b1b1b;
+  color: #fff;
+  font: 650 12px/1 var(--font);
+  cursor: pointer;
+  transition: background .15s ease, border-color .15s ease;
+}
+.tour-aktion svg { width: 18px; height: 18px; }
+@media (hover: hover) and (pointer: fine) { .tour-aktion:hover { background: #242424; border-color: rgba(255,255,255,0.16); } }
+.tour-meine-chip svg { opacity: 0.85; }
+.tour-eigen-aktionen { display: flex; gap: 16px; margin: -2px 0 10px; }
+.tour-link-btn { padding: 4px 0; border: 0; background: none; color: rgba(255,255,255,0.6); font: 650 12.5px/1 var(--font); cursor: pointer; text-decoration: underline; text-underline-offset: 3px; text-decoration-color: rgba(255,255,255,0.25); }
+.tour-link-btn--rot { color: #ff8a93; }
+.tour-link-btn[hidden] { display: none; }
+.tour-toast {
+  position: absolute;
+  left: 50%;
+  bottom: 18px;
+  z-index: 5;
+  transform: translateX(-50%);
+  max-width: calc(100% - 32px);
+  padding: 10px 16px;
+  border-radius: 999px;
+  background: #fff;
+  color: #111;
+  font: 700 13px/1.3 var(--font);
+  box-shadow: 0 10px 28px rgba(0,0,0,0.4);
+  animation: vsEin .2s ease both;
+}
+#kv-touren { position: relative; }
+/* Aufzeichnen */
+.aufnahme {
+  position: absolute;
+  left: 50%;
+  bottom: calc(14px + var(--sa-bottom));
+  z-index: 40;
+  transform: translateX(-50%);
+  width: min(460px, calc(100% - 24px));
+  padding: 14px 14px 10px;
+  border-radius: 20px;
+  background: rgba(14,14,14,0.96);
+  -webkit-backdrop-filter: blur(14px);
+  backdrop-filter: blur(14px);
+  border: 1px solid rgba(255,255,255,0.1);
+  box-shadow: 0 -8px 30px rgba(0,0,0,0.35);
+  color: #fff;
+  font-family: var(--font);
+}
+.aufnahme-kopf { display: flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 700; color: rgba(255,255,255,0.75); }
+.aufnahme-punkt { width: 10px; height: 10px; border-radius: 50%; background: #e63946; animation: aufnahmePuls 1.4s ease-in-out infinite; }
+.aufnahme--ruht .aufnahme-punkt { animation: none; background: #e8c56d; }
+@keyframes aufnahmePuls { 50% { opacity: 0.3; } }
+.aufnahme-folgen { margin-left: auto; height: 28px; padding: 0 12px; border: 0; border-radius: 999px; background: #fff; color: #111; font: 700 12px/1 var(--font); cursor: pointer; }
+.aufnahme-folgen[hidden] { display: none; }
+.aufnahme-haupt { display: grid; grid-template-columns: 1fr 1fr; margin: 10px 0 6px; text-align: center; }
+.aufnahme-haupt strong { display: block; font-size: 34px; font-weight: 800; line-height: 1.05; font-variant-numeric: tabular-nums; letter-spacing: -0.02em; }
+.aufnahme-haupt span, .aufnahme-werte span { font-size: 11px; font-weight: 650; color: rgba(255,255,255,0.45); }
+.aufnahme-werte { display: grid; grid-template-columns: repeat(3, 1fr); padding: 8px 0 12px; border-top: 1px solid rgba(255,255,255,0.08); text-align: center; }
+.aufnahme-werte strong { display: block; font-size: 19px; font-weight: 800; font-variant-numeric: tabular-nums; }
+.aufnahme-knoepfe { display: flex; gap: 8px; }
+.aufnahme-btn { flex: 1; height: 50px; border-radius: 14px; border: 1px solid rgba(255,255,255,0.14); background: rgba(255,255,255,0.07); color: #fff; font: 750 15px/1 var(--font); cursor: pointer; }
+.aufnahme-btn--stopp { background: #e63946; border-color: #e63946; }
+.aufnahme-btn--haupt { background: #3b5bdb; border-color: #3b5bdb; }
+.aufnahme-hinweis { margin: 8px 0 0; text-align: center; font-size: 11px; color: rgba(255,255,255,0.38); }
+.aufnahme-speichern { display: flex; flex-direction: column; gap: 8px; }
+.aufnahme-speichern strong { font-size: 17px; }
+.aufnahme-speichern > span { font-size: 13px; color: rgba(255,255,255,0.6); }
+.aufnahme-name { height: 46px; padding: 0 14px; border-radius: 12px; border: 1px solid rgba(255,255,255,0.16); background: #1b1b1b; color: #fff; font: 600 15px/1 var(--font); }
+/* Planer */
+.plan-werkzeuge { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.plan-werkzeuge .tour-btn { flex: 1 1 auto; }
+.plan-werkzeuge .tour-btn[disabled] { opacity: 0.4; cursor: default; }
+.plan-vorschlag { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; font-size: 12.5px; color: rgba(255,255,255,0.6); }
+.plan-vorschlag[hidden] { display: none; }
+.plan-tipp { margin: 0; padding: 12px; border-radius: 12px; background: rgba(59,91,219,0.12); color: #b9c6f7; font-size: 12.5px; line-height: 1.5; }
+.plan-zahlen { display: grid; grid-template-columns: repeat(2, 1fr); gap: 1px; border-radius: 12px; overflow: hidden; background: rgba(255,255,255,0.06); transition: opacity .2s ease; }
+.plan-zahlen--alt { opacity: 0.45; }
+.plan-zahlen div { padding: 10px; background: #1b1b1b; }
+.plan-zahlen strong { display: block; font-size: 16px; color: #fff; }
+.plan-zahlen span { font-size: 11px; color: rgba(255,255,255,0.5); }
+.plan-liste { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+.plan-liste li { display: flex; align-items: center; gap: 10px; padding: 6px 4px; font-size: 13px; color: rgba(255,255,255,0.8); }
+.plan-nr { flex: none; width: 22px; height: 22px; border-radius: 50%; background: #3b5bdb; color: #fff; font-size: 11px; font-weight: 800; display: flex; align-items: center; justify-content: center; }
+.plan-weg { margin-left: auto; width: 28px; height: 28px; border: 0; border-radius: 8px; background: rgba(255,255,255,0.06); color: rgba(255,255,255,0.6); font-size: 18px; line-height: 1; cursor: pointer; }
+.plan-aktionen { display: grid; grid-template-columns: 2fr 1fr; gap: 8px; }
+.plan-aktionen .tour-btn { height: 52px; justify-content: center; }
+.plan-punkt {
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  background: #3b5bdb;
+  border: 2.5px solid #fff;
+  color: #fff;
+  font: 800 11px/21px var(--font);
+  text-align: center;
+  box-shadow: 0 3px 10px rgba(0,0,0,0.35);
+  cursor: grab;
+}
+.plan-punkt--start { background: #1d6b45; }
+.plan-punkt--ziel { background: #1f1f1f; }
+.maplibregl-canvas.plan-aktiv { cursor: crosshair; }
+/* Wetter entlang der Strecke (wetter.js) */
+.fahrt-wetter { padding: 12px; border-radius: 14px; background: #1b1b1b; border: 1px solid rgba(255,255,255,0.07); }
+.fahrt-wetter .fahrt-laedt { padding: 4px; }
+.fahrt-wetter-kopf { display: flex; justify-content: space-between; font-size: 11.5px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; color: rgba(255,255,255,0.5); }
+.fahrt-wetter-kopf span:last-child { font-weight: 600; letter-spacing: 0; text-transform: none; color: rgba(255,255,255,0.3); }
+.fahrt-wetter-reihe { display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; gap: 4px; margin-top: 10px; }
+.fahrt-wetter-punkt { display: flex; flex-direction: column; align-items: center; gap: 3px; padding: 6px 2px; border-radius: 10px; font-size: 11px; color: rgba(255,255,255,0.55); }
+.fahrt-wetter-punkt.nass { background: rgba(59,91,219,0.16); }
+.fahrt-wetter-punkt svg { width: 22px; height: 22px; fill: none; stroke: #fff; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+.fahrt-wetter-punkt strong { font-size: 14px; color: #fff; }
+.fahrt-wetter-km { font-weight: 650; white-space: nowrap; }
+.fahrt-wetter-warnung { margin: 10px 0 0; padding: 8px 10px; border-radius: 9px; background: rgba(232,197,109,0.14); color: #f1d58c; font-size: 12.5px; font-weight: 650; line-height: 1.4; }
+.fahrt-wetter-gut { margin: 10px 0 0; font-size: 12px; color: #7fd1a2; font-weight: 650; }
+.fahrt-mitschnitt { display: flex; align-items: flex-start; gap: 10px; padding: 12px; border-radius: 14px; background: #1b1b1b; border: 1px solid rgba(255,255,255,0.07); cursor: pointer; }
+.fahrt-mitschnitt input { margin-top: 2px; width: 18px; height: 18px; accent-color: #3b5bdb; flex: none; }
+.fahrt-mitschnitt strong { display: block; font-size: 13.5px; color: #fff; }
+.fahrt-mitschnitt em { display: block; margin-top: 2px; font-style: normal; font-size: 11.5px; line-height: 1.4; color: rgba(255,255,255,0.5); }
+/* Bilanz der eigenen Fahrten (Meine) */
+.meine-bilanz { margin: 0 var(--kv-pad-x, 14px) 12px; padding: 12px; border-radius: 14px; background: linear-gradient(160deg, rgba(59,91,219,0.18), rgba(59,91,219,0.05)); border: 1px solid rgba(59,91,219,0.25); }
+.meine-bilanz[hidden] { display: none; }
+.meine-bilanz-zahlen { display: grid; grid-template-columns: repeat(3, 1fr); text-align: center; }
+.meine-bilanz-zahlen strong { display: block; font-size: 20px; font-weight: 800; color: #fff; }
+.meine-bilanz-zahlen span { font-size: 10.5px; line-height: 1.25; color: rgba(255,255,255,0.55); }
+.meine-bilanz-liste { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 10px; }
+.meine-bilanz-liste span { padding: 4px 8px; border-radius: 999px; background: rgba(255,255,255,0.08); font-size: 11px; color: rgba(255,255,255,0.85); }
+.meine-bilanz-liste span.extrem { background: rgba(214,32,74,0.25); color: #ffb3c2; }
+.meine-bilanz-tipp { margin: 8px 0 0; font-size: 11.5px; line-height: 1.45; color: rgba(255,255,255,0.55); }
 
 .acc-backdrop {
   position: absolute;

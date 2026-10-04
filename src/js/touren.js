@@ -1217,19 +1217,40 @@ export function initTouren({ mountThumb } = {}) {
     if (y < 24) seitenleiste?.classList.remove('kv-kopf-weg')
     else if (y > letzteY + 6) {
       seitenleiste?.classList.add('kv-kopf-weg')
-      const menue = ansicht.querySelector('.tour-neu-menue')
-      if (menue && !menue.hidden) { menue.hidden = true; ansicht.querySelector('#tour-neu')?.setAttribute('aria-expanded', 'false') }
+      const menue = document.querySelector('.konf-karte-hub .tour-neu-menue')
+      if (menue && !menue.hidden) { menue.hidden = true; document.getElementById('tour-neu')?.setAttribute('aria-expanded', 'false') }
     }
     else if (y < letzteY - 6) seitenleiste?.classList.remove('kv-kopf-weg')
     if (Math.abs(y - letzteY) > 6 || y < 24) letzteY = y
   }, { passive: true })
 
+  /* "+ Neu" sitzt oben in der Suchzeile (Umkreis | Suche | + Neu) — dorthin
+     umziehen und dort bedienen; die Datei-Auswahl bleibt hier im Panel. */
+  const neuWrap = ansicht.querySelector('.tour-neu-wrap')
+  const suchZeile = seitenleiste?.querySelector('.kv-search-row')
+  if (neuWrap && suchZeile) suchZeile.append(neuWrap)
+  const neuMenue = () => document.querySelector('.konf-karte-hub .tour-neu-menue')
+  const neuZu = () => { const m = neuMenue(); if (m) m.hidden = true; document.getElementById('tour-neu')?.setAttribute('aria-expanded', 'false') }
+  neuWrap?.addEventListener('click', (e) => {
+    if (e.target.closest('#tour-neu')) {
+      const m = neuMenue(), auf = m.hidden
+      m.hidden = !auf
+      document.getElementById('tour-neu')?.setAttribute('aria-expanded', String(auf))
+      return
+    }
+    const aktion = e.target.closest('[data-aktion]')
+    if (!aktion) return
+    neuZu()
+    const was = aktion.dataset.aktion
+    if (was === 'import') document.getElementById('tour-gpx-datei')?.click()
+    if (was === 'aufzeichnen') import('./aufzeichnen.js').then((m) => m.aufzeichnungStarten({ fertig: zeigeEigene }))
+    if (was === 'planen') import('./planer.js').then((m) => m.planerOeffnen({ fertig: zeigeEigene }))
+  })
   // "+ Neu"-Menü schließt bei jedem Tipp daneben (auch auf der Karte)
   document.addEventListener('pointerdown', (e) => {
-    const menue = ansicht.querySelector('.tour-neu-menue')
+    const menue = neuMenue()
     if (!menue || menue.hidden || e.target.closest?.('.tour-neu-wrap')) return
-    menue.hidden = true
-    ansicht.querySelector('#tour-neu')?.setAttribute('aria-expanded', 'false')
+    neuZu()
   })
   ansicht.addEventListener('click', (e) => {
     const chip = e.target.closest('[data-filter]')

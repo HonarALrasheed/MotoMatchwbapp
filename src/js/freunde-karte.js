@@ -33,6 +33,7 @@ const zustand = {
   watch: null,
   zuletztGesendet: 0,
   letztePos: null,
+  suche: { text: '', treffer: [], laeuft: false }, // Leute hinzufügen
 }
 
 // ── Hilfen ───────────────────────────────────────────────────────────────
@@ -241,9 +242,21 @@ function zeigeInfo(p) {
     <span class="hub-info-name">${esc(p.name)}</span>
     <span class="hub-info-type">${p.unterwegs ? 'Fährt gerade' : 'Steht'}${p.freund ? '' : ' · ungefähre Position'}</span>
     <span class="hub-info-addr">${km != null ? `${km < 10 ? km.toFixed(1).replace('.', ',') : Math.round(km)} km entfernt · ` : ''}${vor(p.zeit)}</span>
-    ${p.freund ? '<button type="button" class="kurve-fahren" data-hinfahren>Hinfahren</button>' : ''}`
+    ${p.freund ? `<div class="leute-info-knoepfe"><button type="button" class="kurve-fahren" data-hinfahren>Hinfahren</button><button type="button" class="kurve-fahren leute-info-nachricht" data-nachricht>Nachricht</button></div>` : ''}`
   el.querySelector('[data-hinfahren]')?.addEventListener('click', () => hinfahren(p))
+  el.querySelector('[data-nachricht]')?.addEventListener('click', () => nachricht(p.username))
   popup = new ml.Popup({ offset: 46, closeButton: true, className: 'mm-popup', maxWidth: '240px' }).setLngLat([p.lng, p.lat]).setDOMContent(el).addTo(map)
+}
+
+/** Chat mit jemandem öffnen: Community-Reiter, direkt im Direktchat (?dm=). */
+function nachricht(username) {
+  popup?.remove()
+  const url = new URL(window.location.href)
+  url.searchParams.set('dm', username)
+  history.replaceState(history.state, '', url)
+  const reiter = document.querySelector('[data-tab="community"]')
+  if (reiter && reiter.offsetParent) reiter.click()
+  else window.dispatchEvent(new CustomEvent('mm:open-community'))
 }
 
 async function hinfahren(p) {
@@ -267,6 +280,9 @@ const ICON = {
   auge: '<svg viewBox="0 0 24 24"><path d="M2 12s3.6-6.5 10-6.5S22 12 22 12s-3.6 6.5-10 6.5S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></svg>',
   zu: '<svg viewBox="0 0 24 24"><path d="M3 3l18 18M10.6 5.6A10 10 0 0 1 12 5.5c6.4 0 10 6.5 10 6.5a17 17 0 0 1-3.2 3.9M6.6 6.7C3.7 8.6 2 12 2 12s3.6 6.5 10 6.5a9.6 9.6 0 0 0 4.9-1.3M9.9 9.9a3 3 0 0 0 4.2 4.2"/></svg>',
   welt: '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c2.6 2.6 3.8 5.6 3.8 9s-1.2 6.4-3.8 9c-2.6-2.6-3.8-5.6-3.8-9S9.4 5.6 12 3z"/></svg>',
+  chat: '<svg viewBox="0 0 24 24"><path d="M21 12a8 8 0 0 1-11.6 7.1L4 20l1-4.6A8 8 0 1 1 21 12z"/></svg>',
+  plus: '<svg viewBox="0 0 24 24"><circle cx="9" cy="8" r="3.3"/><path d="M2.8 19.5c.6-3.4 3.1-5.3 6.2-5.3s5.6 1.9 6.2 5.3M19 8v6M16 11h6"/></svg>',
+  suche: '<svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>',
 }
 
 function knoepfe() {
@@ -308,6 +324,17 @@ function panelUmschalten(an) {
       if (zu) { zustand.freunde = false; ansichtMerken(); knopfStatus(); panelUmschalten(false); aktualisieren(); return }
       const v = e.target.closest('[data-verbergen]')
       if (v) { await verbergenUmschalten(v.dataset.verbergen); liste(); return }
+      const n = e.target.closest('[data-nachricht]')
+      if (n) { nachricht(n.dataset.nachricht); return }
+      const hinzu = e.target.closest('[data-hinzu]')
+      if (hinzu) { await anfrageSenden(hinzu.dataset.hinzu); return }
+      const ja = e.target.closest('[data-anfrage-ja]'), nein = e.target.closest('[data-anfrage-nein]')
+      if (ja || nein) {
+        const api = await import('./community-api.js')
+        const r = ja ? await api.acceptRequest(ja.dataset.anfrageJa) : await api.declineRequest(nein.dataset.anfrageNein)
+        if (!r?.ok && r?.error) hinweisen('Hat nicht geklappt', r.error)
+        liste(); aktualisieren(); return
+      }
       const m = e.target.closest('[data-teilen]')
       if (m) { await teilenSetzen(m.dataset.teilen); liste(); aktualisieren(); return }
       const p = e.target.closest('[data-person]')
@@ -316,15 +343,48 @@ function panelUmschalten(an) {
         if (d) { getHubMap()?.flyTo({ center: [d.lng, d.lat], zoom: Math.max(getHubMap().getZoom(), 13), duration: 800 }); zeigeInfo(d) }
       }
     })
+    // Leute suchen: tippen → Vorschläge (Benutzernamen)
+    el.addEventListener('input', (e) => {
+      if (!e.target.matches('.leute-suche input')) return
+      zustand.suche.text = e.target.value
+      clearTimeout(zustand.suche.timer)
+      zustand.suche.timer = setTimeout(leuteSuchen, 250)
+    })
   }
   liste()
+}
+
+async function leuteSuchen() {
+  const q = zustand.suche.text.trim()
+  if (q.length < 2) { zustand.suche.treffer = []; liste(); return }
+  try {
+    const api = await import('./community-api.js')
+    const freunde = (api.getFriends() || []).map((f) => f.toLowerCase())
+    const treffer = await api.searchUsersApi(q, { exclude: [ich()] })
+    if (zustand.suche.text.trim() !== q) return
+    const raus = new Set(api.outgoingRequests().map((r) => r.to.toLowerCase()))
+    zustand.suche.treffer = treffer.map((u) => ({ username: u, name: api.getProfile(u)?.displayName || u, freund: freunde.includes(u.toLowerCase()), angefragt: raus.has(u.toLowerCase()) }))
+  } catch { zustand.suche.treffer = [] }
+  liste()
+}
+
+async function anfrageSenden(username) {
+  const api = await import('./community-api.js')
+  const r = await api.sendFriendRequest(username)
+  if (!r.ok) { hinweisen('Anfrage nicht gesendet', r.error || 'Bitte später noch einmal versuchen.'); return }
+  const t = zustand.suche.treffer.find((x) => x.username === username)
+  if (t) { if (r.autoAccepted) t.freund = true; else t.angefragt = true }
+  liste()
+  if (r.autoAccepted) aktualisieren()
 }
 
 async function liste() {
   const el = document.querySelector('.konf-karte-hub .leute-panel')
   if (!el) return
+  const hatteFokus = document.activeElement?.matches?.('.leute-suche input') && el.contains(document.activeElement)
   const modus = teilenModus()
   const c = getUserCoords()
+  const zeilenBilder = []
   let freundeNamen = []
   try { freundeNamen = (await import('./community-api.js')).getFriends() || [] } catch {}
   if (zustand.demo) freundeNamen = [...zustand.freundesListe.map((p) => p.username), 'tom']
@@ -346,18 +406,45 @@ async function liste() {
         <span class="leute-liste-bild" data-bild="${esc(p.username)}">${avatarHtml(p)}</span>
         <span class="leute-liste-text"><strong>${esc(p.name)}</strong><em>${p.ohne ? 'Teilt keinen Standort' : `${p.unterwegs ? 'Fährt gerade · ' : ''}${vor(p.zeit)}`}${km != null ? ` · ${km < 10 ? km.toFixed(1).replace('.', ',') : Math.round(km)} km` : ''}</em></span>
       </button>
-      ${mitAuge ? `<button type="button" class="leute-auge" data-verbergen="${esc(p.username)}" aria-pressed="${vers}" title="${vers ? `${esc(p.name)} sieht dich nicht – tippen zum Zeigen` : `${esc(p.name)} sieht dich – tippen zum Verbergen`}">${vers ? ICON.zu : ICON.auge}<span>${vers ? 'Verborgen' : 'Sieht dich'}</span></button>` : ''}
+      ${mitAuge ? `<button type="button" class="leute-chat" data-nachricht="${esc(p.username)}" aria-label="Nachricht an ${esc(p.name)}" title="Nachricht schreiben">${ICON.chat}</button>` : ''}
+      ${mitAuge && modus !== 'aus' ? `<button type="button" class="leute-auge" data-verbergen="${esc(p.username)}" aria-pressed="${vers}" title="${vers ? `${esc(p.name)} sieht dich nicht – tippen zum Zeigen` : `${esc(p.name)} sieht dich – tippen zum Verbergen`}">${vers ? ICON.zu : ICON.auge}<span>${vers ? 'Verborgen' : 'Sieht dich'}</span></button>` : ''}
     </li>`
   }
+  // Anfragen und "Leute hinzufügen" — unabhängig vom Standort-Modus
+  let kontakte = ''
+  if (angemeldet() || zustand.demo) {
+    let rein = []
+    try { rein = (await import('./community-api.js')).incomingRequests() || [] } catch {}
+    if (rein.length) {
+      kontakte += `<div class="leute-abschnitt">Anfragen <span>${rein.length}</span></div><ul class="leute-liste">${rein.map((r) => `<li>
+        <span class="leute-liste-person" style="cursor:default"><span class="leute-liste-bild" data-bild="${esc(r.from)}">${avatarHtml({ username: r.from, name: r.from })}</span>
+          <span class="leute-liste-text"><strong>${esc(r.from)}</strong><em>möchte mit dir befreundet sein</em></span></span>
+        <button type="button" class="leute-mini leute-mini--ja" data-anfrage-ja="${esc(r.id)}">Annehmen</button>
+        <button type="button" class="leute-mini" data-anfrage-nein="${esc(r.id)}" aria-label="Ablehnen">×</button></li>`).join('')}</ul>`
+      zeilenBilder.push(...rein.map((r) => ({ username: r.from, name: r.from })))
+    }
+    const tr = zustand.suche.treffer
+    kontakte += `<label class="leute-suche">${ICON.suche}<input type="search" placeholder="Fahrer suchen und hinzufügen" value="${esc(zustand.suche.text)}" autocomplete="off" aria-label="Fahrer suchen"></label>`
+    if (zustand.suche.text.trim().length >= 2) {
+      kontakte += tr.length ? `<ul class="leute-liste">${tr.map((t) => `<li>
+        <span class="leute-liste-person" style="cursor:default"><span class="leute-liste-bild" data-bild="${esc(t.username)}">${avatarHtml(t)}</span>
+          <span class="leute-liste-text"><strong>${esc(t.name)}</strong><em>@${esc(t.username)}</em></span></span>
+        ${t.freund ? `<button type="button" class="leute-chat" data-nachricht="${esc(t.username)}" aria-label="Nachricht an ${esc(t.name)}">${ICON.chat}</button>`
+          : t.angefragt ? '<span class="leute-mini leute-mini--still">Angefragt</span>'
+          : `<button type="button" class="leute-mini leute-mini--ja" data-hinzu="${esc(t.username)}">${ICON.plus}Hinzufügen</button>`}</li>`).join('')}</ul>`
+        : '<p class="leute-hinweis">Niemand mit diesem Namen gefunden.</p>'
+      zeilenBilder.push(...tr)
+    }
+  }
   let inhalt = ''
-  if (!angemeldet() && !zustand.demo) inhalt = '<p class="leute-hinweis">Melde dich an, um deinen Standort mit Freunden zu teilen.</p>'
-  else if (modus === 'aus') inhalt = '<p class="leute-hinweis">Du bist unsichtbar. Wähle „Freunde“ oder „Öffentlich“, um andere zu sehen. Gesehen wirst du nur, wenn du selbst teilst.</p>'
-  else if (zustand.fehler === 'fehlt') inhalt = '<p class="leute-hinweis">Standorte sind noch nicht eingerichtet. Gleich wieder da.</p>'
-  else if (zustand.fehler === 'netz') inhalt = '<p class="leute-hinweis">Gerade keine Verbindung.</p>'
+  if (!angemeldet() && !zustand.demo) inhalt = '<p class="leute-hinweis">Melde dich an, um Freunde zu finden, ihnen zu schreiben und deinen Standort zu teilen.</p>'
+  else if (zustand.fehler === 'fehlt' && modus !== 'aus') inhalt = '<p class="leute-hinweis">Standorte sind noch nicht eingerichtet. Gleich wieder da.</p>'
+  else if (zustand.fehler === 'netz' && modus !== 'aus') inhalt = '<p class="leute-hinweis">Gerade keine Verbindung.</p>'
   else {
-    inhalt = `<div class="leute-abschnitt">Deine Freunde${zeilen.length ? ` <span>Auge = sieht dich</span>` : ''}</div>`
+    inhalt = `<div class="leute-abschnitt">Deine Freunde${zeilen.length && modus !== 'aus' ? ` <span>Auge = sieht dich</span>` : ''}</div>`
+      + (modus === 'aus' ? '<p class="leute-hinweis leute-hinweis--klein">Du bist unsichtbar — Standorte siehst du erst mit „Freunde“ oder „Öffentlich“.</p>' : '')
       + (zeilen.length ? `<ul class="leute-liste">${zeilen.map((p) => zeile(p, true)).join('')}</ul>`
-        : '<p class="leute-hinweis">Noch keine Freunde. Füge in der Community Fahrer als Freunde hinzu.</p>')
+        : '<p class="leute-hinweis">Noch keine Freunde — such oben nach Fahrern und füge sie hinzu.</p>')
     if (modus === 'oeffentlich') {
       const nah = zustand.naheListe
       inhalt += `<div class="leute-abschnitt">In der Nähe <span>${nah.length ? `${nah.length} im Kartenausschnitt` : 'gerade niemand'}</span></div>`
@@ -375,9 +462,15 @@ async function liste() {
       <div><dt>Du siehst</dt><dd>${ERKL.siehst}</dd></div>
       <div><dt>Dich sieht</dt><dd>${ERKL.sehen}</dd></div>
     </dl>`}
+    ${kontakte}
     ${inhalt}
     ${modus !== 'aus' ? '<p class="leute-fuss">Geteilt wird nur, solange MotoMatch offen ist.</p>' : ''}`
-  zeilen.push(...(modus === 'oeffentlich' ? zustand.naheListe : []))
+  // Suchfeld behält beim Neuzeichnen Fokus und Cursor
+  if (hatteFokus) {
+    const f = el.querySelector('.leute-suche input')
+    if (f) { f.focus(); f.setSelectionRange(f.value.length, f.value.length) }
+  }
+  zeilen.push(...(modus === 'oeffentlich' ? zustand.naheListe : []), ...zeilenBilder)
   for (const p of zeilen) {
     bildVon(p.username).then((b) => {
       const z = el.querySelector(`[data-bild="${CSS.escape(p.username)}"]`)

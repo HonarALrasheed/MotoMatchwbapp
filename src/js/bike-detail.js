@@ -1710,6 +1710,10 @@ function buildKarteView(data) {
             </div>
             <!-- Radius + Ortssuche -->
             <div class="kv-search-row">
+              <div class="kv-umkreis-wahl">
+                <button type="button" class="kv-umkreis-knopf" aria-haspopup="menu" aria-expanded="false" aria-label="Umkreis wählen"></button>
+                <div class="kv-umkreis-menue" role="menu" hidden></div>
+              </div>
               ${buildTourenUmkreis()}
               <div class="kv-radius-group kv-orte-radius" role="group" aria-label="Suchradius">
                 <div class="kv-radius-pills">
@@ -1726,7 +1730,7 @@ function buildKarteView(data) {
                 </button>
                 <div class="kv-search-field" id="kv-search-field">
                   <svg class="kv-search-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>
-                  <input type="search" class="kv-search-input" id="kv-search-input" placeholder="Adresse, Ort oder PLZ…" autocomplete="off" enterkeyhint="search" role="combobox" aria-controls="kv-vorschlaege" aria-expanded="false">
+                  <input type="search" class="kv-search-input" id="kv-search-input" placeholder="Ort oder Adresse" autocomplete="off" enterkeyhint="search" role="combobox" aria-controls="kv-vorschlaege" aria-expanded="false">
                   <button class="kv-recenter-btn" id="kv-recenter-btn" aria-label="Mein Standort" title="Mein Standort">
                     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M12 1v4M12 19v4M1 12h4M19 12h4"/></svg>
                   </button>
@@ -3033,12 +3037,47 @@ function bindKarteViewEvents() {
     searchToggle?.setAttribute('aria-expanded', 'true')
     setTimeout(() => document.getElementById('kv-search-input')?.focus(), 10)
   }
-  const closeSearch = () => {
-    searchField?.classList.remove('kv-search-field--open')
-    searchRow?.classList.remove('kv-searching')
-    searchToggle?.setAttribute('aria-expanded', 'false')
-    vorschlaegeZu()
+  // Das Suchfeld steht immer offen in der Zeile (Umkreis | Suche | + Neu) —
+  // "schließen" heißt nur noch: Vorschläge weg
+  const closeSearch = () => { vorschlaegeZu() }
+  searchField?.classList.add('kv-search-field--open')
+  searchRow?.classList.add('kv-searching')
+
+  // ── Umkreis als kompakter Knopf links (die Pillen bleiben unsichtbar die Quelle) ──
+  const umkreisWahl = document.querySelector('.konf-karte-hub .kv-umkreis-wahl')
+  const umkreisKnopf = umkreisWahl?.querySelector('.kv-umkreis-knopf')
+  const umkreisMenue = umkreisWahl?.querySelector('.kv-umkreis-menue')
+  const umkreisPillen = () => [...(document.querySelector(`.konf-karte-hub ${document.querySelector('.konf-karte-hub .kv-sidebar')?.dataset.modus === 'orte' ? '.kv-orte-radius' : '.tour-umkreis-group'}`)?.querySelectorAll('.kv-radius-pill') || [])]
+  const umkreisZeigen = () => {
+    const aktiv = umkreisPillen().find(b => b.classList.contains('kv-radius-pill--active'))
+    if (umkreisKnopf) umkreisKnopf.innerHTML = `<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8.5"/><circle cx="12" cy="12" r="2"/></svg><span>${esc(aktiv?.textContent.trim() || 'Umkreis')}</span><svg class="kv-umkreis-pfeil" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg>`
   }
+  umkreisKnopf?.addEventListener('click', () => {
+    const auf = umkreisMenue.hidden
+    if (auf) {
+      umkreisMenue.innerHTML = umkreisPillen().map((b, i) => `<button type="button" role="menuitemradio" data-i="${i}" aria-checked="${b.classList.contains('kv-radius-pill--active')}">${esc(b.textContent.trim() === 'Alle' ? 'Alle Touren' : b.textContent.trim())}</button>`).join('')
+    }
+    umkreisMenue.hidden = !auf
+    umkreisKnopf.setAttribute('aria-expanded', String(auf))
+  })
+  umkreisMenue?.addEventListener('click', (e) => {
+    const b = e.target.closest('[data-i]')
+    if (!b) return
+    umkreisPillen()[+b.dataset.i]?.click()
+    umkreisMenue.hidden = true
+    umkreisKnopf.setAttribute('aria-expanded', 'false')
+    umkreisZeigen()
+  })
+  document.addEventListener('pointerdown', (e) => {
+    if (umkreisMenue && !umkreisMenue.hidden && !e.target.closest?.('.kv-umkreis-wahl')) { umkreisMenue.hidden = true; umkreisKnopf.setAttribute('aria-expanded', 'false') }
+  })
+  // Andere Stellen (Gebietssuche, Umkreis wächst mit, Moduswechsel) ändern die Pillen — Knopf nachziehen
+  if (searchRow && typeof MutationObserver !== 'undefined') {
+    new MutationObserver(umkreisZeigen).observe(searchRow, { subtree: true, attributes: true, attributeFilter: ['class'] })
+  }
+  const sidebarModus = document.querySelector('.konf-karte-hub .kv-sidebar')
+  if (sidebarModus && typeof MutationObserver !== 'undefined') new MutationObserver(umkreisZeigen).observe(sidebarModus, { attributes: true, attributeFilter: ['data-modus'] })
+  umkreisZeigen()
   /* Ort/PLZ aufloesen und die Suche dorthin verlegen. Eine Stelle fuer beide
      Ausloeser: Eingabetaste und Lupe. */
   const ortSuchen = async () => {
@@ -3060,7 +3099,7 @@ function bindKarteViewEvents() {
         return
       }
     }
-    eingabe.placeholder = 'Adresse, Ort oder PLZ\u2026'
+    eingabe.placeholder = 'Ort oder Adresse'
     ortWaehlen(treffer)
   }
 
@@ -3075,9 +3114,11 @@ function bindKarteViewEvents() {
       const alt = JSON.parse(localStorage.getItem('mm_recent_kv') || '[]').filter(x => (x?.titel ?? x) !== v.titel)
       localStorage.setItem('mm_recent_kv', JSON.stringify([{ titel: v.titel, zusatz: v.zusatz, lat: v.lat, lng: v.lng, zoom: v.zoom }, ...alt].slice(0, 6)))
     } catch { /* gesperrter Speicher: dann eben ohne Verlauf */ }
-    const genau = (v.zoom || 0) >= 15
+    /* Zielkarte (Route ab dem Standort + "Touren in der Nähe"): bei Adressen
+       immer, im Touren-Modus auch bei Städten und Orten. Regionen (Kreis,
+       Land) und die Orte-Suche bleiben beim Umkreis. */
+    const genau = (v.zoom || 0) >= (modus === 'touren' ? 12 : 15)
     setzeSuchPin(v.lat, v.lng, v.titel, v.zusatz)
-    // Adresse (Straße, Hausnummer, Geschäft): Zielkarte mit Route ab dem Standort
     if (genau) { zielZeigen(v); return }
     if (modus === 'touren') {
       setTourenHerkunft(v.lat, v.lng)

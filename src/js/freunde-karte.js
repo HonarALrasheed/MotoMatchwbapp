@@ -111,7 +111,7 @@ async function senden(lat, lng, kmh) {
   const unterwegs = document.body.classList.contains('mm-faehrt') || (kmh ?? 0) > 15
   const { error } = await supabase.from('standorte').upsert({
     user_id: getSession().uid, lat: +lat.toFixed(5), lng: +lng.toFixed(5),
-    tempo: kmh != null ? Math.round(kmh) : null, unterwegs, sichtbar: modus,
+    tempo: kmh != null && kmh >= 0 ? Math.min(400, Math.round(kmh)) : null, unterwegs, sichtbar: modus,
     verborgen_vor: await uidsVon(verborgen()),
   })
   if (error) console.warn('[freunde] Standort senden', error.message)

@@ -561,7 +561,10 @@ ${d.pts.map(([la, ln]) => `      <trkpt lat="${la.toFixed(5)}" lon="${ln.toFixed
   const url = URL.createObjectURL(new Blob([gpx], { type: 'application/gpx+xml' }))
   const a = document.createElement('a')
   a.href = url
-  a.download = `motomatch-${t.id.replace(/[^a-z0-9-]+/gi, '-')}.gpx`
+  // Dateiname aus dem Tournamen: "Zittauer Gebirge" → Zittauer-Gebirge.gpx
+  const datei = t.name.replace(/ä/g, 'ae').replace(/ö/g, 'oe').replace(/ü/g, 'ue').replace(/Ä/g, 'Ae').replace(/Ö/g, 'Oe').replace(/Ü/g, 'Ue').replace(/ß/g, 'ss')
+    .replace(/[^a-z0-9]+/gi, '-').replace(/^-+|-+$/g, '').slice(0, 60) || 'strecke'
+  a.download = `${datei}.gpx`
   document.body.appendChild(a)
   a.click()
   a.remove()
@@ -1143,6 +1146,13 @@ export function initTouren({ mountThumb } = {}) {
     renderListe({ karteAnpassen: true })
   }))
 
+  // "+ Neu"-Menü schließt bei jedem Tipp daneben (auch auf der Karte)
+  document.addEventListener('pointerdown', (e) => {
+    const menue = ansicht.querySelector('.tour-neu-menue')
+    if (!menue || menue.hidden || e.target.closest?.('.tour-neu-wrap')) return
+    menue.hidden = true
+    ansicht.querySelector('#tour-neu')?.setAttribute('aria-expanded', 'false')
+  })
   ansicht.addEventListener('click', (e) => {
     const chip = e.target.closest('[data-filter]')
     if (chip) {

@@ -569,10 +569,15 @@ function zeichne() {
 
   // Ansagen: je Hinweis jede Stufe einmal
   if (f.gestartet && f.abstand <= ABSEITS_M) {
-    for (const stufe of ANSAGEN_M) {
+    for (let i = 0; i < ANSAGEN_M.length; i++) {
+      const stufe = ANSAGEN_M[i]
       const schluessel = `${f.dVersion}-${f.schritt}-${stufe}`
       if (bis <= stufe && !f.angesagt.has(schluessel)) {
         ANSAGEN_M.filter((x) => x >= stufe).forEach((x) => f.angesagt.add(`${f.dVersion}-${f.schritt}-${x}`))
+        // Schon fast bei der nächsten Stufe (z. B. 300 m bei 800/250): diese Ansage
+        // auslassen, sonst folgen zwei Ansagen im Sekundenabstand und schneiden sich ab
+        const tiefer = ANSAGEN_M[i + 1]
+        if (tiefer != null && bis < tiefer + (stufe - tiefer) * 0.25) continue
         if (naechsterS[1] === 'waypoint') sprich(bis < 80 ? 'start-erreicht' : ansageFuer(stufe, naechsterS), bis < 80 ? `${satz(naechsterS)} erreicht. Viel Spaß, und fahr vorsichtig.` : `In ${mSprache(bis)} beginnt die Tour.`)
         else if (naechsterS[1] === 'arrive') sprich(bis < 80 ? 'angekommen' : ansageFuer(stufe, naechsterS), bis < 80 ? 'Du bist angekommen.' : `In ${mSprache(bis)} erreichst du dein Ziel.`)
         else sprich(ansageFuer(stufe, naechsterS), stufe === 60 ? satz(naechsterS) : `In ${mSprache(bis)} ${nachEntfernung(satz(naechsterS))}`)

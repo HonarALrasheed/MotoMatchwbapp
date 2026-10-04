@@ -8294,6 +8294,11 @@ select.p-auth-input {
 .hub-map .maplibregl-ctrl-attrib .maplibregl-ctrl-attrib-button,
 .hub-map .maplibregl-ctrl-attrib.maplibregl-compact .maplibregl-ctrl-attrib-button { display: none; }
 .hub-map .maplibregl-ctrl-attrib.maplibregl-compact .maplibregl-ctrl-attrib-inner { display: block; }
+/* Handy: unten liegen Panel und Reiterleiste darüber — Quellenangabe oben rechts */
+@media (max-width: 768px) {
+  .hub-map .maplibregl-ctrl-bottom-right { top: calc(6px + var(--sa-top, 0px)); bottom: auto; }
+  .hub-map .maplibregl-ctrl-bottom-right .maplibregl-ctrl { margin: 0 6px 0 0; }
+}
 .hub-map-fehler-titel { font-weight: 700; color: #fff; margin-bottom: 4px; }
 .hub-map-fehler-text { font-size: 12px; color: #888; max-width: 280px; text-align: center; line-height: 1.4; }
 .kv-result-marke { color: rgba(255,255,255,0.6); font-weight: 600; }
@@ -9641,7 +9646,8 @@ body.mm-faehrt .mm-standort-punkt { display: none; }
 .flug-hud-zeile { display: flex; justify-content: space-between; margin-top: 3px; font-size: 13px; color: rgba(235,235,245,0.7); font-variant-numeric: tabular-nums; }
 .flug-hud-balken { height: 4px; margin-top: 9px; border-radius: 2px; background: rgba(255,255,255,0.18); overflow: hidden; }
 .flug-hud-balken i { display: block; height: 100%; width: 0; border-radius: 2px; background: #fff; }
-@media (min-width: 760px) { .flug-hud { left: calc(50% + 200px); } }
+/* Desktop: mittig im freien Kartenteil rechts vom Panel (Panel ≈ 440 px) */
+@media (min-width: 760px) { .flug-hud { left: calc(50% + 220px); width: min(360px, calc(100% - 472px)); } }
 .flug-punkt { width: 18px; height: 18px; border-radius: 50%; background: #fff; border: 4px solid #1f7bff; box-shadow: 0 0 0 8px rgba(31,123,255,0.25), 0 2px 8px rgba(0,0,0,0.35); }
 .plan-suche { display: flex; gap: 8px; }
 .plan-suche input { flex: 1; min-width: 0; height: 40px; padding: 0 12px; border-radius: 11px; border: 1px solid rgba(255,255,255,0.14); background: #1b1b1b; color: #fff; font: 500 14px/1 var(--font); }
@@ -15690,6 +15696,7 @@ body.av-offen { overflow: hidden; }
   white-space: nowrap;
   pointer-events: none;
 }
+.kurven-legende[hidden] { display: none; }
 .kurven-legende-titel { color: #5f1690; font-weight: 700; }
 .kurven-legende-stufe { display: inline-flex; align-items: center; gap: 5px; font-weight: 500; }
 .kurven-legende-stufe i {

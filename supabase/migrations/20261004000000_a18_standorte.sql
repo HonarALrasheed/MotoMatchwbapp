@@ -30,11 +30,22 @@ DROP POLICY IF EXISTS "standorte_eigen" ON standorte;
 CREATE POLICY "standorte_eigen" ON standorte FOR ALL
   USING (user_id = auth.uid()) WITH CHECK (user_id = auth.uid());
 
--- Freunde: genaue Position, höchstens 24 h alt
+-- Teilt der angemeldete Nutzer selbst (optional: in diesem Modus)? Wer
+-- unsichtbar ist, sieht auch niemanden. SECURITY DEFINER, weil eine Policy
+-- auf standorte nicht selbst standorte abfragen kann (Rekursion).
+CREATE OR REPLACE FUNCTION standort_teilt(modus text DEFAULT NULL) RETURNS boolean
+LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public AS $$
+  SELECT EXISTS (SELECT 1 FROM standorte WHERE user_id = auth.uid() AND (modus IS NULL OR sichtbar = modus))
+$$;
+REVOKE ALL ON FUNCTION standort_teilt(text) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION standort_teilt(text) TO authenticated;
+
+-- Freunde: genaue Position, höchstens 24 h alt, nur wenn ich selbst teile
 DROP POLICY IF EXISTS "standorte_freunde" ON standorte;
 CREATE POLICY "standorte_freunde" ON standorte FOR SELECT USING (
   aktualisiert > now() - interval '24 hours'
   AND NOT (auth.uid() = ANY (verborgen_vor))
+  AND standort_teilt()
   AND EXISTS (
     SELECT 1 FROM friendships f
      WHERE (f.user_a = auth.uid() AND f.user_b = standorte.user_id)
@@ -53,7 +64,7 @@ DROP TRIGGER IF EXISTS standorte_zeit ON standorte;
 CREATE TRIGGER standorte_zeit BEFORE INSERT OR UPDATE ON standorte
   FOR EACH ROW EXECUTE FUNCTION standorte_zeit();
 
--- Öffentlich: nur angemeldete Nutzer, nur die letzten 30 min, gerundet auf
+-- Öffentlich: nur wer selbst öffentlich teilt, nur die letzten 30 min, gerundet auf
 -- 0,01° (~1 km), ohne Gesperrte in beide Richtungen, höchstens 300 Treffer.
 CREATE OR REPLACE FUNCTION oeffentliche_standorte(s double precision, w double precision, n double precision, o double precision)
 RETURNS TABLE (username text, display_name text, avatar_color text, lat double precision, lng double precision, unterwegs boolean, aktualisiert timestamptz)
@@ -66,6 +77,7 @@ LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public AS $$
     FROM standorte st
     JOIN profiles p ON p.id = st.user_id
    WHERE auth.uid() IS NOT NULL
+     AND EXISTS (SELECT 1 FROM standorte ich WHERE ich.user_id = auth.uid() AND ich.sichtbar = 'oeffentlich')
      AND st.user_id <> auth.uid()
      AND st.sichtbar = 'oeffentlich'
      AND st.aktualisiert > now() - interval '30 minutes'

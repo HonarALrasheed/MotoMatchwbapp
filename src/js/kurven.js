@@ -160,6 +160,8 @@ async function aktualisieren() {
   const map = getHubMap()
   if (!map?.__mmBereit || !sichtbar) return
   ebene(map)
+  // Legende nur, wenn auch Linien zu sehen sind
+  map.getContainer().querySelector('.kurven-legende')?.toggleAttribute('hidden', map.getZoom() < MIN_ZOOM)
   if (map.getZoom() < MIN_ZOOM) {
     map.getSource('kurven').setData({ type: 'FeatureCollection', features: [] })
     return

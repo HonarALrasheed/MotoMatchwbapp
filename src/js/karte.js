@@ -360,6 +360,8 @@ export async function initHubMap() {
     if (feld !== el) { el.replaceWith(feld); feld.id = 'hub-gmap' }
     karte.resize()
     await karteBereit
+    // Der Reiter wurde neu aufgebaut: Freunde-Knopf wieder einhängen
+    import('./freunde-karte.js').then((m) => m.leuteStarten()).catch(() => {})
     emitMapReady()
     sucheAktiveKachel()
     if (!userLocationKnown) getUserLocation().then((ok) => { if (ok) standortGefunden() })

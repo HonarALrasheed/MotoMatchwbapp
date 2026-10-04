@@ -34,9 +34,20 @@ const KATEGORIEN = {
       nwr["shop"="car_repair"]["service:vehicle:motorcycle"="yes"](area.de);
       nwr["shop"="car_repair"]["motorcycle"="yes"](area.de);
       nwr["shop"="car_repair"]["name"~"Motorrad|Zweirad|Krad",i](area.de);
-      nwr["craft"="motorcycle_repair"](area.de);`,
+      nwr["craft"="motorcycle_repair"](area.de);
+      nwr["shop"="car_repair"]["name"~"Harley|Ducati|Triumph|Yamaha|Kawasaki|Suzuki|KTM|Husqvarna|Aprilia|Moto Guzzi|Royal Enfield|Vespa|Piaggio",i](area.de);
+      nwr["shop"="tyres"]["service:vehicle:motorcycle"="yes"](area.de);
+      nwr["shop"="tyres"]["name"~"Motorrad|Zweirad",i](area.de);`,
+    /* Motorradhändler haben in Deutschland fast immer eine Werkstatt, in OSM
+       ist das aber selten vermerkt — ohne sie fehlten die meisten Werkstätten. */
+    mitHaendlern: true,
   },
-  haendler: { query: 'nwr["shop"="motorcycle"](area.de);' },
+  haendler: {
+    query: `nwr["shop"="motorcycle"](area.de);
+      nwr["shop"="motorcycle_parts"](area.de);
+      nwr["shop"="motorcycle_accessories"](area.de);
+      nwr["shop"="clothes"]["clothes"~"motorcycle"](area.de);`,
+  },
   fahrschule: { query: 'nwr["amenity"="driving_school"](area.de);' },
   tankstelle: { query: 'nwr["amenity"="fuel"]["access"!~"private|customers"](area.de);' },
   parkplatz: {
@@ -52,7 +63,14 @@ const KATEGORIEN = {
       nwr["amenity"="${a}"]["motorcycle"="designated"](area.de);`),
     // "Bike" allein trifft hier Fahrradcafés — die fliegen unten über den Namen raus
     ausschluss: /fahrrad|rad[- ]?caf|bicycle|e-?bike|mountainbike|\bmtb\b/i,
+    // Ausdrücklich biker-freundliche Lokale und Unterkünfte (OSM-Merkmale)
+    dazu: `nwr["motorcycle_friendly"="yes"](area.de);
+      nwr["bikers"="yes"](area.de);
+      nwr["biker"="yes"](area.de);
+      nwr["motorcycle"="welcome"](area.de);`,
   },
+  // Aussichtspunkte mit Namen — beliebte Ziele und Pausen auf Touren
+  aussicht: { query: 'nwr["tourism"="viewpoint"]["name"](area.de);' },
 }
 
 const SERVER = [
@@ -118,9 +136,9 @@ function entdoppeln(liste) {
 async function kategorie(kat, def) {
   process.stdout.write(`${kat} … `)
   const roh = []
-  for (const teil of def.teile || [def.query]) {
+  for (const teil of [...(def.teile || [def.query]), ...(def.dazu ? [def.dazu] : []), ...(def.mitHaendlern ? ['nwr["shop"="motorcycle"](area.de);'] : [])]) {
     roh.push(...await overpass(`[out:json][timeout:600];${DE}(${teil});out center tags;`))
-    if (def.teile) await pause(3000)
+    await pause(3000)
   }
   let liste = roh.map((e) => {
     const t = e.tags || {}

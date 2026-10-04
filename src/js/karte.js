@@ -145,6 +145,7 @@ const KATEGORIE = {
   Tankstelle: 'tankstelle',
   Parkplatz: 'parkplatz',
   Cafe: 'treff',
+  Aussicht: 'aussicht',
   Notdienst: 'werkstatt',
 }
 const FARBEN = {
@@ -154,6 +155,7 @@ const FARBEN = {
   Tankstelle: { fill: '#e63946', label: 'Tankstelle' },
   Parkplatz: { fill: '#2f7dd1', label: 'Motorradparkplatz' },
   Cafe: { fill: '#a9652e', label: 'Biker-Treff' },
+  Aussicht: { fill: '#2b8a3e', label: 'Aussichtspunkt' },
   Notdienst: { fill: '#ffc300', label: 'Werkstatt' },
 }
 const GLYPHEN = {
@@ -163,6 +165,7 @@ const GLYPHEN = {
   Tankstelle: '<path d="M3 21h12M5 21V5a2 2 0 0 1 2-2h6a2 2 0 0 1 2 2v16M5 11h10M15 6l3 3v8a2 2 0 0 1-4 0v-2"/>',
   Parkplatz: '<rect x="3" y="3" width="18" height="18" rx="2"/><path d="M9 17V7h4a3 3 0 0 1 0 6H9"/>',
   Cafe: '<path d="M17 8h1a4 4 0 0 1 0 8h-1M3 8h14v9a4 4 0 0 1-4 4H7a4 4 0 0 1-4-4zM6 1v3M10 1v3M14 1v3"/>',
+  Aussicht: '<path d="M3 20l5.5-9 4 6 3-4.5L21 20z"/><circle cx="16.5" cy="6.5" r="2"/>',
   Notdienst: '<path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><path d="M12 9v4M12 17h.01"/>',
 }
 
@@ -260,10 +263,17 @@ export function getUserCoords() {
   if (!userLocationKnown) return { lat: null, lng: null }
   return { lat: userLat, lng: userLng }
 }
-/** Wo Orte gesucht werden: gesuchter Ort, sonst der eigene Standort. */
+/** Wo Orte gesucht werden: gesuchter Ort, sonst der eigene Standort, sonst
+    die Kartenmitte (ungefaehr: true) — ohne Standortfreigabe bleibt die Liste
+    so nicht leer. */
 export function getSuchMitte() {
-  return suchMitte ? { ...suchMitte } : getUserCoords()
+  if (suchMitte) return { ...suchMitte }
+  if (userLocationKnown) return getUserCoords()
+  const c = karte?.getCenter()
+  return c ? { lat: c.lat, lng: c.lng, ungefaehr: true } : { lat: null, lng: null }
 }
+/** Radius der letzten Suche — kann durch das automatische Erweitern größer sein. */
+export const getHubRadius = () => letzterRadius
 
 // ── Karte ────────────────────────────────────────────────────────────────
 
@@ -504,7 +514,7 @@ export async function initHubMap() {
     import('./freunde-karte.js').then((m) => m.leuteStarten()).catch((err) => console.warn('[karte] Freunde', err))
     emitMapReady()
     if (userLocationKnown) sucheAktiveKachel()
-    else getUserLocation().then((ok) => { if (ok) standortGefunden() })
+    else getUserLocation().then((ok) => { if (ok) standortGefunden(); else sucheAktiveKachel() })
   } catch (err) {
     console.warn('[karte] Init fehlgeschlagen:', err)
     karte = null
@@ -527,7 +537,7 @@ function standortGefunden() {
 
 function sucheAktiveKachel() {
   const aktiv = document.querySelector('.hub-pill.active')
-  if (aktiv && (userLocationKnown || suchMitte)) searchNearby(aktiv.dataset.query, letzterRadius || 5000)
+  if (aktiv && (userLocationKnown || suchMitte || karte)) searchNearby(aktiv.dataset.query, letzterRadius || 5000)
   else emitResultsUpdate()
 }
 
@@ -643,7 +653,8 @@ export async function searchNearby(filter, radius = 5000) {
   const gen = ++suchGeneration
   popup?.remove()
   const kat = KATEGORIE[filter] || 'werkstatt'
-  const { lat = userLat, lng = userLng } = suchMitte || (userLocationKnown ? { lat: userLat, lng: userLng } : {})
+  const m = getSuchMitte()
+  const lat = m.lat ?? userLat, lng = m.lng ?? userLng
   const km = radius / 1000
   try {
     const index = await ladeOrteIndex()
@@ -670,6 +681,9 @@ export async function searchNearby(filter, radius = 5000) {
       .filter((t) => t.distanceKm <= km)
       .sort((a, b) => a.distanceKm - b.distanceKm)
       .slice(0, MAX_TREFFER)
+    // Zu wenig in der Nähe: Umkreis selbst erweitern statt "Nichts gefunden"
+    const weiter = [10000, 25000, 50000].find((r) => r > radius)
+    if (treffer.length < 3 && weiter) { searchNearby(filter, weiter); return }
   } catch (err) {
     console.warn('[karte] Orte laden:', err)
     if (gen !== suchGeneration) return
@@ -697,7 +711,7 @@ function zeigeAlleTreffer(lat, lng) {
 }
 
 export function getHubSearchResults() {
-  const m = suchMitte || { lat: userLat, lng: userLng }
+  const m = getSuchMitte()
   return treffer.map((t) => ({ ...t, distanceKm: haversineKm(m.lat, m.lng, t.lat, t.lng) }))
 }
 export function getHubMarkers() {
@@ -778,7 +792,7 @@ export async function sucheAdressen(text, { signal, limit = 6 } = {}) {
   const c = karte?.getCenter()
   const par = new URLSearchParams({ q, lang: 'de', limit: String(limit + 4) })
   if (c) { par.set('lat', c.lat.toFixed(4)); par.set('lon', c.lng.toFixed(4)); par.set('location_bias_scale', '0.3') }
-  const r = await fetch(`/adresse/api/?${par}`, { signal })
+  const r = await fetch(`/adresse/api?${par}`, { signal })
   if (!r.ok) throw new Error(`Adresssuche HTTP ${r.status}`)
   const j = await r.json()
   const gesehen = new Set()

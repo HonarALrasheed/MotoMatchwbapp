@@ -61,6 +61,15 @@ export function startApp() {
     (window.requestIdleCallback || ((f) => setTimeout(f, 300)))(() => ladeVollkatalog(), { timeout: 3000 })
   if (document.readyState === 'complete') katalogImLeerlauf()
   else window.addEventListener('load', katalogImLeerlauf, { once: true })
+  // Karte vorwärmen, sobald der Karten-Reiter in Reichweite ist (Zeiger drauf,
+  // Fokus, Antippen) — MapLibre und der Stil sind dann schon da, wenn er aufgeht.
+  let karteGewaermt = false
+  const karteWaermen = (e) => {
+    if (karteGewaermt || !e.target.closest?.('[data-tab="karte"]')) return
+    karteGewaermt = true
+    import('./karte.js').then((m) => m.karteVorwaermen()).catch(() => { karteGewaermt = false })
+  }
+  for (const typ of ['pointerover', 'pointerdown', 'focusin']) document.addEventListener(typ, karteWaermen, { passive: true })
   initSupabaseAuth()
   initFeedbackFab()
   // Registriert den Service Worker und bietet die Installation an — nur so

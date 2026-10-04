@@ -14,7 +14,7 @@
    Markup:  <div data-vorschau="<id>" data-art="quadrat|breit" [data-animiert]>
    ═══════════════════════════════════════════════════ */
 
-import { ladeMapLibre, ladeKartenStil, umleiten } from './karte.js'
+import { ladeMapLibre, ladeKartenStil, umleiten, getHubMap } from './karte.js'
 
 const VERSION = 'v2' // bei Stiländerungen hochzählen, dann werden alle Bilder neu gezeichnet
 const CACHE = 'mm-vorschau'
@@ -62,11 +62,27 @@ export function ausschnitt(pts, w, h) {
 
 // ── Renderer ─────────────────────────────────────────────────────────────
 
+/** Erst die große Karte fertig laden lassen — die Vorschaubilder holen dieselben
+    Kacheln und würden ihr sonst die Leitung wegnehmen. */
+function hauptkarteFertig(ms = 5000) {
+  const haupt = getHubMap()
+  if (!haupt || (haupt.loaded() && haupt.areTilesLoaded())) return Promise.resolve()
+  return new Promise((ok) => {
+    const t = setTimeout(ok, ms)
+    haupt.once('idle', () => { clearTimeout(t); ok() })
+  })
+}
+
 async function holeRenderer() {
   if (renderer) return renderer
   if (!rendererBereit) {
     rendererBereit = (async () => {
+      await hauptkarteFertig()
       const [ml, stil] = await Promise.all([ladeMapLibre(), ladeKartenStil()])
+      // Ohne Relief und Satellit: Auf den kleinen Bildern sieht man die Schummerung
+      // kaum, sie kostete aber ~14 Höhenbilder je Vorschau (je ~130 KB).
+      stil.layers = stil.layers.filter((l) => l.type !== 'hillshade' && l.source !== 'satellit')
+      for (const q of ['gelaende', 'gelaende-3d', 'satellit']) delete stil.sources[q]
       const el = document.createElement('div')
       el.setAttribute('aria-hidden', 'true')
       el.style.cssText = 'position:fixed;left:-10000px;top:0;width:400px;height:210px;pointer-events:none;'

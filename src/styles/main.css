@@ -8551,7 +8551,7 @@ body.mm-faehrt .mm-standort-punkt { display: none; }
 }
 .mm-popup .maplibregl-popup-close-button { color: rgba(255,255,255,0.6); font-size: 18px; padding: 2px 8px; }
 .tour-kurven-chip svg { opacity: 0.8; }
-.tour-kurven-chip[data-active="true"] svg { opacity: 1; }
+.tour-kurven-chip[data-active="true"] svg { opacity: 1; color: #b44ee8; }
 .tour-sammlung-text b { font-weight: 700; }
 
 /* ═══ Karte: Touren (touren.js) ═══════════════════════════════════════════
@@ -15716,3 +15716,38 @@ body.av-offen { overflow: hidden; }
 .acc-leer { padding: 28px 16px; text-align: center; }
 .acc-leer p { margin: 0; font-size: 14px; color: rgba(255,255,255,0.6); }
 .acc-leer-sub { margin-top: 6px !important; font-size: 12px !important; color: rgba(255,255,255,0.35) !important; }
+
+/* ── Kurvenstrecken: Legende ─────────────────────────────────────────── */
+.kurven-legende {
+  position: absolute;
+  right: 16px;
+  top: 76px;
+  z-index: 3;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 7px 14px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.94);
+  box-shadow: 0 2px 10px rgba(20, 20, 40, 0.18);
+  color: #2b2238;
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+  pointer-events: none;
+}
+.kurven-legende-titel { color: #5f1690; font-weight: 700; }
+.kurven-legende-stufe { display: inline-flex; align-items: center; gap: 5px; font-weight: 500; }
+.kurven-legende-stufe i {
+  display: inline-block;
+  width: 18px;
+  height: 5px;
+  border-radius: 3px;
+  box-shadow: 0 0 0 1.5px #fff, 0 0 0 2.5px rgba(0, 0, 0, 0.08);
+}
+body.mm-faehrt .kurven-legende,
+body.mm-fliegt .kurven-legende,
+body.mm-plant .kurven-legende { display: none; }
+@media (max-width: 768px) {
+  .kurven-legende { right: auto; left: 50%; top: 128px; transform: translateX(-50%); gap: 9px; padding: 6px 11px; font-size: 11px; }
+}

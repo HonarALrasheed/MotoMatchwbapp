@@ -404,7 +404,7 @@ const BREITE = (plus = 0, faktor = 1) => ['interpolate', ['exponential', 1.6], [
 const VERLAUF = (p, farbe, grau) => (p <= 0.0005
   ? ['interpolate', ['linear'], ['line-progress'], 0, farbe, 1, farbe]
   : ['step', ['line-progress'], grau, Math.min(0.9999, p), farbe])
-const AUSGEBLENDET = /^(poi_|road_one_way_arrow|highway-name-path|airport)|^(tour-detail|touren-|tour-anfahrt|kurven-linie|plan-|aufnahme-)/
+const AUSGEBLENDET = /^(poi_|road_one_way_arrow|highway-name-path|airport)|^(tour-detail|touren-|tour-anfahrt|kurven-|plan-|aufnahme-)/
 
 function ersteSymbolEbene(map) {
   return map.getStyle().layers.find((l) => l.type === 'symbol' && !l.id.startsWith('navi'))?.id

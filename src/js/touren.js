@@ -841,7 +841,7 @@ function punktBei(d, m) {
 
 /* Während des Flugs: Satellitenbild statt Kartenflächen, Straßen und Symbole
    aus, nur Ortsnamen und die Route bleiben — wie ein Überflug bei Apple. */
-const FLUG_AUS = /^(tunnel_|road_|bridge_|building|landuse|landcover|park|aeroway|relief|poi_|highway-|road_shield|boundary|kurven-linie|touren-|waterway)/
+const FLUG_AUS = /^(tunnel_|road_|bridge_|building|landuse|landcover|park|aeroway|relief|poi_|highway-|road_shield|boundary|kurven-|touren-|waterway)/
 
 function flugKarte(map, an, f) {
   if (an) {

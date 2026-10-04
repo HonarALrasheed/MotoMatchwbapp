@@ -34,6 +34,21 @@ let userLng = DE_MITTE.lng
 let userLocationKnown = false
 let geoPromise = null
 
+/* Letzter Kartenausschnitt: Die Karte öffnet dort, wo man zuletzt war, statt
+   erst ganz Deutschland zu laden und dann zum Standort zu fliegen. */
+const BLICK_KEY = 'mm_karte_blick_v1'
+function letzterBlick() {
+  try {
+    const b = JSON.parse(localStorage.getItem(BLICK_KEY) || 'null')
+    return b && Number.isFinite(b.lat) && Number.isFinite(b.lng) && Number.isFinite(b.zoom) ? b : null
+  } catch { return null }
+}
+function blickMerken() {
+  if (!karte) return
+  const c = karte.getCenter()
+  try { localStorage.setItem(BLICK_KEY, JSON.stringify({ lat: +c.lat.toFixed(4), lng: +c.lng.toFixed(4), zoom: +karte.getZoom().toFixed(2) })) } catch {}
+}
+
 // ── Hilfen ───────────────────────────────────────────────────────────────
 
 export function haversineKm(lat1, lng1, lat2, lng2) {
@@ -57,6 +72,14 @@ export function ladeMapLibre() {
   return mlPromise
 }
 export function getMapLib() { return ml }
+
+/** Karte im Leerlauf vorwärmen (Bibliothek, Stil, Kachelverzeichnis), damit der Reiter sofort steht. */
+export function karteVorwaermen() {
+  if (navigator.connection?.saveData) return
+  ladeMapLibre().catch(() => {})
+  ladeKartenStil().catch(() => {})
+  fetch('/kacheln/planet').catch(() => {})
+}
 
 // ── Kategorien ───────────────────────────────────────────────────────────
 
@@ -234,7 +257,10 @@ async function ladeStil() {
     tiles: [`${location.origin}/hoehe/{z}/{x}/{y}.png`],
     attribution: '<a href="https://github.com/tilezen/joerd/blob/master/docs/attribution.md" target="_blank" rel="noopener">Höhen: Tilezen Joerd</a>',
   }
-  stil.sources.gelaende = hoehen
+  // Schummerung mit 512er-Kacheln: MapLibre holt dann je Ansicht ein Viertel der
+  // Höhenbilder (je ~130 KB) — sonst sind es über 50 und die Karte baut sich zäh auf.
+  // Das Relief ist weich gezeichnet, die halbe Auflösung sieht man nicht.
+  stil.sources.gelaende = { ...hoehen, tileSize: 512 }
   const { attribution: _quelle, ...ohneQuelle } = hoehen // Quellenangabe nur einmal
   stil.sources['gelaende-3d'] = ohneQuelle
   // Satellitenbild für "Strecke abfliegen" — normal ausgeblendet (touren.js schaltet es zu)
@@ -338,11 +364,12 @@ export async function initHubMap() {
     const [, stil] = await Promise.all([ladeMapLibre(), ladeKartenStil()])
     if (token !== initToken || !document.body.contains(el)) return
     el.innerHTML = ''
+    const blick = !userLocationKnown && letzterBlick()
     karte = new ml.Map({
       container: el,
       style: stil,
-      center: [userLng, userLat],
-      zoom: userLocationKnown ? 12.5 : 5.4,
+      center: blick ? [blick.lng, blick.lat] : [userLng, userLat],
+      zoom: userLocationKnown ? 12.5 : blick ? blick.zoom : 5.4,
       attributionControl: { compact: true },
       transformRequest: umleiten,
       cooperativeGestures: false,
@@ -354,6 +381,7 @@ export async function initHubMap() {
     if (import.meta.env.DEV) window.__mmKarte = karte // nur zum Prüfen im Dev-Server
     karteBereit = new Promise((ok) => karte.once('load', ok))
     karte.on('moveend', (e) => {
+      blickMerken()
       // Nur Gesten des Nutzers — flyTo/fitBounds aus dem Code zählen nicht
       if (!e.originalEvent || !_onMapMovedCallback) return
       const c = karte.getCenter()
@@ -376,7 +404,12 @@ export async function initHubMap() {
 /** Standort kam an: hinfliegen und die aktive Kachel suchen. */
 function standortGefunden() {
   if (!karte) return
-  if (!orteAusgesetzt) karte.flyTo({ center: [userLng, userLat], zoom: 12.5, duration: 900 })
+  if (!orteAusgesetzt) {
+    const c = karte.getCenter()
+    // Weite Flüge laden unterwegs alle Zwischenzooms — dann lieber direkt springen
+    if (haversineKm(c.lat, c.lng, userLat, userLng) > 60) karte.jumpTo({ center: [userLng, userLat], zoom: 12.5 })
+    else karte.flyTo({ center: [userLng, userLat], zoom: Math.max(karte.getZoom(), 11), duration: 700 })
+  }
   sucheAktiveKachel()
   emitMapReady() // Touren rechnen Entfernungen neu
 }

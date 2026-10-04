@@ -205,6 +205,19 @@ function buildAccountHTML() {
                   ${count != null ? `<span class="acc-navcount">${count}</span>` : '<span class="acc-navchev">›</span>'}
                 </button>`).join('')}
             </nav>
+            <!-- Katalog und Ratgeber: eigene Seiten, daher Links statt Reiter -->
+            <nav class="acc-navlist acc-navlist--links" aria-label="Wissen">
+              <a class="acc-navitem acc-navlink" href="/motorraeder/">
+                <span class="acc-navitem-ic"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="5.5" cy="17" r="3.5"/><circle cx="18.5" cy="17" r="3.5"/><path d="M5.5 17l4-8h5l4 8M9.5 9L8 6H5"/></svg></span>
+                <span class="acc-navitem-label">Motorräder nach Thema</span>
+                <span class="acc-navchev">›</span>
+              </a>
+              <a class="acc-navitem acc-navlink" href="/ratgeber/">
+                <span class="acc-navitem-ic"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19.5V5a2 2 0 0 1 2-2h13v16H6a2 2 0 0 0-2 2.5z"/><path d="M8 7h7M8 11h5"/></svg></span>
+                <span class="acc-navitem-label">Ratgeber</span>
+                <span class="acc-navchev">›</span>
+              </a>
+            </nav>
           </aside>
 
           <!-- RECHTS: Inhalt / Chronik -->
@@ -2467,7 +2480,7 @@ export function openAccount(sourceBar) {
   document.addEventListener('keydown', escHandler)
 
   // Vertikale Navigation (Komoot-Stil)
-  document.querySelectorAll('.acc-navitem').forEach(tab => {
+  document.querySelectorAll('.acc-navitem[data-tab]').forEach(tab => {
     tab.addEventListener('click', () => {
       document.querySelectorAll('.acc-navitem').forEach(t => t.classList.remove('acc-navitem--active'))
       tab.classList.add('acc-navitem--active')

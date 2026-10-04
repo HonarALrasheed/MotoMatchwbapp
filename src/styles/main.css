@@ -16246,3 +16246,59 @@ body.mm-plant .kv-sidebar .kv-search-row { display: none; }
 body.mm-faehrt .mm-fb-fab { display: none !important; }
 .leute-info-knoepfe { margin-top: 8px; }
 .leute-info-still { opacity: 0.6; cursor: default !important; }
+
+/* ── Wissen: Menü, Konto und Startseite verlinken Katalog und Ratgeber (landing.js, account.js) ── */
+.p-drawer-sub--zwei { margin: 18px 0 10px; }
+/* Zwei Blöcke statt einem: beide nur so hoch wie ihr Inhalt, die Fußzeile rutscht nach unten */
+.p-drawer-panel .p-drawer-nav { flex: none; }
+.p-drawer-panel .p-drawer-foot { margin-top: auto; }
+.p-drawer-link { display: block; text-decoration: none; }
+.acc-navlink { text-decoration: none; }
+
+.p-wissen {
+  padding: 0 clamp(24px, 5vw, 80px) var(--p-xxl);
+  background: #fff;
+}
+.p-wissen-karten {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 16px;
+  max-width: 1280px;
+  margin: 0 auto;
+}
+.p-wissen-karte {
+  display: flex; flex-direction: column;
+  background: #0e0e0f; color: #fff; text-decoration: none;
+  border-radius: 18px; overflow: hidden;
+  transition: transform .25s var(--ease-out, ease), box-shadow .25s;
+}
+.p-wissen-karte img { width: 100%; height: auto; aspect-ratio: 4 / 3; object-fit: cover; display: block; }
+.p-wissen-karte strong { font-family: var(--p-font); font-size: 19px; font-weight: 700; padding: 14px 18px 2px; }
+.p-wissen-karte span { font-family: var(--p-font); font-size: 14px; color: rgba(255,255,255,0.6); padding: 0 18px 18px; }
+@media (hover: hover) and (pointer: fine) {
+  .p-wissen-karte:hover { transform: translateY(-3px); box-shadow: 0 14px 34px rgba(0,0,0,0.18); }
+}
+.p-wissen-unter {
+  font-family: var(--p-font); font-size: clamp(22px, 2.4vw, 30px); font-weight: 300; color: #000;
+  text-align: center; margin: clamp(40px, 5vw, 64px) 0 20px;
+}
+.p-wissen-themen {
+  display: flex; flex-wrap: wrap; justify-content: center; gap: 10px;
+  max-width: 980px; margin: 0 auto;
+}
+.p-wissen-themen a {
+  font-family: var(--p-font); font-size: 15px; color: #111; text-decoration: none;
+  padding: 10px 18px; border: 1px solid rgba(0,0,0,0.15); border-radius: 99px;
+  transition: background .2s, color .2s, border-color .2s;
+}
+@media (hover: hover) and (pointer: fine) {
+  .p-wissen-themen a:hover { background: #111; color: #fff; border-color: #111; }
+}
+.p-wissen-mehr { display: flex; justify-content: center; gap: 28px; margin-top: 28px; }
+.p-wissen-mehr a { font-family: var(--p-font); font-size: 15px; font-weight: 600; color: #111; text-decoration: none; }
+.p-wissen-mehr a:hover { text-decoration: underline; }
+@media (max-width: 900px) {
+  .p-wissen-karten { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+  .p-wissen-karte strong { font-size: 16px; padding: 12px 14px 2px; }
+  .p-wissen-karte span { font-size: 13px; padding: 0 14px 14px; }
+}

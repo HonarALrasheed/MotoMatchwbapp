@@ -257,12 +257,16 @@ async function ladeStil() {
   const hoehen = {
     type: 'raster-dem', encoding: 'terrarium', tileSize: 256, maxzoom: 12,
     tiles: [`${location.origin}/hoehe/{z}/{x}/{y}.png`],
-    attribution: '<a href="https://github.com/tilezen/joerd/blob/master/docs/attribution.md" target="_blank" rel="noopener">Höhen: Tilezen Joerd</a>',
+    attribution: '<a href="https://github.com/tilezen/joerd/blob/master/docs/attribution.md" target="_blank" rel="noopener">Tilezen</a>',
   }
   // Schummerung mit 512er-Kacheln: MapLibre holt dann je Ansicht ein Viertel der
   // Höhenbilder (je ~130 KB) — sonst sind es über 50 und die Karte baut sich zäh auf.
   // Das Relief ist weich gezeichnet, die halbe Auflösung sieht man nicht.
   stil.sources.gelaende = { ...hoehen, tileSize: 512 }
+  // Kurze Quellenangabe (Pflicht: OpenStreetMap, OpenMapTiles; OpenFreeMap als Dank)
+  for (const q of Object.values(stil.sources)) {
+    if (q.type === 'vector') q.attribution = '<a href="https://openfreemap.org" target="_blank" rel="noopener">OpenFreeMap</a> · <a href="https://www.openmaptiles.org/" target="_blank" rel="noopener">© OpenMapTiles</a> · <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">© OpenStreetMap</a>'
+  }
   const { attribution: _quelle, ...ohneQuelle } = hoehen // Quellenangabe nur einmal
   stil.sources['gelaende-3d'] = ohneQuelle
   // Satellitenbild für "Strecke abfliegen" — normal ausgeblendet (touren.js schaltet es zu)

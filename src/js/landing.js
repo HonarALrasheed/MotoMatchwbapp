@@ -383,15 +383,10 @@ export function ensureLandingRendered() {
    Fest verdrahtet statt geladen: die Seiten entstehen erst beim Build, im Dev-Server gibt es sie
    nicht. Slugs müssen zu den Artikeln/Themen dort passen. */
 const WISSEN_ARTIKEL = [
-  { slug: "fuehrerscheinklassen-a1-a2-a", titel: "A1, A2, A oder B196?", text: "Welcher Führerschein für welches Motorrad", bild: "/bikes/showroom/kawasaki_ninja650_2022.webp" },
-  { slug: "a2-drosselung", titel: "A2-Drosselung", text: "So fährst du ein stärkeres Bike mit A2", bild: "/bikes/showroom/kawasaki_z650_2022.webp" },
-  { slug: "erstes-motorrad-kaufen", titel: "Das erste Motorrad", text: "Sieben Fragen vor dem Kauf", bild: "/bikes/showroom/yamaha_mt07_2022.webp" },
-  { slug: "sitzhoehe-koerpergroesse", titel: "Sitzhöhe & Körpergröße", text: "Welche Sitzhöhe zu dir passt", bild: "/bikes/showroom/honda_cmx500rebel_2022.webp" },
-];
-const WISSEN_THEMEN = [
-  ["fuehrerschein-a2", "A2-Motorräder"], ["einsteiger", "Für Einsteiger"], ["a2-unter-5000-euro", "A2 unter 5.000 €"],
-  ["fuehrerschein-b196", "B196 / 125er"], ["niedrige-sitzhoehe", "Niedrige Sitzhöhe"], ["motorrad-fuer-160-cm", "Für 1,60 m"],
-  ["leichte-motorraeder", "Unter 180 kg"], ["naked-bike", "Naked Bikes"], ["enduro", "Reiseenduros"], ["unter-5000-euro", "Unter 5.000 €"],
+  { slug: "fuehrerscheinklassen-a1-a2-a", titel: "A1, A2 oder A?", bild: "/bikes/showroom/kawasaki_ninja650_2022.webp" },
+  { slug: "a2-drosselung", titel: "A2-Drosselung", bild: "/bikes/showroom/kawasaki_z650_2022.webp" },
+  { slug: "erstes-motorrad-kaufen", titel: "Das erste Motorrad", bild: "/bikes/showroom/yamaha_mt07_2022.webp" },
+  { slug: "sitzhoehe-koerpergroesse", titel: "Sitzhöhe", bild: "/bikes/showroom/honda_cmx500rebel_2022.webp" },
 ];
 
 export function initLanding() {
@@ -507,17 +502,12 @@ export function initLanding() {
         ${WISSEN_ARTIKEL.map((a) => `
           <a class="p-wissen-karte" href="/ratgeber/${a.slug}/">
             <img src="${a.bild}" alt="" loading="lazy" decoding="async" width="640" height="480">
-            <strong>${a.titel}</strong>
-            <span>${a.text}</span>
+            <span>${a.titel}</span>
           </a>`).join("")}
       </div>
-      <h3 class="p-wissen-unter">Motorräder nach Thema</h3>
-      <div class="p-wissen-themen">
-        ${WISSEN_THEMEN.map(([slug, name]) => `<a href="/motorraeder/${slug}/">${name}</a>`).join("")}
-      </div>
       <div class="p-wissen-mehr">
-        <a href="/ratgeber/">Alle Ratgeber →</a>
-        <a href="/motorraeder/">Alle Themen →</a>
+        <a href="/ratgeber/">Alle Ratgeber</a>
+        <a href="/motorraeder/">Motorräder nach Thema</a>
       </div>
     </section>
 

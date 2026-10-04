@@ -2237,6 +2237,11 @@ select.p-auth-input {
     background 0.3s var(--ease-out),
     opacity 0.3s ease;
 }
+/* Teilen: Gegenstück zum Zurück-Pfeil, oben rechts */
+.bd-teilen {
+  left: auto;
+  right: calc(16px + var(--sa-right));
+}
 @media (hover: hover) and (pointer: fine) {
   .bd-back:hover {
     background: rgba(0, 0, 0, 0.85);

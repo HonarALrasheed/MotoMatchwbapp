@@ -194,20 +194,7 @@ export function openBikeGarage(shortName) {
   const bikeData = shortName && typeof shortName === "object" ? shortName : findBikeByShortName(shortName);
   if (!bikeData) {
     import('./landing.js').then(m => m.initLanding());
-    // Reuse the existing mm-toast style — no new CSS introduced
-    let el = document.getElementById('mm-toast');
-    if (!el) {
-      el = document.createElement('div');
-      el.id = 'mm-toast';
-      el.className = 'mm-toast';
-      document.body.appendChild(el);
-    }
-    el.textContent = 'Bike nicht gefunden.';
-    el.classList.remove('mm-toast--show');
-    void el.offsetWidth; // force reflow so re-adding the class triggers transition
-    el.classList.add('mm-toast--show');
-    clearTimeout(el._t);
-    el._t = setTimeout(() => el.classList.remove('mm-toast--show'), 2800);
+    zeigeToast("Bike nicht gefunden.");
     return;
   }
 
@@ -287,6 +274,9 @@ function buildPage(bike, fromQuiz = true, hinweis = null) {
     <section class="bd-hero">
       <button class="bd-back" id="garage-back">
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 12H5M12 19l-7-7 7-7"/></svg>
+      </button>
+      <button class="bd-back bd-teilen" id="garage-teilen" type="button" aria-label="Teilen">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 15V3M7 8l5-5 5 5M5 13v6a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-6"/></svg>
       </button>
 
       <!-- Wortmarke sitzt in der Bildbox, damit sie an das Motorrad
@@ -691,6 +681,8 @@ function bindEvents(bikeData, answers) {
   document.getElementById("garage-back")?.addEventListener("click", () => {
     if (!navGoBack()) goBack();
   });
+  document.getElementById("garage-teilen")?.addEventListener("click", () => teilen(bikeData));
+  teilBildVorladen(bikeData);
 
   // Hinweis-Puls: erst nach 15s Inaktivität starten (siehe scheduleTabHint)
   scheduleTabHint();
@@ -698,6 +690,7 @@ function bindEvents(bikeData, answers) {
   // Sticky nav: toggle .scrolled class + hide hero back button
   const stickyNav = document.getElementById("bd-sticky-nav");
   const heroBack = document.getElementById("garage-back");
+  const heroTeilen = document.getElementById("garage-teilen");
   const scrollRoot = document.getElementById("garage-container");
   if (stickyNav && scrollRoot) {
     const checkScrolled = () => {
@@ -708,6 +701,10 @@ function bindEvents(bikeData, answers) {
       if (heroBack) {
         heroBack.style.opacity = stuck ? "0" : "1";
         heroBack.style.pointerEvents = stuck ? "none" : "auto";
+      }
+      if (heroTeilen) {
+        heroTeilen.style.opacity = stuck ? "0" : "1";
+        heroTeilen.style.pointerEvents = stuck ? "none" : "auto";
       }
     };
     // #garage-container ist statisch (index.html) und wird nie neu erzeugt —
@@ -1042,53 +1039,65 @@ function initHubScrollEffect() {
 //  SHARE
 // ══════════════════════════════════════════════════════════════
 
-function shareResult(bikeData) {
-  const heroImg = document.querySelector(".bd-hero-img");
-  if (!heroImg || heroImg.naturalWidth === 0) return;
+/**
+ * Teilen-Knopf auf dem Deckblatt. Geteilt wird der Direktlink auf genau diese Seite
+ * (?motorrad=<slug>, app.js) — wer ihn öffnet, landet hier und nicht auf der Startseite.
+ * Wo es ein Pin-Bild gibt (public/pins, scripts/pins/bauen.mjs), geht es als Bild mit:
+ * in WhatsApp und Instagram-Story wirkt das stärker als ein nackter Link.
+ * Das Bild wird beim Öffnen der Seite vorgeladen — Safari erlaubt navigator.share nur
+ * direkt im Tipp, ein fetch dazwischen kostet die Freigabe.
+ */
+let teilBild = null;
+const teilSlug = (bike) => String(bike?.slug || "").toLowerCase().replace(/_/g, "-");
 
-  const c = document.createElement("canvas");
-  const w = heroImg.naturalWidth;
-  const h = heroImg.naturalHeight;
-  c.width = w;
-  c.height = h;
-  const ctx = c.getContext("2d");
-  ctx.drawImage(heroImg, 0, 0);
+function teilBildVorladen(bike) {
+  teilBild = null;
+  const slug = teilSlug(bike);
+  if (!slug || !hatFoto(bike) || !navigator.canShare) return;
+  fetch(`/pins/${slug}.jpg`)
+    .then((r) => (r.ok && /image/.test(r.headers.get("content-type") || "") ? r.blob() : null))
+    .then((blob) => {
+      if (!blob || teilSlug(bike) !== slug) return;
+      const datei = new File([blob], `motomatch-${slug}.jpg`, { type: "image/jpeg" });
+      if (navigator.canShare({ files: [datei] })) teilBild = { slug, datei };
+    })
+    .catch(() => {});
+}
 
-  // Gradient watermark
-  const grad = ctx.createLinearGradient(0, h - 80, 0, h);
-  grad.addColorStop(0, "rgba(0,0,0,0)");
-  grad.addColorStop(1, "rgba(0,0,0,0.8)");
-  ctx.fillStyle = grad;
-  ctx.fillRect(0, h - 80, w, 80);
-
-  ctx.fillStyle = "#ffffff";
-  ctx.font = `600 ${Math.round(w * 0.028)}px Inter, -apple-system, sans-serif`;
-  ctx.fillText(bikeData.name, 28, h - 32);
-
-  ctx.font = `400 ${Math.round(w * 0.015)}px Inter, -apple-system, sans-serif`;
-  ctx.fillStyle = "rgba(255,255,255,0.6)";
-  ctx.fillText(`${bikeData.cc}cc / ${bikeData.ps}PS / MotoMatch`, 28, h - 14);
-
-  const dataUrl = c.toDataURL("image/png");
-
-  // Try native share, fallback to download
-  if (navigator.share) {
-    c.toBlob((blob) => {
-      const file = new File(
-        [blob],
-        `motomatch-${bikeData.name.replace(/\s+/g, "-")}.png`,
-        { type: "image/png" },
-      );
-      navigator
-        .share({ title: `MotoMatch: ${bikeData.name}`, files: [file] })
-        .catch(() => {});
-    });
-  } else {
-    const a = document.createElement("a");
-    a.href = dataUrl;
-    a.download = `motomatch-${bikeData.name.replace(/\s+/g, "-").toLowerCase()}.png`;
-    a.click();
+async function teilen(bike) {
+  const slug = teilSlug(bike);
+  const url = slug ? `${location.origin}/?motorrad=${slug}&utm_source=teilen` : location.href;
+  const text = `${bike.name} – passt sie zu dir? Schau sie dir auf MotoMatch an:`;
+  try {
+    if (navigator.share) {
+      const datei = teilBild?.slug === slug ? teilBild.datei : null;
+      // Mit Bild den Link in den Text: manche Apps verwerfen das url-Feld neben einer Datei
+      await navigator.share(datei
+        ? { title: `MotoMatch: ${bike.name}`, text: `${text} ${url}`, files: [datei] }
+        : { title: `MotoMatch: ${bike.name}`, text, url });
+      return;
+    }
+    await navigator.clipboard.writeText(url);
+    zeigeToast("Link kopiert ✓");
+  } catch (err) {
+    if (err?.name !== "AbortError") zeigeToast("Teilen hat nicht geklappt.");
   }
+}
+
+function zeigeToast(text) {
+  let el = document.getElementById("mm-toast");
+  if (!el) {
+    el = document.createElement("div");
+    el.id = "mm-toast";
+    el.className = "mm-toast";
+    document.body.appendChild(el);
+  }
+  el.textContent = text;
+  el.classList.remove("mm-toast--show");
+  void el.offsetWidth; // force reflow so re-adding the class triggers transition
+  el.classList.add("mm-toast--show");
+  clearTimeout(el._t);
+  el._t = setTimeout(() => el.classList.remove("mm-toast--show"), 2800);
 }
 
 // ══════════════════════════════════════════════════════════════

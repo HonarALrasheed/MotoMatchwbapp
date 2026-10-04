@@ -11,7 +11,11 @@
  * mit utm_source=pinterest für die Statistik.
  *
  * Gerendert wird mit Chromium (playwright-core), damit Schrift und Satz wie auf der Seite sind:
- *   PLAYWRIGHT=/pfad/zu/playwright-core node scripts/pins/bauen.mjs [--start 2026-10-05] [--csv <ordner>] [--nur <slug,…>]
+ * Ab dem 13.10. übernimmt der RSS-Feed (api/pins-feed.js, /pins/feed/<bauart>.xml): er gibt
+ * die Pins aus api/_pins-plan.js zu ihrer Zeit frei, Pinterest holt sie selbst ab. Der Plan
+ * behält Reihenfolge und Zeiten schon geplanter Bikes; neue Bikes reihen sich hinten an.
+ *
+ *   PLAYWRIGHT=/pfad/zu/playwright-core node scripts/pins/bauen.mjs [--start 2026-10-05] [--csv <ordner>] [--nur <slug,…>] [--ohne-bilder]
  */
 import { readFileSync, writeFileSync, mkdirSync, existsSync } from "node:fs";
 import { dirname, join } from "node:path";
@@ -29,8 +33,10 @@ const morgen = new Date(Date.now() + 864e5).toISOString().slice(0, 10);
 const START = arg("--start", morgen);
 const CSV_ORDNER = arg("--csv", join(WURZEL, "dist-pins"));
 const NUR = arg("--nur", "")?.split(",").filter(Boolean);
+const OHNE_BILDER = process.argv.includes("--ohne-bilder");
+const PLAN = join(WURZEL, "api/_pins-plan.js");
+const PER_CSV = 100; // so viele gingen per pinterest-1.csv raus — der Feed lässt sie aus
 
-const { chromium } = await import(process.env.PLAYWRIGHT || "playwright-core");
 
 const katalog = JSON.parse(readFileSync(join(WURZEL, "public/data/katalog-de.json"), "utf8"));
 let bikes = katalog.bikes.filter((b) => b.studio && b.freigegeben !== false && existsSync(join(WURZEL, "public", b.studio)));
@@ -135,17 +141,25 @@ function reihenfolge(liste) {
 
 mkdirSync(ZIEL, { recursive: true });
 mkdirSync(CSV_ORDNER, { recursive: true });
-const browser = await chromium.launch();
-const seite = await browser.newPage({ viewport: { width: 1000, height: 1500 } });
-const sortiert = reihenfolge(bikes);
+// Bisheriger Plan zuerst, neue Bikes dahinter — sonst verschöben sich schon geplante Pins
+let alterPlan = [];
+if (existsSync(PLAN) && !NUR?.length) alterPlan = (await import(`${PLAN}?${Date.now()}`)).default;
+const bekannt = new Map(bikes.map((b) => [kurzSlug(b), b]));
+const sortiert = [
+  ...alterPlan.map((e) => bekannt.get(e.s)).filter(Boolean),
+  ...reihenfolge(bikes.filter((b) => !alterPlan.some((e) => e.s === kurzSlug(b)))),
+];
 let n = 0;
-for (const b of sortiert) {
+const { chromium } = OHNE_BILDER ? {} : await import(process.env.PLAYWRIGHT || "playwright-core");
+const browser = OHNE_BILDER ? null : await chromium.launch();
+const seite = await browser?.newPage({ viewport: { width: 1000, height: 1500 } });
+for (const b of OHNE_BILDER ? [] : sortiert) {
   await seite.setContent(html(b), { waitUntil: "load" });
   await seite.evaluate(() => document.fonts.ready);
   await seite.screenshot({ path: join(ZIEL, `${kurzSlug(b)}.jpg`), type: "jpeg", quality: 84 });
   if (++n % 50 === 0) console.log(`[pins] ${n}/${sortiert.length}`);
 }
-await browser.close();
+await browser?.close();
 
 // Upload-Dateien (Spalten wie in Pinterests Vorlage)
 const KOPF = ["Title", "Media URL", "Pinterest board", "Thumbnail", "Description", "Link", "Publish date", "Keywords"];
@@ -162,5 +176,22 @@ for (let i = 0; i * JE_DATEI < zeilen.length; i++) {
   const datei = join(CSV_ORDNER, `pinterest-${i + 1}.csv`);
   writeFileSync(datei, [KOPF, ...teil].map((z) => z.map(csvFeld).join(",")).join("\n") + "\n");
   console.log(`[pins] ${datei}: ${teil.length} Pins, ${teil[0][6].slice(0, 10)} bis ${teil.at(-1)[6].slice(0, 10)}`);
+}
+
+// Plan für den Feed: gleiche Reihenfolge, gleiche Zeiten wie die CSV-Zeilen
+if (!NUR?.length) {
+  const plan = sortiert.map((b, i) => {
+    const t = texte(b);
+    return { s: kurzSlug(b), art: b.style, t: t.titel, d: t.beschr, ab: new Date(zeilen[i][6]).getTime(), csv: i < PER_CSV };
+  });
+  // Pinterest nimmt beim Verknüpfen keinen leeren Feed: je Bauart ist der erste Feed-Pin
+  // schon ab Planbeginn frei (bleibt beim Neubau so, weil alte Einträge ihre Zeit behalten)
+  for (const e of alterPlan) { const p = plan.find((x) => x.s === e.s); if (p) p.ab = e.ab; }
+  for (const art of new Set(plan.map((e) => e.art))) {
+    const erster = plan.find((e) => e.art === art && !e.csv);
+    if (erster && !alterPlan.length) erster.ab = new Date(`${START}T00:00:00`).getTime() - 864e5;
+  }
+  writeFileSync(PLAN, `// Erzeugt von scripts/pins/bauen.mjs — nicht von Hand ändern.\n// s = Slug, art = Bauart, t = Titel, d = Beschreibung, ab = Freigabe (ms), csv = schon per CSV hochgeladen\nexport default ${JSON.stringify(plan)};\n`);
+  console.log(`[pins] Plan: ${plan.length} Einträge, davon ${plan.filter((e) => !e.csv).length} für den Feed`);
 }
 console.log(`[pins] fertig: ${n} Bilder in public/pins/`);

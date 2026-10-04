@@ -325,7 +325,7 @@ const fuss = () => `
   </main>
   <footer class="fuss">
     <p>Preise: mittlere Marktpreise gebraucht${STAND ? `, Stand ${esc(STAND)}` : ""}. Alle Angaben ohne Gewähr.</p>
-    <p><a href="/motorraeder/">Alle Themen</a> · <a href="/impressum.html">Impressum</a> · <a href="/datenschutz.html">Datenschutz</a> · <a href="/agb.html">AGB</a></p>
+    <p><a href="/motorraeder/">Alle Themen</a> · <a href="/fuer-fahrschulen/">Für Fahrschulen</a> · <a href="/impressum.html">Impressum</a> · <a href="/datenschutz.html">Datenschutz</a> · <a href="/agb.html">AGB</a></p>
   </footer>
 </body>
 </html>
@@ -725,7 +725,7 @@ ${gruppe("Marke")}
 }
 
 const heute = new Date().toISOString().slice(0, 10);
-const adressen = ["/", "/motorraeder/", "/vergleich/", ...themen.map((t) => t.pfad), ...bikes.map((b) => bikePfad.get(b)), ...vergleiche.map((v) => v.pfad)];
+const adressen = ["/", "/motorraeder/", "/vergleich/", "/fuer-fahrschulen/", ...themen.map((t) => t.pfad), ...bikes.map((b) => bikePfad.get(b)), ...vergleiche.map((v) => v.pfad)];
 /* Bild-Sitemap (Google-Erweiterung): die echten Fotos je Bike-Seite, damit sie in der Bildersuche
    erscheinen. Nur echte Fotos — Platzhalter-Silhouetten gehören nicht in die Bildersuche. */
 const bilderJeSeite = new Map();

@@ -16246,3 +16246,48 @@ body.mm-plant .kv-sidebar .kv-search-row { display: none; }
 body.mm-faehrt .mm-fb-fab { display: none !important; }
 .leute-info-knoepfe { margin-top: 8px; }
 .leute-info-still { opacity: 0.6; cursor: default !important; }
+
+/* ── Wissen: Menü, Konto und Startseite verlinken Katalog und Ratgeber (landing.js, account.js) ── */
+.p-drawer-sub--zwei { margin: 18px 0 10px; }
+/* Zwei Blöcke statt einem: beide nur so hoch wie ihr Inhalt, die Fußzeile rutscht nach unten */
+.p-drawer-panel .p-drawer-nav { flex: none; }
+.p-drawer-panel .p-drawer-foot { margin-top: auto; }
+.p-drawer-link { display: block; text-decoration: none; }
+.acc-navlink { text-decoration: none; }
+
+.p-wissen {
+  padding: 0 clamp(24px, 5vw, 80px) clamp(56px, 7vw, 104px);
+  background: #fff;
+}
+.p-wissen-karten {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+  max-width: 1080px;
+  margin: 0 auto;
+}
+.p-wissen-karte {
+  position: relative; display: block; overflow: hidden;
+  border-radius: 14px; background: #0e0e0f; text-decoration: none;
+}
+.p-wissen-karte img { display: block; width: 100%; height: auto; aspect-ratio: 4 / 3; object-fit: cover; transition: transform .4s var(--ease-out, ease); }
+.p-wissen-karte span {
+  position: absolute; left: 14px; right: 14px; bottom: 12px;
+  font-family: var(--p-font); font-size: 15px; font-weight: 500; color: #fff;
+}
+@media (hover: hover) and (pointer: fine) {
+  .p-wissen-karte:hover img { transform: scale(1.04); }
+}
+.p-wissen-mehr { display: flex; justify-content: center; gap: 24px; margin-top: 24px; }
+.p-wissen-mehr a { font-family: var(--p-font); font-size: 14px; color: #111; text-decoration: none; border-bottom: 1px solid rgba(0,0,0,.25); padding-bottom: 2px; }
+.p-wissen-mehr a:hover { border-color: #111; }
+/* Handy: eine Reihe zum Wischen statt vier gestauchter Karten */
+@media (max-width: 760px) {
+  .p-wissen { padding-left: 0; padding-right: 0; }
+  .p-wissen-karten {
+    display: flex; gap: 10px; overflow-x: auto; scroll-snap-type: x mandatory;
+    padding: 0 24px; scroll-padding-left: 24px; scrollbar-width: none;
+  }
+  .p-wissen-karten::-webkit-scrollbar { display: none; }
+  .p-wissen-karte { flex: 0 0 62%; scroll-snap-align: start; }
+}

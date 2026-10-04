@@ -458,15 +458,51 @@ for (const t of themen) {
 }
 
 const gruppen = [...new Set(themen.map((t) => t.gruppe))];
+/* Übersicht: Kacheln mit kurzen Namen statt einer Wand aus langen Pillen (2026-10-05).
+   Führerschein und Bauart oben groß, der Rest kompakt; Marken und Bauart × Klasse aufklappbar. */
+const FS_KURZ = {
+  "fuehrerschein-a1": ["A1", "ab 16 · bis 125 ccm"], "fuehrerschein-b196": ["B196", "mit dem Autoführerschein"],
+  "fuehrerschein-a2": ["A2", "ab 18 · bis 48 PS"], "fuehrerschein-a": ["A", "ohne Leistungsgrenze"],
+};
+const KURZ = {
+  einsteiger: "Für Einsteiger", "niedrige-sitzhoehe": "Niedrige Sitzhöhe", "leichte-motorraeder": "Unter 180 kg",
+  "motorrad-unter-150-kg": "Unter 150 kg", "motorrad-unter-200-kg": "Unter 200 kg", "leichte-a2-motorraeder": "Leichte A2-Bikes",
+  "motorrad-fuer-grosse-fahrer": "Ab 1,85 m",
+};
+function kurzName(t) {
+  if (KURZ[t.slug]) return KURZ[t.slug];
+  let m;
+  if ((m = t.slug.match(/^motorrad-fuer-(\d+)-cm$/))) return `${dez((m[1] / 100).toFixed(2))} m`;
+  if ((m = t.slug.match(/^(a2-)?unter-(\d+)-euro$/))) return `${m[1] ? "A2 " : ""}unter ${zahl(+m[2])} €`.replace(/^u/, "U");
+  if (t.marke) return t.marke;
+  if (t.gruppe === "Bauart × Führerschein") return t.h1.replace(" für den A2-Führerschein", " · A2").replace(" mit 125 ccm (A1/B196)", " · 125er");
+  return t.h1;
+}
+const kachel = (t) => `<li><a class="kachel" href="${t.pfad}"><strong>${esc(kurzName(t))}</strong><span>${zahl(t.liste.length)} Modelle</span></a></li>`;
+const themenIn = (g) => themen.filter((t) => t.gruppe === g);
+const bauartBild = (t) => { const b = t.liste.find((x) => x.studio && hatFoto(x)); return b ? b.studio : null; };
 schreibe("/motorraeder/", kopf({
   titel: "Motorräder nach Führerschein, Bauart und Budget",
   beschreibung: `Motorrad finden: ${bikes.length} Modelle aus dem deutschen Markt, sortiert nach Führerschein (A1, A2, A, B196), Bauart, Budget und Marke — mit Gebrauchtpreis und Daten.`,
   pfad: "/motorraeder/", krumen: [["Start", "/"], ["Motorräder", "/motorraeder/"]] }) + `
-    <h1>Motorräder nach Führerschein, Bauart und Budget</h1>
-    <p class="intro">${bikes.length} Modelle aus dem deutschen Markt, jedes mit Gebrauchtpreis, Leistung und Führerscheinklasse. Wähle ein Thema — oder lass dir im Quiz das passende Bike zeigen.</p>
-    ${gruppen.map((g) => `<section><h2>${esc(g)}</h2><ul class="themen">${themen.filter((t) => t.gruppe === g)
-      .map((t) => `<li><a href="${t.pfad}">${esc(t.h1)}</a> <span>${t.liste.length}</span></li>`).join("")}</ul></section>`).join("")}
-    <section><h2>Vergleiche</h2><ul class="themen"><li><a href="/vergleich/">Alle Motorrad-Vergleiche</a> <span>${vergleiche.length}</span></li></ul></section>
+    <h1>Motorräder finden</h1>
+    <p class="intro">${zahl(bikes.length)} Modelle aus dem deutschen Markt — nach Führerschein, Bauart, Größe und Budget. Oder lass dir im <a href="/">Quiz</a> das passende Bike zeigen.</p>
+
+    <section class="ueb"><h2>Führerschein</h2>
+      <ul class="kacheln kacheln--fs">${themenIn("Führerschein").map((t) => `<li><a class="kachel kachel--fs" href="${t.pfad}"><strong>${FS_KURZ[t.slug]?.[0] || esc(t.h1)}</strong><em>${FS_KURZ[t.slug]?.[1] || ""}</em><span>${zahl(t.liste.length)} Modelle</span></a></li>`).join("")}</ul>
+    </section>
+
+    <section class="ueb"><h2>Bauart</h2>
+      <ul class="kacheln kacheln--bild">${themenIn("Bauart").map((t) => { const bild = bauartBild(t); return `<li><a class="kachel kachel--bild" href="${t.pfad}">${bild ? `<img src="${esc(bild)}" alt="" loading="lazy" width="640" height="480" />` : ""}<strong>${esc(t.h1)}</strong><span>${zahl(t.liste.length)} Modelle</span></a></li>`; }).join("")}</ul>
+    </section>
+
+    ${["Für wen", "Körpergröße", "Budget"].map((g) => themenIn(g).length ? `<section class="ueb"><h2>${esc(g)}</h2><ul class="kacheln">${themenIn(g).map(kachel).join("")}</ul></section>` : "").join("")}
+
+    <section class="ueb">
+      <details class="aufklapp"><summary>Bauart nach Führerschein <span>${themenIn("Bauart × Führerschein").length}</span></summary><ul class="kacheln">${themenIn("Bauart × Führerschein").map(kachel).join("")}</ul></details>
+      <details class="aufklapp"><summary>Alle Marken <span>${themenIn("Marke").length}</span></summary><ul class="marken">${themenIn("Marke").map((t) => `<li><a href="${t.pfad}">${esc(t.marke)}</a> <span>${t.liste.length}</span></li>`).join("")}</ul></details>
+      <a class="aufklapp aufklapp--link" href="/vergleich/">Motorrad-Vergleiche <span>${zahl(vergleiche.length)}</span></a>
+    </section>
 ` + fuss());
 
 for (const b of bikes) {
@@ -778,6 +814,37 @@ h2{font-size:22px;font-weight:600;margin:40px 0 14px}
 .r-karten strong{display:block;font-size:18px;padding:14px 16px 4px;line-height:1.25}
 .r-karten span{color:var(--dim);font-size:14px;padding:0 16px 16px}
 .knopf.klein{white-space:nowrap}
+.ueb{margin-top:40px}
+.ueb h2{font-size:24px;font-weight:800;margin:0 0 14px}
+.kacheln{list-style:none;display:grid;grid-template-columns:repeat(auto-fill,minmax(170px,1fr));gap:10px}
+.kachel{display:flex;flex-direction:column;justify-content:space-between;gap:4px;height:100%;padding:16px;background:var(--fl);border:1px solid var(--rand);border-radius:14px;text-decoration:none;transition:border-color .2s,background .2s}
+.kachel:hover{border-color:rgba(255,255,255,.35);background:#1a1a1a}
+.kachel strong{font-size:17px;font-weight:600;line-height:1.25}
+.kachel span{font-size:13px;color:var(--dim)}
+.kacheln--fs{grid-template-columns:repeat(4,minmax(0,1fr))}
+.kachel--fs strong{font-size:44px;font-weight:800;line-height:1}
+.kachel--fs em{font-style:normal;font-size:14px;color:rgba(255,255,255,.75);margin-top:6px}
+.kacheln--bild{grid-template-columns:repeat(4,minmax(0,1fr))}
+.kachel--bild{padding:0;overflow:hidden;position:relative;justify-content:flex-end;min-height:0}
+.kachel--bild img{width:100%;height:auto;aspect-ratio:4/3;object-fit:cover;display:block}
+.kachel--bild strong{padding:12px 14px 0}
+.kachel--bild span{padding:0 14px 14px}
+.aufklapp{display:block;margin-top:10px;background:var(--fl);border:1px solid var(--rand);border-radius:14px;text-decoration:none}
+.aufklapp summary,.aufklapp--link{display:flex;justify-content:space-between;align-items:center;padding:16px 18px;font-size:17px;font-weight:600;cursor:pointer;list-style:none}
+.aufklapp summary::-webkit-details-marker{display:none}
+.aufklapp summary::after{content:"+";font-size:22px;font-weight:400;color:var(--dim);margin-left:12px}
+.aufklapp[open] summary::after{content:"–"}
+.aufklapp--link::after{content:"›";font-size:22px;font-weight:400;color:var(--dim);margin-left:12px}
+.aufklapp summary span,.aufklapp--link span{margin-left:auto;font-size:13px;font-weight:400;color:var(--dim)}
+.aufklapp .kacheln{padding:0 14px 14px}
+.marken{list-style:none;columns:4 160px;column-gap:24px;padding:4px 18px 18px}
+.marken li{break-inside:avoid;padding:4px 0;font-size:15px}
+.marken a{text-decoration:none}
+.marken a:hover{text-decoration:underline}
+.marken span{color:var(--dim);font-size:12px}
+.intro a{text-decoration:underline;text-underline-offset:3px}
+.artikel .karte a{text-decoration:none}
+@media (max-width:760px){.kacheln--fs,.kacheln--bild{grid-template-columns:repeat(2,minmax(0,1fr))}.kacheln{grid-template-columns:repeat(2,minmax(0,1fr))}.kachel--fs strong{font-size:36px}.kachel:not(.kachel--bild){padding:14px}.kachel:not(.kachel--fs) strong{font-size:16px}.kachel--bild strong{padding:10px 12px 0}.kachel--bild span{padding:0 12px 12px}}
 @media (max-width:520px){.kopf{grid-template-columns:auto 1fr auto;gap:8px}.kopf-nav{justify-self:center}.kopf-nav a{padding:7px 12px;font-size:14px}.logo{letter-spacing:.14em;font-size:13px}.kopf-quiz{padding:8px 12px;font-size:14px}.kopf-quiz span{display:none}.r-fakten{grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}.r-fakten div{padding:14px}.r-fakten strong{font-size:22px}.raster.mini{grid-template-columns:repeat(2,minmax(0,1fr))}}
 @media (max-width:900px){.r-layout{grid-template-columns:1fr;gap:8px}.r-seite{position:static;order:-1}.r-quiz{display:none}.r-held{display:block;min-height:0}.r-held img{position:static;width:100%;height:auto;aspect-ratio:4/3}.r-held::after{background:linear-gradient(180deg,rgba(20,20,20,0) 40%,#141414 74%)}.r-held-text{margin-top:-90px;padding:0 18px 22px}}
 .knopf.zweit{background:transparent;color:#fff;border:1px solid rgba(255,255,255,.35)}

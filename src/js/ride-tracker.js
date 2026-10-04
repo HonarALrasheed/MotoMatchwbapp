@@ -23,6 +23,8 @@ const LS_LAUFEND = 'mm_ride_track_active_v1'
 const MAX_UNGENAUIGKEIT_M = 50   // schlechter gemessene Punkte fliegen raus
 const MIN_SCHRITT_M       = 5    // darunter: Rauschen im Stand, kein Weg
 const MAX_TEMPO_KMH       = 260  // darueber: Sprung, kein Motorrad
+const LUECKE_AB_S         = 25   // so lange kein GPS (Hintergrund) …
+const LUECKE_AB_M         = 300  // … und so weit weg: Lücke, kein Sprung
 const FAHRT_AB_KMH        = 3    // darunter laeuft die Fahrzeit nicht weiter
 const SICHERN_ALLE_MS     = 5000 // Zwischenstand gegen Absturz/Neuladen
 
@@ -243,7 +245,15 @@ export function starteAufzeichnung({ beiAenderung, beiFehler, fortsetzen = null 
         const d = entfernungM(letzter.lat, letzter.lon, lat, lon)
         const dtS = Math.max((jetzt - letzterMs) / 1000, 0.001)
         const kmh = d / dtS * 3.6
-        if (kmh > MAX_TEMPO_KMH) return          // Sprung des Empfaengers
+        /* Lücke: Im Hintergrund (Bildschirm gesperrt, andere App vorn) liefert
+           der Browser kein GPS. Kommt danach ein weit entfernter Punkt, ist das
+           keine gerade Fahrt — markieren, beim Speichern über Straßen ergänzen. */
+        // ab dem letzten Wegpunkt gemessen: manche Browser melden im Stand
+        // dieselbe Position immer wieder, das zählt nicht als "GPS da"
+        const seitWegpunktS = (jetzt - (start + letzter.t * 1000)) / 1000
+        const luecke = seitWegpunktS > LUECKE_AB_S && d > LUECKE_AB_M
+        if (kmh > MAX_TEMPO_KMH && !luecke) return          // Sprung des Empfaengers
+        if (luecke) punkt.luecke = true
 
         const gemessen = speed != null && speed >= 0 ? speed * 3.6 : kmh
 
@@ -311,9 +321,27 @@ export function starteAufzeichnung({ beiAenderung, beiFehler, fortsetzen = null 
         aufraeumen()
         verwerfeUnterbrochene()
         if (punkte.length < 2) return null
-        const knapp = vereinfache(punkte, 12).slice(0, 400)
+        // Je Abschnitt zwischen GPS-Lücken vereinfachen, damit die Lücken-Enden
+        // erhalten bleiben; lange Fahrten gröber statt abgeschnitten
+        const abschnitte = [[]]
+        for (const p of punkte) {
+          if (p.luecke && abschnitte[abschnitte.length - 1].length) abschnitte.push([])
+          abschnitte[abschnitte.length - 1].push(p)
+        }
+        let knapp, toleranz = 12
+        do {
+          knapp = []
+          const luecken = []
+          for (const a of abschnitte) {
+            if (knapp.length) luecken.push(knapp.length - 1)
+            knapp.push(...(a.length > 2 ? vereinfache(a, toleranz) : a))
+          }
+          knapp.luecken = luecken
+          toleranz *= 1.5
+        } while (knapp.length > 1500)
         return {
           punkte: knapp.map(p => [+p.lat.toFixed(5), +p.lon.toFixed(5), p.t, p.alt]),
+          luecken: knapp.luecken,
           km: +(s.km).toFixed(2),
           fahrMs: Math.round(s.fahrMs),
           gesamtMs: Math.round(s.gesamtMs),

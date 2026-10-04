@@ -13,7 +13,7 @@
 
 import { esc } from './util.js'
 import { hinweisen, eingeben } from './meldung.js'
-import { getHubMap, getMapLib, haversineKm, getUserCoords, resolveOrt } from './karte.js'
+import { getHubMap, getMapLib, haversineKm, getUserCoords, resolveOrt, sucheAdressen } from './karte.js'
 import { route, naechster, RoutingFehler } from './routing.js'
 import { streckenIn } from './kurven.js'
 import { speichereStrecke, profilAus, alsTour, kurvigkeit, PRAEFIX } from './eigene-strecken.js'
@@ -280,7 +280,7 @@ function renderPanel() {
     <div class="plan-mini" id="plan-mini"></div>
     <form class="plan-suche" data-plan-suche>
       <span class="plan-suche-icon" aria-hidden="true">${PI.suche}</span>
-      <input type="search" placeholder="Ort oder PLZ hinzufügen" aria-label="Ort oder PLZ hinzufügen" enterkeyhint="go">
+      <input type="search" placeholder="Adresse oder Ort hinzufügen" aria-label="Adresse oder Ort hinzufügen" enterkeyhint="go">
       <button type="submit" class="plan-suche-los" aria-label="Hinzufügen">${PI.plus}</button>
     </form>
     <button type="button" class="plan-standort" data-plan="standort" ${p.punkte.length ? 'hidden' : ''}>${PI.standort}<span>Mein Standort als Start</span></button>
@@ -386,7 +386,10 @@ async function planSuche(e) {
   const feld = e.target.querySelector('input')
   const text = feld.value.trim()
   if (!p || !text) return
-  const ort = await resolveOrt(text)
+  // Erst Adressen (Straße, Hausnummer, Ort wie bei Google Maps), sonst eigener Ortsindex
+  let ort = null
+  try { const a = (await sucheAdressen(text, { limit: 1 }))[0]; if (a) ort = { ok: true, lat: a.lat, lng: a.lng, label: a.titel } } catch { /* Ortsindex */ }
+  if (!ort) ort = await resolveOrt(text)
   if (plan !== p) return
   if (!ort.ok) { feld.setCustomValidity('Ort nicht gefunden'); feld.reportValidity(); setTimeout(() => feld.setCustomValidity(''), 1500); return }
   merken()

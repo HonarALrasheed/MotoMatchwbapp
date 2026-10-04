@@ -8543,7 +8543,8 @@ body.mm-faehrt .fahrt { padding-top: calc(12px + var(--sa-top)); padding-bottom:
   justify-content: center;
 }
 .navi-puck-scheibe svg { width: 26px; height: 26px; fill: #1f7bff; }
-body.mm-faehrt .mm-standort-punkt { display: none; }
+/* Navi hat den eigenen Pfeil; beim Aufzeichnen bleibt der eigene Punkt (aufnahme-ich) */
+body.mm-faehrt .mm-standort-punkt:not(.aufnahme-ich) { display: none; }
 /* Startbildschirm im Panel */
 .fahrt-start-titel { margin: 10px 0 0; font-size: 21px; font-weight: 800; color: #fff; letter-spacing: -0.01em; }
 .fahrt-start-name { margin-top: 2px; font-size: 13px; color: rgba(255,255,255,0.55); }
@@ -9599,10 +9600,24 @@ body.mm-faehrt .mm-standort-punkt { display: none; }
 .aufnahme-werte { display: grid; grid-template-columns: repeat(3, 1fr); padding: 8px 0 12px; border-top: 1px solid rgba(255,255,255,0.08); text-align: center; }
 .aufnahme-werte strong { display: block; font-size: 19px; font-weight: 800; font-variant-numeric: tabular-nums; }
 .aufnahme-knoepfe { display: flex; gap: 8px; }
-.aufnahme-btn { flex: 1; height: 50px; border-radius: 14px; border: 1px solid rgba(255,255,255,0.14); background: rgba(255,255,255,0.07); color: #fff; font: 750 15px/1 var(--font); cursor: pointer; }
+.aufnahme-btn { flex: 1; height: 46px; border-radius: 14px; border: 1px solid rgba(255,255,255,0.14); background: rgba(255,255,255,0.07); color: #fff; font: 750 15px/1 var(--font); cursor: pointer; }
 .aufnahme-btn--stopp { background: #e63946; border-color: #e63946; }
 .aufnahme-btn--haupt { background: #3b5bdb; border-color: #3b5bdb; }
 .aufnahme-hinweis { margin: 8px 0 0; text-align: center; font-size: 11px; color: rgba(255,255,255,0.38); }
+.aufnahme-griff { width: 38px; height: 5px; margin: -6px auto 8px; border-radius: 3px; background: rgba(255,255,255,0.25); cursor: grab; touch-action: none; }
+.aufnahme-kopf { touch-action: none; cursor: pointer; }
+.aufnahme-kurz { display: none; margin-left: auto; color: #fff; font-size: 15px; font-variant-numeric: tabular-nums; }
+.aufnahme-kurz b { font-weight: 800; }
+/* Klein: eine Zeile mit Zeit und km, darunter schmale Knöpfe */
+.aufnahme--klein { padding: 12px 12px 10px; }
+.aufnahme--klein .aufnahme-haupt,
+.aufnahme--klein .aufnahme-werte,
+.aufnahme--klein .aufnahme-hinweis { display: none; }
+.aufnahme--klein .aufnahme-kurz { display: inline; }
+.aufnahme--klein .aufnahme-folgen:not([hidden]) { margin-left: 8px; }
+.aufnahme--klein .aufnahme-knoepfe { margin-top: 10px; }
+.aufnahme--klein .aufnahme-btn { height: 40px; border-radius: 12px; font-size: 14px; }
+.aufnahme-ergaenzt { font-size: 12.5px !important; line-height: 1.45; color: #ffd08a !important; }
 .aufnahme-speichern { display: flex; flex-direction: column; gap: 8px; }
 .aufnahme-speichern strong { font-size: 17px; }
 .aufnahme-speichern > span { font-size: 13px; color: rgba(255,255,255,0.6); }
@@ -16071,3 +16086,32 @@ body.mm-plant .kv-sidebar .kv-search-row { display: none; }
 .gear-style-select option { color: #111; }
 
 .mmc-up-ki { margin-top:6px; font-size:11px; color:rgba(255,255,255,.4); }
+
+/* ── Ortssuche: Vorschläge beim Tippen + Stecknadel ─────────────────── */
+.kv-vorschlaege { display: flex; flex-direction: column; margin: 2px 0 8px; padding: 4px; border-radius: 14px; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.08); }
+.kv-vorschlaege[hidden] { display: none; }
+.kv-vorschlag-kopf { padding: 6px 10px 4px; font-size: 11px; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; color: rgba(255,255,255,0.4); }
+.kv-vorschlag { display: flex; align-items: center; gap: 12px; width: 100%; padding: 9px 10px; border: 0; border-radius: 10px; background: none; color: #fff; text-align: left; cursor: pointer; }
+.kv-vorschlag:hover, .kv-vorschlag--an { background: rgba(255,255,255,0.08); }
+.kv-vorschlag svg { flex: none; width: 18px; height: 18px; fill: none; stroke: rgba(255,255,255,0.55); stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.kv-vorschlag span { min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.kv-vorschlag strong { font-size: 14px; font-weight: 650; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.kv-vorschlag em { font-style: normal; font-size: 12px; color: rgba(255,255,255,0.5); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.kv-vorschlag-leer { padding: 10px; font-size: 13px; color: rgba(255,255,255,0.5); }
+.kv-search-input::-webkit-search-cancel-button { display: none; }
+.mm-such-pin { width: 30px; height: 40px; filter: drop-shadow(0 3px 4px rgba(0,0,0,0.35)); cursor: pointer; }
+.mm-such-pin svg { width: 100%; height: 100%; }
+.mm-such-pin path { fill: #e03131; stroke: #fff; stroke-width: 1.5; }
+.mm-such-pin circle { fill: #fff; }
+
+/* Ziel-Karte an der Stecknadel: Route → Losfahren */
+.ziel-karte { min-width: 210px; }
+.ziel-werte { margin-top: 6px; font-size: 14px; color: rgba(255,255,255,0.75); }
+.ziel-werte strong { font-size: 17px; font-weight: 800; color: #7fb2ff; }
+.ziel-fehler { margin-top: 6px; font-size: 12.5px; line-height: 1.4; color: #ff9b9b; }
+.ziel-knoepfe { display: flex; margin-top: 10px; }
+.ziel-route, .ziel-los { flex: 1; display: inline-flex; align-items: center; justify-content: center; gap: 7px; height: 38px; border: 0; border-radius: 10px; font: 700 14px/1 var(--font); cursor: pointer; }
+.ziel-route { background: #1f7bff; color: #fff; }
+.ziel-route[disabled] { opacity: 0.7; cursor: default; }
+.ziel-route svg { width: 15px; height: 15px; fill: none; stroke: currentColor; stroke-width: 2.2; stroke-linecap: round; stroke-linejoin: round; }
+.ziel-los { background: #2f9e44; color: #fff; }

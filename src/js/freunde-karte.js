@@ -24,7 +24,7 @@ const SENDEN_MS = 20_000
 
 const zustand = {
   freunde: false,
-  oeffentlich: false,
+  naheListe: [],
   personen: new Map(), // schluessel → { marker, daten }
   freundesListe: [],   // letzte Abfrage für die Liste
   fehler: '',
@@ -176,15 +176,18 @@ async function oeffentlicheHolen(map) {
 async function aktualisieren() {
   const map = getHubMap()
   if (!map?.__mmBereit || document.hidden || !map.getContainer().offsetParent || zustand.demo) return
-  if (!zustand.freunde && !zustand.oeffentlich) { zeichnen([]); return }
+  // Der Modus regelt beides: wen ich sehe und wer mich sieht. Unsichtbar = niemand.
+  const modus = teilenModus()
+  if (!zustand.freunde || modus === 'aus') { zustand.freundesListe = []; zustand.naheListe = []; zeichnen([]); liste(); return }
   if (!angemeldet()) { zustand.fehler = 'anmelden'; zeichnen([]); liste(); return }
   try {
     const [fr, oe] = await Promise.all([
-      zustand.freunde ? freundeHolen() : [],
-      zustand.oeffentlich ? oeffentlicheHolen(map) : [],
+      freundeHolen(),
+      modus === 'oeffentlich' ? oeffentlicheHolen(map) : [],
     ])
     zustand.fehler = ''
     zustand.freundesListe = fr
+    zustand.naheListe = oe.filter((p) => !fr.some((f) => f.username === p.username))
     const freundNamen = new Set(fr.map((p) => p.username))
     zeichnen([...fr, ...oe.filter((p) => !freundNamen.has(p.username))])
   } catch (err) {
@@ -274,14 +277,13 @@ function knoepfe() {
   ctrl.prepend(g)
   g.addEventListener('click', () => {
     zustand.freunde = !zustand.freunde
-    if (!zustand.freunde) zustand.oeffentlich = false
     ansichtMerken()
     panelUmschalten(zustand.freunde)
     aktualisieren()
   })
   knopfStatus()
 }
-const ansichtMerken = () => schreiben(ANSICHT_KEY, { freunde: zustand.freunde, oeffentlich: zustand.oeffentlich })
+const ansichtMerken = () => schreiben(ANSICHT_KEY, { freunde: zustand.freunde })
 function knopfStatus() {
   document.querySelectorAll('.leute-knopf').forEach((b) => b.setAttribute('aria-pressed', String(zustand.freunde)))
 }
@@ -298,13 +300,11 @@ function panelUmschalten(an) {
     wrap.appendChild(el)
     el.addEventListener('click', async (e) => {
       const zu = e.target.closest('[data-leute-zu]')
-      if (zu) { zustand.freunde = false; zustand.oeffentlich = false; ansichtMerken(); knopfStatus(); panelUmschalten(false); aktualisieren(); return }
-      const nah = e.target.closest('[data-nah]')
-      if (nah) { zustand.oeffentlich = !zustand.oeffentlich; ansichtMerken(); liste(); aktualisieren(); return }
+      if (zu) { zustand.freunde = false; ansichtMerken(); knopfStatus(); panelUmschalten(false); aktualisieren(); return }
       const v = e.target.closest('[data-verbergen]')
       if (v) { await verbergenUmschalten(v.dataset.verbergen); liste(); return }
       const m = e.target.closest('[data-teilen]')
-      if (m) { await teilenSetzen(m.dataset.teilen); liste(); return }
+      if (m) { await teilenSetzen(m.dataset.teilen); liste(); aktualisieren(); return }
       const p = e.target.closest('[data-person]')
       if (p) {
         const d = zustand.freundesListe.find((x) => x.username === p.dataset.person)
@@ -328,12 +328,12 @@ async function liste() {
   const zeilen = freundeNamen
     .map((u) => mitPos.get(u) || { username: u, name: u, ohne: true })
     .sort((a, b) => (a.ohne - b.ohne) || new Date(b.zeit || 0) - new Date(a.zeit || 0))
-  let inhalt
-  if (!angemeldet() && !zustand.demo) inhalt = '<p class="leute-hinweis">Melde dich an, um zu sehen, wo deine Freunde sind.</p>'
-  else if (zustand.fehler === 'fehlt') inhalt = '<p class="leute-hinweis">Standorte sind noch nicht eingerichtet. Gleich wieder da.</p>'
-  else if (zustand.fehler === 'netz') inhalt = '<p class="leute-hinweis">Gerade keine Verbindung.</p>'
-  else if (!zeilen.length) inhalt = '<p class="leute-hinweis">Noch keine Freunde. Füge in der Community Fahrer als Freunde hinzu, dann siehst du sie hier.</p>'
-  else inhalt = `<ul class="leute-liste">${zeilen.map((p) => {
+  const ERKL = {
+    aus: { siehst: 'Niemanden', sehen: 'Niemand' },
+    freunde: { siehst: 'Nur deine Freunde', sehen: 'Nur Freunde, bei denen das Auge offen ist' },
+    oeffentlich: { siehst: 'Freunde und Fahrer in der Nähe', sehen: 'Freunde genau, alle anderen ungefähr (~1 km)' },
+  }[modus]
+  const zeile = (p, mitAuge) => {
     const km = !p.ohne && c.lat != null ? haversineKm(c.lat, c.lng, p.lat, p.lng) : null
     const vers = versteckt.has(p.username)
     return `<li>
@@ -341,26 +341,38 @@ async function liste() {
         <span class="leute-liste-bild" data-bild="${esc(p.username)}">${avatarHtml(p)}</span>
         <span class="leute-liste-text"><strong>${esc(p.name)}</strong><em>${p.ohne ? 'Teilt keinen Standort' : `${p.unterwegs ? 'Fährt gerade · ' : ''}${vor(p.zeit)}`}${km != null ? ` · ${km < 10 ? km.toFixed(1).replace('.', ',') : Math.round(km)} km` : ''}</em></span>
       </button>
-      ${modus === 'aus' ? '' : `<button type="button" class="leute-auge" data-verbergen="${esc(p.username)}" aria-pressed="${vers}" title="${vers ? `${esc(p.name)} sieht dich nicht – tippen zum Zeigen` : `${esc(p.name)} sieht dich – tippen zum Verbergen`}">${vers ? ICON.zu : ICON.auge}<span>${vers ? 'Verborgen' : 'Sieht dich'}</span></button>`}
+      ${mitAuge ? `<button type="button" class="leute-auge" data-verbergen="${esc(p.username)}" aria-pressed="${vers}" title="${vers ? `${esc(p.name)} sieht dich nicht – tippen zum Zeigen` : `${esc(p.name)} sieht dich – tippen zum Verbergen`}">${vers ? ICON.zu : ICON.auge}<span>${vers ? 'Verborgen' : 'Sieht dich'}</span></button>` : ''}
     </li>`
-  }).join('')}</ul>`
-  const anzahlVers = zeilen.filter((p) => versteckt.has(p.username)).length
+  }
+  let inhalt = ''
+  if (!angemeldet() && !zustand.demo) inhalt = '<p class="leute-hinweis">Melde dich an, um deinen Standort mit Freunden zu teilen.</p>'
+  else if (modus === 'aus') inhalt = '<p class="leute-hinweis">Du bist unsichtbar. Wähle „Freunde“ oder „Öffentlich“, um andere zu sehen. Gesehen wirst du nur, wenn du selbst teilst.</p>'
+  else if (zustand.fehler === 'fehlt') inhalt = '<p class="leute-hinweis">Standorte sind noch nicht eingerichtet. Gleich wieder da.</p>'
+  else if (zustand.fehler === 'netz') inhalt = '<p class="leute-hinweis">Gerade keine Verbindung.</p>'
+  else {
+    inhalt = `<div class="leute-abschnitt">Deine Freunde${zeilen.length ? ` <span>Auge = sieht dich</span>` : ''}</div>`
+      + (zeilen.length ? `<ul class="leute-liste">${zeilen.map((p) => zeile(p, true)).join('')}</ul>`
+        : '<p class="leute-hinweis">Noch keine Freunde. Füge in der Community Fahrer als Freunde hinzu.</p>')
+    if (modus === 'oeffentlich') {
+      const nah = zustand.naheListe
+      inhalt += `<div class="leute-abschnitt">In der Nähe <span>${nah.length ? `${nah.length} im Kartenausschnitt` : 'gerade niemand'}</span></div>`
+        + (nah.length ? `<ul class="leute-liste">${nah.slice(0, 20).map((p) => zeile(p, false)).join('')}</ul>` : '')
+    }
+  }
   el.innerHTML = `
-    <div class="leute-kopf"><strong>Freunde</strong><button type="button" class="leute-zu" data-leute-zu aria-label="Schließen">×</button></div>
+    <div class="leute-kopf"><strong>Standort</strong><button type="button" class="leute-zu" data-leute-zu aria-label="Schließen">×</button></div>
+    <div class="leute-modi" role="radiogroup" aria-label="Standort-Modus">
+      <button type="button" role="radio" data-teilen="aus" aria-checked="${modus === 'aus'}">${ICON.zu}<span>Unsichtbar</span></button>
+      <button type="button" role="radio" data-teilen="freunde" aria-checked="${modus === 'freunde'}">${ICON.freunde}<span>Freunde</span></button>
+      <button type="button" role="radio" data-teilen="oeffentlich" aria-checked="${modus === 'oeffentlich'}">${ICON.welt}<span>Öffentlich</span></button>
+    </div>
+    <dl class="leute-regel leute-regel--${modus}">
+      <div><dt>Du siehst</dt><dd>${ERKL.siehst}</dd></div>
+      <div><dt>Dich sieht</dt><dd>${ERKL.sehen}</dd></div>
+    </dl>
     ${inhalt}
-    <button type="button" class="leute-schalter" data-nah aria-pressed="${zustand.oeffentlich}">
-      <span class="leute-schalter-icon">${ICON.welt}</span><span class="leute-schalter-text"><strong>Fahrer in der Nähe zeigen</strong><em>Andere, die öffentlich teilen – ungefähr auf ~1 km</em></span><i aria-hidden="true"></i>
-    </button>
-    <div class="leute-teilen">
-      <span>Mein Standort</span>
-      <div class="fahrt-schalter" role="group" aria-label="Mein Standort teilen">
-        <button type="button" data-teilen="aus" aria-pressed="${modus === 'aus'}">Unsichtbar</button>
-        <button type="button" data-teilen="freunde" aria-pressed="${modus === 'freunde'}">Freunde</button>
-        <button type="button" data-teilen="oeffentlich" aria-pressed="${modus === 'oeffentlich'}">Öffentlich</button>
-      </div>
-      <em>${modus === 'aus' ? 'Du bist unsichtbar. Niemand sieht deinen Standort.'
-        : `${modus === 'freunde' ? 'Deine Freunde sehen dich' : 'Freunde sehen dich genau, alle anderen nur ungefähr (~1 km)'}, solange MotoMatch offen ist.${anzahlVers ? ` Vor ${anzahlVers === 1 ? 'einem Freund' : `${anzahlVers} Freunden`} verborgen.` : ' Mit dem Auge neben einem Namen verbirgst du dich vor einzelnen Freunden.'}`}</em>
-    </div>`
+    ${modus !== 'aus' ? '<p class="leute-fuss">Geteilt wird nur, solange MotoMatch offen ist.</p>' : ''}`
+  zeilen.push(...(modus === 'oeffentlich' ? zustand.naheListe : []))
   for (const p of zeilen) {
     bildVon(p.username).then((b) => {
       const z = el.querySelector(`[data-bild="${CSS.escape(p.username)}"]`)
@@ -379,10 +391,9 @@ export function leuteStarten() {
   gestartet = true
   const a = lesen(ANSICHT_KEY, {})
   zustand.freunde = !!a.freunde
-  zustand.oeffentlich = !!a.oeffentlich
   knopfStatus()
   teilenStarten()
-  getHubMap()?.on('moveend', () => { if (zustand.oeffentlich) aktualisieren() })
+  getHubMap()?.on('moveend', () => { if (teilenModus() === 'oeffentlich') aktualisieren() })
   document.addEventListener('visibilitychange', () => { if (!document.hidden) aktualisieren() })
   zustand.timer = setInterval(aktualisieren, ABFRAGE_MS)
   aktualisieren()
@@ -394,6 +405,7 @@ if (import.meta.env.DEV) {
     zeigen(personen, eigenes) {
       zustand.demo = true
       zustand.freundesListe = personen.filter((p) => p.freund)
+      zustand.naheListe = personen.filter((p) => !p.freund)
       zeichnen(personen)
       if (eigenes) {
         const el = document.querySelector('.mm-standort-punkt')

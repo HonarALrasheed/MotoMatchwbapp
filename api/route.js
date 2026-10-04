@@ -38,7 +38,11 @@ const TYP = {
 
 function erlaubt(req) {
   const liste = (process.env.ALLOWED_ORIGINS || "").split(",").map((s) => s.trim()).filter(Boolean);
-  return liste.includes(req.headers.origin || "");
+  const origin = req.headers.origin || "";
+  // Vercel-Testversionen haben je Deploy eine eigene Adresse (und sind per
+  // Vercel-Anmeldung geschützt): dort die eigene Herkunft zulassen.
+  if (process.env.VERCEL_ENV === "preview" && origin && origin === `https://${req.headers.host}`) return true;
+  return liste.includes(origin);
 }
 
 function gebremst(req) {

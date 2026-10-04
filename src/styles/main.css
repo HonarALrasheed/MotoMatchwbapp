@@ -15861,11 +15861,10 @@ body.mm-plant .kurven-legende { display: none; }
 .leute-modi button svg { width: 21px; height: 21px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
 .leute-modi button:hover { background: rgba(255,255,255,0.08); }
 .leute-modi button[aria-checked="true"] { background: #fff; color: #111; border-color: #fff; }
-.leute-regel { margin: 0; display: grid; gap: 6px; padding: 10px 12px; border-radius: 12px; background: rgba(255,255,255,0.05); }
-.leute-regel div { display: flex; gap: 10px; font-size: 12.5px; line-height: 1.35; }
-.leute-regel dt { flex: none; width: 74px; color: rgba(255,255,255,0.5); }
-.leute-regel dd { margin: 0; color: #fff; font-weight: 600; }
-.leute-regel--aus dd { color: rgba(255,255,255,0.75); }
+.leute-regel { margin: 0; display: grid; gap: 7px; padding: 10px 12px; border-radius: 12px; background: rgba(255,255,255,0.04); text-align: left; }
+.leute-regel div { display: grid; grid-template-columns: 70px 1fr; gap: 10px; align-items: baseline; font-size: 12.5px; line-height: 1.4; }
+.leute-regel dt { color: rgba(255,255,255,0.42); font-weight: 400; }
+.leute-regel dd { margin: 0; color: rgba(255,255,255,0.82); font-weight: 400; }
 .leute-abschnitt { display: flex; align-items: baseline; justify-content: space-between; margin-top: 2px; font-size: 12px; font-weight: 700; letter-spacing: 0.02em; text-transform: uppercase; color: rgba(255,255,255,0.5); }
 .leute-abschnitt span { font-weight: 500; text-transform: none; letter-spacing: 0; }
 .leute-fuss { margin: 0; font-size: 11px; color: rgba(255,255,255,0.4); text-align: center; }

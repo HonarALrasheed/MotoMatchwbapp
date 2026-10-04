@@ -778,7 +778,7 @@ export async function sucheAdressen(text, { signal, limit = 6 } = {}) {
   const c = karte?.getCenter()
   const par = new URLSearchParams({ q, lang: 'de', limit: String(limit + 4) })
   if (c) { par.set('lat', c.lat.toFixed(4)); par.set('lon', c.lng.toFixed(4)); par.set('location_bias_scale', '0.3') }
-  const r = await fetch(`/adresse/api/?${par}`, { signal })
+  const r = await fetch(`/adresse/api?${par}`, { signal })
   if (!r.ok) throw new Error(`Adresssuche HTTP ${r.status}`)
   const j = await r.json()
   const gesehen = new Set()

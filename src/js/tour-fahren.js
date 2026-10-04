@@ -642,7 +642,12 @@ function position(pos) {
 }
 
 function kameraRand(map) {
-  const h = map.getContainer().clientHeight
+  const h = map.getContainer().clientHeight, w = map.getContainer().clientWidth
+  // Handy quer: Hinweise stehen in einer Spalte links — der Pfeil fährt rechts davon
+  if (w > h && h < 560) {
+    const spalte = Math.min(340, Math.round(w * 0.42))
+    return { top: Math.round(h * 0.4), bottom: Math.round(h * 0.06), left: spalte + 24, right: 72 }
+  }
   return { top: Math.round(h * 0.5), bottom: Math.round(h * 0.06), left: 0, right: 0 }
 }
 

@@ -16214,5 +16214,30 @@ body.mm-plant .kv-sidebar .kv-search-row { display: none; }
 /* "Mein Standort" gibt es als runden Knopf auf der Karte — im Feld wäre es doppelt */
 .kv-search-row .kv-recenter-btn { display: none; }
 
+/* ── Navi im Querformat (Handy quer): Hinweise links in einer Spalte, die Karte
+   bekommt die rechte Seite; Tempo und Knöpfe rechts unten (wie Apple/Google). */
+@media (orientation: landscape) and (max-height: 560px) {
+  .fahrt { padding: max(10px, env(safe-area-inset-top)) max(12px, env(safe-area-inset-right)) max(10px, env(safe-area-inset-bottom)) max(12px, env(safe-area-inset-left)); align-items: flex-start; }
+  .fahrt-oben, .fahrt-unten { width: min(340px, 42vw); max-width: none; margin: 0; }
+  .fahrt-banner { border-radius: 18px; }
+  .fahrt-banner-haupt { gap: 10px; padding: 10px 14px 10px 10px; }
+  .fahrt-pfeil { width: 40px; height: 40px; }
+  .fahrt-pfeil svg { width: 38px; height: 38px; }
+  .fahrt-bis { font-size: 26px; }
+  .fahrt-satz { margin-top: 2px; font-size: 15px; -webkit-line-clamp: 1; }
+  .fahrt-danach { padding: 7px 14px; font-size: 13px; }
+  .fahrt-danach svg { width: 16px; height: 16px; }
+  .fahrt-abseits { font-size: 13px; }
+  .fahrt-mitte { position: absolute; right: max(12px, env(safe-area-inset-right)); bottom: max(10px, env(safe-area-inset-bottom)); width: auto; max-width: none; margin: 0; flex-direction: column; align-items: flex-end; gap: 10px; }
+  .fahrt-mitte > * { pointer-events: auto; }
+  .fahrt-unten { margin-top: auto; padding: 9px 10px 7px 14px; border-radius: 18px; gap: 8px; }
+  .fahrt-werte { gap: 14px; }
+  .fahrt-werte strong { font-size: 18px; }
+  .fahrt-werte span { font-size: 10.5px; margin-top: 2px; }
+  .fahrt-ende { height: 36px; padding: 0 14px; font-size: 14px; }
+  .fahrt-name { font-size: 10px; }
+}
+/* Während Navi/Aufzeichnung kein Feedback-Knopf — er lag über Tempo/Übersicht */
+body.mm-faehrt .mm-fb-fab { display: none !important; }
 .leute-info-knoepfe { margin-top: 8px; }
 .leute-info-still { opacity: 0.6; cursor: default !important; }

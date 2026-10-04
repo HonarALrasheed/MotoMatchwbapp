@@ -275,6 +275,12 @@ const vergleicheVon = new Map();
 
 // ── Bausteine ──────────────────────────────────────────────────────────────
 
+/* Oben dieselbe Pillenleiste wie in der App (.tb-bar): der aktuelle Bereich ist weiß hinterlegt. */
+const BEREICHE = [
+  ["Motorräder", "/motorraeder/", (p) => /^\/(motorraeder|motorrad|vergleich)\//.test(p)],
+  ["Ratgeber", "/ratgeber/", (p) => p.startsWith("/ratgeber/")],
+];
+
 function kopf({ titel, beschreibung, pfad, bild, krumen, ld: extraLd = [] }) {
   const og = bild ? url(bild) : url("/bikes/sportbikes_trio.webp");
   const ld = {
@@ -313,7 +319,9 @@ function kopf({ titel, beschreibung, pfad, bild, krumen, ld: extraLd = [] }) {
 <body>
   <header class="kopf">
     <a class="logo" href="/">MOTOMATCH</a>
-    <nav><a href="/motorraeder/">Motorräder</a><a href="/ratgeber/">Ratgeber</a><a class="knopf klein" href="/">Quiz starten</a></nav>
+    <nav class="kopf-nav" aria-label="Bereiche">${BEREICHE.map(([name, ziel, test]) =>
+      `<a href="${ziel}"${test(pfad) ? ' aria-current="page"' : ""}>${name}</a>`).join("")}</nav>
+    <a class="kopf-quiz" href="/">Quiz<span> starten</span></a>
   </header>
   <nav class="krumen" aria-label="Brotkrumen">${krumen.map(([n, p], i) =>
     i === krumen.length - 1 ? `<span>${esc(n)}</span>` : `<a href="${p}">${esc(n)}</a>`).join(" › ")}</nav>
@@ -678,11 +686,15 @@ writeFileSync(join(DIST, "seo.css"), `@font-face{font-family:Barlow;font-weight:
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
 body{background:var(--bg);color:var(--text);font-family:var(--font);font-size:16px;line-height:1.6;-webkit-font-smoothing:antialiased}
 a{color:inherit}
-.kopf{display:flex;justify-content:space-between;align-items:center;padding:18px 16px;max-width:1200px;margin:0 auto}
-.kopf nav{display:flex;gap:18px;align-items:center}
-.kopf nav a{text-decoration:none;font-size:15px}
+.kopf{position:sticky;top:0;z-index:20;display:grid;grid-template-columns:1fr auto 1fr;align-items:center;gap:12px;padding:12px max(16px,calc((100% - 1168px) / 2));background:rgba(10,10,10,.82);-webkit-backdrop-filter:blur(18px);backdrop-filter:blur(18px);border-bottom:1px solid var(--rand)}
+.kopf-nav{display:flex;gap:4px;padding:4px;background:rgba(255,255,255,.06);border:1px solid var(--rand);border-radius:14px}
+.kopf-nav a{padding:8px 18px;border-radius:10px;font-size:15px;color:rgba(255,255,255,.72);text-decoration:none;transition:background .2s,color .2s}
+.kopf-nav a:hover{color:#fff;background:rgba(255,255,255,.08)}
+.kopf-nav a[aria-current]{background:#fff;color:#0a0a0a;font-weight:600}
+.kopf-quiz{justify-self:end;background:#fff;color:#0a0a0a;font-weight:600;font-size:15px;padding:10px 18px;border-radius:12px;text-decoration:none;white-space:nowrap}
+.kopf-quiz:hover{background:#e8e8e8}
 .logo{font-weight:800;letter-spacing:.3em;text-decoration:none}
-.krumen{max-width:1200px;margin:0 auto;padding:0 16px 8px;font-size:13px;color:var(--dim)}
+.krumen{max-width:1200px;margin:0 auto;padding:14px 16px 8px;font-size:13px;color:var(--dim)}
 .krumen a{text-decoration:none}
 main{max-width:1200px;margin:0 auto;padding:8px 16px 48px}
 h1{font-size:clamp(30px,6vw,52px);font-weight:800;line-height:1.1;margin:12px 0 14px}
@@ -729,7 +741,7 @@ h2{font-size:22px;font-weight:600;margin:40px 0 14px}
 .r-fakten strong{display:block;font-size:28px;font-weight:800;line-height:1.1}
 .r-fakten span{color:var(--dim);font-size:14px}
 .r-layout{display:grid;grid-template-columns:minmax(0,1fr) 280px;gap:48px;align-items:start;margin-top:12px}
-.r-seite{position:sticky;top:16px;display:grid;gap:14px}
+.r-seite{position:sticky;top:84px;display:grid;gap:14px}
 .r-inhalt,.r-quiz{background:var(--fl);border:1px solid var(--rand);border-radius:16px;padding:18px}
 .r-inhalt strong{display:block;font-size:13px;letter-spacing:.14em;text-transform:uppercase;color:var(--dim);margin-bottom:8px}
 .r-inhalt ol{list-style:none;display:grid;gap:6px;counter-reset:k}
@@ -740,7 +752,7 @@ h2{font-size:22px;font-weight:600;margin:40px 0 14px}
 .r-quiz strong{display:block;font-size:18px}
 .r-quiz p{color:var(--dim);font-size:14px;margin:4px 0 14px}
 .artikel{max-width:760px}
-.artikel h2{font-size:26px;font-weight:800;margin:44px 0 12px;scroll-margin-top:16px}
+.artikel h2{font-size:26px;font-weight:800;margin:44px 0 12px;scroll-margin-top:84px}
 .artikel p{margin:12px 0;font-size:17px;line-height:1.7;color:rgba(255,255,255,.85)}
 .artikel a{text-decoration:underline;text-underline-offset:3px}
 .artikel .punkte{list-style:none;padding:0;display:grid;gap:10px;margin:16px 0}
@@ -766,7 +778,7 @@ h2{font-size:22px;font-weight:600;margin:40px 0 14px}
 .r-karten strong{display:block;font-size:18px;padding:14px 16px 4px;line-height:1.25}
 .r-karten span{color:var(--dim);font-size:14px;padding:0 16px 16px}
 .knopf.klein{white-space:nowrap}
-@media (max-width:520px){.kopf{padding:14px 16px}.logo{letter-spacing:.18em;font-size:14px}.kopf nav{gap:14px}.kopf nav a{font-size:14px}.kopf nav a:first-child{display:none}.r-fakten{grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}.r-fakten div{padding:14px}.r-fakten strong{font-size:22px}.raster.mini{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media (max-width:520px){.kopf{grid-template-columns:auto 1fr auto;gap:8px}.kopf-nav{justify-self:center}.kopf-nav a{padding:7px 12px;font-size:14px}.logo{letter-spacing:.14em;font-size:13px}.kopf-quiz{padding:8px 12px;font-size:14px}.kopf-quiz span{display:none}.r-fakten{grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}.r-fakten div{padding:14px}.r-fakten strong{font-size:22px}.raster.mini{grid-template-columns:repeat(2,minmax(0,1fr))}}
 @media (max-width:900px){.r-layout{grid-template-columns:1fr;gap:8px}.r-seite{position:static;order:-1}.r-quiz{display:none}.r-held{display:block;min-height:0}.r-held img{position:static;width:100%;height:auto;aspect-ratio:4/3}.r-held::after{background:linear-gradient(180deg,rgba(20,20,20,0) 40%,#141414 74%)}.r-held-text{margin-top:-90px;padding:0 18px 22px}}
 .knopf.zweit{background:transparent;color:#fff;border:1px solid rgba(255,255,255,.35)}
 .aktionen{display:flex;flex-wrap:wrap;gap:10px;margin:14px 0 4px}

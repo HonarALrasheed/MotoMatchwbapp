@@ -40,3 +40,4 @@ dist-ssr
 
 # DRACO-Decoder wird beim Build aus node_modules/three kopiert (vite-plugin-draco.js)
 public/draco/
+dist-pins/

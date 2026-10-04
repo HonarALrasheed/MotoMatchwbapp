@@ -288,11 +288,15 @@ function knopfStatus() {
   document.querySelectorAll('.leute-knopf').forEach((b) => b.setAttribute('aria-pressed', String(zustand.freunde)))
 }
 
+/* Die Übersicht "Du siehst / Dich sieht" erscheint nur beim ersten Öffnen
+   nach dem App-Start; danach weiß man es. */
+let regelGesehen = false
+
 function panelUmschalten(an) {
   const wrap = document.querySelector('.konf-karte-hub .kv-map-wrap')
   let el = wrap?.querySelector('.leute-panel')
   knopfStatus()
-  if (!an) { el?.remove(); return }
+  if (!an) { if (el) regelGesehen = true; el?.remove(); return }
   if (!wrap) return
   if (!el) {
     el = document.createElement('div')
@@ -366,10 +370,10 @@ async function liste() {
       <button type="button" role="radio" data-teilen="freunde" aria-checked="${modus === 'freunde'}">${ICON.freunde}<span>Freunde</span></button>
       <button type="button" role="radio" data-teilen="oeffentlich" aria-checked="${modus === 'oeffentlich'}">${ICON.welt}<span>Öffentlich</span></button>
     </div>
-    <dl class="leute-regel leute-regel--${modus}">
+    ${regelGesehen ? '' : `<dl class="leute-regel leute-regel--${modus}">
       <div><dt>Du siehst</dt><dd>${ERKL.siehst}</dd></div>
       <div><dt>Dich sieht</dt><dd>${ERKL.sehen}</dd></div>
-    </dl>
+    </dl>`}
     ${inhalt}
     ${modus !== 'aus' ? '<p class="leute-fuss">Geteilt wird nur, solange MotoMatch offen ist.</p>' : ''}`
   zeilen.push(...(modus === 'oeffentlich' ? zustand.naheListe : []))

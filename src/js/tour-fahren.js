@@ -673,12 +673,13 @@ function schleife(jetzt) {
   f.kurs = f.kurs == null ? kursZiel : (f.kurs + winkelDiff(f.kurs, kursZiel) * Math.min(1, dt * 3.2) + 360) % 360
   f.marker.setLngLat([lng, lat])
   f.marker.setRotation(f.kurs)
-  if (f.folgen && !f.anflug) {
+  if (f.folgen && !f.anflug && !f.geste) {
     const kmh = f.tempo || 0
     const naechsterS = f.d.schritte[f.schritt]
     const nahAbzweig = naechsterS && ABBIEGEN.test(naechsterS[1]) && naechsterS[0] - (f.anzeigeM ?? 0) < 160
-    const zoomZiel = (kmh < 25 ? 17.4 : kmh < 55 ? 16.8 : kmh < 85 ? 16.2 : 15.6) + (nahAbzweig ? 0.5 : 0)
-    f.zoom = f.zoom == null ? zoomZiel : f.zoom + (zoomZiel - f.zoom) * Math.min(1, dt * 1.2)
+    // Selbst gezoomt (Finger, Mausrad, Knöpfe): dieser Zoom gilt, bis "Zentrieren"
+    const zoomZiel = f.nutzerZoom ?? ((kmh < 25 ? 17.4 : kmh < 55 ? 16.8 : kmh < 85 ? 16.2 : 15.6) + (nahAbzweig ? 0.5 : 0))
+    f.zoom = f.zoom == null || f.nutzerZoom != null ? zoomZiel : f.zoom + (zoomZiel - f.zoom) * Math.min(1, dt * 1.2)
     map.jumpTo({ center: [lng, lat], bearing: f.kurs, pitch: 60, zoom: f.zoom, padding: f.rand || (f.rand = kameraRand(map)) })
   }
   // gefahrener Teil grau — die Verlaufsgrafik nur alle 200 ms neu
@@ -837,6 +838,42 @@ export function starteFahrt(t, strecke, { info = {}, onEnde, mitschneiden = fals
     el.querySelector('[data-fahrt="folgen"]').hidden = false
   }
   map.on('dragstart', f.wegschieben)
+  /* Gesten während der Fahrt: Die Kamera setzt sonst jedes Bild per jumpTo
+     neu — und jumpTo bricht in MapLibre laufende Gesten ab. Solange Finger,
+     Maus oder Rad arbeiten, hält sie still; danach fährt sie mit dem
+     gewählten Zoom weiter mit (verschoben: bis "Zentrieren"). */
+  const flaeche = map.getCanvasContainer()
+  let finger = 0, radTimer = 0
+  const gesteAus = () => {
+    if (fahrt !== f || !f.geste) return
+    f.geste = false
+    if (f.folgen) { f.nutzerZoom = map.getZoom(); f.zoom = f.nutzerZoom }
+  }
+  f.gesteAn = (e) => {
+    if (fahrt !== f) return
+    if (e.type === 'touchstart') finger = e.touches.length
+    f.geste = true
+    if (e.type === 'wheel') { clearTimeout(radTimer); radTimer = setTimeout(gesteAus, 350) }
+  }
+  f.gesteLos = (e) => {
+    if (e.type === 'touchend' || e.type === 'touchcancel') { finger = e.touches.length; if (finger) return }
+    setTimeout(gesteAus, 250)
+  }
+  for (const t of ['touchstart', 'mousedown', 'wheel']) flaeche.addEventListener(t, f.gesteAn, { passive: true, capture: true })
+  for (const t of ['touchend', 'touchcancel', 'mouseup']) window.addEventListener(t, f.gesteLos, { passive: true })
+  f.gestenWeg = () => {
+    for (const t of ['touchstart', 'mousedown', 'wheel']) flaeche.removeEventListener(t, f.gesteAn, { capture: true })
+    for (const t of ['touchend', 'touchcancel', 'mouseup']) window.removeEventListener(t, f.gesteLos)
+    clearTimeout(radTimer)
+  }
+  /* Verschoben: Karte nach Norden drehen und flach legen, damit sich das
+     Wischen wie auf einer normalen Karte anfühlt ("Zentrieren" holt die
+     Navi-Ansicht zurück). */
+  f.schiebenEnde = (e) => {
+    if (!e.originalEvent || fahrt !== f || f.folgen) return
+    if (Math.abs(map.getBearing()) > 1 || map.getPitch() > 1) map.easeTo({ bearing: 0, pitch: 0, padding: { top: 0, bottom: 0, left: 0, right: 0 }, duration: 450 })
+  }
+  map.on('dragend', f.schiebenEnde)
 
   el.addEventListener('click', (e) => {
     const b = e.target.closest('[data-fahrt]')
@@ -844,6 +881,8 @@ export function starteFahrt(t, strecke, { info = {}, onEnde, mitschneiden = fals
     const was = b.dataset.fahrt
     if (was === 'ende') beenden()
     if (was === 'folgen') {
+      fahrt.nutzerZoom = null
+      fahrt.zoom = null
       fahrt.anflug = true
       b.hidden = true
       const p = fahrt.frei || start
@@ -907,6 +946,8 @@ export function beenden(ziel = false) {
   document.removeEventListener('visibilitychange', f.sichtbar)
   const map = getHubMap()
   map?.off('dragstart', f.wegschieben)
+  f.gestenWeg?.()
+  map?.off('dragend', f.schiebenEnde)
   map?.off('resize', f.groesse)
   f.marker.remove()
   f.el.remove()

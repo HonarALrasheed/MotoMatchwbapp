@@ -74,7 +74,7 @@ export function artikel(h) {
       titel: "A2-Drosselung: wie sie funktioniert, was erlaubt ist und welche Motorräder gehen",
       h1: "A2-Drosselung: so fährst du ein stärkeres Motorrad mit A2",
       beschreibung: `Welche Motorräder darf man auf 35 kW drosseln, wie läuft die Eintragung und was passiert beim Aufstieg auf A? ${a2gedrosselt.length} drosselbare Modelle mit Preisen.`,
-      held: beliebt(mitFoto(a2gedrosselt), 1)[0],
+      held: beliebt(mitFoto(a2gedrosselt), 3)[2],
       fakten: [["35 kW", "nach der Drosselung"], ["70 kW", "höchstens ab Werk"], [zahl(a2gedrosselt.length), "drosselbare Modelle"], [euro(median(gp.map(preis))), "mittlerer Gebrauchtpreis"]],
       inhalt: `
       <p>Mit dem A2-Führerschein darfst du höchstens 35 kW (48 PS) fahren. Viele beliebte Mittelklasse-Motorräder haben mehr — sie lassen sich aber drosseln. ${a2gedrosselt.length} Modelle in unserem Katalog sind für die A2-Drosselung geeignet; der mittlere Gebrauchtpreis liegt bei ${euro(median(gp.map(preis)))}.</p>
@@ -135,7 +135,7 @@ export function artikel(h) {
       titel: "Erstes Motorrad kaufen: worauf Anfänger achten sollten",
       h1: "Das erste Motorrad: sieben Fragen vor dem Kauf",
       beschreibung: `Führerschein, Sitzhöhe, Gewicht, Budget: Was beim ersten Motorrad wirklich zählt — mit ${einsteiger.length} einsteigerfreundlichen Modellen ab ${euro(Math.min(...ep.map(preis)))}.`,
-      held: beliebt(mitFoto(leichtEinst), 1)[0],
+      held: beliebt(mitFoto(leichtEinst.filter((b) => b.style !== "Roller")), 1)[0],
       fakten: [[zahl(einsteiger.length), "Einsteiger-Modelle"], [zahl(leichtEinst.length), "davon unter 190 kg"], [euro(median(ep.map(preis))), "mittlerer Gebrauchtpreis"]],
       inhalt: `
       <p>Beim ersten Motorrad entscheidet nicht die Leistung, sondern ob du dich darauf sicher fühlst. Diese sieben Fragen helfen beim Aussortieren.</p>
@@ -280,7 +280,7 @@ export function artikel(h) {
       titel: "Motorradtypen erklärt: Naked Bike, Enduro, Sportler, Cruiser & Co.",
       h1: "Motorradtypen: welche Bauart passt zu dir?",
       beschreibung: "Naked Bike, Reiseenduro, Sportler, Tourer, Cruiser, Retro, Supermoto, Roller: Was die Bauarten können — mit typischem Preis und Sitzhöhe aus über 1.000 Modellen.",
-      held: beliebt(mitFoto(bikes.filter((b) => b.style === "Enduro")), 1)[0],
+      held: beliebt(mitFoto(bikes.filter((b) => b.style === "Enduro" && b.brand !== "BMW")), 1)[0],
       fakten: [["8", "Bauarten"], [zahl(bikes.length), "Modelle im Vergleich"]],
       inhalt: `
       <p>Die Bauart sagt mehr über ein Motorrad als die PS-Zahl: Sie bestimmt Sitzposition, Komfort und wofür es gemacht ist. Die Tabelle zeigt die acht Typen mit mittlerem Gebrauchtpreis und typischer Sitzhöhe aus unserem Katalog.</p>
@@ -345,7 +345,7 @@ export function artikel(h) {
       titel: "Leichtes Motorrad: warum das Gewicht so wichtig ist — die leichtesten Modelle je Klasse",
       h1: "Leichte Motorräder: warum Gewicht zählt",
       beschreibung: `Rangieren, Aufheben, Handlichkeit: warum ein leichtes Motorrad gerade für Einsteiger zählt. ${unter180} Modelle unter 180 kg und die leichtesten je Führerscheinklasse.`,
-      held: beliebt(mitFoto(bikes.filter((b) => b.weight > 0 && b.weight <= 180 && b.license !== "A1")), 1)[0],
+      held: beliebt(mitFoto(bikes.filter((b) => b.weight > 0 && b.weight <= 180 && b.license !== "A1" && b.style !== "Roller")), 1)[0],
       fakten: [[zahl(unter180), "Modelle unter 180 kg"], ["15–25 kg", "Unterschied trocken/fahrfertig"]],
       inhalt: `
       <p>Auf der Straße merkst du das Gewicht kaum — beim Rangieren, Wenden auf engem Raum oder wenn das Motorrad einmal umfällt, dafür umso mehr. Für Einsteiger und kleinere Fahrer ist ein leichtes Motorrad oft wichtiger als ein paar PS mehr. ${unter180} Modelle in unserem Katalog wiegen fahrfertig höchstens 180 kg.</p>

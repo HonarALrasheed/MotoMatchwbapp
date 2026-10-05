@@ -22,6 +22,8 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { setCatalog, findSimilarBikes } from "../src/js/matching.js";
 import { bikeBild, hatFoto } from "../src/js/bike-bild.js";
+import { artikel } from "./ratgeber.mjs";
+import { getGear } from "../src/js/gear.js";
 
 const WURZEL = join(dirname(fileURLToPath(import.meta.url)), "..");
 const DIST = join(WURZEL, "dist");
@@ -125,10 +127,46 @@ thema({ slug: "niedrige-sitzhoehe", gruppe: "Für wen",
   intro: "Sitzhöhe bis 78 cm — für kleinere Fahrerinnen und Fahrer, die mit beiden Füßen sicher auf den Boden kommen wollen.",
   liste: hat((b) => b.seat_height > 0 && b.seat_height <= 78) });
 thema({ slug: "leichte-motorraeder", gruppe: "Für wen",
-  h1: "Leichte Motorräder bis 180 kg",
-  titel: "Leichtes Motorrad: Modelle bis 180 kg fahrfertig",
+  h1: "Leichte Motorräder unter 180 kg",
+  titel: "Leichtes Motorrad unter 180 kg: alle Modelle mit Preis",
   intro: "Wenig Gewicht heißt: leichter rangieren, leichter aufheben, weniger Respekt beim Wenden. Alle Modelle hier wiegen höchstens 180 kg.",
   liste: hat((b) => b.weight > 0 && b.weight <= 180) });
+/* Gewicht ist eine eigene Suche (Search Console, 2026-10-04: "leichte motorräder unter 200 kg",
+   "motorräder unter 180 kg") — je Grenze eine Seite statt nur der 180-kg-Liste. */
+thema({ slug: "motorrad-unter-150-kg", gruppe: "Für wen",
+  h1: "Motorräder unter 150 kg",
+  titel: "Motorrad unter 150 kg: die leichtesten Modelle mit Preis",
+  intro: "Unter 150 kg fahrfertig: fast schon Fahrrad-Gefühl beim Rangieren. Meist 125er, Supermotos und kleine Naked Bikes.",
+  liste: hat((b) => b.weight > 0 && b.weight <= 150) });
+thema({ slug: "motorrad-unter-200-kg", gruppe: "Für wen",
+  h1: "Leichte Motorräder unter 200 kg",
+  titel: "Leichte Motorräder unter 200 kg: alle Modelle mit Preis",
+  intro: "Bis 200 kg bleibt ein Motorrad gut beherrschbar — auch Mittelklasse-Bikes mit 70 bis 100 PS liegen oft darunter.",
+  liste: hat((b) => b.weight > 0 && b.weight <= 200) });
+thema({ slug: "leichte-a2-motorraeder", gruppe: "Für wen",
+  h1: "Leichte A2-Motorräder unter 190 kg",
+  titel: "Leichtes A2 Motorrad: Modelle unter 190 kg mit Preis",
+  intro: "A2-tauglich und höchstens 190 kg: die Kombination, nach der die meisten Fahranfänger suchen.",
+  liste: hat((b) => darfA2(b) && b.license !== "A1" && b.weight > 0 && b.weight <= 190) });
+
+/* Körpergröße: "motorrad für 1,60 m" und "motorrad für große fahrer" gehören zu den häufigsten
+   Fragen von Einsteigern. Grenze nach derselben Faustregel wie abGroesse(): sicher ist eine
+   Sitzhöhe bis 45 % der Körpergröße plus 3 %. Für große Fahrer zählt das Gegenteil — Knieschluss
+   und Platz, also hohe Sitzbank. */
+const meter = (cm) => `${Math.floor(cm / 100)},${String(cm % 100).padStart(2, "0")} m`;
+for (const cm of [150, 155, 160, 165, 170, 175]) {
+  const bis = Math.round(cm * 0.45 * 1.03 * 10) / 10;
+  thema({ slug: `motorrad-fuer-${cm}-cm`, gruppe: "Körpergröße",
+    h1: `Motorräder für ${meter(cm)} Körpergröße`,
+    titel: `Motorrad für ${meter(cm)} (${cm} cm): passende Modelle mit Sitzhöhe`,
+    intro: `Mit ${cm} cm Körpergröße kommst du auf Sitzhöhen bis etwa ${dez(bis)} cm sicher mit beiden Füßen auf den Boden. Diese Modelle liegen darunter — viele lassen sich zusätzlich mit Niedrigsitzbank oder Tieferlegung anpassen.`,
+    liste: hat((b) => b.seat_height > 0 && b.seat_height <= bis) });
+}
+thema({ slug: "motorrad-fuer-grosse-fahrer", gruppe: "Körpergröße",
+  h1: "Motorräder für große Fahrer ab 1,85 m",
+  titel: "Motorrad für große Fahrer (ab 1,85 m): Modelle mit hoher Sitzbank",
+  intro: "Ab etwa 1,85 m wird es auf kleinen Bikes eng: Knie stoßen an den Tank, der Kniewinkel wird spitz. Diese Modelle haben eine Sitzhöhe ab 84 cm und bieten entsprechend Platz.",
+  liste: hat((b) => b.seat_height >= 84 && b.style !== "Roller") });
 
 for (const [stil, s] of Object.entries(STIL)) {
   thema({ slug: s.slug, gruppe: "Bauart", h1: s.mehrzahl, stil,
@@ -238,6 +276,12 @@ const vergleicheVon = new Map();
 
 // ── Bausteine ──────────────────────────────────────────────────────────────
 
+/* Oben dieselbe Pillenleiste wie in der App (.tb-bar): der aktuelle Bereich ist weiß hinterlegt. */
+const BEREICHE = [
+  ["Motorräder", "/motorraeder/", (p) => /^\/(motorraeder|motorrad|vergleich)\//.test(p)],
+  ["Ratgeber", "/ratgeber/", (p) => p.startsWith("/ratgeber/")],
+];
+
 function kopf({ titel, beschreibung, pfad, bild, krumen, ld: extraLd = [] }) {
   const og = bild ? url(bild) : url("/bikes/sportbikes_trio.webp");
   const ld = {
@@ -249,9 +293,13 @@ function kopf({ titel, beschreibung, pfad, bild, krumen, ld: extraLd = [] }) {
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="robots" content="max-image-preview:large" />
+  <!-- www → ohne www; Rückfall, falls die Umleitung in Vercel fehlt (Search Console führte beide) -->
+  <script>if(location.hostname==="www.motomatch.studio")location.replace("https://motomatch.studio"+location.pathname+location.search+location.hash)</script>
   <title>${esc(titel)} | MotoMatch</title>
   <meta name="description" content="${esc(beschreibung)}" />
   <link rel="canonical" href="${url(pfad)}" />
+  <link rel="icon" href="/favicon.ico" sizes="32x32" />
   <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
   <meta name="theme-color" content="#0a0a0a" />
   <meta property="og:type" content="website" />
@@ -272,8 +320,15 @@ function kopf({ titel, beschreibung, pfad, bild, krumen, ld: extraLd = [] }) {
 </head>
 <body>
   <header class="kopf">
-    <a class="logo" href="/">MOTOMATCH</a>
-    <nav><a href="/motorraeder/">Motorräder</a><a class="knopf klein" href="/">Quiz starten</a></nav>
+    <div class="kopf-links">
+      <!-- Zurück: kam man von unserer eigenen Seite, ein Schritt im Verlauf; sonst (Google, Direktlink)
+           eine Ebene höher laut Brotkrumen — nie raus aus MotoMatch. -->
+      <a class="zurueck" href="${krumen.length > 1 ? krumen[krumen.length - 2][1] : "/"}" aria-label="Zurück" onclick="try{if(document.referrer&&new URL(document.referrer).origin===location.origin&&history.length>1){history.back();return false}}catch(e){}"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 12H5M12 19l-7-7 7-7"/></svg></a>
+      <a class="logo" href="/">MOTOMATCH</a>
+    </div>
+    <nav class="kopf-nav" aria-label="Bereiche">${BEREICHE.map(([name, ziel, test]) =>
+      `<a href="${ziel}"${test(pfad) ? ' aria-current="page"' : ""}>${name}</a>`).join("")}</nav>
+    <a class="kopf-quiz" href="/">Quiz<span> starten</span></a>
   </header>
   <nav class="krumen" aria-label="Brotkrumen">${krumen.map(([n, p], i) =>
     i === krumen.length - 1 ? `<span>${esc(n)}</span>` : `<a href="${p}">${esc(n)}</a>`).join(" › ")}</nav>
@@ -289,7 +344,7 @@ const fuss = () => `
   </main>
   <footer class="fuss">
     <p>Preise: mittlere Marktpreise gebraucht${STAND ? `, Stand ${esc(STAND)}` : ""}. Alle Angaben ohne Gewähr.</p>
-    <p><a href="/motorraeder/">Alle Themen</a> · <a href="/impressum.html">Impressum</a> · <a href="/datenschutz.html">Datenschutz</a> · <a href="/agb.html">AGB</a></p>
+    <p><a href="/motorraeder/">Alle Themen</a> · <a href="/ratgeber/">Ratgeber</a> · <a href="/impressum.html">Impressum</a> · <a href="/datenschutz.html">Datenschutz</a> · <a href="/agb.html">AGB</a></p>
   </footer>
 </body>
 </html>
@@ -372,6 +427,8 @@ function bikeFragen(b) {
   paare.push([`Welchen Führerschein brauche ich für die ${b.name}?`, `Für die ${b.name} brauchst du ${lizenz}.`]);
   if (preis(b)) paare.push([`Was kostet die ${b.name} gebraucht?`,
     `Gebraucht kostet die ${b.name} ${preisText(b)}${b.priceYear ? ` (Baujahr ${b.priceYear})` : ""}, mittlerer Marktpreis, Stand ${STAND}.`]);
+  if (b.priceNew) paare.push([`Was kostet die ${b.name} neu?`,
+    `Der Neupreis der ${b.name} liegt bei ca. ${zahl(b.priceNew)} € (Stand ${STAND}); Händlerpreise können je nach Ausstattung und Aktion abweichen.`]);
   if (b.seat_height) paare.push([`Wie hoch ist die Sitzhöhe der ${b.name}?`,
     `Die Sitzhöhe beträgt ${dez(b.seat_height)} cm. Als Faustregel kommt man ab etwa ${abGroesse(b.seat_height)} cm Körpergröße mit beiden Füßen sicher auf den Boden.`]);
   paare.push([`Ist die ${b.name} für Anfänger geeignet?`, b.beginner
@@ -385,6 +442,53 @@ function schreibe(pfad, html) {
   mkdirSync(dirname(ziel), { recursive: true });
   writeFileSync(ziel, html);
 }
+
+// ── Ratgeber (Inhalt) — vor den Seiten, damit Themen- und Bike-Seiten auf passende Artikel verweisen
+const RATGEBER_DATUM = "2026-10-05";
+// Ausrüstung aus gear.js: alle Bauarten zusammen, jedes Produkt einmal
+const ausruestung = [...new Map(Object.keys(STIL).flatMap((stil) => Object.entries(getGear(stil))
+  .flatMap(([k, l]) => l.map((x) => [`${k}|${x.name}`, { k, ...x }])))).values()];
+const ratgeber = artikel({ bikes, preis, zahl, dez, darfA2, bikePfad, themaPfad, esc, STIL, karte, hatFoto, ausruestung });
+// Jedes Titelbild nur einmal
+{
+  const benutzt = new Set();
+  // Erst die festen Titelbilder vergeben, dann die Kandidatenlisten (erstes freies Bike)
+  for (const r of ratgeber) if (r.held && !Array.isArray(r.held)) benutzt.add(r.held.slug);
+  for (const r of ratgeber) {
+    if (!Array.isArray(r.held)) continue;
+    r.held = r.held.find((b) => b.studio && !benutzt.has(b.slug)) || r.held[0];
+    if (r.held) benutzt.add(r.held.slug);
+  }
+}
+const ratgeberVon = new Map(ratgeber.map((r) => [r.slug, r]));
+/* Interne Links Seite → Artikel: Google gewichtet Seiten höher, auf die viele eigene Seiten zeigen,
+   und Leser finden die Erklärung genau dort, wo die Frage entsteht. */
+function ratgeberFuerThema(t) {
+  const s = t.slug, l = [];
+  if (s === "fuehrerschein-a2" || /^a2-unter|-a2$/.test(s)) l.push("bestes-a2-motorrad");
+  if (/a2/.test(s)) l.push("a2-drosselung");
+  if (/niedrige-sitzhoehe|motorrad-fuer-1(50|55|60|65)-cm/.test(s)) l.push("motorrad-fuer-kleine-fahrer");
+  if (/^fuehrerschein-/.test(s)) l.push("fuehrerscheinklassen-a1-a2-a");
+  if (/b196|a1|-125$/.test(s)) l.push("b196-125er-mit-autofuehrerschein");
+  if (s === "einsteiger") l.push("erstes-motorrad-kaufen");
+  if (/sitzhoehe|-cm$|grosse-fahrer/.test(s)) l.push("sitzhoehe-koerpergroesse");
+  if (/leicht|-kg$/.test(s)) l.push("leichtes-motorrad");
+  if (/euro$/.test(s)) l.push("motorrad-neu-oder-gebraucht", "motorrad-gebraucht-kaufen-checkliste");
+  if (t.gruppe === "Bauart" || t.gruppe === "Marke") l.push("motorradtypen");
+  if (l.length < 2) l.push("erstes-motorrad-kaufen", "motorrad-gebraucht-kaufen-checkliste");
+  return [...new Set(l)].slice(0, 3).map((x) => ratgeberVon.get(x)).filter(Boolean);
+}
+function ratgeberFuerBike(b) {
+  const l = [];
+  if (b.license === "A" && b.a2) l.push("a2-drosselung");
+  if (b.license === "A1") l.push("b196-125er-mit-autofuehrerschein");
+  if (b.beginner) l.push("erstes-motorrad-kaufen");
+  if (b.seat_height && b.seat_height <= 76 && b.style !== "Roller") l.push("motorrad-fuer-kleine-fahrer");
+  if (b.seat_height) l.push("sitzhoehe-koerpergroesse");
+  l.push("motorrad-gebraucht-kaufen-checkliste", "motorradversicherung", "motorradsteuer");
+  return [...new Set(l)].slice(0, 3).map((x) => ratgeberVon.get(x)).filter(Boolean);
+}
+const ratgeberBox = (liste) => (liste.length ? `<section><h2>Passende Ratgeber</h2><ul class="r-links">${liste.map((r) => `<li><a href="/ratgeber/${r.slug}/"><strong>${esc(r.h1)}</strong><span>Ratgeber lesen ›</span></a></li>`).join("")}</ul></section>` : "");
 
 // ── Seiten schreiben ───────────────────────────────────────────────────────
 
@@ -403,20 +507,57 @@ for (const t of themen) {
     <ul class="raster">${t.liste.slice(0, MAX_LISTE).map(karte).join("")}</ul>
     ${t.liste.length > MAX_LISTE ? `<p class="hinweis">Gezeigt: die ${MAX_LISTE} gefragtesten von ${t.liste.length} Modellen. Das Quiz durchsucht alle.</p>` : ""}
     ${faqHtml(fragen)}
+    ${ratgeberBox(ratgeberFuerThema(t))}
     ${verwandt.length ? `<section><h2>Ähnliche Themen</h2><ul class="themen">${verwandt.map((x) => `<li><a href="${x.pfad}">${esc(x.h1)}</a></li>`).join("")}</ul></section>` : ""}
 ` + fuss());
 }
 
 const gruppen = [...new Set(themen.map((t) => t.gruppe))];
+/* Übersicht: Kacheln mit kurzen Namen statt einer Wand aus langen Pillen (2026-10-05).
+   Führerschein und Bauart oben groß, der Rest kompakt; Marken und Bauart × Klasse aufklappbar. */
+const FS_KURZ = {
+  "fuehrerschein-a1": ["A1", "ab 16 · bis 125 ccm"], "fuehrerschein-b196": ["B196", "mit dem Autoführerschein"],
+  "fuehrerschein-a2": ["A2", "ab 18 · bis 48 PS"], "fuehrerschein-a": ["A", "ohne Leistungsgrenze"],
+};
+const KURZ = {
+  einsteiger: "Für Einsteiger", "niedrige-sitzhoehe": "Niedrige Sitzhöhe", "leichte-motorraeder": "Unter 180 kg",
+  "motorrad-unter-150-kg": "Unter 150 kg", "motorrad-unter-200-kg": "Unter 200 kg", "leichte-a2-motorraeder": "Leichte A2-Bikes",
+  "motorrad-fuer-grosse-fahrer": "Ab 1,85 m",
+};
+function kurzName(t) {
+  if (KURZ[t.slug]) return KURZ[t.slug];
+  let m;
+  if ((m = t.slug.match(/^motorrad-fuer-(\d+)-cm$/))) return `${dez((m[1] / 100).toFixed(2))} m`;
+  if ((m = t.slug.match(/^(a2-)?unter-(\d+)-euro$/))) return `${m[1] ? "A2 " : ""}unter ${zahl(+m[2])} €`.replace(/^u/, "U");
+  if (t.marke) return t.marke;
+  if (t.gruppe === "Bauart × Führerschein") return t.h1.replace(" für den A2-Führerschein", " · A2").replace(" mit 125 ccm (A1/B196)", " · 125er");
+  return t.h1;
+}
+const kachel = (t) => `<li><a class="kachel" href="${t.pfad}"><strong>${esc(kurzName(t))}</strong><span>${zahl(t.liste.length)} Modelle</span></a></li>`;
+const themenIn = (g) => themen.filter((t) => t.gruppe === g);
+const bauartBild = (t) => { const b = t.liste.find((x) => x.studio && hatFoto(x)); return b ? b.studio : null; };
 schreibe("/motorraeder/", kopf({
   titel: "Motorräder nach Führerschein, Bauart und Budget",
   beschreibung: `Motorrad finden: ${bikes.length} Modelle aus dem deutschen Markt, sortiert nach Führerschein (A1, A2, A, B196), Bauart, Budget und Marke — mit Gebrauchtpreis und Daten.`,
   pfad: "/motorraeder/", krumen: [["Start", "/"], ["Motorräder", "/motorraeder/"]] }) + `
-    <h1>Motorräder nach Führerschein, Bauart und Budget</h1>
-    <p class="intro">${bikes.length} Modelle aus dem deutschen Markt, jedes mit Gebrauchtpreis, Leistung und Führerscheinklasse. Wähle ein Thema — oder lass dir im Quiz das passende Bike zeigen.</p>
-    ${gruppen.map((g) => `<section><h2>${esc(g)}</h2><ul class="themen">${themen.filter((t) => t.gruppe === g)
-      .map((t) => `<li><a href="${t.pfad}">${esc(t.h1)}</a> <span>${t.liste.length}</span></li>`).join("")}</ul></section>`).join("")}
-    <section><h2>Vergleiche</h2><ul class="themen"><li><a href="/vergleich/">Alle Motorrad-Vergleiche</a> <span>${vergleiche.length}</span></li></ul></section>
+    <h1>Motorräder finden</h1>
+    <p class="intro">${zahl(bikes.length)} Modelle aus dem deutschen Markt — nach Führerschein, Bauart, Größe und Budget. Oder lass dir im <a href="/">Quiz</a> das passende Bike zeigen.</p>
+
+    <section class="ueb"><h2>Führerschein</h2>
+      <ul class="kacheln kacheln--fs">${themenIn("Führerschein").map((t) => `<li><a class="kachel kachel--fs" href="${t.pfad}"><strong>${FS_KURZ[t.slug]?.[0] || esc(t.h1)}</strong><em>${FS_KURZ[t.slug]?.[1] || ""}</em><span>${zahl(t.liste.length)} Modelle</span></a></li>`).join("")}</ul>
+    </section>
+
+    <section class="ueb"><h2>Bauart</h2>
+      <ul class="kacheln kacheln--bild">${themenIn("Bauart").map((t) => { const bild = bauartBild(t); return `<li><a class="kachel kachel--bild" href="${t.pfad}">${bild ? `<img src="${esc(bild)}" alt="" loading="lazy" width="640" height="480" />` : ""}<strong>${esc(t.h1)}</strong><span>${zahl(t.liste.length)} Modelle</span></a></li>`; }).join("")}</ul>
+    </section>
+
+    ${["Für wen", "Körpergröße", "Budget"].map((g) => themenIn(g).length ? `<section class="ueb"><h2>${esc(g)}</h2><ul class="kacheln">${themenIn(g).map(kachel).join("")}</ul></section>` : "").join("")}
+
+    <section class="ueb">
+      <details class="aufklapp"><summary>Bauart nach Führerschein <span>${themenIn("Bauart × Führerschein").length}</span></summary><ul class="kacheln">${themenIn("Bauart × Führerschein").map(kachel).join("")}</ul></details>
+      <details class="aufklapp"><summary>Alle Marken <span>${themenIn("Marke").length}</span></summary><ul class="marken">${themenIn("Marke").map((t) => `<li><a href="${t.pfad}">${esc(t.marke)}</a> <span>${t.liste.length}</span></li>`).join("")}</ul></details>
+      <a class="aufklapp aufklapp--link" href="/vergleich/">Motorrad-Vergleiche <span>${zahl(vergleiche.length)}</span></a>
+    </section>
 ` + fuss());
 
 for (const b of bikes) {
@@ -466,11 +607,15 @@ for (const b of bikes) {
     speed: menge(b.topSpeed, "KMH"), vehicleTransmission: b.gear || undefined,
     bodyType: s?.einzahl || b.style,
   };
-  schreibe(pfad, kopf({ titel: `${b.name} gebraucht: Preis, technische Daten & Führerschein`, beschreibung, pfad, krumen, bild: hatFoto(b) ? bikeBild(b, "titel") : null, ld: [motorrad, ...faqLd(fragen)] }) + `
+  const seitenTitel = b.priceNew
+    ? `${b.name}: Neupreis, Gebrauchtpreis & technische Daten`
+    : `${b.name} gebraucht: Preis, technische Daten & Führerschein`;
+  schreibe(pfad, kopf({ titel: seitenTitel, beschreibung, pfad, krumen, bild: hatFoto(b) ? bikeBild(b, "titel") : null, ld: [motorrad, ...faqLd(fragen)] }) + `
     <article class="bike">
       <h1>${esc(b.name)}</h1>
       <figure><img src="${esc(bikeBild(b, "titel"))}" alt="${esc(altText(b, "titel"))}" width="1600" height="437" fetchpriority="high" />${hatFoto(b) ? "" : "<figcaption>Foto folgt</figcaption>"}</figure>
-      <p class="preis gross">${preisText(b)}${b.priceYear && preis(b) ? ` <span>gebraucht, Baujahr ${b.priceYear}</span>` : ""}</p>
+      <p class="preis gross">${preisText(b)}${b.priceYear && preis(b) ? ` <span>gebraucht, Baujahr ${b.priceYear}</span>` : ""}</p>${b.priceNew ? `
+      <p class="preis">Neupreis ca. ${zahl(b.priceNew)} €</p>` : ""}
       <p class="aktionen"><a class="knopf" href="/?motorrad=${esc(b.slug.replace(/_/g, "-"))}">In MotoMatch ansehen</a> <a class="knopf zweit" href="/">Passt sie zu mir? Quiz starten</a></p>
       <section><h2>Passt die ${esc(b.name)} zu dir?</h2><ul class="punkte">${fuerWen.map((x) => `<li>${esc(x)}</li>`).join("")}</ul></section>
       <section><h2>Technische Daten</h2><dl class="daten">${fakten.map(([k, v]) => `<dt>${esc(k)}</dt><dd>${esc(v)}</dd>`).join("")}</dl></section>
@@ -478,6 +623,7 @@ for (const b of bikes) {
       ${faqHtml(fragen)}
     </article>
     ${aehnlich.length ? `<section><h2>Ähnliche Motorräder</h2><ul class="raster">${aehnlich.map(karte).join("")}</ul></section>` : ""}
+    ${ratgeberBox(ratgeberFuerBike(b))}
     ${vergleicheVon.has(b) ? `<section><h2>${esc(b.name)} im Vergleich</h2><ul class="themen">${vergleicheVon.get(b)
       .map((v) => `<li><a href="${v.pfad}">${esc(v.a.name)} vs. ${esc(v.b.name)}</a></li>`).join("")}</ul></section>` : ""}
     <section><h2>Mehr entdecken</h2><ul class="themen">${[klasseThema && [klasseThema, themen.find((t) => t.pfad === klasseThema).h1], stilThema && [stilThema, s.mehrzahl], markeThema && [markeThema, `Alle ${b.brand} Motorräder`]]
@@ -546,7 +692,7 @@ for (const v of vergleiche) {
   const beschreibung = `${a.name} oder ${b.name}? Preis (${preisText(a)} vs. ${preisText(b)}), Leistung, Gewicht, Sitzhöhe und Führerschein im direkten Vergleich.`;
   const weitere = [...(vergleicheVon.get(a) || []), ...(vergleicheVon.get(b) || [])].filter((x) => x !== v).slice(0, 8);
 
-  schreibe(v.pfad, kopf({ titel: `${a.name} oder ${b.name}? Vergleich von Preis, PS & Gewicht`, beschreibung, pfad: v.pfad, krumen, bild: hatFoto(a) ? bikeBild(a, "titel") : null }) + `
+  schreibe(v.pfad, kopf({ titel: `${a.name} vs. ${b.name}: Unterschied bei Preis, PS & Gewicht`, beschreibung, pfad: v.pfad, krumen, bild: hatFoto(a) ? bikeBild(a, "titel") : null }) + `
     <h1>${esc(a.name)} vs. ${esc(b.name)}</h1>
     <p class="intro">${esc(a.name)} oder ${esc(b.name)}? Zwei ${esc(STIL[a.style]?.mehrzahl || a.style)} im direkten Vergleich — mit Gebrauchtpreis, Technik und Führerschein.</p>
     <div class="vs">${[a, b].map((x) => `<a href="${bikePfad.get(x)}"><img src="${esc(bikeBild(x, "kachel"))}" alt="${esc(altText(x, "kachel"))}" width="420" height="300" /><strong>${esc(x.name)}</strong><span class="preis">${preisText(x)}</span></a>`).join("")}</div>
@@ -573,6 +719,60 @@ schreibe("/vergleich/", kopf({
 
 // ── Stylesheet und Sitemap ─────────────────────────────────────────────────
 
+// ── Ratgeber ───────────────────────────────────────────────────────────────
+const MONAT = new Date(`${STAND || RATGEBER_DATUM}T12:00:00`).toLocaleDateString("de-DE", { month: "long", year: "numeric" });
+const ankerVon = (t) => t.toLowerCase().replace(/ä/g, "ae").replace(/ö/g, "oe").replace(/ü/g, "ue").replace(/ß/g, "ss").replace(/<[^>]+>/g, "").replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+const heldBild = (b) => (b ? (b.studio || bikeBild(b, "titel")) : null);
+for (const r of ratgeber) {
+  r.pfad = `/ratgeber/${r.slug}/`;
+  // Zwischenüberschriften bekommen Anker — daraus wird das Inhaltsverzeichnis
+  const kapitel = [];
+  const inhalt = r.inhalt.replace(/<h2>(.*?)<\/h2>/g, (_, t) => { const id = ankerVon(t); kapitel.push([id, t]); return `<h2 id="${id}">${t}</h2>`; });
+  const woerter = inhalt.replace(/<[^>]+>/g, " ").split(/\s+/).filter(Boolean).length;
+  const krumen = [["Start", "/"], ["Ratgeber", "/ratgeber/"], [r.h1, r.pfad]];
+  const bild = heldBild(r.held);
+  const ld = { "@context": "https://schema.org", "@type": "Article", headline: r.titel.slice(0, 110), description: r.beschreibung,
+    datePublished: RATGEBER_DATUM, dateModified: STAND || RATGEBER_DATUM, inLanguage: "de-DE", mainEntityOfPage: url(r.pfad),
+    image: bild ? url(bild) : undefined,
+    author: { "@type": "Organization", name: "MotoMatch", url: BASIS }, publisher: { "@type": "Organization", name: "MotoMatch", url: BASIS } };
+  const verzeichnis = kapitel.length > 2 ? `<nav class="r-inhalt" aria-label="Inhalt"><strong>Inhalt</strong><ol>${kapitel.map(([id, t]) => `<li><a href="#${id}">${t}</a></li>`).join("")}</ol></nav>` : "";
+  schreibe(r.pfad, kopf({ titel: r.titel, beschreibung: r.beschreibung, pfad: r.pfad, krumen, bild, ld: [ld] }) + `
+    <header class="r-held">
+      ${bild ? `<img src="${esc(bild)}" alt="${esc(altText(r.held, "studio"))}" width="1280" height="960" fetchpriority="high" />` : ""}
+      <div class="r-held-text">
+        <span class="r-marke">Ratgeber</span>
+        <h1>${esc(r.h1)}</h1>
+        <p>${esc(r.beschreibung)}</p>
+        <span class="r-meta">${Math.max(2, Math.round(woerter / 200))} Min. Lesezeit · Stand ${esc(MONAT)}</span>
+      </div>
+    </header>
+    ${r.fakten?.length ? `<section class="r-fakten" aria-label="Auf einen Blick">${r.fakten.map(([z, t]) => `<div><strong>${esc(String(z))}</strong><span>${esc(t)}</span></div>`).join("")}</section>` : ""}
+    <div class="r-layout">
+      <article class="artikel${r.checkliste ? " checkliste" : ""}">
+        ${inhalt}
+      </article>
+      <aside class="r-seite">
+        ${verzeichnis}
+        <div class="r-quiz"><strong>Welches Motorrad passt zu dir?</strong><p>8 Fragen, über ${zahl(Math.floor(bikes.length / 100) * 100)} Modelle.</p><a class="knopf" href="/?utm_source=ratgeber">Quiz starten</a></div>
+      </aside>
+    </div>
+    <section><h2>Weitere Ratgeber</h2><ul class="r-karten">${ratgeber.filter((x) => x !== r).slice(0, 6).map(ratgeberKarte).join("")}</ul></section>
+` + fuss());
+}
+function ratgeberKarte(r) {
+  const bild = heldBild(r.held);
+  return `<li><a href="/ratgeber/${r.slug}/">${bild ? `<img src="${esc(bild)}" alt="" loading="lazy" width="640" height="480" />` : ""}<strong>${esc(r.h1)}</strong><span>${esc(r.beschreibung)}</span></a></li>`;
+}
+// Daten für die Ratgeber-Pins (scripts/pins/ratgeber.mjs liest sie nach dem Build)
+writeFileSync(join(DIST, "ratgeber/pins.json"), JSON.stringify(ratgeber.map((r) => ({
+  slug: r.slug, h1: r.h1, titel: r.titel, beschreibung: r.beschreibung, fakten: r.fakten || [], bild: heldBild(r.held),
+})), null, 1));
+schreibe("/ratgeber/", kopf({ titel: "Motorrad-Ratgeber: Führerschein, Kauf, Kosten", beschreibung: "Ratgeber rund ums erste und nächste Motorrad: Führerscheinklassen, A2-Drosselung, Gebrauchtkauf, Steuer, Sitzhöhe — mit Zahlen aus über 1.000 Modellen.", pfad: "/ratgeber/", krumen: [["Start", "/"], ["Ratgeber", "/ratgeber/"]] }) + `
+    <h1>Motorrad-Ratgeber</h1>
+    <p class="intro">Antworten auf die Fragen vor dem Motorradkauf — mit Zahlen aus unserem Katalog von ${zahl(bikes.length)} Modellen.</p>
+    <ul class="r-karten">${ratgeber.map(ratgeberKarte).join("")}</ul>
+` + fuss());
+
 writeFileSync(join(DIST, "seo.css"), `@font-face{font-family:Barlow;font-weight:400;font-display:swap;src:url(/fonts/barlow-400.woff2) format("woff2")}
 @font-face{font-family:Barlow;font-weight:600;font-display:swap;src:url(/fonts/barlow-600.woff2) format("woff2")}
 @font-face{font-family:Barlow;font-weight:800;font-display:swap;src:url(/fonts/barlow-800.woff2) format("woff2")}
@@ -580,11 +780,18 @@ writeFileSync(join(DIST, "seo.css"), `@font-face{font-family:Barlow;font-weight:
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
 body{background:var(--bg);color:var(--text);font-family:var(--font);font-size:16px;line-height:1.6;-webkit-font-smoothing:antialiased}
 a{color:inherit}
-.kopf{display:flex;justify-content:space-between;align-items:center;padding:18px 16px;max-width:1200px;margin:0 auto}
-.kopf nav{display:flex;gap:18px;align-items:center}
-.kopf nav a{text-decoration:none;font-size:15px}
+.kopf{position:sticky;top:0;z-index:20;display:grid;grid-template-columns:1fr auto 1fr;align-items:center;gap:12px;padding:12px max(16px,calc((100% - 1168px) / 2));background:rgba(10,10,10,.82);-webkit-backdrop-filter:blur(18px);backdrop-filter:blur(18px);border-bottom:1px solid var(--rand)}
+.kopf-links{display:flex;align-items:center;gap:14px;min-width:0}
+.zurueck{flex:none;display:flex;align-items:center;justify-content:center;width:36px;height:36px;border-radius:50%;background:rgba(255,255,255,.08);border:1px solid var(--rand);color:#fff;transition:background .2s}
+.zurueck:hover{background:rgba(255,255,255,.18)}
+.kopf-nav{display:flex;gap:4px;padding:4px;background:rgba(255,255,255,.06);border:1px solid var(--rand);border-radius:14px}
+.kopf-nav a{padding:8px 18px;border-radius:10px;font-size:15px;color:rgba(255,255,255,.72);text-decoration:none;transition:background .2s,color .2s}
+.kopf-nav a:hover{color:#fff;background:rgba(255,255,255,.08)}
+.kopf-nav a[aria-current]{background:#fff;color:#0a0a0a;font-weight:600}
+.kopf-quiz{justify-self:end;background:#fff;color:#0a0a0a;font-weight:600;font-size:15px;padding:10px 18px;border-radius:12px;text-decoration:none;white-space:nowrap}
+.kopf-quiz:hover{background:#e8e8e8}
 .logo{font-weight:800;letter-spacing:.3em;text-decoration:none}
-.krumen{max-width:1200px;margin:0 auto;padding:0 16px 8px;font-size:13px;color:var(--dim)}
+.krumen{max-width:1200px;margin:0 auto;padding:14px 16px 8px;font-size:13px;color:var(--dim)}
 .krumen a{text-decoration:none}
 main{max-width:1200px;margin:0 auto;padding:8px 16px 48px}
 h1{font-size:clamp(30px,6vw,52px);font-weight:800;line-height:1.1;margin:12px 0 14px}
@@ -618,6 +825,96 @@ h2{font-size:22px;font-weight:600;margin:40px 0 14px}
 .cta p{color:var(--dim);max-width:560px;margin:0 auto 18px}
 .knopf{display:inline-block;background:#fff;color:#000;padding:12px 26px;text-decoration:none;font-weight:600}
 .knopf.klein{padding:7px 14px;font-size:14px}
+.r-held{position:relative;margin:8px 0 0;border-radius:22px;overflow:hidden;background:#141414;min-height:380px;display:flex;align-items:center}
+.r-held img{position:absolute;right:0;top:0;width:62%;height:100%;object-fit:cover;object-position:center}
+.r-held::after{content:"";position:absolute;inset:0;background:linear-gradient(90deg,#141414 34%,rgba(20,20,20,.75) 46%,rgba(20,20,20,0) 66%)}
+.r-held-text{position:relative;z-index:1;padding:36px;max-width:560px}
+.r-held h1{margin:10px 0 12px;font-size:clamp(30px,4.4vw,46px)}
+.r-held p{font-size:17px;color:rgba(255,255,255,.78)}
+.r-marke{display:inline-block;font-size:12px;font-weight:600;letter-spacing:.16em;text-transform:uppercase;padding:5px 12px;border:1px solid rgba(255,255,255,.35);border-radius:99px}
+.r-meta{display:block;margin-top:12px;font-size:14px;color:var(--dim)}
+.r-fakten{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:12px;margin:18px 0 8px}
+.r-fakten div{background:var(--fl);border:1px solid var(--rand);border-radius:16px;padding:16px 18px}
+.r-fakten strong{display:block;font-size:28px;font-weight:800;line-height:1.1}
+.r-fakten span{color:var(--dim);font-size:14px}
+.r-layout{display:grid;grid-template-columns:minmax(0,1fr) 280px;gap:48px;align-items:start;margin-top:12px}
+.r-seite{position:sticky;top:84px;display:grid;gap:14px}
+.r-inhalt,.r-quiz{background:var(--fl);border:1px solid var(--rand);border-radius:16px;padding:18px}
+.r-inhalt strong{display:block;font-size:13px;letter-spacing:.14em;text-transform:uppercase;color:var(--dim);margin-bottom:8px}
+.r-inhalt ol{list-style:none;display:grid;gap:6px;counter-reset:k}
+.r-inhalt li{counter-increment:k;font-size:15px;line-height:1.35}
+.r-inhalt li::before{content:counter(k);display:inline-block;width:22px;color:var(--dim)}
+.r-inhalt a{text-decoration:none}
+.r-inhalt a:hover{text-decoration:underline}
+.r-quiz strong{display:block;font-size:18px}
+.r-quiz p{color:var(--dim);font-size:14px;margin:4px 0 14px}
+.artikel{max-width:760px}
+.artikel h2{font-size:26px;font-weight:800;margin:44px 0 12px;scroll-margin-top:84px}
+.artikel p{margin:12px 0;font-size:17px;line-height:1.7;color:rgba(255,255,255,.85)}
+.artikel a{text-decoration:underline;text-underline-offset:3px}
+.artikel .punkte{list-style:none;padding:0;display:grid;gap:10px;margin:16px 0}
+.artikel .punkte li{position:relative;background:var(--fl);border:1px solid var(--rand);border-radius:14px;padding:14px 16px 14px 46px;font-size:16px;margin:0}
+.artikel .punkte li::before{content:"";position:absolute;left:16px;top:17px;width:18px;height:18px;border-radius:50%;background:rgba(255,255,255,.12)}
+.checkliste .punkte li::before{content:"✓";background:#fff;color:#0a0a0a;font-size:12px;font-weight:800;text-align:center;line-height:18px}
+.raster.mini{grid-template-columns:repeat(auto-fill,minmax(170px,1fr));gap:12px;margin:18px 0 8px}
+.raster.mini .karte a{padding:10px}
+.raster.mini .karte .info{font-size:12px}
+.tabelle{border-collapse:separate;border-spacing:0;margin:18px 0;width:100%;font-size:15px;background:var(--fl);border:1px solid var(--rand);border-radius:14px;overflow:hidden}
+.tabelle th,.tabelle td{text-align:left;padding:11px 16px;border-bottom:1px solid var(--rand);vertical-align:top}
+.tabelle tr:last-child td{border-bottom:0}
+.tabelle th{color:var(--dim);font-weight:400;background:rgba(255,255,255,.03)}
+.balken{display:grid;gap:8px;margin:18px 0}
+.balken-zeile{display:grid;grid-template-columns:52px 1fr 92px;gap:12px;align-items:center;font-size:15px}
+.balken-zeile div{height:12px;background:rgba(255,255,255,.07);border-radius:99px;overflow:hidden}
+.balken-zeile i{display:block;height:100%;background:#fff;border-radius:99px}
+.balken-zeile strong{text-align:right;font-weight:600}
+.r-karten{list-style:none;display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:14px;margin-top:20px}
+.r-karten a{display:flex;flex-direction:column;height:100%;background:var(--fl);border:1px solid var(--rand);border-radius:16px;overflow:hidden;text-decoration:none}
+.r-karten a:hover{border-color:rgba(255,255,255,.3)}
+.r-karten img{width:100%;height:auto;aspect-ratio:4/3;object-fit:cover}
+.r-karten strong{display:block;font-size:18px;padding:14px 16px 4px;line-height:1.25}
+.r-karten span{color:var(--dim);font-size:14px;padding:0 16px 16px}
+.knopf.klein{white-space:nowrap}
+.r-links{list-style:none;display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:10px}
+.r-links a{display:flex;flex-direction:column;gap:6px;height:100%;padding:16px 18px;background:var(--fl);border:1px solid var(--rand);border-radius:14px;text-decoration:none}
+.r-links a:hover{border-color:rgba(255,255,255,.35)}
+.r-links strong{font-size:16px;font-weight:600;line-height:1.3}
+.r-links span{font-size:13px;color:var(--dim)}
+.ueb{margin-top:40px}
+.ueb h2{font-size:24px;font-weight:800;margin:0 0 14px}
+.kacheln{list-style:none;display:grid;grid-template-columns:repeat(auto-fill,minmax(170px,1fr));gap:10px}
+.kachel{display:flex;flex-direction:column;justify-content:space-between;gap:4px;height:100%;padding:16px;background:var(--fl);border:1px solid var(--rand);border-radius:14px;text-decoration:none;transition:border-color .2s,background .2s}
+.kachel:hover{border-color:rgba(255,255,255,.35);background:#1a1a1a}
+.kachel strong{font-size:17px;font-weight:600;line-height:1.25}
+.kachel span{font-size:13px;color:var(--dim)}
+.kacheln--fs{grid-template-columns:repeat(4,minmax(0,1fr))}
+.kachel--fs strong{font-size:44px;font-weight:800;line-height:1}
+.kachel--fs em{font-style:normal;font-size:14px;color:rgba(255,255,255,.75);margin-top:6px}
+.kacheln--bild{grid-template-columns:repeat(4,minmax(0,1fr))}
+.kachel--bild{padding:0;overflow:hidden;position:relative;justify-content:flex-end;min-height:0}
+.kachel--bild img{width:100%;height:auto;aspect-ratio:4/3;object-fit:cover;display:block}
+.kachel--bild strong{padding:12px 14px 0}
+.kachel--bild span{padding:0 14px 14px}
+.aufklapp{display:block;margin-top:10px;background:var(--fl);border:1px solid var(--rand);border-radius:14px;text-decoration:none}
+.aufklapp summary,.aufklapp--link{display:flex;justify-content:space-between;align-items:center;padding:16px 18px;font-size:17px;font-weight:600;cursor:pointer;list-style:none}
+.aufklapp summary::-webkit-details-marker{display:none}
+.aufklapp summary::after{content:"+";font-size:22px;font-weight:400;color:var(--dim);margin-left:12px}
+.aufklapp[open] summary::after{content:"–"}
+.aufklapp--link::after{content:"›";font-size:22px;font-weight:400;color:var(--dim);margin-left:12px}
+.aufklapp summary span,.aufklapp--link span{margin-left:auto;font-size:13px;font-weight:400;color:var(--dim)}
+.aufklapp .kacheln{padding:0 14px 14px}
+.marken{list-style:none;columns:4 160px;column-gap:24px;padding:4px 18px 18px}
+.marken li{break-inside:avoid;padding:4px 0;font-size:15px}
+.marken a{text-decoration:none}
+.marken a:hover{text-decoration:underline}
+.marken span{color:var(--dim);font-size:12px}
+.intro a{text-decoration:underline;text-underline-offset:3px}
+.artikel .karte a{text-decoration:none}
+.karte .g{display:flex;flex-direction:column;gap:2px;height:100%;padding:10px;background:var(--fl);border:1px solid var(--rand);border-radius:14px}
+.karte .g img{width:100%;height:auto;aspect-ratio:7/5;object-fit:contain;margin-bottom:8px;background:#fff;border-radius:10px}
+@media (max-width:760px){.kacheln--fs,.kacheln--bild{grid-template-columns:repeat(2,minmax(0,1fr))}.kacheln{grid-template-columns:repeat(2,minmax(0,1fr))}.kachel--fs strong{font-size:36px}.kachel:not(.kachel--bild){padding:14px}.kachel:not(.kachel--fs) strong{font-size:16px}.kachel--bild strong{padding:10px 12px 0}.kachel--bild span{padding:0 12px 12px}}
+@media (max-width:520px){.kopf{grid-template-columns:auto 1fr auto;gap:8px}.kopf-nav{justify-self:center}.kopf-nav a{padding:7px 12px;font-size:14px}.logo{display:none}.zurueck{width:34px;height:34px}.kopf-quiz{padding:8px 12px;font-size:14px}.kopf-quiz span{display:none}.r-fakten{grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}.r-fakten div{padding:14px}.r-fakten strong{font-size:22px}.raster.mini{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media (max-width:900px){.r-layout{grid-template-columns:1fr;gap:8px}.r-seite{position:static;order:-1}.r-quiz{display:none}.r-held{display:block;min-height:0}.r-held img{position:static;width:100%;height:auto;aspect-ratio:4/3}.r-held::after{background:linear-gradient(180deg,rgba(20,20,20,0) 40%,#141414 74%)}.r-held-text{margin-top:-90px;padding:0 18px 22px}}
 .knopf.zweit{background:transparent;color:#fff;border:1px solid rgba(255,255,255,.35)}
 .aktionen{display:flex;flex-wrap:wrap;gap:10px;margin:14px 0 4px}
 .fuss{max-width:1200px;margin:0 auto;padding:24px 16px 40px;border-top:1px solid var(--rand);color:var(--dim);font-size:13px}
@@ -664,6 +961,7 @@ ${gruppe("Führerschein")}
 ## Für wen
 
 ${gruppe("Für wen")}
+${gruppe("Körpergröße")}
 
 ## Nach Bauart
 
@@ -681,8 +979,10 @@ ${gruppe("Marke")}
 `);
 }
 
-const heute = new Date().toISOString().slice(0, 10);
-const adressen = ["/", "/motorraeder/", "/vergleich/", ...themen.map((t) => t.pfad), ...bikes.map((b) => bikePfad.get(b)), ...vergleiche.map((v) => v.pfad)];
+/* lastmod = Stand des Katalogs, nicht das Build-Datum: Wer bei jedem Deploy "heute" meldet,
+   dem glaubt Google das Datum nicht mehr und ignoriert es (Search Console, 2026-10-05). */
+const heute = /^\d{4}-\d{2}-\d{2}$/.test(STAND) ? STAND : new Date().toISOString().slice(0, 10);
+const adressen = ["/", "/motorraeder/", "/vergleich/", "/ratgeber/", ...ratgeber.map((r) => r.pfad), ...themen.map((t) => t.pfad), ...bikes.map((b) => bikePfad.get(b)), ...vergleiche.map((v) => v.pfad)];
 /* Bild-Sitemap (Google-Erweiterung): die echten Fotos je Bike-Seite, damit sie in der Bildersuche
    erscheinen. Nur echte Fotos — Platzhalter-Silhouetten gehören nicht in die Bildersuche. */
 const bilderJeSeite = new Map();

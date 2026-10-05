@@ -163,7 +163,15 @@ export async function requireUser(req) {
  * einen durchgedrehten Client oder ein gestohlenes Token deckeln, nicht echte
  * Nutzer bremsen.
  */
-const DAILY_LIMITS = {};
+const DAILY_LIMITS = {
+  // Jedes Betreten eines Sprachraums holt ein Token. 50 pro Tag deckeln den
+  // Angreifer-Fall (gestohlenes Token oder absichtliches Vielfachbetreten),
+  // ohne echte Nutzer zu bremsen — mehrmaliges Rein-/Rausgehen in zwei bis
+  // drei Raeume pro Tag reizt die Grenze nicht aus. LiveKit rechnet nach
+  // tatsaechlich verwendeten Minuten ab; der Kostendeckel liegt damit bei
+  // 50 Raeumen pro Tag und Nutzer.
+  "livekit-token": 50,
+};
 
 /**
  * Zählt einen Aufruf und sagt, ob er noch im Kontingent liegt.

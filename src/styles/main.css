@@ -2237,6 +2237,11 @@ select.p-auth-input {
     background 0.3s var(--ease-out),
     opacity 0.3s ease;
 }
+/* Teilen: Gegenstück zum Zurück-Pfeil, oben rechts */
+.bd-teilen {
+  left: auto;
+  right: calc(16px + var(--sa-right));
+}
 @media (hover: hover) and (pointer: fine) {
   .bd-back:hover {
     background: rgba(0, 0, 0, 0.85);
@@ -6953,6 +6958,17 @@ select.p-auth-input {
   color: #888;
   margin-bottom: 8px;
 }
+/* "Mein Match teilen" unter dem Ergebnis (garage.js, matchTeilen) */
+.gr-match-teilen {
+  display: inline-flex; align-items: center; gap: 8px;
+  margin-top: 18px; padding: 12px 22px;
+  background: #0a0a0a; color: #fff; border: none; border-radius: 99px;
+  font-family: inherit; font-size: 15px; font-weight: 600; cursor: pointer;
+  transition: transform .2s, background .2s;
+}
+@media (hover: hover) and (pointer: fine) {
+  .gr-match-teilen:hover { background: #222; transform: translateY(-1px); }
+}
 
 /* Garage container as scrollable page */
 #garage-container {
@@ -8279,6 +8295,898 @@ select.p-auth-input {
   .kv-results-list::-webkit-scrollbar-thumb:hover { background: #555; }
 }
 
+/* ═══ Eigene Karte (karte.js, MapLibre) ═══════════════════════════════════ */
+.hub-map.maplibregl-map,
+.hub-map .maplibregl-canvas { background: #f3f1e8; }
+.hub-map .maplibregl-canvas:focus { outline: none; }
+/* Infofenster im Panel-Look statt des weissen Standard-Popups */
+.mm-popup .maplibregl-popup-content {
+  padding: 0;
+  background: #1a1a1a;
+  border: 1px solid rgba(255,255,255,0.12);
+  border-radius: 14px;
+  box-shadow: 0 16px 40px rgba(0,0,0,0.5);
+}
+.mm-popup.maplibregl-popup-anchor-bottom .maplibregl-popup-tip { border-top-color: #1a1a1a; }
+.mm-popup.maplibregl-popup-anchor-top .maplibregl-popup-tip { border-bottom-color: #1a1a1a; }
+.mm-popup.maplibregl-popup-anchor-left .maplibregl-popup-tip { border-right-color: #1a1a1a; }
+.mm-popup.maplibregl-popup-anchor-right .maplibregl-popup-tip { border-left-color: #1a1a1a; }
+.hub-info-offen { color: #5cbf82; font-weight: 600; }
+.hub-info-zu { color: rgba(255,255,255,0.45); font-weight: 600; }
+/* Eigener Standort — der blaue Punkt mit Puls, wie zuvor bei Google */
+.mm-standort-punkt {
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: #007aff;
+  border: 3px solid #fff;
+  box-shadow: 0 0 0 0 rgba(0,122,255,0.45);
+  animation: mmStandortPuls 2.2s ease-out infinite;
+}
+@keyframes mmStandortPuls {
+  0% { box-shadow: 0 0 0 0 rgba(0,122,255,0.45); }
+  100% { box-shadow: 0 0 0 18px rgba(0,122,255,0); }
+}
+.tour-profil-punkt {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: #3b5bdb;
+  border: 2px solid #fff;
+  pointer-events: none;
+}
+/* Quellenangabe (Pflicht: OpenStreetMap, OpenMapTiles) — klein und leise, aber lesbar */
+.hub-map .maplibregl-ctrl-bottom-right .maplibregl-ctrl { margin: 0 4px 3px 0; }
+.hub-map .maplibregl-ctrl-attrib,
+.hub-map .maplibregl-ctrl-attrib.maplibregl-compact {
+  min-height: 0;
+  padding: 1px 6px;
+  border-radius: 5px;
+  background: rgba(255,255,255,0.55);
+  color: rgba(0,0,0,0.45);
+  font-size: 9px;
+  line-height: 14px;
+  box-shadow: none;
+}
+.hub-map .maplibregl-ctrl-attrib a { color: rgba(0,0,0,0.5); text-decoration: none; }
+.hub-map .maplibregl-ctrl-attrib a:hover { color: rgba(0,0,0,0.8); text-decoration: underline; }
+.hub-map .maplibregl-ctrl-attrib .maplibregl-ctrl-attrib-button,
+.hub-map .maplibregl-ctrl-attrib.maplibregl-compact .maplibregl-ctrl-attrib-button { display: none; }
+.hub-map .maplibregl-ctrl-attrib.maplibregl-compact .maplibregl-ctrl-attrib-inner { display: block; }
+/* Handy: unten liegen Panel und Reiterleiste darüber — Quellenangabe oben rechts */
+@media (max-width: 768px) {
+  .hub-map .maplibregl-ctrl-bottom-right { top: calc(6px + var(--sa-top, 0px)); bottom: auto; }
+  .hub-map .maplibregl-ctrl-bottom-right .maplibregl-ctrl { margin: 0 6px 0 0; }
+  .hub-map .maplibregl-ctrl-attrib { max-width: calc(100vw - 84px); }
+}
+.hub-map-fehler-titel { font-weight: 700; color: #fff; margin-bottom: 4px; }
+.hub-map-fehler-text { font-size: 12px; color: #888; max-width: 280px; text-align: center; line-height: 1.4; }
+.kv-result-marke { color: rgba(255,255,255,0.6); font-weight: 600; }
+/* Notdienst: wen man anruft, über den Werkstätten */
+.kv-notdienst {
+  margin: 10px var(--kv-pad-x, 14px) 6px;
+  padding: 12px;
+  border-radius: 12px;
+  background: rgba(255,195,0,0.08);
+  border: 1px solid rgba(255,195,0,0.22);
+}
+.kv-notdienst-knoepfe { display: flex; gap: 8px; }
+.kv-notdienst-btn {
+  flex: 1 1 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 38px;
+  border-radius: 10px;
+  background: #fff;
+  color: #000;
+  font-size: 13px;
+  font-weight: 750;
+  text-decoration: none;
+}
+.kv-notdienst-btn--notruf { background: #e63946; color: #fff; }
+.kv-notdienst-text { margin: 9px 0 0; font-size: 11.5px; line-height: 1.5; color: rgba(255,255,255,0.6); }
+
+/* ═══ Tour fahren (tour-fahren.js) ═══════════════════════════════════════
+   Navigation über der Karte. Grosse Schrift und Knöpfe: wird mit Handschuhen
+   und aus der Halterung gelesen. Panel und Bedienknöpfe treten zurück. */
+.kv-faehrt .kv-sidebar,
+.kv-faehrt .kv-map-controls,
+.kv-faehrt .kv-search-here { display: none !important; }
+/* Während der Fahrt gehört der ganze Bildschirm dem Navi */
+body.mm-faehrt #konf-taskbar,
+body.mm-faehrt #konf-back { display: none !important; }
+body.mm-faehrt .fahrt { padding-top: calc(12px + var(--sa-top)); padding-bottom: calc(12px + var(--sa-bottom)); }
+.fahrt {
+  position: absolute;
+  inset: 0;
+  z-index: 40;
+  pointer-events: none;
+  display: flex;
+  flex-direction: column;
+  padding: 76px 12px calc(12px + var(--tb-mobile-h, 0px));
+  font-family: -apple-system, "SF Pro Display", var(--font);
+  -webkit-font-smoothing: antialiased;
+}
+.fahrt > * > * { pointer-events: auto; }
+
+.fahrt-oben { display: flex; flex-direction: column; align-items: stretch; gap: 8px; max-width: 440px; width: 100%; margin: 0 auto; }
+/* Banner: dunkel, ruhig, große Entfernung, Straßenname darunter */
+.fahrt-banner {
+  border-radius: 22px;
+  background: rgba(28,28,30,0.97);
+  -webkit-backdrop-filter: saturate(160%) blur(20px);
+  backdrop-filter: saturate(160%) blur(20px);
+  color: #fff;
+  box-shadow: 0 12px 32px rgba(0,0,0,0.28), 0 1px 0 rgba(255,255,255,0.06) inset;
+  overflow: hidden;
+  animation: fahrtEin .45s cubic-bezier(.2,.9,.25,1) both;
+}
+.fahrt-banner-haupt { display: flex; align-items: center; gap: 16px; padding: 16px 20px 16px 16px; }
+/* Abbiegekarte: dunkel, groß, mit Handschuhen und aus der Halterung lesbar */
+
+.fahrt-pfeil { flex: none; width: 58px; height: 58px; display: flex; align-items: center; justify-content: center; }
+.fahrt-pfeil svg { width: 54px; height: 54px; fill: none; stroke: #fff; stroke-width: 2.4; stroke-linecap: round; stroke-linejoin: round; }
+.fahrt-hinweis { min-width: 0; }
+.fahrt-bis { font-size: 34px; font-weight: 700; line-height: 1; letter-spacing: -0.02em; font-variant-numeric: tabular-nums; }
+.fahrt-satz { margin-top: 4px; font-size: 19px; font-weight: 600; line-height: 1.2; color: rgba(255,255,255,0.86); overflow: hidden; text-overflow: ellipsis; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+.fahrt-danach {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 20px;
+  border-top: 1px solid rgba(255,255,255,0.08);
+  background: rgba(255,255,255,0.04);
+  font-size: 15px;
+  font-weight: 600;
+  color: rgba(255,255,255,0.8);
+}
+.fahrt-danach > span:first-child { color: rgba(255,255,255,0.5); }
+.fahrt-danach > span:last-child { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fahrt-danach svg { flex: none; width: 20px; height: 20px; fill: none; stroke: #fff; stroke-width: 2.6; stroke-linecap: round; stroke-linejoin: round; }
+.fahrt-danach[hidden] { display: none; }
+.fahrt-abseits {
+  align-self: center;
+  padding: 9px 16px;
+  border-radius: 999px;
+  background: rgba(28,28,30,0.92);
+  color: #fff;
+  font-size: 14px;
+  font-weight: 600;
+  box-shadow: 0 8px 22px rgba(0,0,0,0.25);
+}
+.fahrt-abseits[hidden] { display: none; }
+.fahrt-mitte { flex: 1; display: flex; align-items: flex-end; justify-content: space-between; max-width: 440px; width: 100%; margin: 0 auto 10px; }
+.fahrt-tempo {
+  width: 58px;
+  height: 58px;
+  border-radius: 50%;
+  background: rgba(255,255,255,0.97);
+  color: #1c1c1e;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 6px 18px rgba(0,0,0,0.22);
+}
+.fahrt-tempo strong { font-size: 21px; font-weight: 700; line-height: 1; font-variant-numeric: tabular-nums; }
+.fahrt-tempo span { font-size: 9.5px; font-weight: 600; color: #8e8e93; margin-top: 1px; }
+.fahrt-seite { display: flex; flex-direction: column; gap: 10px; }
+.fahrt-rund {
+  width: 48px;
+  height: 48px;
+  border: 0;
+  border-radius: 50%;
+  background: rgba(255,255,255,0.97);
+  color: #1c1c1e;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 6px 18px rgba(0,0,0,0.22);
+  cursor: pointer;
+  transition: transform .15s ease;
+}
+.fahrt-rund:active { transform: scale(0.94); }
+.fahrt-rund svg { width: 21px; height: 21px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.fahrt-rund[aria-pressed="false"] { color: #8e8e93; }
+.fahrt-rund--folgen { color: #1f7bff; }
+.fahrt-rund--folgen svg { fill: #1f7bff; stroke: none; }
+.fahrt-rund[hidden] { display: none; }
+.fahrt-unten {
+  position: relative;
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: center;
+  gap: 12px;
+  max-width: 440px;
+  width: 100%;
+  margin: 0 auto;
+  padding: 14px 14px 10px 20px;
+  border-radius: 22px;
+  background: rgba(28,28,30,0.97);
+  -webkit-backdrop-filter: saturate(160%) blur(20px);
+  backdrop-filter: saturate(160%) blur(20px);
+  box-shadow: 0 -6px 28px rgba(0,0,0,0.25);
+  animation: fahrtEin .45s cubic-bezier(.2,.9,.25,1) .08s both;
+}
+.fahrt-werte { display: grid; grid-template-columns: repeat(3, auto); justify-content: start; gap: 22px; }
+.fahrt-werte strong { display: block; white-space: nowrap; font-size: 22px; font-weight: 700; line-height: 1.05; color: #fff; font-variant-numeric: tabular-nums; letter-spacing: -0.01em; }
+.fahrt-werte span { display: block; margin-top: 3px; font-size: 12px; font-weight: 500; color: rgba(235,235,245,0.6); }
+.fahrt-ende {
+  height: 44px;
+  padding: 0 20px;
+  border: 0;
+  border-radius: 999px;
+  background: #ff3b30;
+  color: #fff;
+  font: 600 16px/1 -apple-system, "SF Pro Text", var(--font);
+  cursor: pointer;
+}
+.fahrt-ende:active { filter: brightness(0.92); }
+@media (max-width: 400px) { .fahrt-werte { gap: 16px; } .fahrt-werte strong { font-size: 20px; } .fahrt-unten { padding-left: 16px; } }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+.fahrt-name { grid-column: 1 / -1; font-size: 11px; color: rgba(235,235,245,0.38); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+@keyframes fahrtEin { from { opacity: 0; transform: translateY(-8px) scale(0.98); } to { opacity: 1; transform: none; } }
+.fahrt-unten { animation-name: fahrtEinUnten; }
+@keyframes fahrtEinUnten { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: none; } }
+/* Positions-Puck: flach auf der Karte, weiße Scheibe mit blauem Pfeil */
+.navi-puck { width: 44px; height: 44px; display: flex; align-items: center; justify-content: center; pointer-events: none; }
+.navi-puck-scheibe {
+  width: 38px;
+  height: 38px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 2px 6px rgba(0,0,0,0.3), 0 0 0 7px rgba(31,123,255,0.16);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.navi-puck-scheibe svg { width: 26px; height: 26px; fill: #1f7bff; }
+/* Navi hat den eigenen Pfeil; beim Aufzeichnen bleibt der eigene Punkt (aufnahme-ich) */
+body.mm-faehrt .mm-standort-punkt:not(.aufnahme-ich) { display: none; }
+/* Startbildschirm im Panel */
+.fahrt-start-titel { margin: 10px 0 0; font-size: 21px; font-weight: 800; color: #fff; letter-spacing: -0.01em; }
+.fahrt-start-name { margin-top: 2px; font-size: 13px; color: rgba(255,255,255,0.55); }
+.fahrt-start-inhalt { margin-top: 14px; display: flex; flex-direction: column; gap: 12px; }
+.fahrt-laedt { display: flex; align-items: center; gap: 10px; padding: 18px 4px; color: rgba(255,255,255,0.6); font-size: 13px; }
+.fahrt-karte { display: flex; gap: 12px; padding: 14px; border-radius: 14px; background: #1b1b1b; border: 1px solid rgba(255,255,255,0.07); }
+.fahrt-karte strong { display: block; font-size: 14px; color: #fff; }
+.fahrt-karte p { margin: 4px 0 0; font-size: 12.5px; line-height: 1.5; color: rgba(255,255,255,0.6); }
+.fahrt-karte-symbol { flex: none; width: 36px; height: 36px; border-radius: 10px; background: rgba(59,91,219,0.18); display: flex; align-items: center; justify-content: center; }
+.fahrt-karte-symbol svg { width: 20px; height: 20px; fill: none; stroke: #7b93f0; stroke-width: 2; }
+.fahrt-los {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 9px;
+  width: 100%;
+  height: 52px;
+  border: 0;
+  border-radius: 14px;
+  background: #3b5bdb;
+  color: #fff;
+  font: 800 16px/1 var(--font);
+  cursor: pointer;
+}
+@media (hover: hover) and (pointer: fine) { .fahrt-los:hover { background: #2f4bc4; } }
+.fahrt-start-hinweis { margin: 0; font-size: 11.5px; line-height: 1.5; color: rgba(255,255,255,0.45); }
+.fahrt-start-fehler { margin: 0; padding: 10px 12px; border-radius: 10px; background: rgba(230,57,70,0.12); color: #ff9aa2; font-size: 12.5px; line-height: 1.45; }
+.fahrt-wahl { display: flex; flex-direction: column; gap: 8px; }
+.fahrt-wahl-zeile { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.fahrt-wahl-zeile > span { font-size: 12.5px; font-weight: 650; color: rgba(255,255,255,0.6); }
+.fahrt-schalter { display: inline-flex; padding: 3px; border-radius: 10px; background: #1b1b1b; border: 1px solid rgba(255,255,255,0.07); }
+.fahrt-schalter button { height: 30px; padding: 0 11px; border: 0; border-radius: 8px; background: none; color: rgba(255,255,255,0.6); font: 650 12.5px/1 var(--font); cursor: pointer; }
+.fahrt-schalter button[aria-pressed="true"] { background: #fff; color: #111; }
+.fahrt-plan { list-style: none; margin: 4px 0 0; padding: 0 0 0 4px; }
+.fahrt-plan li { position: relative; padding-left: 24px; }
+.fahrt-plan-punkt { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; min-height: 22px; }
+.fahrt-plan-punkt strong { font-size: 13.5px; color: #fff; font-weight: 700; }
+.fahrt-plan-punkt em { font-style: normal; font-size: 12px; color: rgba(255,255,255,0.55); }
+.fahrt-plan-punkt::before { content: ""; position: absolute; left: 3px; top: 5px; width: 11px; height: 11px; border-radius: 50%; background: #3b5bdb; border: 2px solid #111; box-shadow: 0 0 0 1.5px #3b5bdb; }
+.fahrt-plan-punkt--du::before { background: #007aff; box-shadow: 0 0 0 1.5px #007aff; }
+.fahrt-plan-punkt--ziel::before { background: #fff; box-shadow: 0 0 0 1.5px #fff; }
+.fahrt-plan-strecke { display: flex; justify-content: space-between; gap: 10px; padding: 10px 0 10px 24px !important; font-size: 12.5px; color: rgba(255,255,255,0.6); }
+.fahrt-plan-strecke span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fahrt-plan-strecke strong { flex: none; color: #fff; font-weight: 700; }
+.fahrt-plan-strecke::before { content: ""; position: absolute; left: 8px; top: -2px; bottom: -2px; width: 3px; border-radius: 2px; background: #3b5bdb; }
+.fahrt-plan-strecke--anfahrt::before { background: repeating-linear-gradient(to bottom, rgba(255,255,255,0.6) 0 3px, transparent 3px 7px); }
+/* Eigene Position als Pfeil in Fahrtrichtung */
+
+
+
+/* Kurvenstrecken (kurven.js) */
+.kurve-fahren {
+  margin-top: 8px;
+  height: 32px;
+  border: none;
+  border-radius: 9px;
+  background: #fff;
+  color: #000;
+  font-family: inherit;
+  font-size: 12.5px;
+  font-weight: 750;
+  cursor: pointer;
+}
+.mm-popup .maplibregl-popup-close-button { color: rgba(255,255,255,0.6); font-size: 18px; padding: 2px 8px; }
+.tour-kurven-chip svg { opacity: 0.8; }
+.tour-kurven-chip[data-active="true"] svg { opacity: 1; color: #b44ee8; }
+.tour-sammlung-text b { font-weight: 700; }
+
+/* ═══ Karte: Touren (touren.js) ═══════════════════════════════════════════
+   Nach dem Vorbild von komoot: Tourenliste neben der Karte, Filter, Seiten,
+   Detailansicht mit Höhenprofil. Gleiche Formensprache wie die Orte-Liste:
+   --kv-ctl-*-Tokens, weisse Flaeche fuer "gewaehlt", Haarlinien statt Kacheln. */
+
+/* Umschalter Touren | Orte — oberste Zeile im Panel */
+.kv-modus {
+  display: flex;
+  gap: 2px;
+  margin: 12px var(--kv-pad-x, 14px) 0;
+  padding: 3px;
+  background: rgba(255,255,255,0.05);
+  border: 1px solid rgba(255,255,255,0.07);
+  border-radius: calc(var(--kv-ctl-r, 9px) + 3px);
+  flex-shrink: 0;
+}
+.kv-modus-btn {
+  flex: 1 1 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  height: calc(var(--kv-ctl-h, 28px) + 2px);
+  border: none;
+  border-radius: var(--kv-ctl-r, 9px);
+  background: transparent;
+  color: var(--kv-ctl-fg, rgba(255,255,255,0.55));
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 650;
+  cursor: pointer;
+  transition: background 0.22s ease, color 0.22s ease, transform 0.16s cubic-bezier(0.34, 1.4, 0.5, 1);
+}
+.kv-modus-btn:active { transform: scale(0.97); }
+@media (hover: hover) and (pointer: fine) {
+  .kv-modus-btn:not(.kv-modus-btn--aktiv):hover { background: var(--kv-ctl-hover); color: var(--kv-ctl-fg-strong); }
+}
+.kv-modus-btn--aktiv {
+  background: #fff;
+  color: #000;
+  box-shadow: 0 2px 10px rgba(0,0,0,0.3);
+}
+
+/* Je Modus nur die eigenen Bausteine */
+.kv-ansicht {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+.kv-sidebar[data-modus="touren"] .kv-ansicht--orte,
+.kv-sidebar[data-modus="touren"] .kv-orte-radius,
+.kv-sidebar[data-modus="orte"] .kv-ansicht--touren,
+.kv-sidebar[data-modus="orte"] .tour-umkreis-group { display: none; }
+
+/* Am Desktop: festes Panel, nur die Liste scrollt — die Filter bleiben stehen.
+   Etwas breiter als bei den Orten, die Touren tragen ein Bild. */
+@container (min-width: 760px) {
+  .konf-split--karte .kv-sidebar[data-modus="touren"] {
+    width: 400px;
+    height: calc(100% - 100px);
+    overflow: hidden;
+  }
+}
+
+/* Filterzeile: Länge, Kurven, Art, Gemerkt */
+.tour-filters {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  /* Steht schon vor dem Laden der Daten in voller Hoehe: syncKvPeek() misst
+     das eingeklappte Sheet bis zur Unterkante dieser Zeile. */
+  min-height: var(--kv-ctl-h, 28px);
+  margin: 10px 0 0;
+  padding: 0 var(--kv-pad-x, 14px);
+  overflow-x: auto;
+  scrollbar-width: none;
+  flex-shrink: 0;
+}
+.tour-filters::-webkit-scrollbar { display: none; }
+.tour-filter-chip svg { opacity: 0.6; transition: transform 0.22s ease; }
+.tour-filter-chip[aria-expanded="true"] svg { transform: rotate(180deg); }
+.tour-filter-chip { background: rgba(255,255,255,0.05); }
+.kv-chip.kv-chip--fav { margin-left: auto; }
+.tour-optionen {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 10px var(--kv-pad-x, 14px) 0;
+  flex-shrink: 0;
+  animation: kvResultIn 0.26s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+.tour-optionen[hidden] { display: none; }
+.tour-option {
+  height: var(--kv-ctl-h, 28px);
+  padding: 0 12px;
+  border: 1px solid rgba(255,255,255,0.12);
+  border-radius: 999px;
+  background: transparent;
+  color: rgba(255,255,255,0.75);
+  font-family: inherit;
+  font-size: var(--kv-ctl-fs, 12px);
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.18s ease, color 0.18s ease, border-color 0.18s ease;
+}
+@media (hover: hover) and (pointer: fine) {
+  .tour-option:hover { background: rgba(255,255,255,0.07); color: #fff; }
+}
+.tour-option--aktiv { background: #fff; border-color: #fff; color: #000; }
+@media (hover: hover) and (pointer: fine) {
+  .tour-option--aktiv:hover { background: #f0f0f0; color: #000; }
+}
+
+.tour-liste {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 2px 0 10px;
+}
+.tour-liste::-webkit-scrollbar { width: 6px; }
+.tour-liste::-webkit-scrollbar-thumb { background: #333; border-radius: 3px; }
+@supports not selector(::-webkit-scrollbar) {
+  .tour-liste { scrollbar-width: thin; scrollbar-color: #333 transparent; }
+}
+.kv-ansicht--detail .tour-filters,
+.kv-ansicht--detail .tour-optionen,
+.kv-ansicht--detail .tour-list-bar { display: none; }
+
+/* Tourkarte: Streckenbild links, Text rechts */
+.tour-card {
+  position: relative;
+  display: grid;
+  grid-template-columns: 88px 1fr;
+  gap: 13px;
+  align-items: center;
+  padding: 12px var(--kv-pad-x, 14px);
+  border-bottom: 1px solid rgba(255,255,255,0.055);
+  cursor: pointer;
+  outline: none;
+  transition: background 0.18s ease;
+  animation: kvResultIn 0.44s cubic-bezier(0.22, 1, 0.36, 1) both;
+  animation-delay: calc(var(--i, 0) * 32ms);
+}
+.tour-card::before {
+  content: '';
+  position: absolute;
+  left: 0; top: 0; bottom: 0;
+  width: 2px;
+  background: #fff;
+  transform: scaleY(0);
+  transition: transform 0.3s cubic-bezier(0.22, 1, 0.36, 1);
+}
+.tour-card--hover, .tour-card:focus-visible { background: rgba(255,255,255,0.05); }
+.tour-card--hover::before, .tour-card:focus-visible::before { transform: scaleY(1); }
+.tour-card:active { background: rgba(255,255,255,0.07); }
+
+.tour-bild {
+  width: 88px;
+  height: 88px;
+  border-radius: 12px;
+  overflow: hidden;
+  background: #eef0e3;
+  border: 1px solid rgba(255,255,255,0.07);
+}
+.tour-bild { position: relative; }
+/* Kartenausschnitt (vorschau.js) mit der Linie als SVG darüber */
+.vs-karte { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; display: block; animation: vsEin .35s ease both; }
+.vs-linie { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+.vs-rand, .vs-strich { fill: none; stroke-linejoin: round; stroke-linecap: round; }
+.vs-rand { stroke: #fff; }
+.vs-strich { stroke: #3b5bdb; }
+.vs-start { fill: #3b5bdb; stroke: #fff; stroke-width: 2.4; }
+.vs-ziel { fill: #1f1f1f; stroke: #fff; stroke-width: 2.2; }
+.vs-linie--animiert .vs-rand, .vs-linie--animiert .vs-strich { stroke-dasharray: 1000; stroke-dashoffset: 1000; animation: vsZeichnen 1.6s cubic-bezier(.33,0,.2,1) .15s forwards; }
+.vs-linie--animiert .vs-start { animation: vsEin .3s ease both; }
+.vs-linie--animiert .vs-ziel { opacity: 0; animation: vsEin .3s ease 1.6s forwards; }
+@keyframes vsZeichnen { to { stroke-dashoffset: 0; } }
+@keyframes vsEin { from { opacity: 0; } to { opacity: 1; } }
+@media (prefers-reduced-motion: reduce) {
+  .vs-linie--animiert .vs-rand, .vs-linie--animiert .vs-strich { animation: none; stroke-dashoffset: 0; }
+  .vs-linie--animiert .vs-ziel { animation: none; opacity: 1; }
+}
+/* Gezeichnete Landschaft (Touren ohne Foto, Kurvenstrecken) — Farben wie die Karte */
+.tour-landschaft { background: radial-gradient(120% 100% at 25% 15%, #f6f5ec, #e7ecd6); }
+.tb-wald { fill: #c3dda3; opacity: 0.85; }
+.tb-wald--dicht { fill: #a9cf86; opacity: 0.7; }
+.tb-see { fill: #a9d3f2; }
+.tb-hoehe { fill: none; stroke: rgba(130,110,70,0.16); stroke-width: 0.9; }
+.tb-strasse { fill: none; stroke: #fff; stroke-width: 1.6; opacity: 0.9; }
+.tb-strasse-rand { fill: none; stroke: #d6a04c; stroke-width: 3.2; opacity: 0.55; }
+.tb-strasse--gelb { stroke: #fbd27c; stroke-width: 2; opacity: 1; }
+.tour-bild svg, .tour-sammlung-bild svg, .tour-detail-bild svg { display: block; width: 100%; height: 100%; }
+.tour-bild-schatten { fill: none; stroke: #fff; stroke-width: 5.5; stroke-linejoin: round; stroke-linecap: round; }
+.tour-bild-linie { fill: none; stroke: #3b5bdb; stroke-width: 2.6; stroke-linejoin: round; stroke-linecap: round; }
+.tour-bild-start { fill: #3b5bdb; stroke: #fff; stroke-width: 2; }
+.tour-bild-ziel { fill: #1f1f1f; stroke: #fff; stroke-width: 1.8; }
+
+
+
+.tour-card-body { min-width: 0; }
+.tour-badges { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.tour-badge {
+  display: inline-flex;
+  align-items: center;
+  height: 20px;
+  padding: 0 8px;
+  border-radius: 6px;
+  font-size: 10.5px;
+  font-weight: 750;
+  letter-spacing: 0.02em;
+}
+.tour-badge--leicht { background: rgba(92,191,130,0.16); color: #7fd4a0; }
+.tour-badge--mittel { background: rgba(232,197,109,0.16); color: #e8c56d; }
+.tour-badge--schwer { background: rgba(236,124,124,0.16); color: #f19a9a; }
+.tour-kurven {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11px;
+  font-weight: 600;
+  color: rgba(255,255,255,0.6);
+}
+.tour-kurven-balken { display: inline-flex; align-items: flex-end; gap: 2px; }
+.tour-kurven-balken i { display: block; width: 3px; border-radius: 1px; background: rgba(255,255,255,0.18); }
+.tour-kurven-balken i:nth-child(1) { height: 5px; }
+.tour-kurven-balken i:nth-child(2) { height: 8px; }
+.tour-kurven-balken i:nth-child(3) { height: 11px; }
+.tour-kurven-balken i.an { background: #fff; }
+
+.tour-name {
+  margin: 7px 0 0;
+  font-size: 14px;
+  font-weight: 700;
+  line-height: 1.3;
+  color: #fff;
+  letter-spacing: -0.005em;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.tour-stats {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  color: rgba(255,255,255,0.78);
+  font-variant-numeric: tabular-nums;
+}
+.tour-stats svg { opacity: 0.6; }
+.tour-sub {
+  margin-top: 4px;
+  font-size: 11.5px;
+  color: rgba(255,255,255,0.42);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* "Ferienstraßen in der Nähe" — Band zwischen den Karten */
+.tour-sammlung {
+  padding: 16px 0 14px;
+  border-bottom: 1px solid rgba(255,255,255,0.055);
+}
+.tour-sammlung-kopf {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 var(--kv-pad-x, 14px) 10px;
+}
+.tour-sammlung-kopf h4 { margin: 0; font-size: 14px; font-weight: 750; color: #fff; }
+.tour-sammlung-pfeile { display: flex; gap: 6px; }
+.tour-pfeil {
+  width: 28px; height: 28px;
+  border-radius: 50%;
+  border: 1px solid rgba(255,255,255,0.12);
+  background: transparent;
+  color: #fff;
+  font-size: 17px;
+  line-height: 1;
+  cursor: pointer;
+}
+@media (hover: hover) and (pointer: fine) { .tour-pfeil:hover { background: rgba(255,255,255,0.08); } }
+.tour-sammlung-band {
+  display: flex;
+  gap: 10px;
+  overflow-x: auto;
+  scroll-snap-type: x mandatory;
+  scroll-padding: 0 var(--kv-pad-x, 14px);
+  padding: 0 var(--kv-pad-x, 14px);
+  scrollbar-width: none;
+}
+.tour-sammlung-band::-webkit-scrollbar { display: none; }
+.tour-sammlung-karte {
+  position: relative;
+  flex: 0 0 78%;
+  max-width: 260px;
+  height: 132px;
+  scroll-snap-align: start;
+  border: 1px solid rgba(255,255,255,0.08);
+  border-radius: 14px;
+  overflow: hidden;
+  padding: 0;
+  background: linear-gradient(160deg, #262626, #161616);
+  color: #fff;
+  font-family: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: transform 0.2s cubic-bezier(0.34, 1.4, 0.5, 1), border-color 0.2s ease;
+}
+@media (hover: hover) and (pointer: fine) { .tour-sammlung-karte:hover { border-color: rgba(255,255,255,0.22); } }
+.tour-sammlung-karte:active { transform: scale(0.98); }
+.tour-sammlung-bild { position: absolute; inset: 0; opacity: 0.9; }
+
+.tour-sammlung-text {
+  position: absolute;
+  left: 0; right: 0; bottom: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 28px 12px 10px;
+  background: linear-gradient(to top, rgba(0,0,0,0.85), transparent);
+}
+.tour-sammlung-text strong { font-size: 13.5px; font-weight: 750; line-height: 1.25; }
+.tour-sammlung-text span { font-size: 11px; color: rgba(255,255,255,0.6); }
+
+/* Seiten 1 2 3 … */
+.tour-seiten {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 14px 10px 6px;
+}
+.tour-seite {
+  min-width: 32px;
+  height: 32px;
+  padding: 0 6px;
+  border-radius: 50%;
+  border: 1px solid rgba(255,255,255,0.12);
+  background: transparent;
+  color: rgba(255,255,255,0.8);
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 650;
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+}
+.tour-seite--aktiv { background: #fff; border-color: #fff; color: #000; }
+.tour-seite--pfeil { border-color: transparent; font-size: 18px; }
+.tour-seite:disabled { opacity: 0.25; cursor: default; }
+@media (hover: hover) and (pointer: fine) {
+  .tour-seite:not(.tour-seite--aktiv):not(:disabled):hover { background: rgba(255,255,255,0.08); }
+}
+.tour-seite-luecke { color: rgba(255,255,255,0.4); }
+/* ── Detailansicht ── */
+.tour-detail, .fahrt-start { padding: 6px var(--kv-pad-x, 14px) 16px; animation: kvResultIn 0.36s cubic-bezier(0.22, 1, 0.36, 1) both; }
+
+/* ── Detailansicht ── */
+
+.tour-zurueck {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin: 4px 0 10px -6px;
+  padding: 5px 8px;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: rgba(255,255,255,0.7);
+  font-family: inherit;
+  font-size: 12.5px;
+  font-weight: 650;
+  cursor: pointer;
+}
+@media (hover: hover) and (pointer: fine) { .tour-zurueck:hover { background: rgba(255,255,255,0.08); color: #fff; } }
+.tour-detail-bild {
+  position: relative;
+  height: 190px;
+  margin-bottom: 12px;
+  border-radius: 14px;
+  overflow: hidden;
+  background: #1d1d1d;
+  border: 1px solid rgba(255,255,255,0.07);
+}
+.tour-flug-btn {
+  position: absolute;
+  right: 10px;
+  bottom: 10px;
+  z-index: 1;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 30px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 999px;
+  background: rgba(17,17,17,0.82);
+  -webkit-backdrop-filter: blur(8px);
+  backdrop-filter: blur(8px);
+  color: #fff;
+  font: 650 12px/1 var(--font);
+  white-space: nowrap;
+  cursor: pointer;
+}
+.tour-detail-bild .tour-flug-btn svg { flex: none; width: 13px; height: 13px; }
+.tour-flug-btn.an { background: #3b5bdb; }
+@media (hover: hover) and (pointer: fine) { .tour-flug-btn:hover { background: rgba(17,17,17,0.95); } .tour-flug-btn.an:hover { background: #2f4bc4; } }
+
+
+
+
+.tour-detail-name { margin: 8px 0 0; font-size: 19px; font-weight: 750; line-height: 1.25; color: #fff; letter-spacing: -0.01em; }
+.tour-detail .tour-sub { white-space: normal; }
+.tour-kennzahlen {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 1px;
+  margin: 14px 0;
+  border-radius: 12px;
+  overflow: hidden;
+  background: rgba(255,255,255,0.07);
+}
+.tour-kz {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 10px 10px 9px;
+  background: #1b1b1b;
+}
+.tour-kz strong {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-size: 14px;
+  font-weight: 750;
+  color: #fff;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.tour-kz span { font-size: 10.5px; font-weight: 600; color: rgba(255,255,255,0.42); }
+.tour-aktionen { display: flex; gap: 6px; margin-bottom: 16px; }
+.tour-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  height: 36px;
+  padding: 0 13px;
+  border: 1px solid rgba(255,255,255,0.14);
+  border-radius: 11px;
+  background: transparent;
+  color: #fff;
+  font-family: inherit;
+  font-size: 12.5px;
+  font-weight: 700;
+  text-decoration: none;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background 0.18s ease, transform 0.16s cubic-bezier(0.34, 1.4, 0.5, 1);
+}
+.tour-btn:active { transform: scale(0.96); }
+@media (hover: hover) and (pointer: fine) { .tour-btn:hover { background: rgba(255,255,255,0.08); } }
+.tour-btn--primaer { flex: 1 1 auto; background: #fff; border-color: #fff; color: #000; }
+@media (hover: hover) and (pointer: fine) { .tour-btn--primaer:hover { background: #ececec; } }
+.tour-btn--gemerkt { color: #ec7c7c; border-color: rgba(236,124,124,0.4); }
+
+.tour-profil { margin-bottom: 14px; }
+.tour-profil-kopf {
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 6px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: rgba(255,255,255,0.42);
+}
+.tour-profil-wert { text-transform: none; letter-spacing: 0; color: rgba(255,255,255,0.75); font-variant-numeric: tabular-nums; }
+.tour-profil-svg {
+  display: block;
+  width: 100%;
+  height: 92px;
+  border-radius: 10px;
+  background: rgba(255,255,255,0.03);
+  cursor: crosshair;
+  touch-action: pan-y;
+}
+.tour-profil-linie { fill: none; stroke: #fff; stroke-width: 1.6; stroke-linejoin: round; }
+.tour-profil-cursor { stroke: #e8c56d; stroke-width: 1.4; opacity: 0; }
+.tour-profil-cursor.an { opacity: 1; }
+.tour-profil-achse {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 4px;
+  font-size: 10.5px;
+  color: rgba(255,255,255,0.35);
+  font-variant-numeric: tabular-nums;
+}
+.tour-text { margin: 0 0 12px; font-size: 13px; line-height: 1.55; color: rgba(255,255,255,0.78); }
+.tour-tags { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 16px; }
+.tour-tags span {
+  padding: 4px 9px;
+  border-radius: 999px;
+  background: rgba(255,255,255,0.06);
+  font-size: 11px;
+  font-weight: 600;
+  color: rgba(255,255,255,0.7);
+}
+.tour-abschnitt {
+  margin: 0 0 8px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: rgba(255,255,255,0.42);
+}
+.tour-wegpunkte {
+  list-style: none;
+  margin: 0 0 14px;
+  padding: 0;
+  counter-reset: wp;
+}
+.tour-wegpunkte li {
+  position: relative;
+  padding: 0 0 9px 22px;
+  font-size: 12.5px;
+  color: rgba(255,255,255,0.82);
+}
+.tour-wegpunkte li::before {
+  content: '';
+  position: absolute;
+  left: 4px; top: 5px;
+  width: 7px; height: 7px;
+  border-radius: 50%;
+  background: #1b1b1b;
+  border: 1.5px solid rgba(255,255,255,0.6);
+}
+.tour-wegpunkte li:first-child::before { background: #fff; border-color: #fff; }
+.tour-wegpunkte li:not(:last-child)::after {
+  content: '';
+  position: absolute;
+  left: 7.5px; top: 14px; bottom: 1px;
+  width: 1px;
+  background: rgba(255,255,255,0.18);
+}
+.tour-hinweis { margin: 0 0 8px; font-size: 11.5px; line-height: 1.5; color: rgba(255,255,255,0.45); }
+.tour-quelle { margin: 10px 0 0; font-size: 10.5px; line-height: 1.5; color: rgba(255,255,255,0.32); }
+
+@media (prefers-reduced-motion: reduce) {
+  .tour-card, .tour-detail, .tour-optionen { animation: none; }
+}
+
 /* ─── Karte: aufgeräumtes Mobile-Layout ─── */
 @media (max-width: 640px) {
   .konf-karte-hub {
@@ -8638,6 +9546,190 @@ select.p-auth-input {
     padding-bottom: calc(48px + var(--tb-mobile-h));
   }
 }
+/* ═══ Eigene Strecken, Aufzeichnen, Planer (eigene-strecken.js, aufzeichnen.js, planer.js) ═══ */
+.tour-aktionsleiste { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; padding: 4px var(--kv-pad-x, 14px) 12px; }
+.tour-aktion {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  height: 64px;
+  border: 1px solid rgba(255,255,255,0.08);
+  border-radius: 14px;
+  background: #1b1b1b;
+  color: #fff;
+  font: 650 12px/1 var(--font);
+  cursor: pointer;
+  transition: background .15s ease, border-color .15s ease;
+}
+.tour-aktion svg { width: 18px; height: 18px; }
+@media (hover: hover) and (pointer: fine) { .tour-aktion:hover { background: #242424; border-color: rgba(255,255,255,0.16); } }
+.tour-meine-chip svg { opacity: 0.85; }
+.tour-eigen-aktionen { display: flex; gap: 16px; margin: -2px 0 10px; }
+.tour-link-btn { padding: 4px 0; border: 0; background: none; color: rgba(255,255,255,0.6); font: 650 12.5px/1 var(--font); cursor: pointer; text-decoration: underline; text-underline-offset: 3px; text-decoration-color: rgba(255,255,255,0.25); }
+.tour-link-btn--rot { color: #ff8a93; }
+.tour-link-btn[hidden] { display: none; }
+.tour-toast {
+  position: absolute;
+  left: 50%;
+  bottom: 18px;
+  z-index: 5;
+  transform: translateX(-50%);
+  max-width: calc(100% - 32px);
+  padding: 10px 16px;
+  border-radius: 999px;
+  background: #fff;
+  color: #111;
+  font: 700 13px/1.3 var(--font);
+  box-shadow: 0 10px 28px rgba(0,0,0,0.4);
+  animation: vsEin .2s ease both;
+}
+#kv-touren { position: relative; }
+/* Aufzeichnen */
+.aufnahme {
+  position: absolute;
+  left: 50%;
+  bottom: calc(14px + var(--sa-bottom));
+  z-index: 40;
+  transform: translateX(-50%);
+  width: min(460px, calc(100% - 24px));
+  padding: 14px 14px 10px;
+  border-radius: 20px;
+  background: rgba(14,14,14,0.96);
+  -webkit-backdrop-filter: blur(14px);
+  backdrop-filter: blur(14px);
+  border: 1px solid rgba(255,255,255,0.1);
+  box-shadow: 0 -8px 30px rgba(0,0,0,0.35);
+  color: #fff;
+  font-family: var(--font);
+}
+.aufnahme-kopf { display: flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 700; color: rgba(255,255,255,0.75); }
+.aufnahme-punkt { width: 10px; height: 10px; border-radius: 50%; background: #e63946; animation: aufnahmePuls 1.4s ease-in-out infinite; }
+.aufnahme--ruht .aufnahme-punkt { animation: none; background: #e8c56d; }
+@keyframes aufnahmePuls { 50% { opacity: 0.3; } }
+.aufnahme-folgen { margin-left: auto; height: 28px; padding: 0 12px; border: 0; border-radius: 999px; background: #fff; color: #111; font: 700 12px/1 var(--font); cursor: pointer; }
+.aufnahme-folgen[hidden] { display: none; }
+.aufnahme-haupt { display: grid; grid-template-columns: 1fr 1fr; margin: 10px 0 6px; text-align: center; }
+.aufnahme-haupt strong { display: block; font-size: 34px; font-weight: 800; line-height: 1.05; font-variant-numeric: tabular-nums; letter-spacing: -0.02em; }
+.aufnahme-haupt span, .aufnahme-werte span { font-size: 11px; font-weight: 650; color: rgba(255,255,255,0.45); }
+.aufnahme-werte { display: grid; grid-template-columns: repeat(3, 1fr); padding: 8px 0 12px; border-top: 1px solid rgba(255,255,255,0.08); text-align: center; }
+.aufnahme-werte strong { display: block; font-size: 19px; font-weight: 800; font-variant-numeric: tabular-nums; }
+.aufnahme-knoepfe { display: flex; gap: 8px; }
+.aufnahme-btn { flex: 1; height: 46px; border-radius: 14px; border: 1px solid rgba(255,255,255,0.14); background: rgba(255,255,255,0.07); color: #fff; font: 750 15px/1 var(--font); cursor: pointer; }
+.aufnahme-btn--stopp { background: #e63946; border-color: #e63946; }
+.aufnahme-btn--haupt { background: #3b5bdb; border-color: #3b5bdb; }
+.aufnahme-hinweis { margin: 8px 0 0; text-align: center; font-size: 11px; color: rgba(255,255,255,0.38); }
+.aufnahme-griff { width: 38px; height: 5px; margin: -6px auto 8px; border-radius: 3px; background: rgba(255,255,255,0.25); cursor: grab; touch-action: none; }
+.aufnahme-kopf { touch-action: none; cursor: pointer; }
+.aufnahme-kurz { display: none; margin-left: auto; color: #fff; font-size: 15px; font-variant-numeric: tabular-nums; }
+.aufnahme-kurz b { font-weight: 800; }
+/* Klein: eine Zeile mit Zeit und km, darunter schmale Knöpfe */
+.aufnahme--klein { padding: 12px 12px 10px; }
+.aufnahme--klein .aufnahme-haupt,
+.aufnahme--klein .aufnahme-werte,
+.aufnahme--klein .aufnahme-hinweis { display: none; }
+.aufnahme--klein .aufnahme-kurz { display: inline; }
+.aufnahme--klein .aufnahme-folgen:not([hidden]) { margin-left: 8px; }
+.aufnahme--klein .aufnahme-knoepfe { margin-top: 10px; }
+.aufnahme--klein .aufnahme-btn { height: 40px; border-radius: 12px; font-size: 14px; }
+.aufnahme-ergaenzt { font-size: 12.5px !important; line-height: 1.45; color: #ffd08a !important; }
+.aufnahme-speichern { display: flex; flex-direction: column; gap: 8px; }
+.aufnahme-speichern strong { font-size: 17px; }
+.aufnahme-speichern > span { font-size: 13px; color: rgba(255,255,255,0.6); }
+.aufnahme-name { height: 46px; padding: 0 14px; border-radius: 12px; border: 1px solid rgba(255,255,255,0.16); background: #1b1b1b; color: #fff; font: 600 15px/1 var(--font); }
+/* Planer */
+.plan-werkzeuge { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.plan-werkzeuge .tour-btn { flex: 1 1 auto; }
+.plan-werkzeuge .tour-btn[disabled] { opacity: 0.4; cursor: default; }
+.plan-vorschlag { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; font-size: 12.5px; color: rgba(255,255,255,0.6); }
+.plan-vorschlag[hidden] { display: none; }
+.plan-tipp { margin: 0; padding: 12px; border-radius: 12px; background: rgba(59,91,219,0.12); color: #b9c6f7; font-size: 12.5px; line-height: 1.5; }
+.plan-zahlen { display: grid; grid-template-columns: repeat(2, 1fr); gap: 1px; border-radius: 12px; overflow: hidden; background: rgba(255,255,255,0.06); transition: opacity .2s ease; }
+.plan-zahlen--alt { opacity: 0.45; }
+.plan-zahlen div { padding: 10px; background: #1b1b1b; }
+.plan-zahlen strong { display: block; font-size: 16px; color: #fff; }
+.plan-zahlen span { font-size: 11px; color: rgba(255,255,255,0.5); }
+.plan-liste { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+.plan-liste li { display: flex; align-items: center; gap: 10px; padding: 6px 4px; font-size: 13px; color: rgba(255,255,255,0.8); }
+.plan-nr { flex: none; width: 22px; height: 22px; border-radius: 50%; background: #3b5bdb; color: #fff; font-size: 11px; font-weight: 800; display: flex; align-items: center; justify-content: center; }
+.plan-weg { margin-left: auto; width: 28px; height: 28px; border: 0; border-radius: 8px; background: rgba(255,255,255,0.06); color: rgba(255,255,255,0.6); font-size: 18px; line-height: 1; cursor: pointer; }
+.plan-aktionen { display: grid; grid-template-columns: 2fr 1fr; gap: 8px; }
+.plan-aktionen .tour-btn { height: 52px; justify-content: center; }
+.plan-punkt {
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  background: #3b5bdb;
+  border: 2.5px solid #fff;
+  color: #fff;
+  font: 800 11px/21px var(--font);
+  text-align: center;
+  box-shadow: 0 3px 10px rgba(0,0,0,0.35);
+  cursor: grab;
+}
+.plan-punkt--start { background: #1d6b45; }
+.plan-punkt--ziel { background: #1f1f1f; }
+.maplibregl-canvas.plan-aktiv { cursor: crosshair; }
+/* Wetter entlang der Strecke (wetter.js) */
+.fahrt-wetter { padding: 12px; border-radius: 14px; background: #1b1b1b; border: 1px solid rgba(255,255,255,0.07); }
+.fahrt-wetter .fahrt-laedt { padding: 4px; }
+.fahrt-wetter-kopf { display: flex; justify-content: space-between; font-size: 11.5px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; color: rgba(255,255,255,0.5); }
+.fahrt-wetter-kopf span:last-child { font-weight: 600; letter-spacing: 0; text-transform: none; color: rgba(255,255,255,0.3); }
+.fahrt-wetter-reihe { display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; gap: 4px; margin-top: 10px; }
+.fahrt-wetter-punkt { display: flex; flex-direction: column; align-items: center; gap: 3px; padding: 6px 2px; border-radius: 10px; font-size: 11px; color: rgba(255,255,255,0.55); }
+.fahrt-wetter-punkt.nass { background: rgba(59,91,219,0.16); }
+.fahrt-wetter-punkt svg { width: 22px; height: 22px; fill: none; stroke: #fff; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+.fahrt-wetter-punkt strong { font-size: 14px; color: #fff; }
+.fahrt-wetter-km { font-weight: 650; white-space: nowrap; }
+.fahrt-wetter-warnung { margin: 10px 0 0; padding: 8px 10px; border-radius: 9px; background: rgba(232,197,109,0.14); color: #f1d58c; font-size: 12.5px; font-weight: 650; line-height: 1.4; }
+.fahrt-wetter-gut { margin: 10px 0 0; font-size: 12px; color: #7fd1a2; font-weight: 650; }
+.fahrt-mitschnitt { display: flex; align-items: flex-start; gap: 10px; padding: 12px; border-radius: 14px; background: #1b1b1b; border: 1px solid rgba(255,255,255,0.07); cursor: pointer; }
+.fahrt-mitschnitt input { margin-top: 2px; width: 18px; height: 18px; accent-color: #3b5bdb; flex: none; }
+.fahrt-mitschnitt strong { display: block; font-size: 13.5px; color: #fff; }
+.fahrt-mitschnitt em { display: block; margin-top: 2px; font-style: normal; font-size: 11.5px; line-height: 1.4; color: rgba(255,255,255,0.5); }
+/* Bilanz der eigenen Fahrten (Meine) */
+.meine-bilanz { margin: 0 var(--kv-pad-x, 14px) 12px; padding: 12px; border-radius: 14px; background: linear-gradient(160deg, rgba(59,91,219,0.18), rgba(59,91,219,0.05)); border: 1px solid rgba(59,91,219,0.25); }
+.meine-bilanz[hidden] { display: none; }
+.meine-bilanz-zahlen { display: grid; grid-template-columns: repeat(3, 1fr); text-align: center; }
+.meine-bilanz-zahlen strong { display: block; font-size: 20px; font-weight: 800; color: #fff; }
+.meine-bilanz-zahlen span { font-size: 10.5px; line-height: 1.25; color: rgba(255,255,255,0.55); }
+.meine-bilanz-liste { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 10px; }
+.meine-bilanz-liste span { padding: 4px 8px; border-radius: 999px; background: rgba(255,255,255,0.08); font-size: 11px; color: rgba(255,255,255,0.85); }
+.meine-bilanz-liste span.extrem { background: rgba(214,32,74,0.25); color: #ffb3c2; }
+.meine-bilanz-tipp { margin: 8px 0 0; font-size: 11.5px; line-height: 1.45; color: rgba(255,255,255,0.55); }
+/* Streckenflug (touren.js): Anzeige oben, Punkt auf der Route */
+.flug-hud {
+  position: absolute;
+  top: calc(84px + var(--sa-top));
+  left: 50%;
+  z-index: 30;
+  translate: -50% 0; /* nicht transform: die Einblend-Animation setzt transform */
+  width: min(360px, calc(100% - 32px));
+  padding: 12px 16px 12px;
+  border-radius: 18px;
+  background: rgba(28,28,30,0.82);
+  -webkit-backdrop-filter: saturate(160%) blur(18px);
+  backdrop-filter: saturate(160%) blur(18px);
+  color: #fff;
+  font-family: -apple-system, "SF Pro Display", var(--font);
+  box-shadow: 0 10px 30px rgba(0,0,0,0.3);
+  pointer-events: none;
+  animation: fahrtEin .5s cubic-bezier(.2,.9,.25,1) both;
+}
+.flug-hud strong { display: block; font-size: 15px; font-weight: 650; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.flug-hud-zeile { display: flex; justify-content: space-between; margin-top: 3px; font-size: 13px; color: rgba(235,235,245,0.7); font-variant-numeric: tabular-nums; }
+.flug-hud-balken { height: 4px; margin-top: 9px; border-radius: 2px; background: rgba(255,255,255,0.18); overflow: hidden; }
+.flug-hud-balken i { display: block; height: 100%; width: 0; border-radius: 2px; background: #fff; }
+/* Desktop: mittig im freien Kartenteil rechts vom Panel (Panel ≈ 440 px) */
+@media (min-width: 760px) { .flug-hud { left: calc(50% + 220px); width: min(360px, calc(100% - 472px)); } }
+.flug-punkt { width: 18px; height: 18px; border-radius: 50%; background: #fff; border: 4px solid #1f7bff; box-shadow: 0 0 0 8px rgba(31,123,255,0.25), 0 2px 8px rgba(0,0,0,0.35); }
+.plan-suche { display: flex; gap: 8px; }
+.plan-suche input { flex: 1; min-width: 0; height: 40px; padding: 0 12px; border-radius: 11px; border: 1px solid rgba(255,255,255,0.14); background: #1b1b1b; color: #fff; font: 500 14px/1 var(--font); }
+.plan-suche input:focus { outline: none; border-color: #3b5bdb; }
+.plan-suche .tour-btn { flex: none; }
+.plan-punkt--geist { background: #fff; border-color: #3b5bdb; box-shadow: 0 0 0 6px rgba(59,91,219,0.25); }
+body.mm-plant .kv-search-here { display: none !important; }
 
 .acc-backdrop {
   position: absolute;
@@ -14659,6 +15751,7 @@ body.av-offen { overflow: hidden; }
 .acc-leer p { margin: 0; font-size: 14px; color: rgba(255,255,255,0.6); }
 .acc-leer-sub { margin-top: 6px !important; font-size: 12px !important; color: rgba(255,255,255,0.35) !important; }
 
+
 /* Fahrstil-Auswahl im Filterblatt der Ausrüstung */
 .gear-style-select {
   appearance: none;
@@ -14674,3 +15767,4 @@ body.av-offen { overflow: hidden; }
 .gear-style-select option { color: #111; }
 
 .mmc-up-ki { margin-top:6px; font-size:11px; color:rgba(255,255,255,.4); }
+

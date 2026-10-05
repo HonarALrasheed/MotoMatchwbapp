@@ -379,6 +379,16 @@ export function ensureLandingRendered() {
   initLanding()
 }
 
+/* Startseite → Ratgeber und Themenseiten (scripts/ratgeber.mjs, scripts/seo-seiten.mjs).
+   Fest verdrahtet statt geladen: die Seiten entstehen erst beim Build, im Dev-Server gibt es sie
+   nicht. Slugs müssen zu den Artikeln/Themen dort passen. */
+const WISSEN_ARTIKEL = [
+  { slug: "fuehrerscheinklassen-a1-a2-a", titel: "A1, A2 oder A?", bild: "/bikes/showroom/kawasaki_ninja650_2022.webp" },
+  { slug: "a2-drosselung", titel: "A2-Drosselung", bild: "/bikes/showroom/kawasaki_z650_2022.webp" },
+  { slug: "erstes-motorrad-kaufen", titel: "Das erste Motorrad", bild: "/bikes/showroom/yamaha_mt07_2022.webp" },
+  { slug: "sitzhoehe-koerpergroesse", titel: "Sitzhöhe", bild: "/bikes/showroom/honda_cmx500rebel_2022.webp" },
+];
+
 export function initLanding() {
   if (_scrollHandler) { window.removeEventListener("scroll", _scrollHandler); _scrollHandler = null; }
 
@@ -404,6 +414,12 @@ export function initLanding() {
           <button class="p-drawer-item tb-btn" data-tab="community">Community</button>
           <button class="p-drawer-item tb-btn" data-tab="karte">Karte</button>
           <button class="p-drawer-item tb-btn" data-action="garage">Garage</button>
+        </nav>
+        <!-- Katalog und Ratgeber sind eigene Seiten (scripts/seo-seiten.mjs) — echte Links -->
+        <p class="p-drawer-sub p-drawer-sub--zwei">Wissen</p>
+        <nav class="p-drawer-nav tb-bar tb-bar--vertical">
+          <a class="p-drawer-link tb-btn" href="/motorraeder/">Motorräder nach Thema</a>
+          <a class="p-drawer-link tb-btn" href="/ratgeber/">Ratgeber</a>
         </nav>
         <div class="p-drawer-foot">
           <span class="p-drawer-foot-text">© MotoMatch 2026</span>
@@ -479,6 +495,22 @@ export function initLanding() {
       </div>
     </section>
 
+    <!-- ═══ WISSEN: Ratgeber + Motorräder nach Thema (statische Seiten) ═══ -->
+    <section class="p-wissen" id="p-wissen">
+      <h2 class="p-discover-title">Ratgeber</h2>
+      <div class="p-wissen-karten">
+        ${WISSEN_ARTIKEL.map((a) => `
+          <a class="p-wissen-karte" href="/ratgeber/${a.slug}/">
+            <img src="${a.bild}" alt="" loading="lazy" decoding="async" width="640" height="480">
+            <span>${a.titel}</span>
+          </a>`).join("")}
+      </div>
+      <div class="p-wissen-mehr">
+        <a href="/ratgeber/">Alle Ratgeber</a>
+        <a href="/motorraeder/">Motorräder nach Thema</a>
+      </div>
+    </section>
+
     <!-- ═══ FINDER ═══ -->
     <section class="p-finder" id="p-finder">
       <div class="p-finder-visual">
@@ -502,6 +534,7 @@ export function initLanding() {
         <!-- Statische Katalogseiten (scripts/seo-seiten.mjs): der Link ist auch der Weg,
              auf dem Google sie von der Startseite aus findet. -->
         <a href="/motorraeder/" class="p-footer-link">Motorräder</a>
+        <a href="/ratgeber/" class="p-footer-link">Ratgeber</a>
         <a href="/impressum.html" class="p-footer-link">Impressum</a>
         <a href="/datenschutz.html" class="p-footer-link">Datenschutz</a>
         <a href="/agb.html" class="p-footer-link">AGB</a>

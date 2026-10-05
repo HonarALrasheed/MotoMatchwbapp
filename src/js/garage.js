@@ -49,7 +49,6 @@ import { bikeBild, hatFoto, kachelFuerHero } from "./bike-bild.js";
 import { getGear } from "./gear.js";
 import { buildSearchUrls } from "./marketplace.js";
 import { esc } from "./util.js";
-import { initHubMap, searchNearby, retryHubLocation, getHubMap, panHubToCoords, resetHubSuche } from "./karte.js";
 
 // Einmaliger, dezenter Puls auf der Tab-Leiste, damit Nutzer merken, dass
 // hinter "Profil"/"Ausrüstung"/etc. mehr Inhalt steckt.
@@ -182,20 +181,7 @@ export function openBikeGarage(shortName) {
   const bikeData = shortName && typeof shortName === "object" ? shortName : findBikeByShortName(shortName);
   if (!bikeData) {
     import('./landing.js').then(m => m.initLanding());
-    // Reuse the existing mm-toast style — no new CSS introduced
-    let el = document.getElementById('mm-toast');
-    if (!el) {
-      el = document.createElement('div');
-      el.id = 'mm-toast';
-      el.className = 'mm-toast';
-      document.body.appendChild(el);
-    }
-    el.textContent = 'Bike nicht gefunden.';
-    el.classList.remove('mm-toast--show');
-    void el.offsetWidth; // force reflow so re-adding the class triggers transition
-    el.classList.add('mm-toast--show');
-    clearTimeout(el._t);
-    el._t = setTimeout(() => el.classList.remove('mm-toast--show'), 2800);
+    zeigeToast("Bike nicht gefunden.");
     return;
   }
 
@@ -276,6 +262,9 @@ function buildPage(bike, fromQuiz = true, hinweis = null) {
       <button class="bd-back" id="garage-back">
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 12H5M12 19l-7-7 7-7"/></svg>
       </button>
+      <button class="bd-back bd-teilen" id="garage-teilen" type="button" aria-label="Teilen">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 15V3M7 8l5-5 5 5M5 13v6a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-6"/></svg>
+      </button>
 
       <!-- Wortmarke sitzt in der Bildbox, damit sie an das Motorrad
            gekoppelt bleibt statt an die Hero-Hoehe. -->
@@ -297,6 +286,9 @@ function buildPage(bike, fromQuiz = true, hinweis = null) {
         <p class="bd-price">${priceDisplay}</p>
         ${preisDetails(bike)}
         ${hinweis ? `<p class="bd-hinweis">${hinweis}</p>` : ""}
+        ${fromQuiz ? `<button class="gr-match-teilen" id="gr-match-teilen" type="button">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 15V3M7 8l5-5 5 5M5 13v6a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-6"/></svg>
+          Mein Match teilen</button>` : ""}
       </div>
     </section>
 
@@ -679,6 +671,13 @@ function bindEvents(bikeData, answers) {
   document.getElementById("garage-back")?.addEventListener("click", () => {
     if (!navGoBack()) goBack();
   });
+  document.getElementById("garage-teilen")?.addEventListener("click", () => teilen(bikeData));
+  teilBildVorladen(bikeData);
+  if (fromQuiz) {
+    const pct = scoreBikeAgainst(bikeData, answers)?.pct ?? null;
+    matchBildVorbereiten(bikeData, pct);
+    document.getElementById("gr-match-teilen")?.addEventListener("click", () => matchTeilen(bikeData, pct));
+  }
 
   // Hinweis-Puls: erst nach 15s Inaktivität starten (siehe scheduleTabHint)
   scheduleTabHint();
@@ -686,6 +685,7 @@ function bindEvents(bikeData, answers) {
   // Sticky nav: toggle .scrolled class + hide hero back button
   const stickyNav = document.getElementById("bd-sticky-nav");
   const heroBack = document.getElementById("garage-back");
+  const heroTeilen = document.getElementById("garage-teilen");
   const scrollRoot = document.getElementById("garage-container");
   if (stickyNav && scrollRoot) {
     const checkScrolled = () => {
@@ -696,6 +696,10 @@ function bindEvents(bikeData, answers) {
       if (heroBack) {
         heroBack.style.opacity = stuck ? "0" : "1";
         heroBack.style.pointerEvents = stuck ? "none" : "auto";
+      }
+      if (heroTeilen) {
+        heroTeilen.style.opacity = stuck ? "0" : "1";
+        heroTeilen.style.pointerEvents = stuck ? "none" : "auto";
       }
     };
     // #garage-container ist statisch (index.html) und wird nie neu erzeugt —
@@ -710,13 +714,13 @@ function bindEvents(bikeData, answers) {
   // Hub-Bereich (Werkstätten/Händler/Fahrschulen) lädt erst, wenn er
   // tatsächlich in Sicht kommt — die Tab-Buttons springen zwar direkt in
   // den Konfigurator, der Bereich bleibt aber per Scrollen erreichbar.
-  const hubSection = document.getElementById("gr-hub-section");
+  const hubSection = document.querySelector("#garage-container #gr-hub-section");
   if (hubSection) {
     const hubObserver = new IntersectionObserver(
       (entries) => {
         entries.forEach((entry) => {
           if (entry.isIntersecting) {
-            initHubMap();
+            hubAlsOrte();
             hubObserver.unobserve(entry.target);
           }
         });
@@ -763,16 +767,13 @@ function bindEvents(bikeData, answers) {
   });
 
   // Hub filter pills
-  document.querySelectorAll(".hub-pill").forEach((pill) => {
+  document.querySelectorAll("#garage-container .hub-pill").forEach((pill) => {
     pill.addEventListener("click", () => {
       document
-        .querySelectorAll(".hub-pill")
+        .querySelectorAll("#garage-container .hub-pill")
         .forEach((p) => p.classList.remove("active"));
       pill.classList.add("active");
-      searchNearby(pill.dataset.query);
-      // Falls die Karte noch nicht (oder nicht mehr) verfügbar ist, im
-      // Hintergrund einen neuen Ladeversuch starten (z. B. nach Netzwerkfehler)
-      if (!getHubMap()) initHubMap();
+
     });
   });
 
@@ -880,9 +881,9 @@ function renderTab(tab, bikeData, answers) {
   } else if (tab === "map") {
     // Redirect to hub section
     document
-      .getElementById("gr-hub-section")
+      .querySelector("#garage-container #gr-hub-section")
       ?.scrollIntoView({ behavior: "smooth" });
-    initHubMap();
+    hubAlsOrte();
   }
 }
 
@@ -1029,53 +1030,141 @@ function initHubScrollEffect() {
 //  SHARE
 // ══════════════════════════════════════════════════════════════
 
-function shareResult(bikeData) {
-  const heroImg = document.querySelector(".bd-hero-img");
-  if (!heroImg || heroImg.naturalWidth === 0) return;
+/**
+ * Teilen-Knopf auf dem Deckblatt. Geteilt wird der Direktlink auf genau diese Seite
+ * (?motorrad=<slug>, app.js) — wer ihn öffnet, landet hier und nicht auf der Startseite.
+ * Wo es ein Pin-Bild gibt (public/pins, scripts/pins/bauen.mjs), geht es als Bild mit:
+ * in WhatsApp und Instagram-Story wirkt das stärker als ein nackter Link.
+ * Das Bild wird beim Öffnen der Seite vorgeladen — Safari erlaubt navigator.share nur
+ * direkt im Tipp, ein fetch dazwischen kostet die Freigabe.
+ */
+let teilBild = null;
+const teilSlug = (bike) => String(bike?.slug || "").toLowerCase().replace(/_/g, "-");
 
-  const c = document.createElement("canvas");
-  const w = heroImg.naturalWidth;
-  const h = heroImg.naturalHeight;
-  c.width = w;
-  c.height = h;
-  const ctx = c.getContext("2d");
-  ctx.drawImage(heroImg, 0, 0);
+function teilBildVorladen(bike) {
+  teilBild = null;
+  const slug = teilSlug(bike);
+  if (!slug || !hatFoto(bike) || !navigator.canShare) return;
+  fetch(`/pins/${slug}.jpg`)
+    .then((r) => (r.ok && /image/.test(r.headers.get("content-type") || "") ? r.blob() : null))
+    .then((blob) => {
+      if (!blob || teilSlug(bike) !== slug) return;
+      const datei = new File([blob], `motomatch-${slug}.jpg`, { type: "image/jpeg" });
+      if (navigator.canShare({ files: [datei] })) teilBild = { slug, datei };
+    })
+    .catch(() => {});
+}
 
-  // Gradient watermark
-  const grad = ctx.createLinearGradient(0, h - 80, 0, h);
-  grad.addColorStop(0, "rgba(0,0,0,0)");
-  grad.addColorStop(1, "rgba(0,0,0,0.8)");
-  ctx.fillStyle = grad;
-  ctx.fillRect(0, h - 80, w, 80);
-
-  ctx.fillStyle = "#ffffff";
-  ctx.font = `600 ${Math.round(w * 0.028)}px Inter, -apple-system, sans-serif`;
-  ctx.fillText(bikeData.name, 28, h - 32);
-
-  ctx.font = `400 ${Math.round(w * 0.015)}px Inter, -apple-system, sans-serif`;
-  ctx.fillStyle = "rgba(255,255,255,0.6)";
-  ctx.fillText(`${bikeData.cc}cc / ${bikeData.ps}PS / MotoMatch`, 28, h - 14);
-
-  const dataUrl = c.toDataURL("image/png");
-
-  // Try native share, fallback to download
-  if (navigator.share) {
-    c.toBlob((blob) => {
-      const file = new File(
-        [blob],
-        `motomatch-${bikeData.name.replace(/\s+/g, "-")}.png`,
-        { type: "image/png" },
-      );
-      navigator
-        .share({ title: `MotoMatch: ${bikeData.name}`, files: [file] })
-        .catch(() => {});
-    });
-  } else {
-    const a = document.createElement("a");
-    a.href = dataUrl;
-    a.download = `motomatch-${bikeData.name.replace(/\s+/g, "-").toLowerCase()}.png`;
-    a.click();
+async function teilen(bike) {
+  const slug = teilSlug(bike);
+  const url = slug ? `${location.origin}/?motorrad=${slug}&utm_source=teilen` : location.href;
+  const text = `${bike.name} – passt sie zu dir? Schau sie dir auf MotoMatch an:`;
+  try {
+    if (navigator.share) {
+      const datei = teilBild?.slug === slug ? teilBild.datei : null;
+      // Mit Bild den Link in den Text: manche Apps verwerfen das url-Feld neben einer Datei
+      await navigator.share(datei
+        ? { title: `MotoMatch: ${bike.name}`, text: `${text} ${url}`, files: [datei] }
+        : { title: `MotoMatch: ${bike.name}`, text, url });
+      return;
+    }
+    await navigator.clipboard.writeText(url);
+    zeigeToast("Link kopiert ✓");
+  } catch (err) {
+    if (err?.name !== "AbortError") zeigeToast("Teilen hat nicht geklappt.");
   }
+}
+
+/**
+ * "Mein Match teilen" nach dem Quiz: ein Story-Bild (1080 × 1920) mit Bike, Match-Prozent und Link
+ * zum Quiz — für WhatsApp- und Instagram-Storys. Wer es sieht, landet im Quiz, nicht auf dem Bike:
+ * die Frage "und welches passt zu mir?" ist der Grund, weiterzuklicken.
+ * Das Bild entsteht gleich beim Öffnen der Seite, damit navigator.share direkt im Tipp läuft (Safari).
+ */
+let matchBild = null;
+const MATCH_URL = () => `${location.origin}/?utm_source=match-teilen`;
+
+function matchBildVorbereiten(bike, pct) {
+  matchBild = null;
+  const quelle = bike.studio || (hatFoto(bike) ? bikeBild(bike, "titel") : null);
+  const img = new Image();
+  const fertig = new Promise((ok) => { img.onload = ok; img.onerror = ok; });
+  if (quelle) img.src = quelle; else img.dispatchEvent(new Event("error"));
+  Promise.all([fertig, document.fonts?.ready]).then(() => {
+    const c = document.createElement("canvas");
+    c.width = 1080; c.height = 1920;
+    const g = c.getContext("2d");
+    g.fillStyle = "#0d0d0e"; g.fillRect(0, 0, 1080, 1920);
+    const schrift = (gewicht, groesse) => `${gewicht} ${groesse}px Barlow, "Arial Narrow", Arial, sans-serif`;
+    g.textAlign = "center"; g.fillStyle = "#fff";
+    g.font = schrift(800, 34); g.fillText("M O T O M A T C H", 540, 150);
+    g.fillStyle = "rgba(255,255,255,0.6)"; g.font = schrift(600, 36);
+    g.fillText("MEIN MOTORRAD-MATCH", 540, 300);
+    // Bike: Studiobild mittig, Ränder weich ausgeblendet
+    if (img.naturalWidth) {
+      const b = 1160, h = Math.round(b * img.naturalHeight / img.naturalWidth), y = 380;
+      g.drawImage(img, (1080 - b) / 2, y, b, h);
+      const rand = (x0, y0, x1, y1, von, bis) => { const v = g.createLinearGradient(x0, y0, x1, y1); v.addColorStop(0, von); v.addColorStop(1, bis); return v; };
+      g.fillStyle = rand(0, y, 0, y + 160, "#0d0d0e", "rgba(13,13,14,0)"); g.fillRect(0, y, 1080, 160);
+      g.fillStyle = rand(0, y + h - 200, 0, y + h, "rgba(13,13,14,0)", "#0d0d0e"); g.fillRect(0, y + h - 200, 1080, 200);
+    }
+    // Name (bei Bedarf kleiner) und Prozent
+    g.fillStyle = "#fff";
+    let groesse = 104;
+    do { g.font = schrift(800, groesse); groesse -= 4; } while (g.measureText(bike.name).width > 960 && groesse > 56);
+    g.fillText(bike.name, 540, 1330);
+    if (pct != null) {
+      g.font = schrift(800, 190); g.fillText(`${pct} %`, 540, 1560);
+      g.fillStyle = "rgba(255,255,255,0.6)"; g.font = schrift(500, 40); g.fillText("Übereinstimmung", 540, 1625);
+    }
+    // Aufruf unten
+    g.fillStyle = "#fff";
+    g.beginPath(); g.roundRect?.(90, 1700, 900, 120, 60); if (!g.roundRect) g.rect(90, 1700, 900, 120); g.fill();
+    g.fillStyle = "#0d0d0e"; g.font = schrift(800, 44);
+    g.fillText("Und welches passt zu dir?", 540, 1752);
+    g.fillStyle = "#555"; g.font = schrift(500, 36); g.fillText("motomatch.studio", 540, 1800);
+    c.toBlob((blob) => { if (blob) matchBild = new File([blob], "mein-motomatch.png", { type: "image/png" }); }, "image/png");
+  }).catch(() => {});
+}
+
+async function matchTeilen(bike, pct) {
+  const text = `Mein Motorrad-Match: ${bike.name}${pct != null ? ` (${pct} %)` : ""}. Welches passt zu dir?`;
+  const url = MATCH_URL();
+  try {
+    if (navigator.share) {
+      const mitBild = matchBild && navigator.canShare?.({ files: [matchBild] });
+      await navigator.share(mitBild ? { text: `${text} ${url}`, files: [matchBild] } : { title: "MotoMatch", text, url });
+      return;
+    }
+    // Desktop ohne Teilen-Menü: Bild herunterladen und Link kopieren
+    if (matchBild) {
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(matchBild);
+      a.download = matchBild.name;
+      a.click();
+      setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+    }
+    await navigator.clipboard?.writeText(`${text} ${url}`);
+    zeigeToast(matchBild ? "Bild gespeichert, Link kopiert ✓" : "Link kopiert ✓");
+  } catch (err) {
+    if (err?.name !== "AbortError") zeigeToast("Teilen hat nicht geklappt.");
+  }
+}
+
+function zeigeToast(text) {
+  let el = document.getElementById("mm-toast");
+  if (!el) {
+    el = document.createElement("div");
+    el.id = "mm-toast";
+    el.className = "mm-toast";
+    document.body.appendChild(el);
+  }
+  el.textContent = text;
+  el.classList.remove("mm-toast--show");
+  void el.offsetWidth; // force reflow so re-adding the class triggers transition
+  el.classList.add("mm-toast--show");
+  clearTimeout(el._t);
+  el._t = setTimeout(() => el.classList.remove("mm-toast--show"), 2800);
 }
 
 // ══════════════════════════════════════════════════════════════

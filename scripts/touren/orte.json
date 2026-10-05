@@ -1,0 +1,2362 @@
+{
+ "Bielefeld": {
+  "lat": 52.0191,
+  "lng": 8.53101,
+  "osm": "Bielefeld, Nordrhein-Westfalen, Deutschland"
+ },
+ "Halle (Westf.)": {
+  "lat": 52.06038,
+  "lng": 8.36159,
+  "osm": "Halle (Westf.), Kreis Gütersloh, Nordrhein-Westfalen, 33790, Deutschland"
+ },
+ "Borgholzhausen": {
+  "lat": 52.08989,
+  "lng": 8.2759,
+  "osm": "Borgholzhausen, Kreis Gütersloh, Nordrhein-Westfalen, 33829, Deutschland"
+ },
+ "Dissen am Teutoburger Wald": {
+  "lat": 52.11218,
+  "lng": 8.20824,
+  "osm": "Dissen am Teutoburger Wald, Landkreis Osnabrück, Niedersachsen, 49201, Deutschland"
+ },
+ "Bad Iburg": {
+  "lat": 52.15437,
+  "lng": 8.04481,
+  "osm": "Bad Iburg, Landkreis Osnabrück, Niedersachsen, 49186, Deutschland"
+ },
+ "Hilter am Teutoburger Wald": {
+  "lat": 52.1702,
+  "lng": 8.16862,
+  "osm": "Hilter, Landkreis Osnabrück, Niedersachsen, 49176, Deutschland"
+ },
+ "Melle": {
+  "lat": 52.19504,
+  "lng": 8.34748,
+  "osm": "Melle, Landkreis Osnabrück, Niedersachsen, Deutschland"
+ },
+ "Spenge": {
+  "lat": 52.14193,
+  "lng": 8.48303,
+  "osm": "Spenge, Kreis Herford, Nordrhein-Westfalen, 32139, Deutschland"
+ },
+ "Detmold": {
+  "lat": 51.93628,
+  "lng": 8.87915,
+  "osm": "Detmold, Kreis Lippe, Nordrhein-Westfalen, Deutschland"
+ },
+ "Horn-Bad Meinberg": {
+  "lat": 51.88013,
+  "lng": 8.97317,
+  "osm": "Horn-Bad Meinberg, Kreis Lippe, Nordrhein-Westfalen, 32805, Deutschland"
+ },
+ "Bad Driburg": {
+  "lat": 51.73664,
+  "lng": 9.0175,
+  "osm": "Bad Driburg, Kreis Höxter, Nordrhein-Westfalen, 33014, Deutschland"
+ },
+ "Schieder-Schwalenberg": {
+  "lat": 51.89805,
+  "lng": 9.17518,
+  "osm": "Schieder-Schwalenberg, Kreis Lippe, Nordrhein-Westfalen, 32816, Deutschland"
+ },
+ "Lügde": {
+  "lat": 51.90881,
+  "lng": 9.27157,
+  "osm": "Lügde, Kreis Lippe, Nordrhein-Westfalen, 32676, Deutschland"
+ },
+ "Bad Pyrmont": {
+  "lat": 51.98505,
+  "lng": 9.24346,
+  "osm": "Bad Pyrmont, Landkreis Hameln-Pyrmont, Niedersachsen, 31812, Deutschland"
+ },
+ "Barntrup": {
+  "lat": 51.99096,
+  "lng": 9.11276,
+  "osm": "Barntrup, Kreis Lippe, Nordrhein-Westfalen, 32683, Deutschland"
+ },
+ "Extertal": {
+  "lat": 52.09066,
+  "lng": 9.09478,
+  "osm": "Extertal, Kreis Lippe, Nordrhein-Westfalen, 32699, Deutschland"
+ },
+ "Lemgo": {
+  "lat": 52.02807,
+  "lng": 8.90129,
+  "osm": "Lemgo, Kreis Lippe, Nordrhein-Westfalen, 32657, Deutschland"
+ },
+ "Paderborn": {
+  "lat": 51.7177,
+  "lng": 8.75265,
+  "osm": "Paderborn, Kreis Paderborn, Nordrhein-Westfalen, Deutschland"
+ },
+ "Altenbeken": {
+  "lat": 51.76171,
+  "lng": 8.9454,
+  "osm": "Altenbeken, Kreis Paderborn, Nordrhein-Westfalen, 33184, Deutschland"
+ },
+ "Willebadessen": {
+  "lat": 51.62578,
+  "lng": 9.03426,
+  "osm": "Willebadessen, Kreis Höxter, Nordrhein-Westfalen, 34439, Deutschland"
+ },
+ "Warburg": {
+  "lat": 51.48865,
+  "lng": 9.14884,
+  "osm": "Warburg, Kreis Höxter, Nordrhein-Westfalen, 34414, Deutschland"
+ },
+ "Marsberg": {
+  "lat": 51.46022,
+  "lng": 8.85521,
+  "osm": "Marsberg, Hochsauerlandkreis, Nordrhein-Westfalen, 34431, Deutschland"
+ },
+ "Bad Wünnenberg": {
+  "lat": 51.51691,
+  "lng": 8.69868,
+  "osm": "Bad Wünnenberg, Kreis Paderborn, Nordrhein-Westfalen, 33181, Deutschland"
+ },
+ "Büren": {
+  "lat": 51.55253,
+  "lng": 8.55919,
+  "osm": "Büren, Kreis Paderborn, Nordrhein-Westfalen, 33142, Deutschland"
+ },
+ "Hameln": {
+  "lat": 52.10399,
+  "lng": 9.35616,
+  "osm": "Hameln, Landkreis Hameln-Pyrmont, Niedersachsen, Deutschland"
+ },
+ "Bodenwerder": {
+  "lat": 51.97525,
+  "lng": 9.51391,
+  "osm": "Bodenwerder, Samtgemeinde Bodenwerder-Polle, Landkreis Holzminden, Niedersachsen, 37619, Deutschland"
+ },
+ "Holzminden": {
+  "lat": 51.899,
+  "lng": 9.57411,
+  "osm": "Landkreis Holzminden, Niedersachsen, Deutschland"
+ },
+ "Höxter": {
+  "lat": 51.79389,
+  "lng": 9.34886,
+  "osm": "Höxter, Kreis Höxter, Nordrhein-Westfalen, 37671, Deutschland"
+ },
+ "Beverungen": {
+  "lat": 51.66765,
+  "lng": 9.37591,
+  "osm": "Beverungen, Kreis Höxter, Nordrhein-Westfalen, 37688, Deutschland"
+ },
+ "Bad Karlshafen": {
+  "lat": 51.62533,
+  "lng": 9.44312,
+  "osm": "Bad Karlshafen, Landkreis Kassel, Hessen, 34385, Deutschland"
+ },
+ "Uslar": {
+  "lat": 51.6589,
+  "lng": 9.63478,
+  "osm": "Uslar, Landkreis Northeim, Niedersachsen, 37170, Deutschland"
+ },
+ "Dassel": {
+  "lat": 51.80738,
+  "lng": 9.71392,
+  "osm": "Dassel, Landkreis Northeim, Niedersachsen, 37586, Deutschland"
+ },
+ "Einbeck": {
+  "lat": 51.82223,
+  "lng": 9.89914,
+  "osm": "Einbeck, Landkreis Northeim, Niedersachsen, 37574, Deutschland"
+ },
+ "Eschershausen": {
+  "lat": 51.92704,
+  "lng": 9.63839,
+  "osm": "Eschershausen, Samtgemeinde Eschershausen-Stadtoldendorf, Landkreis Holzminden, Niedersachsen, Deutschland"
+ },
+ "Minden": {
+  "lat": 52.2881,
+  "lng": 8.91689,
+  "osm": "Minden, Kreis Minden-Lübbecke, Nordrhein-Westfalen, Deutschland"
+ },
+ "Hüllhorst": {
+  "lat": 52.27379,
+  "lng": 8.67045,
+  "osm": "Hüllhorst, Kreis Minden-Lübbecke, Nordrhein-Westfalen, 32609, Deutschland"
+ },
+ "Lübbecke": {
+  "lat": 52.30272,
+  "lng": 8.61831,
+  "osm": "Lübbecke, Kreis Minden-Lübbecke, Nordrhein-Westfalen, 32312, Deutschland"
+ },
+ "Preußisch Oldendorf": {
+  "lat": 52.30484,
+  "lng": 8.49716,
+  "osm": "Preußisch Oldendorf, Kreis Minden-Lübbecke, Nordrhein-Westfalen, 32361, Deutschland"
+ },
+ "Bad Essen": {
+  "lat": 52.32768,
+  "lng": 8.37458,
+  "osm": "Bad Essen, Landkreis Osnabrück, Niedersachsen, 49152, Deutschland"
+ },
+ "Bünde": {
+  "lat": 52.20047,
+  "lng": 8.58289,
+  "osm": "Bünde, Kreis Herford, Nordrhein-Westfalen, 32257, Deutschland"
+ },
+ "Bad Oeynhausen": {
+  "lat": 52.20144,
+  "lng": 8.79812,
+  "osm": "Bad Oeynhausen, Kreis Minden-Lübbecke, Nordrhein-Westfalen, Deutschland"
+ },
+ "Porta Westfalica": {
+  "lat": 52.23944,
+  "lng": 8.92476,
+  "osm": "Porta Westfalica, Kreis Minden-Lübbecke, Nordrhein-Westfalen, 32457, Deutschland"
+ },
+ "Hann. Münden": {
+  "lat": 51.45704,
+  "lng": 9.66712,
+  "osm": "Hann. Münden, Landkreis Göttingen, Niedersachsen, 34346, Deutschland"
+ },
+ "Gieselwerder": {
+  "lat": 51.59834,
+  "lng": 9.55022,
+  "osm": "Gieselwerder, Wesertal, Landkreis Kassel, Hessen, Deutschland"
+ },
+ "Trendelburg": {
+  "lat": 51.57023,
+  "lng": 9.39368,
+  "osm": "Trendelburg, Landkreis Kassel, Hessen, Deutschland"
+ },
+ "Hofgeismar": {
+  "lat": 51.49722,
+  "lng": 9.42807,
+  "osm": "Hofgeismar, Landkreis Kassel, Hessen, Deutschland"
+ },
+ "Grebenstein": {
+  "lat": 51.45579,
+  "lng": 9.42623,
+  "osm": "Grebenstein, Landkreis Kassel, Hessen, 34393, Deutschland"
+ },
+ "Barsinghausen": {
+  "lat": 52.30223,
+  "lng": 9.46237,
+  "osm": "Barsinghausen, Region Hannover, Niedersachsen, 30890, Deutschland"
+ },
+ "Bad Nenndorf": {
+  "lat": 52.3355,
+  "lng": 9.37715,
+  "osm": "Bad Nenndorf, Samtgemeinde Nenndorf, Landkreis Schaumburg, Niedersachsen, 31542, Deutschland"
+ },
+ "Rodenberg": {
+  "lat": 52.31231,
+  "lng": 9.37131,
+  "osm": "Rodenberg, Samtgemeinde Rodenberg, Landkreis Schaumburg, Niedersachsen, Deutschland"
+ },
+ "Hessisch Oldendorf": {
+  "lat": 52.16984,
+  "lng": 9.25065,
+  "osm": "Hessisch Oldendorf, Landkreis Hameln-Pyrmont, Niedersachsen, 31840, Deutschland"
+ },
+ "Bad Münder am Deister": {
+  "lat": 52.19529,
+  "lng": 9.4634,
+  "osm": "Bad Münder am Deister, Landkreis Hameln-Pyrmont, Niedersachsen, 31848, Deutschland"
+ },
+ "Springe": {
+  "lat": 52.20993,
+  "lng": 9.55816,
+  "osm": "Springe, Region Hannover, Niedersachsen, 31832, Deutschland"
+ },
+ "Meschede": {
+  "lat": 51.34365,
+  "lng": 8.28593,
+  "osm": "Meschede, Hochsauerlandkreis, Nordrhein-Westfalen, 59872, Deutschland"
+ },
+ "Bestwig": {
+  "lat": 51.36095,
+  "lng": 8.40056,
+  "osm": "Bestwig, Hochsauerlandkreis, Nordrhein-Westfalen, 59909, Deutschland"
+ },
+ "Olsberg": {
+  "lat": 51.35515,
+  "lng": 8.48934,
+  "osm": "Olsberg, Hochsauerlandkreis, Nordrhein-Westfalen, 59939, Deutschland"
+ },
+ "Brilon": {
+  "lat": 51.39557,
+  "lng": 8.56777,
+  "osm": "Brilon, Hochsauerlandkreis, Nordrhein-Westfalen, 59929, Deutschland"
+ },
+ "Willingen (Upland)": {
+  "lat": 51.29516,
+  "lng": 8.66476,
+  "osm": "Willingen (Upland), Landkreis Waldeck-Frankenberg, Hessen, 34508, Deutschland"
+ },
+ "Winterberg": {
+  "lat": 51.19334,
+  "lng": 8.53341,
+  "osm": "Winterberg, Hochsauerlandkreis, Nordrhein-Westfalen, 59955, Deutschland"
+ },
+ "Schmallenberg": {
+  "lat": 51.15259,
+  "lng": 8.2836,
+  "osm": "Schmallenberg, Hochsauerlandkreis, Nordrhein-Westfalen, 57392, Deutschland"
+ },
+ "Eslohe (Sauerland)": {
+  "lat": 51.25468,
+  "lng": 8.17144,
+  "osm": "Eslohe, Hochsauerlandkreis, Nordrhein-Westfalen, 59889, Deutschland"
+ },
+ "Arnsberg": {
+  "lat": 51.40024,
+  "lng": 8.06059,
+  "osm": "Arnsberg, Hochsauerlandkreis, Nordrhein-Westfalen, Deutschland"
+ },
+ "Sundern (Sauerland)": {
+  "lat": 51.32983,
+  "lng": 8.00726,
+  "osm": "Sundern, Hochsauerlandkreis, Nordrhein-Westfalen, 59846, Deutschland"
+ },
+ "Balve": {
+  "lat": 51.33265,
+  "lng": 7.86706,
+  "osm": "Balve, Märkischer Kreis, Nordrhein-Westfalen, 58802, Deutschland"
+ },
+ "Neuenrade": {
+  "lat": 51.28313,
+  "lng": 7.78304,
+  "osm": "Neuenrade, Märkischer Kreis, Nordrhein-Westfalen, 58809, Deutschland"
+ },
+ "Plettenberg": {
+  "lat": 51.21368,
+  "lng": 7.87456,
+  "osm": "Plettenberg, Märkischer Kreis, Nordrhein-Westfalen, 58840, Deutschland"
+ },
+ "Finnentrop": {
+  "lat": 51.17292,
+  "lng": 7.97246,
+  "osm": "Finnentrop, Kreis Olpe, Nordrhein-Westfalen, 57413, Deutschland"
+ },
+ "Olpe": {
+  "lat": 51.02948,
+  "lng": 7.84353,
+  "osm": "Olpe, Kreis Olpe, Nordrhein-Westfalen, 57462, Deutschland"
+ },
+ "Attendorn": {
+  "lat": 51.12505,
+  "lng": 7.9011,
+  "osm": "Attendorn, Kreis Olpe, Nordrhein-Westfalen, 57439, Deutschland"
+ },
+ "Lennestadt": {
+  "lat": 51.12457,
+  "lng": 8.0569,
+  "osm": "Lennestadt, Kreis Olpe, Nordrhein-Westfalen, 57368, Deutschland"
+ },
+ "Kirchhundem": {
+  "lat": 51.08654,
+  "lng": 8.08941,
+  "osm": "Kirchhundem, Kreis Olpe, Nordrhein-Westfalen, 57399, Deutschland"
+ },
+ "Hilchenbach": {
+  "lat": 50.99359,
+  "lng": 8.10736,
+  "osm": "Hilchenbach, Kreis Siegen-Wittgenstein, Nordrhein-Westfalen, 57271, Deutschland"
+ },
+ "Kreuztal": {
+  "lat": 50.95986,
+  "lng": 7.98962,
+  "osm": "Kreuztal, Kreis Siegen-Wittgenstein, Nordrhein-Westfalen, 57223, Deutschland"
+ },
+ "Wenden": {
+  "lat": 50.96911,
+  "lng": 7.87333,
+  "osm": "Wenden, Kreis Olpe, Nordrhein-Westfalen, 57482, Deutschland"
+ },
+ "Hagen": {
+  "lat": 51.35829,
+  "lng": 7.4733,
+  "osm": "Hagen, Nordrhein-Westfalen, Deutschland"
+ },
+ "Breckerfeld": {
+  "lat": 51.26031,
+  "lng": 7.46678,
+  "osm": "Breckerfeld, Ennepe-Ruhr-Kreis, Nordrhein-Westfalen, 58339, Deutschland"
+ },
+ "Halver": {
+  "lat": 51.18744,
+  "lng": 7.49873,
+  "osm": "Halver, Märkischer Kreis, Nordrhein-Westfalen, 58553, Deutschland"
+ },
+ "Lüdenscheid": {
+  "lat": 51.21814,
+  "lng": 7.6397,
+  "osm": "Lüdenscheid, Märkischer Kreis, Nordrhein-Westfalen, Deutschland"
+ },
+ "Altena": {
+  "lat": 51.29903,
+  "lng": 7.67348,
+  "osm": "Altena, Märkischer Kreis, Nordrhein-Westfalen, 58762, Deutschland"
+ },
+ "Iserlohn": {
+  "lat": 51.37468,
+  "lng": 7.69997,
+  "osm": "Iserlohn, Märkischer Kreis, Nordrhein-Westfalen, Deutschland"
+ },
+ "Bad Berleburg": {
+  "lat": 51.04785,
+  "lng": 8.39178,
+  "osm": "Bad Berleburg, Kreis Siegen-Wittgenstein, Nordrhein-Westfalen, 57319, Deutschland"
+ },
+ "Bad Laasphe": {
+  "lat": 50.92715,
+  "lng": 8.41236,
+  "osm": "Bad Laasphe, Kreis Siegen-Wittgenstein, Nordrhein-Westfalen, 57334, Deutschland"
+ },
+ "Erndtebrück": {
+  "lat": 50.9894,
+  "lng": 8.25613,
+  "osm": "Erndtebrück, Kreis Siegen-Wittgenstein, Nordrhein-Westfalen, 57339, Deutschland"
+ },
+ "Remscheid": {
+  "lat": 51.17987,
+  "lng": 7.19435,
+  "osm": "Remscheid, Nordrhein-Westfalen, Deutschland"
+ },
+ "Hückeswagen": {
+  "lat": 51.15049,
+  "lng": 7.3414,
+  "osm": "Hückeswagen, Oberbergischer Kreis, Nordrhein-Westfalen, 42499, Deutschland"
+ },
+ "Wipperfürth": {
+  "lat": 51.11552,
+  "lng": 7.38791,
+  "osm": "Wipperfürth, Oberbergischer Kreis, Nordrhein-Westfalen, 51688, Deutschland"
+ },
+ "Lindlar": {
+  "lat": 51.01862,
+  "lng": 7.37799,
+  "osm": "Lindlar, Oberbergischer Kreis, Nordrhein-Westfalen, 51789, Deutschland"
+ },
+ "Engelskirchen": {
+  "lat": 50.9873,
+  "lng": 7.40842,
+  "osm": "Engelskirchen, Oberbergischer Kreis, Nordrhein-Westfalen, 51766, Deutschland"
+ },
+ "Overath": {
+  "lat": 50.932,
+  "lng": 7.2839,
+  "osm": "Overath, Rheinisch-Bergischer Kreis, Nordrhein-Westfalen, 51491, Deutschland"
+ },
+ "Kürten": {
+  "lat": 51.05402,
+  "lng": 7.26128,
+  "osm": "Kürten, Rheinisch-Bergischer Kreis, Nordrhein-Westfalen, 51515, Deutschland"
+ },
+ "Wermelskirchen": {
+  "lat": 51.14065,
+  "lng": 7.21569,
+  "osm": "Wermelskirchen, Rheinisch-Bergischer Kreis, Nordrhein-Westfalen, 42929, Deutschland"
+ },
+ "Adenau": {
+  "lat": 50.38233,
+  "lng": 6.9304,
+  "osm": "Adenau, Landkreis Ahrweiler, Rheinland-Pfalz, 53518, Deutschland"
+ },
+ "Nürburg": {
+  "lat": 50.34134,
+  "lng": 6.95192,
+  "osm": "Nürburg, Adenau, Landkreis Ahrweiler, Rheinland-Pfalz, Deutschland"
+ },
+ "Kelberg": {
+  "lat": 50.28656,
+  "lng": 6.91826,
+  "osm": "Kelberg, Landkreis Vulkaneifel, Rheinland-Pfalz, 53539, Deutschland"
+ },
+ "Daun": {
+  "lat": 50.19625,
+  "lng": 6.8305,
+  "osm": "Daun, Landkreis Vulkaneifel, Rheinland-Pfalz, 54550, Deutschland"
+ },
+ "Hillesheim": {
+  "lat": 50.29167,
+  "lng": 6.668,
+  "osm": "Hillesheim, Gerolstein, Landkreis Vulkaneifel, Rheinland-Pfalz, 54576, Deutschland"
+ },
+ "Blankenheim (Ahr)": {
+  "lat": 50.43731,
+  "lng": 6.64964,
+  "osm": "Eifelmuseum Blankenheim, Ahrstraße, Hülchrath, Blankenheimerdorf, Blankenheim, Kreis Euskirchen, Nordrhein-Westfalen, 53945, Deutschland"
+ },
+ "Schuld": {
+  "lat": 50.44608,
+  "lng": 6.88686,
+  "osm": "Schuld, Adenau, Landkreis Ahrweiler, Rheinland-Pfalz, Deutschland"
+ },
+ "Bad Neuenahr-Ahrweiler": {
+  "lat": 50.54446,
+  "lng": 7.11867,
+  "osm": "Bad Neuenahr-Ahrweiler, Brohl-Lützing, Landkreis Ahrweiler, Rheinland-Pfalz, 53474, Deutschland"
+ },
+ "Altenahr": {
+  "lat": 50.51695,
+  "lng": 6.99205,
+  "osm": "Altenahr, Landkreis Ahrweiler, Rheinland-Pfalz, Deutschland"
+ },
+ "Virneburg": {
+  "lat": 50.34161,
+  "lng": 7.07926,
+  "osm": "Virneburg, Vordereifel, Landkreis Mayen-Koblenz, Rheinland-Pfalz, Deutschland"
+ },
+ "Mayen": {
+  "lat": 50.32835,
+  "lng": 7.22151,
+  "osm": "Mayen, Landkreis Mayen-Koblenz, Rheinland-Pfalz, 56727, Deutschland"
+ },
+ "Mendig": {
+  "lat": 50.37209,
+  "lng": 7.28124,
+  "osm": "Mendig, Landkreis Mayen-Koblenz, Rheinland-Pfalz, 56743, Deutschland"
+ },
+ "Niederzissen": {
+  "lat": 50.45856,
+  "lng": 7.22254,
+  "osm": "Niederzissen, Brohltal, Landkreis Ahrweiler, Rheinland-Pfalz, Deutschland"
+ },
+ "Gillenfeld": {
+  "lat": 50.12746,
+  "lng": 6.90486,
+  "osm": "Gillenfeld, Daun, Landkreis Vulkaneifel, Rheinland-Pfalz, Deutschland"
+ },
+ "Manderscheid": {
+  "lat": 50.10047,
+  "lng": 6.34634,
+  "osm": "Manderscheid, Arzfeld, Eifelkreis Bitburg-Prüm, Rheinland-Pfalz, Deutschland"
+ },
+ "Bad Bertrich": {
+  "lat": 50.07134,
+  "lng": 7.03645,
+  "osm": "Bad Bertrich, Ulmen, Landkreis Cochem-Zell, Rheinland-Pfalz, 56864, Deutschland"
+ },
+ "Lutzerath": {
+  "lat": 50.12768,
+  "lng": 7.00565,
+  "osm": "Lutzerath, Ulmen, Landkreis Cochem-Zell, Rheinland-Pfalz, 56826, Deutschland"
+ },
+ "Ulmen": {
+  "lat": 50.20827,
+  "lng": 6.97996,
+  "osm": "Ulmen, Landkreis Cochem-Zell, Rheinland-Pfalz, 56766, Deutschland"
+ },
+ "Monschau": {
+  "lat": 50.55447,
+  "lng": 6.2408,
+  "osm": "Monschau, Städteregion Aachen, Nordrhein-Westfalen, 52156, Deutschland"
+ },
+ "Simmerath": {
+  "lat": 50.60725,
+  "lng": 6.30053,
+  "osm": "Simmerath, Städteregion Aachen, Nordrhein-Westfalen, 52152, Deutschland"
+ },
+ "Heimbach (Eifel)": {
+  "lat": 50.63663,
+  "lng": 6.47355,
+  "osm": "Heimbach (Eifel), Am Eichelberg, Hasenfeld, Heimbach, Kreis Düren, Nordrhein-Westfalen, 52396, Deutschland"
+ },
+ "Nideggen": {
+  "lat": 50.69136,
+  "lng": 6.48261,
+  "osm": "Nideggen, Kreis Düren, Nordrhein-Westfalen, 52385, Deutschland"
+ },
+ "Schleiden": {
+  "lat": 50.52859,
+  "lng": 6.47616,
+  "osm": "Schleiden, Kreis Euskirchen, Nordrhein-Westfalen, 53937, Deutschland"
+ },
+ "Hellenthal": {
+  "lat": 50.491,
+  "lng": 6.43543,
+  "osm": "Hellenthal, Kreis Euskirchen, Nordrhein-Westfalen, 53940, Deutschland"
+ },
+ "Cochem": {
+  "lat": 50.14839,
+  "lng": 7.16632,
+  "osm": "Cochem, Landkreis Cochem-Zell, Rheinland-Pfalz, Deutschland"
+ },
+ "Zell (Mosel)": {
+  "lat": 50.02757,
+  "lng": 7.18132,
+  "osm": "Zell (Mosel), Landkreis Cochem-Zell, Rheinland-Pfalz, 56856, Deutschland"
+ },
+ "Traben-Trarbach": {
+  "lat": 49.95304,
+  "lng": 7.12332,
+  "osm": "Traben-Trarbach, Landkreis Bernkastel-Wittlich, Rheinland-Pfalz, 56841, Deutschland"
+ },
+ "Bernkastel-Kues": {
+  "lat": 49.91574,
+  "lng": 7.07082,
+  "osm": "Bernkastel-Kues, Landkreis Bernkastel-Wittlich, Rheinland-Pfalz, 54470, Deutschland"
+ },
+ "Morbach": {
+  "lat": 49.81051,
+  "lng": 7.12298,
+  "osm": "Morbach, Landkreis Bernkastel-Wittlich, Rheinland-Pfalz, 54497, Deutschland"
+ },
+ "Kirchberg (Hunsrück)": {
+  "lat": 49.93306,
+  "lng": 7.35476,
+  "osm": "Kirchberg (Hunsrück), Rhein-Hunsrück-Kreis, Rheinland-Pfalz, Deutschland"
+ },
+ "Kastellaun": {
+  "lat": 50.07134,
+  "lng": 7.44223,
+  "osm": "Kastellaun, Rhein-Hunsrück-Kreis, Rheinland-Pfalz, 56288, Deutschland"
+ },
+ "Koblenz": {
+  "lat": 50.35333,
+  "lng": 7.5944,
+  "osm": "Koblenz, Rheinland-Pfalz, Deutschland"
+ },
+ "Emmelshausen": {
+  "lat": 50.15576,
+  "lng": 7.55578,
+  "osm": "Emmelshausen, Hunsrück-Mittelrhein, Rhein-Hunsrück-Kreis, Rheinland-Pfalz, Deutschland"
+ },
+ "Thalfang": {
+  "lat": 49.75399,
+  "lng": 6.9971,
+  "osm": "Thalfang, Thalfang am Erbeskopf, Landkreis Bernkastel-Wittlich, Rheinland-Pfalz, 54424, Deutschland"
+ },
+ "Hermeskeil": {
+  "lat": 49.65545,
+  "lng": 6.94819,
+  "osm": "Hermeskeil, Landkreis Trier-Saarburg, Rheinland-Pfalz, 54411, Deutschland"
+ },
+ "Saarburg": {
+  "lat": 49.60825,
+  "lng": 6.54875,
+  "osm": "Saarburg, Saarburg-Kell, Landkreis Trier-Saarburg, Rheinland-Pfalz, 54441, Deutschland"
+ },
+ "Mettlach": {
+  "lat": 49.49039,
+  "lng": 6.59418,
+  "osm": "Mettlach, Landkreis Merzig-Wadern, Saarland, 66693, Deutschland"
+ },
+ "Orscholz": {
+  "lat": 49.50576,
+  "lng": 6.53062,
+  "osm": "Orscholz, Mettlach, Landkreis Merzig-Wadern, Saarland, Deutschland"
+ },
+ "Merzig": {
+  "lat": 49.4427,
+  "lng": 6.63749,
+  "osm": "Merzig, Landkreis Merzig-Wadern, Saarland, 66663, Deutschland"
+ },
+ "Losheim am See": {
+  "lat": 49.50825,
+  "lng": 6.74471,
+  "osm": "Losheim am See, Landkreis Merzig-Wadern, Saarland, 66679, Deutschland"
+ },
+ "Wadern": {
+  "lat": 49.54102,
+  "lng": 6.88893,
+  "osm": "Wadern, Landkreis Merzig-Wadern, Saarland, 66687, Deutschland"
+ },
+ "Nonnweiler": {
+  "lat": 49.60595,
+  "lng": 6.97084,
+  "osm": "Nonnweiler, Landkreis St. Wendel, Saarland, 66620, Deutschland"
+ },
+ "Boppard": {
+  "lat": 50.23128,
+  "lng": 7.58859,
+  "osm": "Boppard, Rhein-Hunsrück-Kreis, Rheinland-Pfalz, 56154, Deutschland"
+ },
+ "St. Goar": {
+  "lat": 50.15,
+  "lng": 7.71667,
+  "osm": "Sankt Goar, Hunsrück-Mittelrhein, Rhein-Hunsrück-Kreis, Rheinland-Pfalz, 56329, Deutschland"
+ },
+ "Bacharach": {
+  "lat": 50.05979,
+  "lng": 7.7684,
+  "osm": "Bacharach, Rhein-Nahe, Landkreis Mainz-Bingen, Rheinland-Pfalz, 55422, Deutschland"
+ },
+ "Bingen am Rhein": {
+  "lat": 49.96755,
+  "lng": 7.8944,
+  "osm": "Bingen am Rhein, Landkreis Mainz-Bingen, Rheinland-Pfalz, 55411, Deutschland"
+ },
+ "Mainz": {
+  "lat": 49.99952,
+  "lng": 8.27363,
+  "osm": "Mainz, Rheinland-Pfalz, Deutschland"
+ },
+ "Eltville am Rhein": {
+  "lat": 50.02201,
+  "lng": 8.10441,
+  "osm": "Eltville am Rhein, Rheingau-Taunus-Kreis, Hessen, Deutschland"
+ },
+ "Rüdesheim am Rhein": {
+  "lat": 50.0293,
+  "lng": 7.8902,
+  "osm": "Rüdesheim am Rhein, Rheingau-Taunus-Kreis, Hessen, 65385, Deutschland"
+ },
+ "Kaub": {
+  "lat": 50.08805,
+  "lng": 7.76209,
+  "osm": "Kaub, Loreley, Rhein-Lahn-Kreis, Rheinland-Pfalz, 56349, Deutschland"
+ },
+ "St. Goarshausen": {
+  "lat": 50.15488,
+  "lng": 7.7161,
+  "osm": "Sankt Goarshausen, Loreley, Rhein-Lahn-Kreis, Rheinland-Pfalz, 56346, Deutschland"
+ },
+ "Braubach": {
+  "lat": 50.27512,
+  "lng": 7.65107,
+  "osm": "Braubach, Loreley, Rhein-Lahn-Kreis, Rheinland-Pfalz, 56338, Deutschland"
+ },
+ "Lahnstein": {
+  "lat": 50.30903,
+  "lng": 7.60446,
+  "osm": "Lahnstein, Rhein-Lahn-Kreis, Rheinland-Pfalz, Deutschland"
+ },
+ "Bad Homburg vor der Höhe": {
+  "lat": 50.22838,
+  "lng": 8.61301,
+  "osm": "Bad Homburg vor der Höhe, Hochtaunuskreis, Hessen, Deutschland"
+ },
+ "Oberursel (Taunus)": {
+  "lat": 50.20329,
+  "lng": 8.58337,
+  "osm": "Oberursel (Taunus), Hochtaunuskreis, Hessen, 61440, Deutschland"
+ },
+ "Königstein im Taunus": {
+  "lat": 50.19513,
+  "lng": 8.46282,
+  "osm": "Königstein im Taunus, Hochtaunuskreis, Hessen, 61462, Deutschland"
+ },
+ "Idstein": {
+  "lat": 50.2147,
+  "lng": 8.2902,
+  "osm": "Idstein, Rheingau-Taunus-Kreis, Hessen, 65510, Deutschland"
+ },
+ "Weilrod": {
+  "lat": 50.33067,
+  "lng": 8.3909,
+  "osm": "Weilrod, Hochtaunuskreis, Hessen, 61276, Deutschland"
+ },
+ "Usingen": {
+  "lat": 50.35079,
+  "lng": 8.52317,
+  "osm": "Usingen, Hochtaunuskreis, Hessen, 61250, Deutschland"
+ },
+ "Limburg an der Lahn": {
+  "lat": 50.38804,
+  "lng": 8.06353,
+  "osm": "Limburg an der Lahn, Landkreis Limburg-Weilburg, Hessen, Deutschland"
+ },
+ "Diez": {
+  "lat": 50.36942,
+  "lng": 8.01745,
+  "osm": "Diez, Rhein-Lahn-Kreis, Rheinland-Pfalz, 65582, Deutschland"
+ },
+ "Nassau (Lahn)": {
+  "lat": 50.31489,
+  "lng": 7.80009,
+  "osm": "Nassau, Bad Ems-Nassau, Rhein-Lahn-Kreis, Rheinland-Pfalz, 56377, Deutschland"
+ },
+ "Bad Ems": {
+  "lat": 50.33521,
+  "lng": 7.71285,
+  "osm": "Bad Ems, Bad Ems-Nassau, Rhein-Lahn-Kreis, Rheinland-Pfalz, 56130, Deutschland"
+ },
+ "Montabaur": {
+  "lat": 50.43622,
+  "lng": 7.83025,
+  "osm": "Montabaur, Westerwaldkreis, Rheinland-Pfalz, Deutschland"
+ },
+ "Westerburg": {
+  "lat": 50.56226,
+  "lng": 7.96933,
+  "osm": "Westerburg, Westerwaldkreis, Rheinland-Pfalz, Deutschland"
+ },
+ "Hadamar": {
+  "lat": 50.4587,
+  "lng": 8.05793,
+  "osm": "Hadamar, Landkreis Limburg-Weilburg, Hessen, 65589, Deutschland"
+ },
+ "Schotten": {
+  "lat": 50.48726,
+  "lng": 9.16192,
+  "osm": "Schotten, Vogelsbergkreis, Hessen, 63679, Deutschland"
+ },
+ "Ulrichstein": {
+  "lat": 50.57081,
+  "lng": 9.17641,
+  "osm": "Ulrichstein, Vogelsbergkreis, Hessen, 35327, Deutschland"
+ },
+ "Herbstein": {
+  "lat": 50.56089,
+  "lng": 9.38046,
+  "osm": "Herbstein, Vogelsbergkreis, Hessen, 36358, Deutschland"
+ },
+ "Lauterbach (Hessen)": {
+  "lat": 50.64542,
+  "lng": 9.36753,
+  "osm": "Lauterbach (Hessen), Vogelsbergkreis, Hessen, 36341, Deutschland"
+ },
+ "Grebenhain": {
+  "lat": 50.49264,
+  "lng": 9.33531,
+  "osm": "Grebenhain, Vogelsbergkreis, Hessen, 36355, Deutschland"
+ },
+ "Gedern": {
+  "lat": 50.4051,
+  "lng": 9.2135,
+  "osm": "Gedern, Wetteraukreis, Hessen, Deutschland"
+ },
+ "Fulda": {
+  "lat": 50.55147,
+  "lng": 9.67622,
+  "osm": "Fulda, Landkreis Fulda, Hessen, Deutschland"
+ },
+ "Gersfeld (Rhön)": {
+  "lat": 50.44977,
+  "lng": 9.89437,
+  "osm": "Gersfeld (Rhön), Landkreis Fulda, Hessen, 36129, Deutschland"
+ },
+ "Bischofsheim in der Rhön": {
+  "lat": 50.40116,
+  "lng": 9.99342,
+  "osm": "Bischofsheim in der Rhön, Landkreis Rhön-Grabfeld, Bayern, 97653, Deutschland"
+ },
+ "Fladungen": {
+  "lat": 50.52104,
+  "lng": 10.14585,
+  "osm": "Fladungen, Fladungen (VGem), Landkreis Rhön-Grabfeld, Bayern, 97650, Deutschland"
+ },
+ "Tann (Rhön)": {
+  "lat": 50.63695,
+  "lng": 10.00401,
+  "osm": "Tann (Rhön), Landkreis Fulda, Hessen, 36142, Deutschland"
+ },
+ "Hilders": {
+  "lat": 50.55542,
+  "lng": 9.97548,
+  "osm": "Hilders, Landkreis Fulda, Hessen, 36115, Deutschland"
+ },
+ "Poppenhausen (Wasserkuppe)": {
+  "lat": 50.50123,
+  "lng": 9.88925,
+  "osm": "Poppenhausen (Wasserkuppe), Landkreis Fulda, Hessen, 36163, Deutschland"
+ },
+ "Vöhl": {
+  "lat": 51.17956,
+  "lng": 8.92763,
+  "osm": "Vöhl, Landkreis Waldeck-Frankenberg, Hessen, 34516, Deutschland"
+ },
+ "Frankenberg (Eder)": {
+  "lat": 51.07719,
+  "lng": 8.79083,
+  "osm": "Frankenberg (Eder), Landkreis Waldeck-Frankenberg, Hessen, 35066, Deutschland"
+ },
+ "Frankenau": {
+  "lat": 51.1069,
+  "lng": 8.92748,
+  "osm": "Frankenau, Landkreis Waldeck-Frankenberg, Hessen, 35110, Deutschland"
+ },
+ "Bad Wildungen": {
+  "lat": 51.10291,
+  "lng": 9.09407,
+  "osm": "Bad Wildungen, Landkreis Waldeck-Frankenberg, Hessen, 34537, Deutschland"
+ },
+ "Edertal": {
+  "lat": 51.16299,
+  "lng": 9.08873,
+  "osm": "Edertal, Landkreis Waldeck-Frankenberg, Hessen, 34549, Deutschland"
+ },
+ "Witzenhausen": {
+  "lat": 51.33319,
+  "lng": 9.84342,
+  "osm": "Witzenhausen, Werra-Meißner-Kreis, Hessen, Deutschland"
+ },
+ "Hessisch Lichtenau": {
+  "lat": 51.19274,
+  "lng": 9.75172,
+  "osm": "Hessisch Lichtenau, Werra-Meißner-Kreis, Hessen, 37235, Deutschland"
+ },
+ "Eschwege": {
+  "lat": 51.17335,
+  "lng": 10.06806,
+  "osm": "Eschwege, Werra-Meißner-Kreis, Hessen, 37269, Deutschland"
+ },
+ "Bad Sooden-Allendorf": {
+  "lat": 51.26954,
+  "lng": 9.972,
+  "osm": "Bad Sooden-Allendorf, Werra-Meißner-Kreis, Hessen, 37242, Deutschland"
+ },
+ "Lohr am Main": {
+  "lat": 49.99605,
+  "lng": 9.55669,
+  "osm": "Lohr am Main, Landkreis Main-Spessart, Bayern, 97816, Deutschland"
+ },
+ "Frammersbach": {
+  "lat": 50.0636,
+  "lng": 9.44652,
+  "osm": "Frammersbach, Landkreis Main-Spessart, Bayern, Deutschland"
+ },
+ "Heigenbrücken": {
+  "lat": 50.03509,
+  "lng": 9.36995,
+  "osm": "Heigenbrücken, Heigenbrücken (VGem), Landkreis Aschaffenburg, Bayern, Deutschland"
+ },
+ "Mespelbrunn": {
+  "lat": 49.91514,
+  "lng": 9.29077,
+  "osm": "Mespelbrunn, Mespelbrunn (VGem), Landkreis Aschaffenburg, Bayern, 63875, Deutschland"
+ },
+ "Marktheidenfeld": {
+  "lat": 49.8582,
+  "lng": 9.5667,
+  "osm": "Marktheidenfeld, Landkreis Main-Spessart, Bayern, 97828, Deutschland"
+ },
+ "Michelstadt": {
+  "lat": 49.68841,
+  "lng": 9.05647,
+  "osm": "Michelstadt, Odenwaldkreis, Hessen, 64720, Deutschland"
+ },
+ "Beerfelden": {
+  "lat": 49.55593,
+  "lng": 8.95273,
+  "osm": "Beerfelden, Oberzent, Odenwaldkreis, Hessen, 64760, Deutschland"
+ },
+ "Hirschhorn (Neckar)": {
+  "lat": 49.461,
+  "lng": 8.8974,
+  "osm": "Hirschhorn, Kreis Bergstraße, Hessen, Deutschland"
+ },
+ "Eberbach": {
+  "lat": 49.46353,
+  "lng": 8.98552,
+  "osm": "Eberbach, VVG der Stadt Eberbach, Rhein-Neckar-Kreis, Baden-Württemberg, Deutschland"
+ },
+ "Mudau": {
+  "lat": 49.53391,
+  "lng": 9.20483,
+  "osm": "Mudau, Neckar-Odenwald-Kreis, Baden-Württemberg, 69427, Deutschland"
+ },
+ "Amorbach": {
+  "lat": 49.64467,
+  "lng": 9.21973,
+  "osm": "Amorbach, Landkreis Miltenberg, Bayern, 63916, Deutschland"
+ },
+ "Darmstadt": {
+  "lat": 49.87277,
+  "lng": 8.65118,
+  "osm": "Darmstadt, Hessen, Deutschland"
+ },
+ "Zwingenberg|Hessen": {
+  "lat": 49.7242,
+  "lng": 8.5915,
+  "osm": "Zwingenberg, Kreis Bergstraße, Hessen, 64673, Deutschland"
+ },
+ "Bensheim": {
+  "lat": 49.68102,
+  "lng": 8.62276,
+  "osm": "Bensheim, Kreis Bergstraße, Hessen, 64625, Deutschland"
+ },
+ "Heppenheim": {
+  "lat": 49.64999,
+  "lng": 8.66768,
+  "osm": "Heppenheim, Kreis Bergstraße, Hessen, 64646, Deutschland"
+ },
+ "Weinheim": {
+  "lat": 49.54623,
+  "lng": 8.67175,
+  "osm": "Weinheim, Rhein-Neckar-Kreis, Baden-Württemberg, 69469, Deutschland"
+ },
+ "Schriesheim": {
+  "lat": 49.47517,
+  "lng": 8.66111,
+  "osm": "Schriesheim, Rhein-Neckar-Kreis, Baden-Württemberg, 69198, Deutschland"
+ },
+ "Heidelberg": {
+  "lat": 49.40936,
+  "lng": 8.69472,
+  "osm": "Heidelberg, Baden-Württemberg, Deutschland"
+ },
+ "Neckargemünd": {
+  "lat": 49.39541,
+  "lng": 8.79659,
+  "osm": "Neckargemünd, GVV Neckargemünd, Rhein-Neckar-Kreis, Baden-Württemberg, 69151, Deutschland"
+ },
+ "Mosbach": {
+  "lat": 49.35211,
+  "lng": 9.14602,
+  "osm": "Mosbach, VVG der Stadt Mosbach, Neckar-Odenwald-Kreis, Baden-Württemberg, 74821, Deutschland"
+ },
+ "Bad Wimpfen": {
+  "lat": 49.23034,
+  "lng": 9.16216,
+  "osm": "Bad Wimpfen, Landkreis Heilbronn, Baden-Württemberg, 74206, Deutschland"
+ },
+ "Heilbronn": {
+  "lat": 49.14229,
+  "lng": 9.21866,
+  "osm": "Heilbronn, Baden-Württemberg, Deutschland"
+ },
+ "Neustadt an der Weinstraße": {
+  "lat": 49.35361,
+  "lng": 8.13602,
+  "osm": "Neustadt an der Weinstraße, Rheinland-Pfalz, Deutschland"
+ },
+ "Lambrecht (Pfalz)": {
+  "lat": 49.37327,
+  "lng": 8.07433,
+  "osm": "Lambrecht (Pfalz), Sommerbergstraße, Lambrecht, Lambrecht (Pfalz), Landkreis Bad Dürkheim, Rheinland-Pfalz, 67466, Deutschland"
+ },
+ "Elmstein": {
+  "lat": 49.35063,
+  "lng": 7.93931,
+  "osm": "Elmstein, Lambrecht (Pfalz), Landkreis Bad Dürkheim, Rheinland-Pfalz, 67471, Deutschland"
+ },
+ "Hauenstein": {
+  "lat": 49.1922,
+  "lng": 7.8529,
+  "osm": "Hauenstein, Südwestpfalz, Rheinland-Pfalz, 76846, Deutschland"
+ },
+ "Annweiler am Trifels": {
+  "lat": 49.20273,
+  "lng": 7.96823,
+  "osm": "Annweiler am Trifels, Landkreis Südliche Weinstraße, Rheinland-Pfalz, Deutschland"
+ },
+ "Edenkoben": {
+  "lat": 49.28224,
+  "lng": 8.12844,
+  "osm": "Edenkoben, Landkreis Südliche Weinstraße, Rheinland-Pfalz, 67480, Deutschland"
+ },
+ "Bockenheim an der Weinstraße": {
+  "lat": 49.61003,
+  "lng": 8.19506,
+  "osm": "Bockenheim an der Weinstraße, Leiningerland, Landkreis Bad Dürkheim, Rheinland-Pfalz, 67278, Deutschland"
+ },
+ "Grünstadt": {
+  "lat": 49.56537,
+  "lng": 8.16346,
+  "osm": "Grünstadt, Landkreis Bad Dürkheim, Rheinland-Pfalz, Deutschland"
+ },
+ "Bad Dürkheim": {
+  "lat": 49.46329,
+  "lng": 8.17051,
+  "osm": "Bad Dürkheim, Landkreis Bad Dürkheim, Rheinland-Pfalz, 67098, Deutschland"
+ },
+ "Deidesheim": {
+  "lat": 49.40759,
+  "lng": 8.18592,
+  "osm": "Deidesheim, Landkreis Bad Dürkheim, Rheinland-Pfalz, 67146, Deutschland"
+ },
+ "Maikammer": {
+  "lat": 49.30522,
+  "lng": 8.13163,
+  "osm": "Maikammer, Landkreis Südliche Weinstraße, Rheinland-Pfalz, 67489, Deutschland"
+ },
+ "Bad Bergzabern": {
+  "lat": 49.10281,
+  "lng": 7.99913,
+  "osm": "Bad Bergzabern, Landkreis Südliche Weinstraße, Rheinland-Pfalz, 76887, Deutschland"
+ },
+ "Schweigen-Rechtenbach": {
+  "lat": 49.05456,
+  "lng": 7.95603,
+  "osm": "Schweigen-Rechtenbach, Bad Bergzabern, Landkreis Südliche Weinstraße, Rheinland-Pfalz, Deutschland"
+ },
+ "Dahn": {
+  "lat": 49.15067,
+  "lng": 7.77876,
+  "osm": "Dahn, Dahner Felsenland, Südwestpfalz, Rheinland-Pfalz, 66994, Deutschland"
+ },
+ "Schönau (Pfalz)": {
+  "lat": 49.06041,
+  "lng": 7.74769,
+  "osm": "Schönau (Pfalz), Dahner Felsenland, Südwestpfalz, Rheinland-Pfalz, Deutschland"
+ },
+ "Fischbach bei Dahn": {
+  "lat": 49.08726,
+  "lng": 7.71115,
+  "osm": "Fischbach bei Dahn, Dahner Felsenland, Südwestpfalz, Rheinland-Pfalz, 66996, Deutschland"
+ },
+ "Baden-Baden": {
+  "lat": 48.76107,
+  "lng": 8.23996,
+  "osm": "Baden-Baden, Baden-Württemberg, Deutschland"
+ },
+ "Freudenstadt": {
+  "lat": 48.46377,
+  "lng": 8.41117,
+  "osm": "Freudenstadt, VVG der Stadt Freudenstadt, Landkreis Freudenstadt, Baden-Württemberg, 72250, Deutschland"
+ },
+ "Rastatt": {
+  "lat": 48.85846,
+  "lng": 8.20405,
+  "osm": "Rastatt, VVG der Stadt Rastatt, Landkreis Rastatt, Baden-Württemberg, 76437, Deutschland"
+ },
+ "Gernsbach": {
+  "lat": 48.76364,
+  "lng": 8.33799,
+  "osm": "Gernsbach, VVG der Stadt Gernsbach, Landkreis Rastatt, Baden-Württemberg, 76593, Deutschland"
+ },
+ "Forbach (Baden)": {
+  "lat": 48.67904,
+  "lng": 8.35949,
+  "osm": "Forbach, Landkreis Rastatt, Baden-Württemberg, 76596, Deutschland"
+ },
+ "Baiersbronn": {
+  "lat": 48.50695,
+  "lng": 8.37201,
+  "osm": "Baiersbronn, Landkreis Freudenstadt, Baden-Württemberg, 72270, Deutschland"
+ },
+ "Alpirsbach": {
+  "lat": 48.3456,
+  "lng": 8.40331,
+  "osm": "Alpirsbach, Landkreis Freudenstadt, Baden-Württemberg, 72275, Deutschland"
+ },
+ "Bad Herrenalb": {
+  "lat": 48.79905,
+  "lng": 8.43826,
+  "osm": "Bad Herrenalb, VVG der Stadt Bad Herrenalb, Landkreis Calw, Baden-Württemberg, 76332, Deutschland"
+ },
+ "Dobel": {
+  "lat": 48.79699,
+  "lng": 8.49363,
+  "osm": "Dobel, VVG der Stadt Bad Herrenalb, Landkreis Calw, Baden-Württemberg, 75335, Deutschland"
+ },
+ "Bad Wildbad": {
+  "lat": 48.75024,
+  "lng": 8.5503,
+  "osm": "Bad Wildbad, VVG der Stadt Bad Wildbad, Landkreis Calw, Baden-Württemberg, 75323, Deutschland"
+ },
+ "Enzklösterle": {
+  "lat": 48.66811,
+  "lng": 8.47134,
+  "osm": "Enzklösterle, VVG der Stadt Bad Wildbad, Landkreis Calw, Baden-Württemberg, 75337, Deutschland"
+ },
+ "Besenfeld": {
+  "lat": 48.59701,
+  "lng": 8.42169,
+  "osm": "Besenfeld, Seewald, VVG der Stadt Freudenstadt, Landkreis Freudenstadt, Baden-Württemberg, 72297, Deutschland"
+ },
+ "Wolfach": {
+  "lat": 48.29858,
+  "lng": 8.22261,
+  "osm": "Wolfach, VVG der Stadt Wolfach, Ortenaukreis, Baden-Württemberg, 77709, Deutschland"
+ },
+ "Hausach": {
+  "lat": 48.28363,
+  "lng": 8.17497,
+  "osm": "Hausach, VVG der Stadt Hausach, Ortenaukreis, Baden-Württemberg, 77756, Deutschland"
+ },
+ "Hornberg": {
+  "lat": 48.21284,
+  "lng": 8.23164,
+  "osm": "Hornberg, Ortenaukreis, Baden-Württemberg, 78132, Deutschland"
+ },
+ "Triberg im Schwarzwald": {
+  "lat": 48.1298,
+  "lng": 8.23227,
+  "osm": "Triberg im Schwarzwald, GVV Raumschaft Triberg, Schwarzwald-Baar-Kreis, Baden-Württemberg, 78098, Deutschland"
+ },
+ "Schonach im Schwarzwald": {
+  "lat": 48.14271,
+  "lng": 8.19749,
+  "osm": "Schonach im Schwarzwald, GVV Raumschaft Triberg, Schwarzwald-Baar-Kreis, Baden-Württemberg, 78136, Deutschland"
+ },
+ "Furtwangen im Schwarzwald": {
+  "lat": 48.05122,
+  "lng": 8.20738,
+  "osm": "Furtwangen im Schwarzwald, VVG der Stadt Furtwangen im Schwarzwald, Schwarzwald-Baar-Kreis, Baden-Württemberg, 78120, Deutschland"
+ },
+ "Simonswald": {
+  "lat": 48.10016,
+  "lng": 8.05547,
+  "osm": "Simonswald, VVG der Stadt Waldkirch, Landkreis Emmendingen, Baden-Württemberg, 79263, Deutschland"
+ },
+ "Elzach": {
+  "lat": 48.17387,
+  "lng": 8.07133,
+  "osm": "Elzach, GVV Elzach, Landkreis Emmendingen, Baden-Württemberg, 79215, Deutschland"
+ },
+ "Haslach im Kinzigtal": {
+  "lat": 48.2769,
+  "lng": 8.08716,
+  "osm": "Haslach im Kinzigtal, VVG der Stadt Haslach im Kinzigtal, Ortenaukreis, Baden-Württemberg, 77716, Deutschland"
+ },
+ "Freiburg im Breisgau": {
+  "lat": 47.99609,
+  "lng": 7.8494,
+  "osm": "Freiburg im Breisgau, Baden-Württemberg, Deutschland"
+ },
+ "Todtnau": {
+  "lat": 47.83034,
+  "lng": 7.94524,
+  "osm": "Todtnau, Landkreis Lörrach, Baden-Württemberg, 79674, Deutschland"
+ },
+ "Feldberg (Schwarzwald)": {
+  "lat": 47.8621,
+  "lng": 8.10194,
+  "osm": "Feldberg (Schwarzwald), VVG der Gemeinde Schluchsee, Landkreis Breisgau-Hochschwarzwald, Baden-Württemberg, 79868, Deutschland"
+ },
+ "Titisee-Neustadt": {
+  "lat": 47.91734,
+  "lng": 8.17352,
+  "osm": "Titisee-Neustadt, VVG der Stadt Titisee-Neustadt, Landkreis Breisgau-Hochschwarzwald, Baden-Württemberg, 79822, Deutschland"
+ },
+ "Hinterzarten": {
+  "lat": 47.90637,
+  "lng": 8.10362,
+  "osm": "Hinterzarten, VVG der Gemeinde Hinterzarten, Landkreis Breisgau-Hochschwarzwald, Baden-Württemberg, 79856, Deutschland"
+ },
+ "Kirchzarten": {
+  "lat": 47.96263,
+  "lng": 7.9542,
+  "osm": "Kirchzarten, GVV Dreisamtal, Landkreis Breisgau-Hochschwarzwald, Baden-Württemberg, 79199, Deutschland"
+ },
+ "Staufen im Breisgau": {
+  "lat": 47.88321,
+  "lng": 7.73293,
+  "osm": "Staufen im Breisgau, GVV Staufen-Münstertal, Landkreis Breisgau-Hochschwarzwald, Baden-Württemberg, 79219, Deutschland"
+ },
+ "Münstertal/Schwarzwald": {
+  "lat": 47.85553,
+  "lng": 7.78298,
+  "osm": "Münstertal/Schwarzwald, GVV Staufen-Münstertal, Landkreis Breisgau-Hochschwarzwald, Baden-Württemberg, 79244, Deutschland"
+ },
+ "Wieden|Schwarzwald": {
+  "lat": 47.84078,
+  "lng": 7.88012,
+  "osm": "Wieden, GVV Schönau im Schwarzwald, Landkreis Lörrach, Baden-Württemberg, 79695, Deutschland"
+ },
+ "Schönau im Schwarzwald": {
+  "lat": 47.78618,
+  "lng": 7.8934,
+  "osm": "Schönau im Schwarzwald, GVV Schönau im Schwarzwald, Landkreis Lörrach, Baden-Württemberg, 79677, Deutschland"
+ },
+ "Badenweiler": {
+  "lat": 47.80255,
+  "lng": 7.67397,
+  "osm": "Badenweiler, GVV Müllheim-Badenweiler, Landkreis Breisgau-Hochschwarzwald, Baden-Württemberg, 79410, Deutschland"
+ },
+ "Sulzburg": {
+  "lat": 47.84051,
+  "lng": 7.70776,
+  "osm": "Sulzburg, GVV Müllheim-Badenweiler, Landkreis Breisgau-Hochschwarzwald, Baden-Württemberg, 79295, Deutschland"
+ },
+ "Waldshut-Tiengen": {
+  "lat": 47.62818,
+  "lng": 8.24086,
+  "osm": "Waldshut-Tiengen, VVG der Stadt Waldshut-Tiengen, Landkreis Waldshut, Baden-Württemberg, Deutschland"
+ },
+ "Höchenschwand": {
+  "lat": 47.73544,
+  "lng": 8.16599,
+  "osm": "Höchenschwand, GVV St. Blasien, Landkreis Waldshut, Baden-Württemberg, 79862, Deutschland"
+ },
+ "St. Blasien": {
+  "lat": 47.76021,
+  "lng": 8.13143,
+  "osm": "St. Blasien, GVV St. Blasien, Landkreis Waldshut, Baden-Württemberg, 79837, Deutschland"
+ },
+ "Schluchsee": {
+  "lat": 47.81859,
+  "lng": 8.17704,
+  "osm": "Schluchsee, VVG der Gemeinde Schluchsee, Landkreis Breisgau-Hochschwarzwald, Baden-Württemberg, 79859, Deutschland"
+ },
+ "Bonndorf im Schwarzwald": {
+  "lat": 47.81902,
+  "lng": 8.34155,
+  "osm": "Bonndorf im Schwarzwald, VVG der Stadt Bonndorf im Schwarzwald, Landkreis Waldshut, Baden-Württemberg, 79848, Deutschland"
+ },
+ "Stühlingen": {
+  "lat": 47.74704,
+  "lng": 8.44745,
+  "osm": "Stühlingen, Landkreis Waldshut, Baden-Württemberg, 79780, Deutschland"
+ },
+ "Bad Urach": {
+  "lat": 48.4938,
+  "lng": 9.39788,
+  "osm": "Bad Urach, VVG der Stadt Bad Urach, Landkreis Reutlingen, Baden-Württemberg, 72574, Deutschland"
+ },
+ "Lenningen": {
+  "lat": 48.55799,
+  "lng": 9.46604,
+  "osm": "Lenningen, GVV Lenningen, Landkreis Esslingen, Baden-Württemberg, 73252, Deutschland"
+ },
+ "Wiesensteig": {
+  "lat": 48.56209,
+  "lng": 9.6264,
+  "osm": "Wiesensteig, GVV Oberes Filstal, Landkreis Göppingen, Baden-Württemberg, 73349, Deutschland"
+ },
+ "Laichingen": {
+  "lat": 48.48968,
+  "lng": 9.68615,
+  "osm": "Laichingen, GVV Laichinger Alb, Alb-Donau-Kreis, Baden-Württemberg, 89150, Deutschland"
+ },
+ "Münsingen": {
+  "lat": 48.41286,
+  "lng": 9.49479,
+  "osm": "Münsingen, VVG der Stadt Münsingen, Landkreis Reutlingen, Baden-Württemberg, 72525, Deutschland"
+ },
+ "Sigmaringen": {
+  "lat": 48.08691,
+  "lng": 9.2165,
+  "osm": "Sigmaringen, GVV Sigmaringen, Landkreis Sigmaringen, Baden-Württemberg, 72488, Deutschland"
+ },
+ "Beuron": {
+  "lat": 48.05117,
+  "lng": 8.97032,
+  "osm": "Beuron, GVV Sigmaringen, Landkreis Sigmaringen, Baden-Württemberg, 88631, Deutschland"
+ },
+ "Fridingen an der Donau": {
+  "lat": 48.02026,
+  "lng": 8.93134,
+  "osm": "Fridingen an der Donau, GVV Donau-Heuberg, Landkreis Tuttlingen, Baden-Württemberg, 78567, Deutschland"
+ },
+ "Mühlheim an der Donau": {
+  "lat": 48.02484,
+  "lng": 8.88949,
+  "osm": "Mühlheim an der Donau, GVV Donau-Heuberg, Landkreis Tuttlingen, Baden-Württemberg, 78570, Deutschland"
+ },
+ "Meßstetten": {
+  "lat": 48.1806,
+  "lng": 8.96191,
+  "osm": "Meßstetten, VVG der Stadt Meßstetten, Zollernalbkreis, Baden-Württemberg, 72469, Deutschland"
+ },
+ "Albstadt": {
+  "lat": 48.23305,
+  "lng": 8.99915,
+  "osm": "Albstadt, VVG der Stadt Albstadt, Zollernalbkreis, Baden-Württemberg, Deutschland"
+ },
+ "Reutlingen": {
+  "lat": 48.49195,
+  "lng": 9.21141,
+  "osm": "Reutlingen, Landkreis Reutlingen, Baden-Württemberg, Deutschland"
+ },
+ "Lichtenstein|Württemberg": {
+  "lat": 48.42093,
+  "lng": 9.25912,
+  "osm": "Lichtenstein, Landkreis Reutlingen, Baden-Württemberg, 72805, Deutschland"
+ },
+ "Trochtelfingen": {
+  "lat": 48.30776,
+  "lng": 9.24484,
+  "osm": "Trochtelfingen, Landkreis Reutlingen, Baden-Württemberg, 72818, Deutschland"
+ },
+ "Burladingen": {
+  "lat": 48.28929,
+  "lng": 9.11347,
+  "osm": "Burladingen, Zollernalbkreis, Baden-Württemberg, 72393, Deutschland"
+ },
+ "Hechingen": {
+  "lat": 48.35255,
+  "lng": 8.9642,
+  "osm": "Hechingen, VVG der Stadt Hechingen, Zollernalbkreis, Baden-Württemberg, 72379, Deutschland"
+ },
+ "Mössingen": {
+  "lat": 48.40691,
+  "lng": 9.06029,
+  "osm": "Mössingen, VVG der Stadt Mössingen, Landkreis Tübingen, Baden-Württemberg, 72116, Deutschland"
+ },
+ "Überlingen": {
+  "lat": 47.76645,
+  "lng": 9.16051,
+  "osm": "Überlingen, VVG der Stadt Überlingen, Bodenseekreis, Baden-Württemberg, Deutschland"
+ },
+ "Heiligenberg": {
+  "lat": 47.82129,
+  "lng": 9.31115,
+  "osm": "Heiligenberg, GVV Salem, Bodenseekreis, Baden-Württemberg, 88633, Deutschland"
+ },
+ "Pfullendorf": {
+  "lat": 47.92435,
+  "lng": 9.25598,
+  "osm": "Pfullendorf, VVG der Stadt Pfullendorf, Landkreis Sigmaringen, Baden-Württemberg, 88630, Deutschland"
+ },
+ "Salem|Baden": {
+  "lat": 47.76667,
+  "lng": 9.29741,
+  "osm": "Salem, GVV Salem, Bodenseekreis, Baden-Württemberg, 88682, Deutschland"
+ },
+ "Meersburg": {
+  "lat": 47.69555,
+  "lng": 9.27197,
+  "osm": "Meersburg, GVV Meersburg, Bodenseekreis, Baden-Württemberg, 88709, Deutschland"
+ },
+ "Lindau (Bodensee)": {
+  "lat": 47.57287,
+  "lng": 9.69619,
+  "osm": "Lindau (Bodensee), Landkreis Lindau, Bayern, 88131, Deutschland"
+ },
+ "Oberstaufen": {
+  "lat": 47.52455,
+  "lng": 10.06187,
+  "osm": "Oberstaufen, Landkreis Oberallgäu, Bayern, 87534, Deutschland"
+ },
+ "Immenstadt im Allgäu": {
+  "lat": 47.57134,
+  "lng": 10.1888,
+  "osm": "Immenstadt im Allgäu, Landkreis Oberallgäu, Bayern, 87509, Deutschland"
+ },
+ "Sonthofen": {
+  "lat": 47.50561,
+  "lng": 10.29941,
+  "osm": "Sonthofen, Landkreis Oberallgäu, Bayern, 87527, Deutschland"
+ },
+ "Bad Hindelang": {
+  "lat": 47.46576,
+  "lng": 10.40077,
+  "osm": "Bad Hindelang, Landkreis Oberallgäu, Bayern, 87541, Deutschland"
+ },
+ "Oberjoch": {
+  "lat": 47.51636,
+  "lng": 10.40638,
+  "osm": "Oberjoch, Bad Hindelang, Landkreis Oberallgäu, Bayern, 87541, Deutschland"
+ },
+ "Pfronten": {
+  "lat": 47.58138,
+  "lng": 10.55797,
+  "osm": "Pfronten, Landkreis Ostallgäu, Bayern, 87459, Deutschland"
+ },
+ "Füssen": {
+  "lat": 47.5676,
+  "lng": 10.69932,
+  "osm": "Füssen, Landkreis Ostallgäu, Bayern, 87629, Deutschland"
+ },
+ "Steingaden": {
+  "lat": 47.70171,
+  "lng": 10.86027,
+  "osm": "Steingaden, Steingaden (VGem), Landkreis Weilheim-Schongau, Bayern, 86989, Deutschland"
+ },
+ "Oberammergau": {
+  "lat": 47.59734,
+  "lng": 11.06407,
+  "osm": "Oberammergau, Landkreis Garmisch-Partenkirchen, Bayern, 82487, Deutschland"
+ },
+ "Ettal": {
+  "lat": 47.57165,
+  "lng": 11.00551,
+  "osm": "Ettal, Unterammergau (VGem), Landkreis Garmisch-Partenkirchen, Bayern, 82488, Deutschland"
+ },
+ "Garmisch-Partenkirchen": {
+  "lat": 47.49237,
+  "lng": 11.09628,
+  "osm": "Garmisch-Partenkirchen, Landkreis Garmisch-Partenkirchen, Bayern, Deutschland"
+ },
+ "Wallgau": {
+  "lat": 47.54313,
+  "lng": 11.27354,
+  "osm": "Wallgau, Landkreis Garmisch-Partenkirchen, Bayern, 82499, Deutschland"
+ },
+ "Kochel am See": {
+  "lat": 47.65311,
+  "lng": 11.36319,
+  "osm": "Kochel am See, Kochel am See (VGem), Landkreis Bad Tölz-Wolfratshausen, Bayern, Deutschland"
+ },
+ "Bad Tölz": {
+  "lat": 47.761,
+  "lng": 11.55961,
+  "osm": "Bad Tölz, Landkreis Bad Tölz-Wolfratshausen, Bayern, Deutschland"
+ },
+ "Gmund am Tegernsee": {
+  "lat": 47.75082,
+  "lng": 11.73896,
+  "osm": "Gmund, Landkreis Miesbach, Bayern, 83703, Deutschland"
+ },
+ "Tegernsee": {
+  "lat": 47.70992,
+  "lng": 11.75433,
+  "osm": "Tegernsee, Landkreis Miesbach, Bayern, 83684, Deutschland"
+ },
+ "Schliersee": {
+  "lat": 47.73459,
+  "lng": 11.86203,
+  "osm": "Schliersee, Landkreis Miesbach, Bayern, 83727, Deutschland"
+ },
+ "Bayrischzell": {
+  "lat": 47.6595,
+  "lng": 11.97818,
+  "osm": "Bayrischzell, Landkreis Miesbach, Bayern, 83735, Deutschland"
+ },
+ "Oberaudorf": {
+  "lat": 47.64856,
+  "lng": 12.17199,
+  "osm": "Oberaudorf, Landkreis Rosenheim, Bayern, 83080, Deutschland"
+ },
+ "Reit im Winkl": {
+  "lat": 47.66724,
+  "lng": 12.52565,
+  "osm": "Reit im Winkl, Landkreis Traunstein, Bayern, 83242, Deutschland"
+ },
+ "Ruhpolding": {
+  "lat": 47.76201,
+  "lng": 12.64599,
+  "osm": "Ruhpolding, Landkreis Traunstein, Bayern, 83324, Deutschland"
+ },
+ "Inzell": {
+  "lat": 47.76335,
+  "lng": 12.74924,
+  "osm": "Inzell, Landkreis Traunstein, Bayern, 83334, Deutschland"
+ },
+ "Bad Reichenhall": {
+  "lat": 47.72227,
+  "lng": 12.87609,
+  "osm": "Bad Reichenhall, Landkreis Berchtesgadener Land, Bayern, 83435, Deutschland"
+ },
+ "Berchtesgaden": {
+  "lat": 47.63302,
+  "lng": 13.00201,
+  "osm": "Berchtesgaden, Landkreis Berchtesgadener Land, Bayern, Deutschland"
+ },
+ "Schönau am Königssee": {
+  "lat": 47.6055,
+  "lng": 12.98465,
+  "osm": "Schönau am Königssee, Landkreis Berchtesgadener Land, Bayern, 83471, Deutschland"
+ },
+ "Krün": {
+  "lat": 47.50615,
+  "lng": 11.2787,
+  "osm": "Krün, Landkreis Garmisch-Partenkirchen, Bayern, Deutschland"
+ },
+ "Oberau": {
+  "lat": 47.56012,
+  "lng": 11.13573,
+  "osm": "Oberau, Landkreis Garmisch-Partenkirchen, Bayern, 82496, Deutschland"
+ },
+ "Murnau am Staffelsee": {
+  "lat": 47.67788,
+  "lng": 11.20119,
+  "osm": "Murnau am Staffelsee, Landkreis Garmisch-Partenkirchen, Bayern, 82418, Deutschland"
+ },
+ "Brannenburg": {
+  "lat": 47.73754,
+  "lng": 12.10438,
+  "osm": "Brannenburg, Landkreis Rosenheim, Bayern, 83098, Deutschland"
+ },
+ "Bad Feilnbach": {
+  "lat": 47.77459,
+  "lng": 12.00708,
+  "osm": "Bad Feilnbach, Landkreis Rosenheim, Bayern, 83075, Deutschland"
+ },
+ "Fischbachau": {
+  "lat": 47.72948,
+  "lng": 11.955,
+  "osm": "Fischbachau, Landkreis Miesbach, Bayern, 83730, Deutschland"
+ },
+ "Ramsau bei Berchtesgaden": {
+  "lat": 47.60701,
+  "lng": 12.89682,
+  "osm": "Ramsau bei Berchtesgaden, Landkreis Berchtesgadener Land, Bayern, 83486, Deutschland"
+ },
+ "Schneizlreuth": {
+  "lat": 47.68934,
+  "lng": 12.80396,
+  "osm": "Schneizlreuth, Landkreis Berchtesgadener Land, Bayern, 83458, Deutschland"
+ },
+ "Bayerisch Gmain": {
+  "lat": 47.71948,
+  "lng": 12.8981,
+  "osm": "Bayerisch Gmain, Landkreis Berchtesgadener Land, Bayern, 83457, Deutschland"
+ },
+ "Wertach": {
+  "lat": 47.91068,
+  "lng": 10.61186,
+  "osm": "Wertach, Bayern, Deutschland"
+ },
+ "Nesselwang": {
+  "lat": 47.62189,
+  "lng": 10.50035,
+  "osm": "Nesselwang, Landkreis Ostallgäu, Bayern, 87484, Deutschland"
+ },
+ "Kempten (Allgäu)": {
+  "lat": 47.72671,
+  "lng": 10.31688,
+  "osm": "Kempten (Allgäu), Bayern, Deutschland"
+ },
+ "Würzburg": {
+  "lat": 49.77804,
+  "lng": 9.94348,
+  "osm": "Würzburg, Bayern, Deutschland"
+ },
+ "Tauberbischofsheim": {
+  "lat": 49.62297,
+  "lng": 9.66271,
+  "osm": "Tauberbischofsheim, VVG der Stadt Tauberbischofsheim, Main-Tauber-Kreis, Baden-Württemberg, 97941, Deutschland"
+ },
+ "Bad Mergentheim": {
+  "lat": 49.49079,
+  "lng": 9.77317,
+  "osm": "Bad Mergentheim, VVG der Stadt Bad Mergentheim, Main-Tauber-Kreis, Baden-Württemberg, 97980, Deutschland"
+ },
+ "Weikersheim": {
+  "lat": 49.48065,
+  "lng": 9.89768,
+  "osm": "Weikersheim, Main-Tauber-Kreis, Baden-Württemberg, 97990, Deutschland"
+ },
+ "Creglingen": {
+  "lat": 49.46887,
+  "lng": 10.02985,
+  "osm": "Creglingen, Main-Tauber-Kreis, Baden-Württemberg, 97993, Deutschland"
+ },
+ "Rothenburg ob der Tauber": {
+  "lat": 49.3658,
+  "lng": 10.16292,
+  "osm": "Rothenburg ob der Tauber, Landkreis Ansbach, Bayern, 91541, Deutschland"
+ },
+ "Feuchtwangen": {
+  "lat": 49.16786,
+  "lng": 10.33133,
+  "osm": "Feuchtwangen, Landkreis Ansbach, Bayern, 91555, Deutschland"
+ },
+ "Dinkelsbühl": {
+  "lat": 49.06917,
+  "lng": 10.3194,
+  "osm": "Dinkelsbühl, Landkreis Ansbach, Bayern, 91550, Deutschland"
+ },
+ "Nördlingen": {
+  "lat": 48.85166,
+  "lng": 10.48859,
+  "osm": "Nördlingen, Landkreis Donau-Ries, Bayern, Deutschland"
+ },
+ "Harburg (Schwaben)": {
+  "lat": 48.78721,
+  "lng": 10.68896,
+  "osm": "Harburg (Schwaben), Landkreis Donau-Ries, Bayern, 86655, Deutschland"
+ },
+ "Donauwörth": {
+  "lat": 48.71804,
+  "lng": 10.78073,
+  "osm": "Donauwörth, Landkreis Donau-Ries, Bayern, 86609, Deutschland"
+ },
+ "Augsburg": {
+  "lat": 48.36903,
+  "lng": 10.89795,
+  "osm": "Augsburg, Bayern, Deutschland"
+ },
+ "Landsberg am Lech": {
+  "lat": 48.04975,
+  "lng": 10.87687,
+  "osm": "Landsberg am Lech, Landkreis Landsberg am Lech, Bayern, 86899, Deutschland"
+ },
+ "Schongau": {
+  "lat": 47.8119,
+  "lng": 10.89721,
+  "osm": "Schongau, Landkreis Weilheim-Schongau, Bayern, 86956, Deutschland"
+ },
+ "Zwiesel": {
+  "lat": 49.02493,
+  "lng": 13.21769,
+  "osm": "Zwiesel, Landkreis Regen, Bayern, Deutschland"
+ },
+ "Bayerisch Eisenstein": {
+  "lat": 49.12228,
+  "lng": 13.20319,
+  "osm": "Bayerisch Eisenstein, Landkreis Regen, Bayern, 94252, Deutschland"
+ },
+ "Lam": {
+  "lat": 49.19641,
+  "lng": 13.05146,
+  "osm": "Lam, Landkreis Cham, Bayern, 93462, Deutschland"
+ },
+ "Arnbruck": {
+  "lat": 49.1309,
+  "lng": 12.99669,
+  "osm": "Arnbruck, Landkreis Regen, Bayern, 93471, Deutschland"
+ },
+ "Viechtach": {
+  "lat": 49.09077,
+  "lng": 12.92388,
+  "osm": "Viechtach, Landkreis Regen, Bayern, 94234, Deutschland"
+ },
+ "Regen": {
+  "lat": 49.18442,
+  "lng": 12.42518,
+  "osm": "Regen, Bayern, Deutschland"
+ },
+ "Grafenau": {
+  "lat": 48.85624,
+  "lng": 13.39694,
+  "osm": "Grafenau, Landkreis Freyung-Grafenau, Bayern, 94481, Deutschland"
+ },
+ "Spiegelau": {
+  "lat": 48.92627,
+  "lng": 13.33492,
+  "osm": "Spiegelau, Landkreis Freyung-Grafenau, Bayern, 94518, Deutschland"
+ },
+ "Mauth": {
+  "lat": 48.88668,
+  "lng": 13.58284,
+  "osm": "Mauth, Landkreis Freyung-Grafenau, Bayern, 94151, Deutschland"
+ },
+ "Freyung": {
+  "lat": 48.83069,
+  "lng": 13.54943,
+  "osm": "Freyung, Landkreis Freyung-Grafenau, Bayern, 94078, Deutschland"
+ },
+ "Waldkirchen": {
+  "lat": 48.73002,
+  "lng": 13.60158,
+  "osm": "Waldkirchen, Landkreis Freyung-Grafenau, Bayern, 94065, Deutschland"
+ },
+ "Perlesreut": {
+  "lat": 48.77908,
+  "lng": 13.44228,
+  "osm": "Perlesreut, Perlesreut (VGem), Landkreis Freyung-Grafenau, Bayern, 94157, Deutschland"
+ },
+ "Ebermannstadt": {
+  "lat": 49.78021,
+  "lng": 11.18751,
+  "osm": "Ebermannstadt, Ebermannstadt (VGem), Landkreis Forchheim, Bayern, 91320, Deutschland"
+ },
+ "Muggendorf": {
+  "lat": 49.80358,
+  "lng": 11.26259,
+  "osm": "Muggendorf, Wiesenttal, Landkreis Forchheim, Bayern, 91346, Deutschland"
+ },
+ "Gößweinstein": {
+  "lat": 49.76821,
+  "lng": 11.33614,
+  "osm": "Gößweinstein, Landkreis Forchheim, Bayern, 91327, Deutschland"
+ },
+ "Pottenstein": {
+  "lat": 49.77218,
+  "lng": 11.40874,
+  "osm": "Pottenstein, Landkreis Bayreuth, Bayern, 91278, Deutschland"
+ },
+ "Pegnitz": {
+  "lat": 49.75649,
+  "lng": 11.54094,
+  "osm": "Pegnitz, Landkreis Bayreuth, Bayern, 91257, Deutschland"
+ },
+ "Betzenstein": {
+  "lat": 49.6808,
+  "lng": 11.41778,
+  "osm": "Betzenstein, Betzenstein (VGem), Landkreis Bayreuth, Bayern, 91282, Deutschland"
+ },
+ "Gräfenberg": {
+  "lat": 49.64489,
+  "lng": 11.24953,
+  "osm": "Gräfenberg, Gräfenberg (VGem), Landkreis Forchheim, Bayern, 91322, Deutschland"
+ },
+ "Egloffstein": {
+  "lat": 49.7128,
+  "lng": 11.25604,
+  "osm": "Egloffstein, Landkreis Forchheim, Bayern, 91349, Deutschland"
+ },
+ "Eichstätt": {
+  "lat": 48.88633,
+  "lng": 11.19894,
+  "osm": "Eichstätt, Landkreis Eichstätt, Bayern, 85072, Deutschland"
+ },
+ "Kipfenberg": {
+  "lat": 48.92965,
+  "lng": 11.38573,
+  "osm": "Kipfenberg, Landkreis Eichstätt, Bayern, 85110, Deutschland"
+ },
+ "Beilngries": {
+  "lat": 49.01967,
+  "lng": 11.50367,
+  "osm": "Beilngries, Landkreis Eichstätt, Bayern, 92339, Deutschland"
+ },
+ "Dietfurt an der Altmühl": {
+  "lat": 49.02405,
+  "lng": 11.60242,
+  "osm": "Dietfurt an der Altmühl, Landkreis Neumarkt in der Oberpfalz, Bayern, 92345, Deutschland"
+ },
+ "Riedenburg": {
+  "lat": 48.9717,
+  "lng": 11.69272,
+  "osm": "Riedenburg, Landkreis Kelheim, Bayern, 93339, Deutschland"
+ },
+ "Essing": {
+  "lat": 48.94486,
+  "lng": 11.80516,
+  "osm": "Essing, Ihrlerstein (VGem), Landkreis Kelheim, Bayern, 93343, Deutschland"
+ },
+ "Kelheim": {
+  "lat": 48.91849,
+  "lng": 11.87228,
+  "osm": "Kelheim, Landkreis Kelheim, Bayern, 93309, Deutschland"
+ },
+ "Ebrach": {
+  "lat": 49.84761,
+  "lng": 10.4891,
+  "osm": "Ebrach, Ebrach (VGem), Landkreis Bamberg, Bayern, Deutschland"
+ },
+ "Geiselwind": {
+  "lat": 49.78186,
+  "lng": 10.48247,
+  "osm": "Geiselwind, Landkreis Kitzingen, Bayern, 96160, Deutschland"
+ },
+ "Wiesentheid": {
+  "lat": 49.80313,
+  "lng": 10.35173,
+  "osm": "Wiesentheid, Landkreis Kitzingen, Bayern, 97353, Deutschland"
+ },
+ "Iphofen": {
+  "lat": 49.67829,
+  "lng": 10.33346,
+  "osm": "Iphofen, Iphofen (VGem), Landkreis Kitzingen, Bayern, 97346, Deutschland"
+ },
+ "Markt Bibart": {
+  "lat": 49.64779,
+  "lng": 10.42635,
+  "osm": "Markt Bibart, Scheinfeld (VGem), Landkreis Neustadt an der Aisch-Bad Windsheim, Bayern, 91477, Deutschland"
+ },
+ "Scheinfeld": {
+  "lat": 49.66534,
+  "lng": 10.46257,
+  "osm": "Scheinfeld, Scheinfeld (VGem), Landkreis Neustadt an der Aisch-Bad Windsheim, Bayern, 91443, Deutschland"
+ },
+ "Burghaslach": {
+  "lat": 49.73041,
+  "lng": 10.56817,
+  "osm": "Burghaslach, Landkreis Neustadt an der Aisch-Bad Windsheim, Bayern, 96152, Deutschland"
+ },
+ "Bischofsgrün": {
+  "lat": 50.05411,
+  "lng": 11.79836,
+  "osm": "Bischofsgrün, Landkreis Bayreuth, Bayern, 95493, Deutschland"
+ },
+ "Warmensteinach": {
+  "lat": 50.00011,
+  "lng": 11.77495,
+  "osm": "Warmensteinach, Landkreis Bayreuth, Bayern, 95485, Deutschland"
+ },
+ "Fichtelberg": {
+  "lat": 49.99721,
+  "lng": 11.8565,
+  "osm": "Fichtelberg, Landkreis Bayreuth, Bayern, 95686, Deutschland"
+ },
+ "Wunsiedel": {
+  "lat": 50.03732,
+  "lng": 12.00273,
+  "osm": "Wunsiedel, Landkreis Wunsiedel im Fichtelgebirge, Bayern, 95632, Deutschland"
+ },
+ "Weißenstadt": {
+  "lat": 50.09465,
+  "lng": 11.87907,
+  "osm": "Bad Weißenstadt, Landkreis Wunsiedel im Fichtelgebirge, Bayern, 95163, Deutschland"
+ },
+ "Gefrees": {
+  "lat": 50.0918,
+  "lng": 11.72541,
+  "osm": "Gefrees, Landkreis Bayreuth, Bayern, 95482, Deutschland"
+ },
+ "Bad Berneck im Fichtelgebirge": {
+  "lat": 50.05312,
+  "lng": 11.68686,
+  "osm": "Bad Berneck im Fichtelgebirge, Landkreis Bayreuth, Bayern, 95460, Deutschland"
+ },
+ "Bad Harzburg": {
+  "lat": 51.87972,
+  "lng": 10.58753,
+  "osm": "Bad Harzburg, Landkreis Goslar, Niedersachsen, 38667, Deutschland"
+ },
+ "Torfhaus": {
+  "lat": 51.80216,
+  "lng": 10.53695,
+  "osm": "Torfhaus, Clausthal-Zellerfeld, Landkreis Goslar, Niedersachsen, 38667, Deutschland"
+ },
+ "Braunlage": {
+  "lat": 51.72663,
+  "lng": 10.60954,
+  "osm": "Braunlage, Landkreis Goslar, Niedersachsen, 37444, Deutschland"
+ },
+ "Benneckenstein": {
+  "lat": 51.66749,
+  "lng": 10.71714,
+  "osm": "Benneckenstein, Oberharz am Brocken, Landkreis Harz, Sachsen-Anhalt, 38877, Deutschland"
+ },
+ "Elend": {
+  "lat": 51.74407,
+  "lng": 10.68411,
+  "osm": "Elend, Oberharz am Brocken, Landkreis Harz, Sachsen-Anhalt, Deutschland"
+ },
+ "Schierke": {
+  "lat": 51.76474,
+  "lng": 10.65965,
+  "osm": "Schierke, Wernigerode, Landkreis Harz, Sachsen-Anhalt, 38879, Deutschland"
+ },
+ "Wernigerode": {
+  "lat": 51.83442,
+  "lng": 10.78625,
+  "osm": "Wernigerode, Landkreis Harz, Sachsen-Anhalt, Deutschland"
+ },
+ "Ilsenburg": {
+  "lat": 51.86673,
+  "lng": 10.68318,
+  "osm": "Ilsenburg, Landkreis Harz, Sachsen-Anhalt, 38871, Deutschland"
+ },
+ "Osterode am Harz": {
+  "lat": 51.72784,
+  "lng": 10.25082,
+  "osm": "Osterode am Harz, Landkreis Göttingen, Niedersachsen, 37520, Deutschland"
+ },
+ "Clausthal-Zellerfeld": {
+  "lat": 51.80704,
+  "lng": 10.33645,
+  "osm": "Clausthal-Zellerfeld, Landkreis Goslar, Niedersachsen, Deutschland"
+ },
+ "Altenau": {
+  "lat": 51.80347,
+  "lng": 10.44728,
+  "osm": "Altenau, Bergstadt Altenau-Schulenberg i.O., Clausthal-Zellerfeld, Landkreis Goslar, Niedersachsen, Deutschland"
+ },
+ "Sankt Andreasberg": {
+  "lat": 51.71024,
+  "lng": 10.5186,
+  "osm": "Sankt Andreasberg, Braunlage, Landkreis Goslar, Niedersachsen, 37444, Deutschland"
+ },
+ "Bad Lauterberg im Harz": {
+  "lat": 51.63136,
+  "lng": 10.47067,
+  "osm": "Bad Lauterberg im Harz, Landkreis Göttingen, Niedersachsen, Deutschland"
+ },
+ "Herzberg am Harz": {
+  "lat": 51.61937,
+  "lng": 10.34023,
+  "osm": "Herzberg am Harz, Landkreis Göttingen, Niedersachsen, 37412, Deutschland"
+ },
+ "Thale": {
+  "lat": 51.75276,
+  "lng": 11.03772,
+  "osm": "Thale, Landkreis Harz, Sachsen-Anhalt, 06502, Deutschland"
+ },
+ "Treseburg": {
+  "lat": 51.72276,
+  "lng": 10.95944,
+  "osm": "Treseburg, Thale, Landkreis Harz, Sachsen-Anhalt, Deutschland"
+ },
+ "Altenbrak": {
+  "lat": 51.72333,
+  "lng": 10.93418,
+  "osm": "Altenbrak, Thale, Landkreis Harz, Sachsen-Anhalt, Deutschland"
+ },
+ "Hasselfelde": {
+  "lat": 51.69103,
+  "lng": 10.85525,
+  "osm": "Hasselfelde, Oberharz am Brocken, Landkreis Harz, Sachsen-Anhalt, 38899, Deutschland"
+ },
+ "Wendefurth": {
+  "lat": 51.74041,
+  "lng": 10.9224,
+  "osm": "Wendefurth, Altenbrak, Thale, Landkreis Harz, Sachsen-Anhalt, 06502, Deutschland"
+ },
+ "Blankenburg (Harz)": {
+  "lat": 51.79027,
+  "lng": 10.9552,
+  "osm": "Blankenburg, Landkreis Harz, Sachsen-Anhalt, Deutschland"
+ },
+ "Bad Frankenhausen": {
+  "lat": 51.35601,
+  "lng": 11.10052,
+  "osm": "Bad Frankenhausen/Kyffhäuser, Kyffhäuserland, Kyffhäuserkreis, Thüringen, 99707, Deutschland"
+ },
+ "Kelbra (Kyffhäuser)": {
+  "lat": 51.43582,
+  "lng": 11.04144,
+  "osm": "Kelbra (Kyffhäuser), Goldene Aue, Mansfeld-Südharz, Sachsen-Anhalt, 06537, Deutschland"
+ },
+ "Roßla": {
+  "lat": 51.46277,
+  "lng": 11.07461,
+  "osm": "Roßla, Südharz, Mansfeld-Südharz, Sachsen-Anhalt, Deutschland"
+ },
+ "Artern": {
+  "lat": 51.36278,
+  "lng": 11.29352,
+  "osm": "Artern, Kyffhäuserkreis, Thüringen, 06556, Deutschland"
+ },
+ "Oberhof": {
+  "lat": 50.70678,
+  "lng": 10.72574,
+  "osm": "Oberhof, Landkreis Schmalkalden-Meiningen, Thüringen, 98559, Deutschland"
+ },
+ "Zella-Mehlis": {
+  "lat": 50.65608,
+  "lng": 10.66396,
+  "osm": "Zella-Mehlis, Landkreis Schmalkalden-Meiningen, Thüringen, 98544, Deutschland"
+ },
+ "Suhl": {
+  "lat": 50.60865,
+  "lng": 10.69264,
+  "osm": "Suhl, Thüringen, Deutschland"
+ },
+ "Schleusingen": {
+  "lat": 50.54168,
+  "lng": 10.76696,
+  "osm": "Schleusingen, Landkreis Hildburghausen, Thüringen, 98553, Deutschland"
+ },
+ "Schmiedefeld am Rennsteig": {
+  "lat": 50.60854,
+  "lng": 10.81455,
+  "osm": "Schmiedefeld am Rennsteig, Suhl, Thüringen, Deutschland"
+ },
+ "Frauenwald": {
+  "lat": 50.58554,
+  "lng": 10.85997,
+  "osm": "Frauenwald, Ilmenau, Ilm-Kreis, Thüringen, Deutschland"
+ },
+ "Ilmenau": {
+  "lat": 50.68677,
+  "lng": 10.91424,
+  "osm": "Ilmenau, Ilm-Kreis, Thüringen, Deutschland"
+ },
+ "Saalfeld/Saale": {
+  "lat": 50.64791,
+  "lng": 11.361,
+  "osm": "Saalfeld/Saale, Kamsdorf, Landkreis Saalfeld-Rudolstadt, Thüringen, 07318, Deutschland"
+ },
+ "Hohenwarte": {
+  "lat": 50.60661,
+  "lng": 11.48248,
+  "osm": "Hohenwarte, Kaulsdorf, Landkreis Saalfeld-Rudolstadt, Thüringen, Deutschland"
+ },
+ "Ziegenrück": {
+  "lat": 50.61432,
+  "lng": 11.65071,
+  "osm": "Ziegenrück, Ranis-Ziegenrück, Saale-Orla-Kreis, Thüringen, Deutschland"
+ },
+ "Schleiz": {
+  "lat": 50.55905,
+  "lng": 11.804,
+  "osm": "Schleiz, Saale-Orla-Kreis, Thüringen, Deutschland"
+ },
+ "Saalburg-Ebersdorf": {
+  "lat": 50.49484,
+  "lng": 11.70929,
+  "osm": "Saalburg-Ebersdorf, Saale-Orla-Kreis, Thüringen, 07929, Deutschland"
+ },
+ "Bad Lobenstein": {
+  "lat": 50.44929,
+  "lng": 11.63808,
+  "osm": "Bad Lobenstein, Saale-Orla-Kreis, Thüringen, 07356, Deutschland"
+ },
+ "Wurzbach": {
+  "lat": 50.46374,
+  "lng": 11.53723,
+  "osm": "Wurzbach, Saale-Orla-Kreis, Thüringen, 07343, Deutschland"
+ },
+ "Leutenberg": {
+  "lat": 50.56408,
+  "lng": 11.45617,
+  "osm": "Leutenberg, Landkreis Saalfeld-Rudolstadt, Thüringen, 07338, Deutschland"
+ },
+ "Pirna": {
+  "lat": 50.96028,
+  "lng": 13.93792,
+  "osm": "Pirna, Sächsische Schweiz-Osterzgebirge, Sachsen, 01796, Deutschland"
+ },
+ "Königstein (Sächsische Schweiz)": {
+  "lat": 50.91853,
+  "lng": 14.07323,
+  "osm": "Königstein, Königstein/Sächs. Schw., Sächsische Schweiz-Osterzgebirge, Sachsen, Deutschland"
+ },
+ "Bad Schandau": {
+  "lat": 50.92474,
+  "lng": 14.2153,
+  "osm": "Bad Schandau, Sächsische Schweiz-Osterzgebirge, Sachsen, Deutschland"
+ },
+ "Sebnitz": {
+  "lat": 50.94084,
+  "lng": 14.26772,
+  "osm": "Sebnitz, Sächsische Schweiz-Osterzgebirge, Sachsen, 01855, Deutschland"
+ },
+ "Hohnstein": {
+  "lat": 50.97978,
+  "lng": 14.11112,
+  "osm": "Hohnstein, Sächsische Schweiz-Osterzgebirge, Sachsen, 01848, Deutschland"
+ },
+ "Lohmen|Sachsen": {
+  "lat": 50.98863,
+  "lng": 13.99809,
+  "osm": "Lohmen, Lohmen/Stadt Wehlen, Sächsische Schweiz-Osterzgebirge, Sachsen, 01847, Deutschland"
+ },
+ "Annaberg-Buchholz": {
+  "lat": 50.57888,
+  "lng": 13.01061,
+  "osm": "Annaberg-Buchholz, Erzgebirgskreis, Sachsen, Deutschland"
+ },
+ "Oberwiesenthal": {
+  "lat": 50.43555,
+  "lng": 12.94859,
+  "osm": "Oberwiesenthal, Erzgebirgskreis, Sachsen, 09484, Deutschland"
+ },
+ "Crottendorf": {
+  "lat": 50.5036,
+  "lng": 12.9216,
+  "osm": "Crottendorf, Erzgebirgskreis, Sachsen, 09474, Deutschland"
+ },
+ "Breitenbrunn/Erzgebirge": {
+  "lat": 50.47565,
+  "lng": 12.76675,
+  "osm": "Breitenbrunn/Erzgebirge, Erzgebirgskreis, Sachsen, 08359, Deutschland"
+ },
+ "Schwarzenberg/Erzgebirge": {
+  "lat": 50.53825,
+  "lng": 12.78266,
+  "osm": "Schwarzenberg/Erzgebirge, Erzgebirgskreis, Sachsen, 08340, Deutschland"
+ },
+ "Elterlein": {
+  "lat": 50.58839,
+  "lng": 12.88889,
+  "osm": "Elterlein, Zwönitz, Erzgebirgskreis, Sachsen, 09481, Deutschland"
+ },
+ "Zittau": {
+  "lat": 50.90978,
+  "lng": 14.80089,
+  "osm": "Zittau, Bertsdorf-Hörnitz, Görlitz, Sachsen, Deutschland"
+ },
+ "Oybin": {
+  "lat": 50.84209,
+  "lng": 14.74301,
+  "osm": "Oybin, Olbersdorf, Görlitz, Sachsen, 02797, Deutschland"
+ },
+ "Lückendorf": {
+  "lat": 50.83048,
+  "lng": 14.76281,
+  "osm": "Lückendorf, Oybin, Olbersdorf, Görlitz, Sachsen, Deutschland"
+ },
+ "Jonsdorf": {
+  "lat": 50.85537,
+  "lng": 14.70229,
+  "osm": "Jonsdorf, Olbersdorf, Görlitz, Sachsen, 02796, Deutschland"
+ },
+ "Waltersdorf|Großschönau": {
+  "lat": 50.86664,
+  "lng": 14.64985,
+  "osm": "Waltersdorf, Großschönau, Großschönau-Hainewalde, Görlitz, Sachsen, 02799, Deutschland"
+ },
+ "Großschönau": {
+  "lat": 50.88764,
+  "lng": 14.66569,
+  "osm": "Großschönau, Großschönau-Hainewalde, Görlitz, Sachsen, Deutschland"
+ },
+ "Dresden": {
+  "lat": 51.04933,
+  "lng": 13.73814,
+  "osm": "Dresden, Sachsen, Deutschland"
+ },
+ "Radebeul": {
+  "lat": 51.09998,
+  "lng": 13.6768,
+  "osm": "Radebeul, Meißen, Sachsen, 01445, Deutschland"
+ },
+ "Meißen": {
+  "lat": 51.16309,
+  "lng": 13.47049,
+  "osm": "Meißen, Sachsen, Deutschland"
+ },
+ "Diesbar-Seußlitz": {
+  "lat": 51.24017,
+  "lng": 13.41823,
+  "osm": "Diesbar-Seußlitz, Nünchritz, Meißen, Sachsen, 01612, Deutschland"
+ },
+ "Eutin": {
+  "lat": 54.13646,
+  "lng": 10.61591,
+  "osm": "Eutin, Kreis Ostholstein, Schleswig-Holstein, Deutschland"
+ },
+ "Malente": {
+  "lat": 54.17078,
+  "lng": 10.55931,
+  "osm": "Malente, Kreis Ostholstein, Schleswig-Holstein, 23714, Deutschland"
+ },
+ "Plön": {
+  "lat": 54.15808,
+  "lng": 10.41771,
+  "osm": "Plön, Kreis Plön, Schleswig-Holstein, 24306, Deutschland"
+ },
+ "Lütjenburg": {
+  "lat": 54.29283,
+  "lng": 10.59055,
+  "osm": "Lütjenburg, Kreis Plön, Schleswig-Holstein, Deutschland"
+ },
+ "Hohwacht (Ostsee)": {
+  "lat": 54.32158,
+  "lng": 10.66647,
+  "osm": "Hohwacht, Lütjenburg, Kreis Plön, Schleswig-Holstein, Deutschland"
+ },
+ "Schönwalde am Bungsberg": {
+  "lat": 54.18759,
+  "lng": 10.75361,
+  "osm": "Schönwalde am Bungsberg, Ostholstein-Mitte, Kreis Ostholstein, Schleswig-Holstein, 23744, Deutschland"
+ },
+ "Soltau": {
+  "lat": 52.98443,
+  "lng": 9.8399,
+  "osm": "Soltau, Heidekreis, Niedersachsen, 29614, Deutschland"
+ },
+ "Bispingen": {
+  "lat": 53.0823,
+  "lng": 9.99647,
+  "osm": "Bispingen, Heidekreis, Niedersachsen, 29646, Deutschland"
+ },
+ "Undeloh": {
+  "lat": 53.19703,
+  "lng": 9.9765,
+  "osm": "Undeloh, Samtgemeinde Hanstedt, Landkreis Harburg, Niedersachsen, 21274, Deutschland"
+ },
+ "Egestorf": {
+  "lat": 53.19336,
+  "lng": 10.06544,
+  "osm": "Egestorf, Samtgemeinde Hanstedt, Landkreis Harburg, Niedersachsen, 21272, Deutschland"
+ },
+ "Amelinghausen": {
+  "lat": 53.12768,
+  "lng": 10.21607,
+  "osm": "Amelinghausen, Samtgemeinde Amelinghausen, Landkreis Lüneburg, Niedersachsen, 21385, Deutschland"
+ },
+ "Bleckede": {
+  "lat": 53.29331,
+  "lng": 10.73,
+  "osm": "Bleckede, Landkreis Lüneburg, Niedersachsen, 21354, Deutschland"
+ },
+ "Neu Darchau": {
+  "lat": 53.22813,
+  "lng": 10.88647,
+  "osm": "Neu Darchau, Samtgemeinde Elbtalaue, Landkreis Lüchow-Dannenberg, Niedersachsen, 29490, Deutschland"
+ },
+ "Hitzacker (Elbe)": {
+  "lat": 53.15121,
+  "lng": 11.04409,
+  "osm": "Hitzacker (Elbe), Samtgemeinde Elbtalaue, Landkreis Lüchow-Dannenberg, Niedersachsen, 29456, Deutschland"
+ },
+ "Dannenberg (Elbe)": {
+  "lat": 53.09891,
+  "lng": 11.09607,
+  "osm": "Dannenberg (Elbe), Samtgemeinde Elbtalaue, Landkreis Lüchow-Dannenberg, Niedersachsen, 29451, Deutschland"
+ },
+ "Gartow": {
+  "lat": 53.0255,
+  "lng": 11.45841,
+  "osm": "Gartow, Samtgemeinde Gartow, Landkreis Lüchow-Dannenberg, Niedersachsen, Deutschland"
+ },
+ "Schnackenburg": {
+  "lat": 53.03647,
+  "lng": 11.56448,
+  "osm": "Schnackenburg, Samtgemeinde Gartow, Landkreis Lüchow-Dannenberg, Niedersachsen, 29493, Deutschland"
+ },
+ "Waren (Müritz)": {
+  "lat": 53.51562,
+  "lng": 12.68506,
+  "osm": "Waren (Müritz), Mecklenburgische Seenplatte, Mecklenburg-Vorpommern, Deutschland"
+ },
+ "Malchow": {
+  "lat": 53.47756,
+  "lng": 12.42452,
+  "osm": "Malchow, Mecklenburgische Seenplatte, Mecklenburg-Vorpommern, 17213, Deutschland"
+ },
+ "Plau am See": {
+  "lat": 53.46009,
+  "lng": 12.26317,
+  "osm": "Plau am See, Ludwigslust-Parchim, Mecklenburg-Vorpommern, 19395, Deutschland"
+ },
+ "Krakow am See": {
+  "lat": 53.64996,
+  "lng": 12.26679,
+  "osm": "Krakow am See, Landkreis Rostock, Mecklenburg-Vorpommern, 18292, Deutschland"
+ },
+ "Teterow": {
+  "lat": 53.77095,
+  "lng": 12.57536,
+  "osm": "Teterow, Landkreis Rostock, Mecklenburg-Vorpommern, Deutschland"
+ },
+ "Malchin": {
+  "lat": 53.73826,
+  "lng": 12.76442,
+  "osm": "Malchin, Malchin am Kummerower See, Mecklenburgische Seenplatte, Mecklenburg-Vorpommern, 17139, Deutschland"
+ },
+ "Bergen auf Rügen": {
+  "lat": 54.41727,
+  "lng": 13.43056,
+  "osm": "Bergen auf Rügen, Vorpommern-Rügen, Mecklenburg-Vorpommern, Deutschland"
+ },
+ "Sassnitz": {
+  "lat": 54.51673,
+  "lng": 13.64412,
+  "osm": "Sassnitz, Vorpommern-Rügen, Mecklenburg-Vorpommern, 18546, Deutschland"
+ },
+ "Lohme": {
+  "lat": 54.58296,
+  "lng": 13.61096,
+  "osm": "Lohme, Nord-Rügen, Vorpommern-Rügen, Mecklenburg-Vorpommern, Deutschland"
+ },
+ "Binz": {
+  "lat": 54.40103,
+  "lng": 13.60765,
+  "osm": "Binz, Vorpommern-Rügen, Mecklenburg-Vorpommern, 18609, Deutschland"
+ },
+ "Sellin": {
+  "lat": 54.37706,
+  "lng": 13.69428,
+  "osm": "Sellin, Mönchgut-Granitz, Vorpommern-Rügen, Mecklenburg-Vorpommern, Deutschland"
+ },
+ "Göhren": {
+  "lat": 54.34066,
+  "lng": 13.74491,
+  "osm": "Göhren, Mönchgut-Granitz, Vorpommern-Rügen, Mecklenburg-Vorpommern, Deutschland"
+ },
+ "Putbus": {
+  "lat": 54.35353,
+  "lng": 13.47491,
+  "osm": "Putbus, Vorpommern-Rügen, Mecklenburg-Vorpommern, 18581, Deutschland"
+ },
+ "Strausberg": {
+  "lat": 52.55889,
+  "lng": 13.90425,
+  "osm": "Strausberg, Märkisch-Oderland, Brandenburg, Deutschland"
+ },
+ "Buckow (Märkische Schweiz)": {
+  "lat": 52.56722,
+  "lng": 14.07615,
+  "osm": "Buckow, Märkische Schweiz, Märkisch-Oderland, Brandenburg, Deutschland"
+ },
+ "Müncheberg": {
+  "lat": 52.50375,
+  "lng": 14.14047,
+  "osm": "Müncheberg, Märkisch-Oderland, Brandenburg, 15374, Deutschland"
+ },
+ "Bad Freienwalde (Oder)": {
+  "lat": 52.78752,
+  "lng": 14.03007,
+  "osm": "Bad Freienwalde (Oder), Wölsickendorf-Wollenberg, Märkisch-Oderland, Brandenburg, 16259, Deutschland"
+ },
+ "Prötzel": {
+  "lat": 52.63718,
+  "lng": 13.98856,
+  "osm": "Prötzel, Barnim-Oderbruch, Märkisch-Oderland, Brandenburg, Deutschland"
+ },
+ "Glashütten|Hochtaunuskreis": {
+  "lat": 50.21046,
+  "lng": 8.4086,
+  "osm": "Glashütten, Hochtaunuskreis, Hessen, 61479, Deutschland"
+ },
+ "Waldeck|Waldeck-Frankenberg": {
+  "lat": 51.24251,
+  "lng": 9.03812,
+  "osm": "Waldeck, Landkreis Waldeck-Frankenberg, Hessen, 34513, Deutschland"
+ },
+ "Wiesen|Landkreis Aschaffenburg": {
+  "lat": 50.10538,
+  "lng": 9.36631,
+  "osm": "Wiesen, Schöllkrippen, Landkreis Aschaffenburg, Bayern, 63831, Deutschland"
+ },
+ "Neuenweg|Landkreis Lörrach": {
+  "lat": 47.79582,
+  "lng": 7.82683,
+  "osm": "Neuenweg, Kleines Wiesental, Landkreis Lörrach, Baden-Württemberg, Deutschland"
+ },
+ "Munster|Heidekreis": {
+  "lat": 52.98776,
+  "lng": 10.08599,
+  "osm": "Munster, Heidekreis, Niedersachsen, 29633, Deutschland"
+ }
+}

@@ -3,9 +3,13 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <meta name="robots" content="max-image-preview:large" />
+    <!-- www → ohne www; Rückfall, falls die Umleitung in Vercel fehlt (Search Console führte beide) -->
+    <script>if(location.hostname==="www.motomatch.studio")location.replace("https://motomatch.studio"+location.pathname+location.search+location.hash)</script>
     <title>MotoMatch – Motorrad-Quiz: Finde dein perfektes Bike</title>
 
     <meta name="description" content="Welches Motorrad passt zu dir? MotoMatch findet in acht Fragen das passende Bike für deinen Führerschein (A1, A2, A) und dein Budget – aus über 1.000 Modellen, mit Händlerkarte und Community." />
+    <link rel="icon" href="/favicon.ico" sizes="32x32" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <!-- Eine Adresse fuer alle Varianten (www, ?reset=1, ?dm=…): Google soll nur diese fuehren. -->
     <link rel="canonical" href="https://motomatch.studio/" />
@@ -111,6 +115,40 @@
           <li><a href="/motorraeder/unter-5000-euro/">Motorräder unter 5.000 €</a></li>
           <li><a href="/motorraeder/">Alle Themen: Bauart, Budget, Marke</a></li>
           <li><a href="/vergleich/">Motorrad-Vergleiche</a></li>
+        </ul>
+        <h2>Nach Bauart und Körpergröße</h2>
+        <ul>
+          <li><a href="/motorraeder/naked-bike/">Naked Bikes</a></li>
+          <li><a href="/motorraeder/enduro/">Enduros und Reiseenduros</a></li>
+          <li><a href="/motorraeder/sportmotorrad/">Sportmotorräder</a></li>
+          <li><a href="/motorraeder/cruiser/">Cruiser</a></li>
+          <li><a href="/motorraeder/retro-klassiker/">Retro-Bikes und Klassiker</a></li>
+          <li><a href="/motorraeder/motorrad-fuer-160-cm/">Motorräder für 1,60 m Körpergröße</a></li>
+          <li><a href="/motorraeder/motorrad-fuer-170-cm/">Motorräder für 1,70 m Körpergröße</a></li>
+          <li><a href="/motorraeder/motorrad-fuer-grosse-fahrer/">Motorräder für große Fahrer ab 1,85 m</a></li>
+          <li><a href="/motorraeder/leichte-motorraeder/">Leichte Motorräder unter 180 kg</a></li>
+        </ul>
+        <!-- Ratgeber (scripts/ratgeber.mjs): von der Startseite aus verlinkt, damit Suchmaschinen sie
+             ohne Umweg finden. Neue Artikel hier nachtragen. -->
+        <h2>Ratgeber</h2>
+        <p>Antworten auf die Fragen vor dem Motorradkauf — mit Zahlen aus unserem Katalog.</p>
+        <ul>
+          <li><a href="/ratgeber/fuehrerscheinklassen-a1-a2-a/">Führerschein A1, A2, A oder B196: der Unterschied</a></li>
+          <li><a href="/ratgeber/a2-drosselung/">A2-Drosselung: so fährst du ein stärkeres Motorrad mit A2</a></li>
+          <li><a href="/ratgeber/bestes-a2-motorrad/">Die besten A2-Motorräder 2026</a></li>
+          <li><a href="/ratgeber/b196-125er-mit-autofuehrerschein/">B196: 125er mit dem Autoführerschein</a></li>
+          <li><a href="/ratgeber/erstes-motorrad-kaufen/">Das erste Motorrad kaufen: sieben Fragen</a></li>
+          <li><a href="/ratgeber/motorrad-fuer-kleine-fahrer/">Motorräder für kleine Fahrerinnen und Fahrer</a></li>
+          <li><a href="/ratgeber/sitzhoehe-koerpergroesse/">Welche Sitzhöhe passt zu meiner Körpergröße?</a></li>
+          <li><a href="/ratgeber/leichtes-motorrad/">Leichte Motorräder: warum Gewicht zählt</a></li>
+          <li><a href="/ratgeber/motorrad-gebraucht-kaufen-checkliste/">Gebrauchtes Motorrad kaufen: Checkliste</a></li>
+          <li><a href="/ratgeber/motorrad-neu-oder-gebraucht/">Neu oder gebraucht: Wertverlust in Zahlen</a></li>
+          <li><a href="/ratgeber/erste-motorradausruestung/">Die erste Motorradausrüstung: Liste und Kosten</a></li>
+          <li><a href="/ratgeber/motorradsteuer/">Motorradsteuer berechnen</a></li>
+          <li><a href="/ratgeber/motorradversicherung/">Motorradversicherung: Haftpflicht, Teilkasko, Vollkasko</a></li>
+          <li><a href="/ratgeber/motorradtypen/">Motorradtypen erklärt</a></li>
+          <li><a href="/ratgeber/motorrad-ueberwintern/">Motorrad richtig überwintern</a></li>
+          <li><a href="/ratgeber/">Alle Ratgeber</a></li>
         </ul>
         <p>Das Quiz braucht JavaScript. <a href="/impressum.html">Impressum</a> · <a href="/datenschutz.html">Datenschutz</a></p>
       </main>

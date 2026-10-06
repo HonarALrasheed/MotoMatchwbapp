@@ -49,12 +49,6 @@ import { bikeBild, hatFoto, kachelFuerHero } from "./bike-bild.js";
 import { getGear } from "./gear.js";
 import { buildSearchUrls } from "./marketplace.js";
 import { esc } from "./util.js";
-import {
-  initHubMap,
-  retryHubLocation,
-  resetHubSuche,
-  panHubToCoords,
-} from "./karte.js";
 
 // Einmaliger, dezenter Puls auf der Tab-Leiste, damit Nutzer merken, dass
 // hinter "Profil"/"Ausrüstung"/etc. mehr Inhalt steckt.
@@ -726,7 +720,7 @@ function bindEvents(bikeData, answers) {
       (entries) => {
         entries.forEach((entry) => {
           if (entry.isIntersecting) {
-            initHubMap();
+            hubAlsOrte();
             hubObserver.unobserve(entry.target);
           }
         });
@@ -788,7 +782,7 @@ function bindEvents(bikeData, answers) {
   // Referenz merken (siehe Scroll-Listener oben): #garage-container bleibt
   // ueber Besuche hinweg dasselbe Element, cleanup() meldet diesen Handler ab.
   garageContainerClickHandler = (e) => {
-    if (e.target.closest("#hub-map-retry-btn")) retryHubLocation();
+    if (e.target.closest("#hub-retry-btn")) retryHubLocation();
   };
   document.getElementById("garage-container")?.addEventListener("click", garageContainerClickHandler);
 }
@@ -889,12 +883,14 @@ function renderTab(tab, bikeData, answers) {
     document
       .querySelector("#garage-container #gr-hub-section")
       ?.scrollIntoView({ behavior: "smooth" });
-    initHubMap();
+    hubAlsOrte();
   }
 }
 
 // ══════════════════════════════════════════════════════════════
-//  Karte und Suche leben in karte.js; der Rückwärts-Export hält landing.js kompatibel.
+//  HUB MAP — lebt seit 2026-10-03 in karte.js (MapLibre + eigene OSM-Daten).
+//  Hier stand die Google-Maps-Fassung samt Places-Suche; panHubToCoords
+//  wird für landing.js weiter von hier aus angeboten.
 // ══════════════════════════════════════════════════════════════
 export { panHubToCoords };
 

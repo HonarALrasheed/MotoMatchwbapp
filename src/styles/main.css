@@ -6958,6 +6958,18 @@ select.p-auth-input {
   color: #888;
   margin-bottom: 8px;
 }
+/* "Mein Match teilen" unter dem Ergebnis (garage.js, matchTeilen) */
+.gr-match-teilen {
+  display: inline-flex; align-items: center; gap: 8px;
+  margin-top: 18px; padding: 12px 22px;
+  background: #0a0a0a; color: #fff; border: none; border-radius: 99px;
+  font-family: inherit; font-size: 15px; font-weight: 600; cursor: pointer;
+  transition: transform .2s, background .2s;
+}
+@media (hover: hover) and (pointer: fine) {
+  .gr-match-teilen:hover { background: #222; transform: translateY(-1px); }
+}
+
 /* Garage container as scrollable page */
 #garage-container {
   overflow-y: auto;

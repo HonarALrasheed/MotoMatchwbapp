@@ -69,8 +69,17 @@ export function hasMapsConsent() { return true }
 export function ladeMapLibre() {
   if (ml) return Promise.resolve(ml)
   if (!mlPromise) {
-    mlPromise = Promise.all([import('maplibre-gl'), import('maplibre-gl/dist/maplibre-gl.css')])
-      .then(([m]) => { ml = m.default || m; return ml })
+    mlPromise = Promise.all([
+      import('maplibre-gl'),
+      import('maplibre-gl/dist/maplibre-gl.css'),
+      import('maplibre-gl/dist/maplibre-gl-worker.mjs?worker&url'),
+    ])
+      .then(([m, , worker]) => {
+        // MapLibre v6 is ESM-only. Vite must bundle its worker explicitly.
+        ml = m.default || m
+        ml.setWorkerUrl(worker.default)
+        return ml
+      })
       .catch((err) => { mlPromise = null; throw err })
   }
   return mlPromise
@@ -435,11 +444,16 @@ export function getHubMapCenter() {
   return c ? { lat: c.lat, lng: c.lng } : null
 }
 
-function zeigeFehler(el) {
+function zeigeFehler(el, err) {
+  const webgl2Fehlt = ml?.GPUInitializationError && err instanceof ml.GPUInitializationError
+  const titel = webgl2Fehlt ? 'Karte wird nicht unterstützt' : 'Karte nicht verfügbar'
+  const text = webgl2Fehlt
+    ? 'Für die Karte wird WebGL 2 benötigt. Aktiviere die Hardwarebeschleunigung oder nutze einen Browser mit WebGL-2-Unterstützung.'
+    : 'Die Karte konnte gerade nicht geladen werden. Prüfe deine Verbindung und versuch es noch einmal.'
   el.innerHTML = `
-    <div class="hub-map-loading" id="hub-map-loading">
-      <div class="hub-map-fehler-titel">Karte nicht verfügbar</div>
-      <div class="hub-map-fehler-text">Die Karte konnte gerade nicht geladen werden. Prüfe deine Verbindung und versuch es noch einmal.</div>
+    <div class="hub-map-loading" id="hub-map-loading" role="status" aria-live="polite">
+      <div class="hub-map-fehler-titel">${titel}</div>
+      <div class="hub-map-fehler-text">${text}</div>
       <button type="button" id="hub-map-retry-btn" class="hub-retry-btn">Erneut versuchen</button>
     </div>`
   el.querySelector('#hub-map-retry-btn')?.addEventListener('click', () => {
@@ -495,9 +509,9 @@ export async function initHubMap(ziel = null, { requestLocation = true } = {}) {
     // Der OpenFreeMap-Stil nennt ein paar Symbole, die im Sprite fehlen (atm, gate …):
     // leer auffüllen statt die Konsole vollzuschreiben. Eigene Bilder ausgenommen,
     // die kommen gleich selbst.
-    karte.on('styleimagemissing', (e) => {
-      if (/^(ort-|kurven-|tour-|navi-)/.test(e.id) || karte.hasImage(e.id)) return
-      karte.addImage(e.id, { width: 1, height: 1, data: new Uint8Array(4) })
+    karte.setMissingStyleImageResolver((id) => {
+      if (/^(ort-|kurven-|tour-|navi-)/.test(id) || karte.hasImage(id)) return
+      karte.addImage(id, { width: 1, height: 1, data: new Uint8Array(4) })
     })
     if (import.meta.env.DEV) window.__mmKarte = karte // nur zum Prüfen im Dev-Server
     karteBereit = new Promise((ok) => karte.once('load', ok))
@@ -519,8 +533,9 @@ export async function initHubMap(ziel = null, { requestLocation = true } = {}) {
     else sucheAktiveKachel()
   } catch (err) {
     console.warn('[karte] Init fehlgeschlagen:', err)
+    karte?.remove()
     karte = null
-    zeigeFehler(el)
+    zeigeFehler(el, err)
   }
 }
 

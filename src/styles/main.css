@@ -2302,18 +2302,6 @@ select.p-auth-input {
      automatische Höhe rechnet ein Prozentwert zu Null — das Bike blieb exakt mittig. */
   top: 3vh;
   z-index: 2;
-  animation: bdHeroIn 1s var(--ease-out) forwards;
-}
-
-@keyframes bdHeroIn {
-  0% {
-    opacity: 0;
-    transform: translateX(60px);
-  }
-  100% {
-    opacity: 1;
-    transform: translateX(0);
-  }
 }
 
 /* Info section — flows below image, gradient in info area only */

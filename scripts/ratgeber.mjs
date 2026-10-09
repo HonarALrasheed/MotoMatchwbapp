@@ -71,21 +71,22 @@ export function artikel(h) {
     const gp = mitPreis(a2gedrosselt);
     liste.push({
       slug: "a2-drosselung",
-      titel: "A2-Drosselung: wie sie funktioniert, was erlaubt ist und welche Motorräder gehen",
+      titel: "A2-Drosselung: Regeln, Ablauf und passende Motorräder",
       h1: "A2-Drosselung: so fährst du ein stärkeres Motorrad mit A2",
-      beschreibung: `Welche Motorräder darf man auf 35 kW drosseln, wie läuft die Eintragung und was passiert beim Aufstieg auf A? ${a2gedrosselt.length} drosselbare Modelle mit Preisen.`,
+      beschreibung: `A2-Drosselung verständlich erklärt: 35 kW, Leistungsgewicht, 70-kW-Ausgangsgrenze und Eintragung. ${a2gedrosselt.length} passende Katalogmodelle mit Preisen.`,
       held: beliebt(mitFoto(a2gedrosselt), 3)[2],
       fakten: [["35 kW", "nach der Drosselung"], ["70 kW", "höchstens ab Werk"], [zahl(a2gedrosselt.length), "drosselbare Modelle"], [euro(median(gp.map(preis))), "mittlerer Gebrauchtpreis"]],
       inhalt: `
-      <p>Mit dem A2-Führerschein darfst du höchstens 35 kW (48 PS) fahren. Viele beliebte Mittelklasse-Motorräder haben mehr — sie lassen sich aber drosseln. ${a2gedrosselt.length} Modelle in unserem Katalog sind für die A2-Drosselung geeignet; der mittlere Gebrauchtpreis liegt bei ${euro(median(gp.map(preis)))}.</p>
+      <p>Für A2 gelten höchstens 35 kW und ein Leistungsgewicht von maximal 0,2 kW/kg. Ein stärkeres Motorrad kann nur dann auf 35 kW gedrosselt werden, wenn es nicht von einem Modell mit mehr als 70 kW abgeleitet ist. ${a2gedrosselt.length} Modelle markiert unser Katalog als drosselbar; der mittlere Gebrauchtpreis liegt bei ${euro(median(gp.map(preis)))}.</p>
+      <p>Für Anfänger ist Drosselbarkeit allein kein Kaufkriterium: Sitzhöhe, Bauform und Leistungsentfaltung sollten ebenfalls passen. Nutze die <a href="/motorraeder/einsteiger/">Einsteiger-Auswahl</a>, vergleiche konkrete Modelle unter <a href="/vergleich/">Motorrad-Vergleiche</a> oder starte das <a href="/?utm_source=ratgeber">MotoMatch-Quiz</a>. Die Katalogkennzeichnung ersetzt nicht die Prüfung von Typ, Baujahr und Fahrzeugpapieren.</p>
       <h2>Die Regeln</h2>
       <ul class="punkte">
-        <li>Nach der Drosselung höchstens 35 kW und 0,2 kW pro Kilogramm Leergewicht.</li>
-        <li>Das Motorrad darf ursprünglich höchstens 70 kW haben — also nicht mehr als die doppelte A2-Leistung.</li>
-        <li>Die Drosselung muss in die Fahrzeugpapiere eingetragen werden. Ohne Eintragung fährst du rechtlich ohne passende Fahrerlaubnis.</li>
+        <li>Die Leistung darf nach der Drosselung 35 kW nicht überschreiten; das Leistungsgewicht darf höchstens 0,2 kW/kg betragen (<a href="https://www.gesetze-im-internet.de/fev_2010/__6.html">§ 6 FeV</a>).</li>
+        <li>Das Motorrad darf nicht von einem Modell mit mehr als 70 kW abgeleitet sein (<a href="https://www.gesetze-im-internet.de/fev_2010/__6.html">§ 6 FeV</a>).</li>
+        <li>Ob eine konkrete Drosselung zulässig ist, hängt von Typ und Ausführung ab. Prüfe die erforderlichen Nachweise, Abnahme und Eintragung für genau dieses Motorrad.</li>
       </ul>
       <h2>Wie die Drosselung abläuft</h2>
-      <p>Die meisten Hersteller bieten einen Drosselsatz an; dazu kommen Lösungen von Zubehörfirmen. Eingebaut wird er meist vom Händler oder einer Werkstatt — bei modernen Motorrädern ist es oft nur eine Änderung in der Motorsteuerung, bei älteren ein Teil im Ansaugtrakt. Zum Satz gehört ein Gutachten. Damit lässt du die Änderung bei einer Prüforganisation (TÜV, DEKRA o. Ä.) abnehmen und in der Regel bei der Zulassungsstelle in die Zulassungsbescheinigung eintragen. Sag auch deiner Versicherung Bescheid.</p>
+      <p>Die technische Lösung ist modellabhängig. Vor dem Kauf solltest du klären, ob es für genau diesen Typ und diese Ausführung einen geeigneten Drosselsatz und die nötigen Nachweise gibt. Lass dich zum Einbau, zur vorgeschriebenen Abnahme und zur Aktualisierung der Fahrzeugpapiere von einer Fachwerkstatt oder Prüforganisation beraten.</p>
       <h2>Und nach zwei Jahren?</h2>
       <p>Nach dem Aufstieg auf A kannst du die Drosselung wieder ausbauen lassen — auch das wird eingetragen. Genau das macht gedrosselte Motorräder so beliebt: Du kaufst einmal und wächst mit dem Bike mit.</p>
       <h2>Beliebte drosselbare Motorräder</h2>
@@ -344,16 +345,16 @@ export function artikel(h) {
       slug: "leichtes-motorrad",
       titel: "Leichtes Motorrad: warum das Gewicht so wichtig ist — die leichtesten Modelle je Klasse",
       h1: "Leichte Motorräder: warum Gewicht zählt",
-      beschreibung: `Rangieren, Aufheben, Handlichkeit: warum ein leichtes Motorrad gerade für Einsteiger zählt. ${unter180} Modelle unter 180 kg und die leichtesten je Führerscheinklasse.`,
+      beschreibung: `Rangieren, Aufheben, Handlichkeit: warum ein geringeres Kataloggewicht helfen kann. ${unter180} Modelle mit Katalogwert bis 180 kg; Gewichtsbasis je nach verfügbarer Quelle.`,
       held: beliebt(mitFoto(bikes.filter((b) => b.weight > 0 && b.weight <= 180 && b.license !== "A1" && b.style !== "Roller")), 1)[0],
-      fakten: [[zahl(unter180), "Modelle unter 180 kg"], ["15–25 kg", "Unterschied trocken/fahrfertig"]],
+      fakten: [[zahl(unter180), "Modelle mit Kataloggewicht bis 180 kg"], ["Gewichtsbasis", "je nach verfügbarer Quelle"]],
       inhalt: `
-      <p>Auf der Straße merkst du das Gewicht kaum — beim Rangieren, Wenden auf engem Raum oder wenn das Motorrad einmal umfällt, dafür umso mehr. Für Einsteiger und kleinere Fahrer ist ein leichtes Motorrad oft wichtiger als ein paar PS mehr. ${unter180} Modelle in unserem Katalog wiegen fahrfertig höchstens 180 kg.</p>
+      <p>Ein geringeres Gewicht kann das Rangieren, Wenden und Aufrichten erleichtern. Für Einsteiger zählen daneben Sitzhöhe, Bauform und die eigene Sitzposition. ${unter180} Modelle haben im MotoMatch-Katalog einen verfügbaren Gewichtsangabewert bis 180 kg; die Gewichtsart ist in der veröffentlichten Katalogansicht nicht je Modell separat ausgewiesen.</p>
       <h2>Die leichtesten je Führerscheinklasse</h2>
       ${tabelle(["Klasse", "Leichteste Modelle"], zeilen)}
       ${reihe(beliebt(mitFoto(bikes.filter((b) => b.weight > 0 && b.weight <= 180 && b.license !== "A1")), 4))}
-      <h2>Fahrfertig oder trocken?</h2>
-      <p>Hersteller geben oft das Trockengewicht an — ohne Benzin, Öl und Batterie. Fahrfertig ist ein Motorrad 15 bis 25 kg schwerer. Vergleiche deshalb immer gleiche Angaben.</p>
+      <h2>Fahrfertiges Gewicht und Trockengewicht</h2>
+      <p>Fahrfertige Masse umfasst nach der EU-Typgenehmigung Betriebsflüssigkeiten, Serienausstattung und mindestens 90 Prozent Tankfüllung (<a href="https://eur-lex.europa.eu/eli/reg/2013/168/art_5/oj">Verordnung (EU) Nr. 168/2013, Artikel 5</a>). Trockengewicht wird je nach Hersteller und Quelle anders abgegrenzt; eine feste Differenz lässt sich nicht ansetzen. MotoMatch verwendet fahrfertige Werte, wenn sie verfügbar sind, und greift andernfalls auf einen veröffentlichten Trockengewichtswert zurück. Weil die Gewichtsart nicht für jedes Modell separat gespeichert wird, vergleiche konkrete Baujahre und Varianten nur bei gleicher Gewichtsdefinition.</p>
       <h2>Weiter stöbern</h2>
       <p>${thema("motorrad-unter-150-kg", "Unter 150 kg")} · ${thema("leichte-motorraeder", "Unter 180 kg")} · ${thema("motorrad-unter-200-kg", "Unter 200 kg")} · ${thema("leichte-a2-motorraeder", "Leichte A2-Motorräder")}</p>`,
     });

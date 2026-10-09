@@ -129,20 +129,20 @@ thema({ slug: "niedrige-sitzhoehe", gruppe: "Für wen",
   liste: hat((b) => b.seat_height > 0 && b.seat_height <= 78) });
 thema({ slug: "leichte-motorraeder", gruppe: "Für wen",
   h1: "Leichte Motorräder unter 180 kg",
-  titel: "Leichtes Motorrad unter 180 kg: alle Modelle mit Preis",
-  intro: "Wenig Gewicht heißt: leichter rangieren, leichter aufheben, weniger Respekt beim Wenden. Alle Modelle hier wiegen höchstens 180 kg.",
+  titel: "Leichte Motorräder unter 180 kg: Modelle mit Preis & Daten",
+  intro: "Diese Übersicht zeigt Motorräder mit einem im MotoMatch-Katalog angegebenen Gewicht bis 180 kg. Ein geringeres Gewicht kann das Rangieren erleichtern; vergleiche aber nur Werte mit gleicher Gewichtsdefinition.",
   liste: hat((b) => b.weight > 0 && b.weight <= 180) });
 /* Gewicht ist eine eigene Suche (Search Console, 2026-10-04: "leichte motorräder unter 200 kg",
    "motorräder unter 180 kg") — je Grenze eine Seite statt nur der 180-kg-Liste. */
 thema({ slug: "motorrad-unter-150-kg", gruppe: "Für wen",
   h1: "Motorräder unter 150 kg",
   titel: "Motorrad unter 150 kg: die leichtesten Modelle mit Preis",
-  intro: "Unter 150 kg fahrfertig: fast schon Fahrrad-Gefühl beim Rangieren. Meist 125er, Supermotos und kleine Naked Bikes.",
+  intro: "Diese Auswahl zeigt Modelle mit einer Katalogangabe bis 150 kg. Je nach Modell und Quelle ist das Gewicht fahrfertig oder trocken; für Vergleiche sollte dieselbe Definition gelten.",
   liste: hat((b) => b.weight > 0 && b.weight <= 150) });
 thema({ slug: "motorrad-unter-200-kg", gruppe: "Für wen",
   h1: "Leichte Motorräder unter 200 kg",
   titel: "Leichte Motorräder unter 200 kg: alle Modelle mit Preis",
-  intro: "Bis 200 kg bleibt ein Motorrad gut beherrschbar — auch Mittelklasse-Bikes mit 70 bis 100 PS liegen oft darunter.",
+  intro: "Diese Übersicht zeigt Motorräder mit einem im MotoMatch-Katalog angegebenen Gewicht bis 200 kg. Ob ein Modell leicht zu rangieren ist, hängt auch von Bauform, Schwerpunkt und Sitzhöhe ab.",
   liste: hat((b) => b.weight > 0 && b.weight <= 200) });
 thema({ slug: "leichte-a2-motorraeder", gruppe: "Für wen",
   h1: "Leichte A2-Motorräder unter 190 kg",
@@ -227,7 +227,10 @@ function themaMehr(t) {
     "fuehrerschein-a": "Der offene Führerschein A (auch „der große Motorradführerschein“) hat keine Leistungsgrenze. Direkt ab 24 Jahren, oder mit 20 nach mindestens zwei Jahren A2.",
     "einsteiger": "Ob Fahranfänger, Wiedereinsteiger nach Jahren Pause oder das erste eigene Motorrad nach dem Führerschein: gutmütige Leistung, geringes Gewicht und eine erreichbare Sitzhöhe machen die ersten tausend Kilometer entspannt.",
     "niedrige-sitzhoehe": "Wer mit beiden Füßen sicher auf den Boden will — etwa bei kleiner Körpergröße oder kurzer Schrittlänge — achtet zuerst auf die Sitzhöhe. Viele Modelle lassen sich zusätzlich tieferlegen oder mit einer flacheren Sitzbank ausstatten.",
-    "leichte-motorraeder": "Ein leichtes Motorrad ist wendig, lässt sich einfach schieben, rangieren und nach einem Umkipper wieder aufstellen. Gerade in der Stadt und beim Einstieg ist das mehr wert als ein paar PS.",
+    "leichte-motorraeder": "Der Katalog verwendet fahrfertige Gewichtsangaben, wenn verfügbar. Fehlt eine solche Angabe, kann stattdessen ein veröffentlichtes Trockengewicht stehen; die Basis wird nicht für jedes Modell separat ausgegeben. Vergleiche deshalb nur gleiche Modelljahre, Varianten und Gewichtsarten.",
+    "motorrad-unter-200-kg": "Der Katalog verwendet fahrfertige Gewichtsangaben, wenn verfügbar. Fehlt eine solche Angabe, kann stattdessen ein veröffentlichtes Trockengewicht stehen; die Basis wird nicht für jedes Modell separat ausgegeben. Vergleiche deshalb nur gleiche Modelljahre, Varianten und Gewichtsarten.",
+    "motorrad-unter-150-kg": "Der Katalog verwendet fahrfertige Gewichtsangaben, wenn verfügbar. Fehlt eine solche Angabe, kann stattdessen ein veröffentlichtes Trockengewicht stehen; die Basis wird nicht für jedes Modell separat ausgegeben. Vergleiche deshalb nur gleiche Modelljahre, Varianten und Gewichtsarten.",
+    "leichte-a2-motorraeder": "Der Katalog verwendet fahrfertige Gewichtsangaben, wenn verfügbar. Fehlt eine solche Angabe, kann stattdessen ein veröffentlichtes Trockengewicht stehen; die Basis wird nicht für jedes Modell separat ausgegeben. Vergleiche deshalb nur gleiche Modelljahre, Varianten und Gewichtsarten.",
   };
   if (fest[t.slug]) return fest[t.slug];
   if (t.stil && !t.slug.endsWith("-a2") && !t.slug.endsWith("-125")) return STIL_MEHR[t.stil] || "";
@@ -419,7 +422,7 @@ function themaFragen(t) {
   if (stark) paare.push([`${t.h1}: Welches Modell hat die meiste Leistung?`, `Die meiste Leistung hat die ${stark.name} mit ${stark.ps} PS (${stark.kw} kW)${
     stark.license === "A" && stark.a2 && t.liste.every(darfA2) ? " — offen gemessen; mit A2 fährst du sie auf 35 kW gedrosselt" : ""}.`]);
   const leicht = l.filter((b) => b.weight > 0).sort((a, b) => a.weight - b.weight)[0];
-  if (leicht) paare.push([`${t.h1}: Welches Modell ist am leichtesten?`, `Am leichtesten ist die ${leicht.name} mit ${leicht.weight} kg.`]);
+  if (leicht) paare.push([`${t.h1}: Welches Modell hat den niedrigsten Katalogwert?`, `Den niedrigsten veröffentlichten MotoMatch-Katalogwert hat die ${leicht.name} mit ${leicht.weight} kg. Die Gewichtsart ist nicht für jedes Modell separat ausgewiesen.`]);
   const tief = l.filter((b) => b.seat_height > 0).sort((a, b) => a.seat_height - b.seat_height)[0];
   if (tief) paare.push([`${t.h1}: Welches Modell hat die niedrigste Sitzhöhe?`,
     `Am niedrigsten sitzt man auf der ${tief.name} mit ${dez(tief.seat_height)} cm — als Faustregel kommt man damit ab etwa ${abGroesse(tief.seat_height)} cm Körpergröße sicher auf den Boden.`]);
@@ -507,6 +510,9 @@ for (const t of themen) {
   const verwandt = themen.filter((x) => x !== t && x.gruppe === t.gruppe).slice(0, 12);
   const beschreibung = `${t.intro} ${t.liste.length} Modelle mit Gebrauchtpreis, PS und Führerscheinklasse.`.slice(0, 300);
   const fragen = themaFragen(t);
+  const vergleichHinweis = ["leichte-motorraeder", "motorrad-unter-200-kg"].includes(t.slug)
+    ? '<p class="hinweis">Vergleiche <a href="/vergleich/">passende Motorräder mit ihren Daten</a> oder nutze das <a href="/">Quiz</a>, um die Auswahl nach deinem Führerschein und Budget einzugrenzen.</p>'
+    : "";
   const liste = { "@context": "https://schema.org", "@type": "ItemList", name: t.h1, numberOfItems: t.liste.length,
     itemListElement: t.liste.slice(0, 30).map((b, i) => ({ "@type": "ListItem", position: i + 1, name: b.name, url: url(bikePfad.get(b)) })) };
   const titelBild = t.liste.find(hatFoto) || null;
@@ -516,6 +522,7 @@ for (const t of themen) {
     ld: [liste, ...faqLd(fragen)] }) + `
     <h1>${esc(t.h1)}</h1>
     <p class="intro">${esc(t.intro)}</p>
+    ${vergleichHinweis}
     ${t.mehr ? `<p class="intro zwei">${esc(t.mehr)}</p>` : ""}
     ${kennzahlen(t.liste)}
     <ul class="raster">${t.liste.slice(0, MAX_LISTE).map(karte).join("")}</ul>

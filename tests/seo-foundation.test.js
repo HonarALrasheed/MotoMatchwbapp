@@ -34,9 +34,61 @@ function strukturierteDaten(html) {
     .map((m) => JSON.parse(m[1]));
 }
 
+test("Startseite hat genau eine kurze, markenkonsistente Meta-Description", () => {
+  const html = read("index.html");
+  const descriptions = [...html.matchAll(/<meta\b[^>]*\bname=["']description["'][^>]*>/gi)];
+  assert.equal(descriptions.length, 1, "homepage must contain one meta description");
+  const description = attribut(descriptions[0][0], "content");
+  assert.ok(description && description.length >= 140 && description.length <= 160,
+    "homepage description must stay within the focused 140–160 character editorial range");
+  assert.match(description, /MotoMatch/);
+  assert.match(description, /1\.000 Modelle/);
+  assert.match(description, /A1 oder A2/);
+  assert.match(description, /acht Fragen/);
+  const m = metadata(html);
+  assert.equal(m["og:description"], description);
+  assert.equal(m["twitter:description"], description);
+  assert.ok(html.includes("MotoMatch ist eine Plattform, um passende Motorräder zu finden und Modelle zu vergleichen."));
+  const nodes = strukturierteDaten(html).flatMap((x) => x["@graph"] || [x]);
+  const website = nodes.filter((x) => x["@type"] === "WebSite");
+  const organization = nodes.filter((x) => x["@type"] === "Organization");
+  assert.equal(website.length, 1);
+  assert.equal(organization.length, 1);
+  assert.equal(website[0]["@id"], "https://motomatch.studio/#website");
+  assert.equal(organization[0]["@id"], "https://motomatch.studio/#org");
+  assert.match(website[0].description, /MotoMatch/);
+  assert.match(organization[0].description, /Motorräder/);
+});
+
+test("A2- und Gewichtsseiten erklären die Katalogbasis und führen zu passenden Aktionen", () => {
+  const a2 = read("ratgeber/a2-drosselung/index.html");
+  assert.ok(a2.includes("35 kW") && a2.includes("0,2 kW/kg") && a2.includes("70 kW"));
+  assert.ok(a2.includes("https://www.gesetze-im-internet.de/fev_2010/__6.html"));
+  assert.ok(a2.includes('href="/motorraeder/einsteiger/"'));
+  assert.ok(a2.includes('href="/vergleich/"'));
+  assert.ok(a2.includes('href="/?utm_source=ratgeber"'));
+  for (const file of [
+    "motorraeder/leichte-motorraeder/index.html",
+    "motorraeder/motorrad-unter-200-kg/index.html",
+  ]) {
+    const html = read(file);
+    assert.ok(html.includes("Trockengewicht"));
+    assert.ok(html.includes("fahrfertig"));
+    assert.ok(html.includes('href="/vergleich/"'));
+    assert.ok(html.includes('href="/motorrad/'));
+    assert.ok(html.includes('href="/"'));
+  }
+  const guide = read("ratgeber/leichtes-motorrad/index.html");
+  assert.ok(guide.includes("Gewichtsart ist in der veröffentlichten Katalogansicht nicht je Modell separat ausgewiesen"));
+  assert.ok(!guide.includes("15–25 kg"));
+});
+
 test("wichtige Seiten liefern eigenständige Vorschau-Metadaten und verwertbares HTML", () => {
   const pages = [
     ["index.html", "/", "MotoMatch"],
+    ["ratgeber/a2-drosselung/index.html", "/ratgeber/a2-drosselung/", "A2"],
+    ["motorraeder/motorrad-unter-200-kg/index.html", "/motorraeder/motorrad-unter-200-kg/", "200 kg"],
+    ["motorraeder/leichte-motorraeder/index.html", "/motorraeder/leichte-motorraeder/", "180 kg"],
     ["motorrad/kawasaki-z900/index.html", "/motorrad/kawasaki-z900/", "Kawasaki Z900"],
     ["vergleich/kawasaki-z900-vs-yamaha-mt09/index.html", "/vergleich/kawasaki-z900-vs-yamaha-mt09/", "Kawasaki Z900 vs. Yamaha MT-09"],
     ["ratgeber/bestes-a2-motorrad/index.html", "/ratgeber/bestes-a2-motorrad/", "A2"],

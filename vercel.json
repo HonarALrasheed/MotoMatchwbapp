@@ -3,6 +3,7 @@
   "outputDirectory": "dist",
   "framework": "vite",
   "installCommand": "npm install",
+  "ignoreCommand": "if [ \"$VERCEL_GIT_COMMIT_REF\" = \"codex/maplibre-security-release\" ]; then exit 0; else exit 1; fi",
   "redirects": [
     { "source": "/:path*", "has": [{ "type": "host", "value": "www.motomatch.studio" }], "destination": "https://motomatch.studio/:path*", "permanent": true }
   ],

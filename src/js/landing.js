@@ -497,7 +497,7 @@ export function initLanding() {
          Stelle. Geblieben ist eine Zeile im Ton des Hero. Garage, Ausruestung,
          Karte und Community stehen ohnehin alle im Menue. -->
     <section class="p-intro">
-      <p class="p-intro-text">Über 1.000 Motorräder mit Preis, Technik und Führerscheinklasse. Acht Fragen zeigen dir, welche davon zu dir passen.</p>
+      <p class="p-intro-text">Über 1.000 Motorräder mit Preisen, technischen Daten und Führerscheinklasse. Acht Fragen zeigen dir, welche Modelle zu dir passen und welche du direkt vergleichen kannst.</p>
     </section>
 
     <!-- ═══ DISCOVER ═══ -->

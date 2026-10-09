@@ -480,7 +480,7 @@ function buildDeckblattHTML(data) {
         <div class="bd-hero-bg-text">${data.bgText}</div>
         <picture class="bd-hero-pic">
           ${/_kachel\.webp$/.test(data.img2 || "") ? `<source media="(max-width: 768px)" srcset="${data.img2}">` : ""}
-          <img class="bd-hero-img" src="${data.img1}" alt="${data.fullName}">
+          <img class="bd-hero-img" src="${data.img1}" alt="${data.fullName}" loading="eager" fetchpriority="high" decoding="async">
         </picture>
       </div>
       <div class="bd-hero-info">

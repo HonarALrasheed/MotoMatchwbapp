@@ -369,6 +369,16 @@ function startHeroVideo(root) {
   else window.addEventListener('load', imLeerlauf, { once: true })
 }
 
+// Sichtbare Entdecken-Kacheln nicht der browsergesteuerten Lazy-Load-Warteschlange
+// überlassen. Weiter entfernte Bilder bleiben lazy, damit der Seitenstart leicht bleibt.
+function eagerVisibleDiscoverImages(root) {
+  const viewportHeight = window.innerHeight || document.documentElement.clientHeight
+  root.querySelectorAll('.p-discover-cat img[loading="lazy"]').forEach((img) => {
+    const bounds = img.getBoundingClientRect()
+    if (bounds.bottom > 0 && bounds.top < viewportHeight + 600) img.loading = 'eager'
+  })
+}
+
 /**
  * Stellt sicher, dass die Startseite ueberhaupt aufgebaut ist.
  *
@@ -556,6 +566,8 @@ export function initLanding() {
       </div>
     </footer>
   `;
+
+  eagerVisibleDiscoverImages(landing)
 
   // ── Quiz start ──────────────────────────────────────────
   const startQuiz = async (resume = false) => {

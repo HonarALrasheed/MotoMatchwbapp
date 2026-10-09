@@ -138,7 +138,8 @@ test('Browser: Netzwerkfehler wird unterschieden und nicht gecacht', async () =>
 
 test('Browser: HTTP 429 und 5xx behalten Status und Server-Fehlercode', async () => {
   for (const [status, code, kind] of [
-    [429, 'rate_limited', 'http'], [503, 'quota', 'http'], [502, 'upstream', 'http'],
+    [429, 'rate_limited', 'http'], [503, 'quota_local_minute', 'http'],
+    [503, 'quota_local_daily', 'http'], [503, 'quota', 'http'], [502, 'upstream', 'http'],
     [504, 'timeout', 'timeout'], [502, 'invalid_response', 'validierung'],
   ]) {
     globalThis.fetch = async () => browserAntwort({ error: { code, message: 'Routing nicht verfügbar' } }, status)
@@ -169,10 +170,15 @@ const serverQuelle = readFileSync(new URL('../api/route.js', import.meta.url), '
   .replace('import { sendError, report } from "./_shared.js";', '')
   .replace('export default async function handler', 'async function handler')
 
-function server(fetchMock, { timer = echterTimer, clearTimer = echtesLoeschen } = {}) {
+function server(fetchMock, {
+  timer = echterTimer, clearTimer = echtesLoeschen, env = {},
+} = {}) {
   const context = vm.createContext({
-    process: { env: { ALLOWED_ORIGINS: 'https://dev.test', ORS_KEY: 'test-only' } },
-    fetch: fetchMock, AbortController, setTimeout: timer, clearTimeout: clearTimer,
+    process: { env: {
+      ALLOWED_ORIGINS: 'https://dev.test', ORS_KEY: 'test-only', ...env,
+    } },
+    fetch: fetchMock, AbortController,
+    setTimeout: timer, clearTimeout: clearTimer,
     sendError: (res, status, code, message) => res.status(status).json({ error: { code, message } }),
     report: () => {},
   })
@@ -209,6 +215,36 @@ const orsAntwort = (daten, status = 200) => ({
   json: async () => daten, text: async () => '',
 })
 const schnellerTimer = (fn) => { queueMicrotask(fn); return 1 }
+
+test('Server: Production-ORS-Vertrag benötigt keine Supabase-Quota-Konfiguration', async () => {
+  let orsAufrufe = 0
+  const handler = server(async () => { orsAufrufe++; return orsAntwort(orsRoute()) }, {
+    env: { VITE_SUPABASE_URL: '', SUPABASE_SERVICE_ROLE_KEY: '' },
+  })
+  const antwort = await handler()
+  assert.equal(antwort.statusCode, 200)
+  assert.equal(orsAufrufe, 1)
+  assert.doesNotMatch(serverQuelle, /reserve_ors_route_quota|SUPABASE_SERVICE_ROLE_KEY|@supabase\/supabase-js/)
+})
+
+test('Server: Eingaben werden vor ORS geprüft; identische Antworten werden gecacht', async () => {
+  let orsAufrufe = 0
+  const handler = server(async () => { orsAufrufe++; return orsAntwort(orsRoute()) })
+  assert.equal((await handler(undefined, { punkte: [[8, 50]] })).statusCode, 400)
+  assert.equal((await handler()).statusCode, 200)
+  assert.equal((await handler()).statusCode, 200)
+  assert.equal(orsAufrufe, 1)
+})
+
+test('Server: bestehendes Burst-Limit bleibt bei 40 Anfragen pro IP und Minute', async () => {
+  let orsAufrufe = 0
+  const handler = server(async () => { orsAufrufe++; return orsAntwort(orsRoute()) })
+  const antworten = await Promise.all(Array.from({ length: 41 }, () => handler()))
+  assert.equal(antworten.filter((r) => r.statusCode === 200).length, 40)
+  assert.equal(antworten.filter((r) => r.statusCode === 429).length, 1)
+  assert.equal(antworten.at(-1).headers['Retry-After'], '30')
+  assert.equal(orsAufrufe, 40, 'Gleichzeitige Cache-Misses nutzen den vorhandenen Instanz-Burst-Spielraum')
+})
 
 test('Server: gültige ORS-Route wird konvertiert und erst danach gecacht', async () => {
   let aufrufe = 0
@@ -280,9 +316,16 @@ test('Server: Timeout beendet hängenden Fetch und hängende Antwortverarbeitung
 
 test('Server: Client-Abbruch wird getrennt vom Timeout behandelt', async () => {
   let upstreamSignal
-  const handler = server((_, opts) => { upstreamSignal = opts.signal; return new Promise(() => {}) })
+  let gestartet
+  const upstreamGestartet = new Promise((resolve) => { gestartet = resolve })
+  const handler = server((_, opts) => {
+    upstreamSignal = opts.signal
+    gestartet()
+    return new Promise(() => {})
+  })
   const controller = new AbortController()
   const laufend = handler(controller.signal)
+  await upstreamGestartet
   controller.abort()
   const r = await laufend
   assert.equal(r.statusCode, 499)
@@ -293,6 +336,7 @@ test('Server: Client-Abbruch wird getrennt vom Timeout behandelt', async () => {
 test('Server: Netzwerk-, HTTP- und JSON-Fehler bleiben unterscheidbar', async () => {
   const faelle = [
     [async () => { throw new TypeError('offline') }, 502, 'upstream_network'],
+    [async () => orsAntwort({}, 403), 503, 'quota_or_access'],
     [async () => orsAntwort({}, 429), 503, 'quota'],
     [async () => orsAntwort({}, 500), 502, 'upstream'],
     [async () => ({ ok: true, status: 200, json: async () => { throw new SyntaxError('JSON') } }), 502, 'invalid_response'],

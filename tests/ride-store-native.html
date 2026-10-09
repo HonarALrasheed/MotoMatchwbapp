@@ -1,0 +1,201 @@
+<!doctype html><html lang="de"><meta charset="utf-8"><title>Isolierter IndexedDB-Fahrttest</title>
+<body><h1>Isolierter IndexedDB-Fahrttest</h1>
+<p>Nur synthetische Daten und einmalige Test-Datenbanknamen. Keine MotoMatch-App-Daten werden gelesen.</p>
+<button id="run">Tests starten</button><pre id="result">Bereit</pre>
+<iframe id="tab-a" src="/tests/ride-store-native-frame.html" title="Testkontext A" hidden></iframe>
+<iframe id="tab-b" src="/tests/ride-store-native-frame.html" title="Testkontext B" hidden></iframe>
+<script type="module">
+const output = document.getElementById('result')
+const assert = (condition, text) => { if (!condition) throw new Error(text) }
+const conflicts = (results) => results.filter((r) => r.status === 'rejected' && r.reason?.code === 'conflict').length
+const snapshot = { id: 'native-a', start: 1000, punkte: [[50, 8, 0, null, 0]] }
+const track = { id: 'native-a', start: 1000, ende: 2000, km: 2, fahrMs: 1000,
+  punkte: [[50, 8, 0, null], [50.01, 8.01, 60, null]] }
+const ride = { id: 'native-a', date: 1000, title: 'Synthetisch', track }
+async function framesReady() {
+  for (let i = 0; i < 100; i++) {
+    if (document.getElementById('tab-a').contentWindow.rideTest &&
+        document.getElementById('tab-b').contentWindow.rideTest) return
+    await new Promise((resolve) => setTimeout(resolve, 20))
+  }
+  throw new Error('Zwei Browserkontexte nicht bereit')
+}
+async function rawAbort(name) {
+  const db = await new Promise((resolve, reject) => {
+    const request = indexedDB.open(name, 1)
+    request.onsuccess = () => resolve(request.result)
+    request.onerror = () => reject(request.error)
+  })
+  await new Promise((resolve, reject) => {
+    const tx = db.transaction(['recoveries'], 'readwrite')
+    const request = tx.objectStore('recoveries').get('native-a')
+    request.onsuccess = () => {
+      tx.objectStore('recoveries').put({ ...request.result, state: 'completed', track })
+      tx.abort()
+    }
+    tx.onabort = () => resolve()
+    tx.oncomplete = () => reject(new Error('Abgebrochene Transaktion wurde committed'))
+  })
+  db.close()
+}
+
+async function run() {
+  await framesReady()
+  const a = document.getElementById('tab-a').contentWindow.rideTest
+  const b = document.getElementById('tab-b').contentWindow.rideTest
+  const name = `motomatch-native-test-${crypto.randomUUID()}`
+  const checks = []
+  const storeA = a.createRideStore({ name })
+  const storeB = b.createRideStore({ name })
+  const starts = await Promise.allSettled([
+    storeA.beginRecording(snapshot, 'native-a'), storeB.beginRecording(snapshot, 'native-a'),
+  ])
+  assert(starts.filter((r) => r.status === 'fulfilled').length === 1 && conflicts(starts) === 1,
+    'Paralleler Start darf nur einen Besitzer haben')
+  checks.push('Zwei Browserkontexte: paralleler Start und Konflikt')
+  const owner = starts[0].status === 'fulfilled' ? storeA : storeB
+  const active = starts.find((r) => r.status === 'fulfilled').value
+  assert((await storeA.listRecoveries()).length === 1, 'Commit nicht sichtbar')
+  owner.close(); storeA.close(); storeB.close()
+  const reopened = a.createRideStore({ name })
+  assert((await reopened.getRecovery(active.id)).id === active.id, 'Wiederoeffnen fehlgeschlagen')
+  checks.push('Oeffnen, Commit und Wiederoeffnen')
+  await rawAbort(name)
+  assert((await reopened.getRecovery(active.id)).state === 'active', 'Abbruch hat Recovery veraendert')
+  checks.push('Nativer Transaction-Abort behaelt Recovery')
+  const fake = { ...active, ownerToken: 'falsches-token' }
+  const stale = await Promise.allSettled([reopened.checkpointRecording(fake, snapshot)])
+  assert(conflicts(stale) === 1, 'Falsches Ownership-Token wurde akzeptiert')
+  checks.push('Ownership- und Revisionskonflikt')
+  const completed = await reopened.finishRecording(active, track)
+  const saved = await b.createRideStore({ name }).saveCompleted('native-a', completed.revision, ride)
+  assert(saved.track.punkte.length === 2 && await reopened.getRecovery('native-a') === null,
+    'Atomarer Save-and-remove fehlgeschlagen')
+  checks.push('Fertige Fahrt atomar speichern')
+  reopened.close()
+
+  const leaseName = `motomatch-native-lease-${crypto.randomUUID()}`
+  let clock = 1000
+  const leaseA = a.createRideStore({ name: leaseName, now: () => clock, leaseMs: 100 })
+  const leaseB = b.createRideStore({ name: leaseName, now: () => clock, leaseMs: 100 })
+  const old = await leaseA.beginRecording(snapshot, 'lease-a')
+  clock = 1101
+  const next = await leaseB.resumeRecording('lease-a', old.revision)
+  assert(next.generation > old.generation, 'Generation nicht erhoeht')
+  assert(conflicts(await Promise.allSettled([leaseA.checkpointRecording(old, snapshot)])) === 1,
+    'Alter Tab konnte nach Pause schreiben')
+  leaseA.close(); leaseB.close()
+  checks.push('Pausierter Besitzer wird nach Lease-Uebernahme abgewiesen')
+
+  const importName = `motomatch-native-import-${crypto.randomUUID()}`
+  const values = new Map([
+    ['mm_rides_v1', JSON.stringify([{ id: 'legacy-saved', title: 'Alt', date: 123,
+      track: { id: 'legacy-track', punkte: [[50, 8, 0, null], [50.01, 8.01, 60, null]] } }])],
+    ['mm_ride_track_active_v1', JSON.stringify({ fertig: true, track: {
+      id: 'legacy-unsaved', start: 123, ende: 456, punkte: [[51, 9, 0, null], [51.01, 9.01, 60, null]] } })],
+  ])
+  const legacy = { getItem: (key) => values.get(key) ?? null,
+    setItem: () => { throw new Error('Legacy-Schreibzugriff') },
+    removeItem: () => { throw new Error('Legacy-Loeschzugriff') } }
+  const migration = a.createRideMigration({ name: importName, storage: legacy })
+  const first = await migration.importLegacy()
+  assert(first.filter((r) => r.status === 'imported').length === 2, 'Legacy-Import fehlgeschlagen')
+  const second = await migration.importLegacy()
+  assert(second.filter((r) => r.status === 'skipped').length === 2, 'Retry war nicht idempotent')
+  values.set('mm_rides_v1', JSON.stringify([{ id: 'legacy-saved', title: 'Geaendert', date: 123,
+    track: { id: 'legacy-track', punkte: [[50, 8, 0, null], [50.01, 8.01, 60, null]] } }]))
+  assert((await migration.importLegacy()).some((r) => r.status === 'conflicted'), 'Konflikt wurde verdeckt')
+  const exported = JSON.parse(await migration.exportJson())
+  assert(exported.rides.length === 1 &&
+    exported.rides[0].track.id === 'legacy-track' && exported.rides[0].date === 123 &&
+    JSON.stringify(exported.rides[0].track.punkte) === JSON.stringify([[50, 8, 0, null], [50.01, 8.01, 60, null]]) &&
+    exported.recoveries[0].track.id === 'legacy-unsaved' &&
+    JSON.stringify(exported.recoveries[0].track.punkte) === JSON.stringify([[51, 9, 0, null], [51.01, 9.01, 60, null]]),
+    'Export hat Daten verloren')
+  checks.push('Import, Retry, Konflikt, ungespeicherte Fahrt und JSON-Export')
+
+  const activeName = `motomatch-native-active-import-${crypto.randomUUID()}`
+  const oldActive = { id: 'legacy-active', start: 1000, meter: 240, fahrMs: 600,
+    punkte: [[49, 7, 1000, null, 0], [49.01, 7.01, 1600, 80, 1]] }
+  const activeLegacy = { getItem: (key) => key === 'mm_ride_track_active_v1'
+    ? JSON.stringify(oldActive) : null }
+  const activeImport = await a.createRideMigration({ name: activeName, storage: activeLegacy }).importLegacy()
+  assert(activeImport.some((r) => r.status === 'imported'), 'Aktive Recovery nicht importiert')
+  const activeStore = b.createRideStore({ name: activeName })
+  const importedActive = await activeStore.getRecovery('legacy-active')
+  assert(importedActive.state === 'active' &&
+    JSON.stringify(importedActive.snapshot) === JSON.stringify(oldActive),
+  'Aktive Recovery hat Punkte oder Zeiten verloren')
+  const claimed = await activeStore.resumeRecording('legacy-active', importedActive.revision)
+  assert(claimed.ownerToken && claimed.generation > importedActive.generation,
+    'Importierte Recovery konnte nicht sicher uebernommen werden')
+  activeStore.close()
+  checks.push('Aktive Legacy-Recovery mit Zeitstempeln und Punkten uebernommen')
+
+  const simultaneousName = `motomatch-native-parallel-import-${crypto.randomUUID()}`
+  const simultaneousLegacy = { getItem: (key) => key === 'mm_rides_v1'
+    ? JSON.stringify([{ id: 'parallel-ride', track: null }]) : null }
+  const parallelImports = await Promise.all([
+    a.createRideMigration({ name: simultaneousName, storage: simultaneousLegacy }).importLegacy(),
+    b.createRideMigration({ name: simultaneousName, storage: simultaneousLegacy }).importLegacy(),
+  ])
+  const parallelStatuses = parallelImports.flat().map((item) => item.status).sort()
+  assert(JSON.stringify(parallelStatuses) === JSON.stringify(['imported', 'skipped']),
+    'Gleichzeitige Importe erzeugten weder genau einen Commit noch einen sicheren Retry')
+  checks.push('Gleichzeitiger Import aus zwei Browserkontexten')
+
+  const interruptedName = `motomatch-native-interrupted-${crypto.randomUUID()}`
+  let failOnce = true
+  const interruptedIndexedDB = { open(dbName, version) {
+    const request = indexedDB.open(dbName, version)
+    request.addEventListener('success', () => {
+      const db = request.result
+      const transaction = db.transaction.bind(db)
+      db.transaction = (...args) => {
+        if (args[1] === 'readwrite' && failOnce) {
+          failOnce = false
+          throw new DOMException('Synthetischer Schreibabbruch', 'AbortError')
+        }
+        return transaction(...args)
+      }
+    }, { once: true })
+    return request
+  } }
+  const interrupted = a.createRideMigration({ name: interruptedName,
+    storage: legacy, indexedDB: interruptedIndexedDB })
+  values.set('mm_rides_v1', JSON.stringify([{ id: 'retry-ride', track: null }]))
+  values.set('mm_ride_track_active_v1', JSON.stringify({ fertig: true, track: {
+    id: 'retry-unsaved', punkte: [[52, 10, 1000, null]] } }))
+  const failed = await interrupted.importLegacy()
+  assert(failed.some((r) => r.status === 'failed'), 'Schreibabbruch wurde nicht gemeldet')
+  const retried = await a.createRideMigration({ name: interruptedName, storage: legacy }).importLegacy()
+  assert(retried.filter((r) => r.status === 'imported').length === 2,
+    'Wiederholung nach fehlgeschlagenem Import verlor Daten')
+  checks.push('Fehlgeschlagener Import bleibt wiederholbar')
+
+  const versionName = `motomatch-native-version-${crypto.randomUUID()}`
+  const versionStore = a.createRideStore({ name: versionName })
+  await versionStore.listRides(); versionStore.close()
+  await new Promise((resolve, reject) => {
+    const request = indexedDB.open(versionName, 2)
+    request.onsuccess = () => { request.result.close(); resolve() }
+    request.onerror = () => reject(request.error)
+  })
+  assert((await Promise.allSettled([a.createRideStore({ name: versionName }).listRides()]))[0].status === 'rejected',
+    'Aeltere Store-Version hat neuere DB nicht abgewiesen')
+  checks.push('Neuere Datenbankversion wird nicht ueberschrieben')
+  return checks
+}
+
+async function runAndDisplay() {
+  output.textContent = 'Laeuft...'
+  try {
+    const checks = await run()
+    output.textContent = `PASS ${checks.length}/${checks.length}\n${checks.join('\n')}`
+  } catch (error) {
+    output.textContent = `FAIL: ${error.message}`
+  }
+}
+document.getElementById('run').addEventListener('click', runAndDisplay)
+if (new URLSearchParams(location.search).get('run') === '1') runAndDisplay()
+</script></body></html>

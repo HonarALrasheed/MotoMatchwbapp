@@ -389,11 +389,38 @@ export function klassePasstExakt(bike, klasse) {
  * "Sport touring" enthält "Touring"). Zentrale Stelle statt der bisherigen dreifachen Kopie —
  * dieselbe Logik entscheidet jetzt den harten Filter in findTopMatches() UND den Score in scoreBike().
  */
-function stilPasstZu(bikeStyle, wantStyle) {
-  const b = (bikeStyle || "").toLowerCase();
-  const w = (wantStyle || "").toLowerCase();
-  if (!b || !w) return false;
-  return b === w || b.includes(w) || w.includes(b);
+const STYLE_ALIASES = Object.freeze({
+  naked: "Naked", nakedbike: "Naked", streetfighter: "Naked", roadster: "Naked",
+  sportbike: "Sportbike", sport: "Sportbike", sportmotorrad: "Sportbike",
+  supersport: "Sportbike", supersportler: "Sportbike", supersportbike: "Sportbike",
+  cruiser: "Cruiser", chopper: "Cruiser",
+  enduro: "Enduro", offroad: "Enduro", reiseenduro: "Enduro", motocross: "Enduro",
+  touring: "Touring", tourer: "Touring", reisemotorrad: "Touring",
+  klassiker: "Klassiker", klassisch: "Klassiker", retro: "Klassiker", classic: "Klassiker",
+  supermoto: "Supermoto", roller: "Roller", scooter: "Roller",
+});
+
+function styleKey(value) {
+  return typeof value === "string"
+    ? value.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/[^a-z0-9]/g, "")
+    : "";
+}
+
+function canonicalStyle(value) {
+  const key = styleKey(value);
+  return Object.hasOwn(STYLE_ALIASES, key) ? STYLE_ALIASES[key] : null;
+}
+
+/** Normalizes legacy single-category answers and newer OR selections. */
+export function normalizeStyleSelections(value) {
+  const values = Array.isArray(value) ? value : value == null ? [] : [value];
+  if (values.some((item) => styleKey(item) === "egal")) return [];
+  return [...new Set(values.map(canonicalStyle).filter(Boolean))];
+}
+
+function stilPasstZu(bikeStyle, wantStyles) {
+  const bike = canonicalStyle(bikeStyle);
+  return Boolean(bike && wantStyles.some((style) => style === bike));
 }
 
 // License class compatibility (what each class can legally ride)
@@ -613,7 +640,7 @@ function scoreBike(bike, ctx) {
      Bei einer konkreten Wunschgattung ist dieser Zweig inzwischen ein No-op: findTopMatches() filtert
      dann schon vorher hart auf stilPasstZu(), hier bleibt nur noch der Egal-Fall und die Einzelbewertung
      eines schon geöffneten Bikes (Match-Reiter, scoreBikeAgainst) übrig. */
-  if (!ctx.style || (ctx.style || "").toLowerCase() === "egal") {
+  if (!ctx.style.length) {
     score += WEIGHT.STYLE;
     breakdown.style = WEIGHT.STYLE;
   } else if (stilPasstZu(bike.style, ctx.style)) {
@@ -791,6 +818,32 @@ export function getCatalog() {
   return catalog;
 }
 
+let lastRandomBikeName = null;
+
+/**
+ * Pick a real catalog bike without replacement when alternatives exist.
+ * `style` accepts the same legacy aliases and OR selections as the quiz.
+ */
+export function pickRandomBike({ style, random = Math.random } = {}) {
+  const requestedStyles = Array.isArray(style) ? style : style == null || style === "" ? [] : [style];
+  const hasNeutralStyle = requestedStyles.some((item) => styleKey(item) === "egal");
+  if (hasNeutralStyle && requestedStyles.length !== 1) return null;
+  const styles = normalizeStyleSelections(style);
+  if (requestedStyles.length && !styles.length && !hasNeutralStyle) return null;
+  const candidates = catalog.filter((bike) =>
+    typeof bike?.name === "string" && bike.name.trim() && canonicalStyle(bike.style) &&
+    Object.hasOwn(LICENSE_RANK, bike.license) &&
+    (!styles.length || styles.includes(canonicalStyle(bike.style))));
+  if (!candidates.length) return null;
+  const fresh = candidates.filter((bike) => bike.name !== lastRandomBikeName);
+  const pool = fresh.length ? fresh : candidates;
+  const draw = Number(random());
+  const unit = Number.isFinite(draw) ? Math.max(0, Math.min(1 - Number.EPSILON, draw)) : 0.5;
+  const selected = pool[Math.floor(unit * pool.length)];
+  lastRandomBikeName = selected.name;
+  return selected;
+}
+
 export function findBikeByShortName(shortName) {
   if (!shortName) return undefined;
   const q = shortName.toLowerCase();
@@ -819,7 +872,7 @@ function buildContext(answers = {}) {
     allowedLicenses: LICENSE_ALLOWS[answers.q1] || new Set(["A1", "A2", "A"]),
     budgetMax,
     ctx: {
-      style: answers.q3,
+      style: normalizeStyleSelections(answers.q3),
       normalizedUse: USE_ALIASES[answers.q4] || answers.q4,
       idealSeat: idealSeatFromHeight(Number(answers.q6)),
       sicherSeat: sichereSitzhoehe(Number(answers.q6)),
@@ -1014,7 +1067,9 @@ function ueberlebende(allowedLicenses, licenseClass, budgetLimit, wantStyle, pre
 export function findTopMatches(answers, n = 5) {
   // Pre-compute context once (not per-bike)
   const { allowedLicenses, budgetMax, ctx } = buildContext(answers);
-  const wantStyle = ctx.style && String(ctx.style).toLowerCase() !== "egal" ? ctx.style : null;
+  const wantStyles = ctx.style;
+  const wantStyleLabel = wantStyles.join(" / ");
+  const wantStyle = wantStyles.length ? wantStyles : null;
 
   /* Stufe A/B: Wer eine Gattung nennt, soll sie auch bekommen — Budget wächst erst, wenn die
      genannte Grenze zu wenige Treffer der Wunschgattung hergibt (siehe BUDGET_LOCKERUNGS_STUFEN).
@@ -1118,7 +1173,7 @@ export function findTopMatches(answers, n = 5) {
      derselben Gattung heraus (gemessen über 720 Kombinationen, 20.09.) — wer keine Vorliebe angibt,
      bekam trotzdem fünfmal dasselbe. Bei einer genannten Wunschgattung gilt die Grenze nicht: dort
      sollen die Treffer ja gerade aus einer Gattung kommen. */
-  const stilGrenze = String(ctx.style || "").toLowerCase() === "egal" ? 2 : Infinity;
+  const stilGrenze = wantStyles.length === 0 ? 2 : Infinity;
   const auswahl = [];
   const zurueck = [];
   for (const r of scored) {
@@ -1215,13 +1270,13 @@ export function findTopMatches(answers, n = 5) {
     }
   } else if (stilGelockert) {
     // Stufe C: selbst ohne jede Budgetgrenze gibt es die Wunschgattung mit diesem Führerschein nicht.
-    hinweis = `${ctx.style} gibt es mit deinem Führerschein nicht — das hier kommt am nächsten.`;
+    hinweis = `${wantStyleLabel} gibt es mit deinem Führerschein nicht — das hier kommt am nächsten.`;
   } else if (wantStyle && budgetStufe > 1) {
     // Stufe B: die Wunschgattung gibt es, aber erst mit mehr Budget als genannt.
     const grenze = Number.isFinite(budgetMax * budgetStufe)
       ? `bis ${Math.round(budgetMax * budgetStufe).toLocaleString("de-DE")} €`
       : "ganz ohne Budgetgrenze";
-    hinweis = `Für ${Math.round(budgetMax).toLocaleString("de-DE")} € gibt es nicht genug ${ctx.style}-Modelle mit deinem Führerschein — hier auch ${grenze}.`;
+    hinweis = `Für ${Math.round(budgetMax).toLocaleString("de-DE")} € gibt es nicht genug ${wantStyleLabel}-Modelle mit deinem Führerschein — hier auch ${grenze}.`;
   }
 
   const ergebnis = auswahl.map((r) => {

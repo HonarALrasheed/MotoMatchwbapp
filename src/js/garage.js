@@ -156,6 +156,12 @@ export function loadGarage(answers) {
   const topMatches = findTopMatches(answers, ERGEBNIS_ANZAHL);
   const bikeData = topMatches[0]?.bike || findBestBike(answers);
 
+  // Das vollständige Quiz-Ergebnis ist eine wiederherstellbare Ansicht. Ohne
+  // diesen Eintrag landeten Nutzer nach einem Browserneustart auf der
+  // Startseite, obwohl der Sieger und die Antworten bereits lokal vorlagen.
+  enterScreen("garage", goBack, isGarageActive,
+              { screen: "match-result", bike: bikeData.name });
+
   console.info(`[garage] Matched: ${bikeData.name}`);
 
   // Sieger des Durchlaufs in die Match-Chronik — der Match-Reiter im

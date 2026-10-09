@@ -61,6 +61,7 @@ let listenLinien = [] // { id, linie, start }
 let detailObjekte = []
 let profilMarker = null
 let hoverId = null
+let navigationAngeboten = false
 
 // ── Daten ────────────────────────────────────────────────────────────────
 
@@ -1180,15 +1181,41 @@ async function teilen(t, d) {
 /** Geteilte Strecke aus dem Link (app.js legt sie in sessionStorage ab). */
 function geteilteUebernehmen() {
   let hash = null
-  try { hash = sessionStorage.getItem('mm_strecke_import'); sessionStorage.removeItem('mm_strecke_import') } catch {}
+  try { hash = sessionStorage.getItem('mm_strecke_import') } catch {}
   const s = hash && ausLink(hash)
-  if (!s) return false
+  if (!s) {
+    if (hash) try { sessionStorage.removeItem('mm_strecke_import') } catch {}
+    return false
+  }
+  let id
   try {
-    const id = speichereStrecke({ name: s.name, art: 'geteilt', pts: s.pts })
-    zeigeEigene(PRAEFIX + id)
-    hinweis('Geteilte Strecke gespeichert')
-    return true
-  } catch { return false }
+    id = speichereStrecke({ name: s.name, art: 'geteilt', pts: s.pts })
+  } catch (error) { hinweis(error.message || 'Geteilte Strecke nicht gespeichert.'); return false }
+  try { sessionStorage.removeItem('mm_strecke_import') } catch {}
+  zeigeEigene(PRAEFIX + id)
+  hinweis('Geteilte Strecke gespeichert')
+  return true
+}
+
+async function navigationWiederaufnahmeAnbieten() {
+  if (navigationAngeboten) return
+  navigationAngeboten = true
+  const nav = await import('./tour-fahren.js')
+  if (nav.faehrtGerade()) return
+  const sitzung = nav.leseNavigationssitzung()
+  if (!sitzung) return
+  const entscheidung = await meldung({
+    titel: 'Navigation fortsetzen?',
+    text: `${sitzung.tour.name} — die Führung beginnt neu an deinem aktuellen Standort. Eine frühere Aufzeichnung wird getrennt unter „Aufzeichnen“ behandelt.`,
+    knoepfe: [
+      { label: 'Nicht fortsetzen', wert: 'nein' },
+      { label: 'Navigation fortsetzen', wert: 'ja', haupt: true },
+    ],
+  })
+  if (entscheidung === 'nein' && !nav.verwerfeNavigationssitzung()) {
+    hinweis('Die Navigationsmarkierung konnte nicht entfernt werden.')
+  }
+  if (entscheidung === 'ja') await nav.navigationFortsetzen(sitzung.zeit)
 }
 
 /**
@@ -1365,7 +1392,12 @@ export function initTouren({ mountThumb } = {}) {
       const t = findeTour(zustand.offeneTour)
       if (!t) return
       eingeben('Neuer Name der Strecke', t.name).then((name) => {
-        if (name?.trim()) { umbenennen(t.id, name.trim().slice(0, 80)); eigeneGeaendert(); oeffneTour(t.id) }
+        if (!name?.trim()) return
+        try {
+          if (!umbenennen(t.id, name.trim().slice(0, 80))) { hinweis('Strecke nicht gefunden. Nichts umbenannt.'); return }
+          eigeneGeaendert()
+          oeffneTour(t.id)
+        } catch (error) { hinweis(error.message || 'Umbenennen fehlgeschlagen.') }
       })
       return
     }
@@ -1374,7 +1406,10 @@ export function initTouren({ mountThumb } = {}) {
       if (!t) return
       fragen(`„${t.name}“ löschen?`, 'Das lässt sich nicht rückgängig machen.', { ja: 'Löschen', gefahr: true }).then((ja) => {
         if (!ja) return
-        loesche(t.id); eigeneGeaendert()
+        try {
+          if (!loesche(t.id)) { hinweis('Strecke nicht gefunden. Nichts gelöscht.'); return }
+        } catch (error) { hinweis(error.message || 'Löschen fehlgeschlagen.'); return }
+        eigeneGeaendert()
         zustand.offeneTour = null
         renderListe({ karteAnpassen: true })
       })
@@ -1455,7 +1490,10 @@ export function initTouren({ mountThumb } = {}) {
   ansicht.addEventListener('pointerleave', () => { if (hoverId) markiere(null) })
 
   // Karte steht erst, wenn der Standort da ist — dann Entfernungen neu rechnen
-  onHubMapReady(() => { if (touren.length && !zustand.offeneTour) tourenStandortGeaendert(); else neuZeichnen(true) })
+  onHubMapReady(() => {
+    if (touren.length && !zustand.offeneTour) tourenStandortGeaendert(); else neuZeichnen(true)
+    navigationWiederaufnahmeAnbieten().catch(() => {})
+  })
 
   ladeIndex().then(() => {
     if (!herkunft() && zustand.umkreis) { zustand.umkreis = 0; renderUmkreis() }

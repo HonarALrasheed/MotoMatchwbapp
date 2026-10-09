@@ -31,6 +31,8 @@ export const MIN_PASSWORD_LENGTH = 8
    Wird durch onAuthStateChange und initSupabaseAuth() befüllt.
    Solange null, ist niemand angemeldet (oder Supabase noch am Init). */
 let _sbSession = null  // { username, uid, email } | { username:'Gast', guest:true } | null
+// Invalidates in-flight profile loads when a newer auth transition arrives.
+let _authGeneration = 0
 
 /* register() ruft _onSignedIn() selbst auf, sobald signUp() eine Session
    liefert. Der onAuthStateChange-Listener soll in dem Fenster nicht parallel
@@ -64,8 +66,9 @@ export async function initSupabaseAuth() {
 
   const { data: { session } } = await supabase.auth.getSession()
   if (session) {
-    await _onSignedIn(session)
-    notify()
+    const generation = ++_authGeneration
+    await _onSignedIn(session, generation)
+    if (generation === _authGeneration) notify()
   } else {
     // Gast-Sessions liegen nie bei Supabase (loginGuest() bleibt rein lokal) —
     // ohne diesen Check würde ein Gast einen Reload im Online-Modus nicht
@@ -79,14 +82,17 @@ export async function initSupabaseAuth() {
   }
 
   supabase.auth.onAuthStateChange(async (event, session) => {
+    // login()/register() handle their own successful transition; ignore their
+    // duplicate event before it can invalidate the profile load they started.
+    if (event === 'SIGNED_IN' && session && (_registering || _loggingIn)) return
+    const generation = ++_authGeneration
     if (event === 'PASSWORD_RECOVERY') {
       openPasswordResetScreen()
       return
     }
     if (event === 'SIGNED_IN' && session) {
-      if (_registering || _loggingIn) return // register()/login()/changePassword() rufen _onSignedIn() selbst auf
-      await _onSignedIn(session)
-      notify()
+      await _onSignedIn(session, generation)
+      if (generation === _authGeneration) notify()
     } else if (event === 'SIGNED_OUT') {
       _sbSession = null
       unsubscribeAll()
@@ -141,9 +147,10 @@ async function _repairMissingProfile(session) {
   return null
 }
 
-async function _onSignedIn(session) {
+async function _onSignedIn(session, generation = _authGeneration) {
   const uid = session.user.id
   const { data: profile } = await supabase.from('profiles').select('username').eq('id', uid).maybeSingle()
+  if (generation !== _authGeneration) return false
   // Das Profil legt der DB-Trigger handle_new_user() an (supabase/schema.sql) —
   // auch für Google-OAuth-Nutzer, die hier zum ersten Mal ankommen. Der Trigger
   // läuft in derselben Transaktion wie der INSERT auf auth.users; wenn wir hier
@@ -156,6 +163,7 @@ async function _onSignedIn(session) {
     // damit keine funktionierende Community. Hier ist eine Session vorhanden,
     // auth.uid() also gesetzt und profiles_insert erfüllt.
     username = await _repairMissingProfile(session)
+    if (generation !== _authGeneration) return false
     report(new Error(username
       ? 'profiles-Zeile fehlte, vom Client nachgeholt — Trigger handle_new_user() installiert?'
       : 'profiles-Zeile fehlt und liess sich nicht anlegen'), { where: '_onSignedIn', uid })
@@ -170,6 +178,7 @@ async function _onSignedIn(session) {
     write(LS_ONLINE_PROFILES, overrides)
   }
   await initCommunityData(uid, username)
+  return generation === _authGeneration
 }
 
 /* ── Social Login ─────────────────────────────────────────────────
@@ -392,25 +401,20 @@ export function currentUser() {
 /* ── Aktionen ──────────────────────────────────────────────────── */
 
 /**
- * Login per Benutzername ODER E-Mail-Adresse.
+ * Online-Login per E-Mail-Adresse. Benutzernamen dürfen nicht per öffentlichem
+ * SECURITY DEFINER-RPC in private E-Mail-Adressen aufgelöst werden.
  * Im Online-Modus: Supabase signInWithPassword (erwartet E-Mail).
  * Im Offline-Modus: lokaler localStorage-Check.
  */
 export async function login(identifier, password) {
   identifier = (identifier || '').trim()
-  if (identifier.length < 2) return { ok: false, error: 'Benutzername oder E-Mail ist zu kurz.' }
+  if (identifier.length < 2) return { ok: false, error: 'Bitte gib deine E-Mail-Adresse ein.' }
 
   if (!OFFLINE_MODE) {
-    // Benutzername → E-Mail nachschlagen (per RPC, da profiles keine E-Mail-Spalte hat)
-    let email = identifier
-    if (!identifier.includes('@')) {
-      const { data: resolvedEmail } = await supabase.rpc('email_for_username', { uname: identifier })
-      if (!resolvedEmail) return { ok: false, error: 'Kein Konto mit diesem Benutzernamen gefunden.' }
-      email = resolvedEmail
-    }
+    if (!identifier.includes('@')) return { ok: false, error: 'Bitte melde dich mit deiner E-Mail-Adresse an.' }
     _loggingIn = true
     try {
-      const { data, error } = await supabase.auth.signInWithPassword({ email, password })
+      const { data, error } = await supabase.auth.signInWithPassword({ email: identifier, password })
       if (error || !data.session) {
         // Mit aktivem "Confirm email" ist das der häufigste Fall direkt nach der
         // Registrierung — "Passwort falsch" wäre hier schlicht gelogen.
@@ -419,7 +423,9 @@ export async function login(identifier, password) {
         return { ok: false, error: 'Zugangsdaten oder Passwort sind falsch.' }
       }
       // _sbSession wird durch onAuthStateChange gesetzt, aber wir setzen es sofort
-      await _onSignedIn(data.session)
+      const generation = ++_authGeneration
+      await _onSignedIn(data.session, generation)
+      if (generation !== _authGeneration) return { ok: false, error: 'Anmeldung wurde unterbrochen. Bitte erneut versuchen.' }
       notify()
       return { ok: true, user: { username: _sbSession?.username } }
     } finally {
@@ -492,7 +498,9 @@ export async function register({ username, password, password2, email = '', age 
         return { ok: true, needsEmailConfirmation: true, email, user: { username } }
       }
 
-      await _onSignedIn(data.session)
+      const generation = ++_authGeneration
+      await _onSignedIn(data.session, generation)
+      if (generation !== _authGeneration) return { ok: false, error: 'Anmeldung wurde unterbrochen. Bitte erneut versuchen.' }
       notify()
       // Der Trigger kann bei einer Kollision im letzten Moment einen anderen
       // Namen vergeben haben — _onSignedIn() hat den echten gerade gelesen.
@@ -1008,8 +1016,8 @@ export function openAuthModal(onDone) {
 
         <form id="mm-am-form" autocomplete="off">
           <label class="p-auth-field">
-            <span class="p-auth-label">${isLogin ? 'Benutzername oder E-Mail' : 'Benutzername'}</span>
-            <input class="p-auth-input" id="mm-am-user" type="text" maxlength="60" placeholder="${isLogin ? 'z. B. RiderMax oder du@mail.de' : 'z. B. RiderMax'}" required>
+            <span class="p-auth-label">${isLogin && !OFFLINE_MODE ? 'E-Mail-Adresse' : isLogin ? 'Benutzername oder E-Mail' : 'Benutzername'}</span>
+            <input class="p-auth-input" id="mm-am-user" type="${isLogin && !OFFLINE_MODE ? 'email' : 'text'}" maxlength="60" placeholder="${isLogin && !OFFLINE_MODE ? 'du@mail.de' : isLogin ? 'z. B. RiderMax oder du@mail.de' : 'z. B. RiderMax'}" required>
           </label>
           ${isLogin ? '' : `
           <label class="p-auth-field">

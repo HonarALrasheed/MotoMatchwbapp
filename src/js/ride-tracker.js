@@ -3,8 +3,9 @@
  *  MOTOMATCH — ride-tracker.js
  *  Fahrten aufzeichnen ueber die Standortschnittstelle des Browsers.
  *
- *  Die Aufzeichnung bleibt auf dem Geraet. Die Punkte liegen in localStorage,
- *  es geht keine Koordinate an einen Server und es wird keine Karte eines
+ *  Die Aufzeichnung bleibt auf dem Geraet. Neue Zwischenstaende liegen in
+ *  transaktionaler IndexedDB, Legacy-Recovery bleibt unveraendert bis zur
+ *  bestaetigten Uebernahme. Es geht keine Koordinate an einen Server und keine Karte eines
  *  Anbieters geladen — die Strecke zeichnet die Seite selbst als Linie. Geteilt
  *  wird nur, was der Nutzer ausdruecklich teilt, und zwar als fertiges Bild.
  *
@@ -14,7 +15,87 @@
  * ══════════════════════════════════════════════════════════════
  */
 
+import { createRideStore, RideStoreError } from './ride-store.js'
+import { createRideMigration } from './ride-store-migration.js'
+
 const LS_LAUFEND = 'mm_ride_track_active_v1'
+let rideStore
+const store = () => rideStore || (rideStore = createRideStore())
+let aufzeichnungAktiv = false
+
+function recoveryToLegacy(record) {
+  return record?.state === 'completed' ? { fertig: true, track: record.track } : record?.snapshot || null
+}
+
+function legacyDigest(value) {
+  const text = JSON.stringify(value)
+  let hash = 0x811c9dc5
+  for (let i = 0; i < text.length; i++) { hash ^= text.charCodeAt(i); hash = Math.imul(hash, 0x01000193) }
+  return (hash >>> 0).toString(16).padStart(8, '0')
+}
+
+/** Read the transactional store first; import any legacy recovery without
+ * deleting its localStorage source. Multiple recoveries are surfaced as a
+ * conflict instead of silently selecting or discarding one. */
+export async function ladeUnterbrocheneAufzeichnung() {
+  let records
+  try {
+    const migration = createRideMigration()
+    const results = await migration.importLegacyRecovery()
+    records = (await store().listRecoveries()).filter((r) => ['active', 'completed'].includes(r.state))
+    if (results.some((r) => r.status === 'failed' || r.status === 'invalid' ||
+      (r.status === 'conflicted' && !records.some((record) => record.id === r.id)))) {
+      throw new RideStoreError('legacy_conflict', 'Vorhandene Fahrtdaten konnten nicht eindeutig übernommen werden.')
+    }
+  } catch (error) {
+    if (error?.code === 'unavailable' || error?.code === 'denied' || error?.code === 'failed') {
+      // Legacy data stays viewable, but recording start still requires IDB.
+      return unterbrocheneAufzeichnung()
+    }
+    throw error
+  }
+  const legacy = unterbrocheneAufzeichnung()
+  if (legacy) {
+    const id = legacy.fertig ? legacy.track?.id : legacy.id
+    const record = records.find((r) => r.id === id)
+    const differs = record && record.legacyDigest !== legacyDigest(legacy) && (legacy.fertig
+      ? record.state !== 'completed' || JSON.stringify(record.track) !== JSON.stringify(legacy.track)
+      : record.state !== 'active' || JSON.stringify(record.snapshot) !== JSON.stringify(legacy))
+    if (!record || differs) throw new RideStoreError('legacy_conflict', 'Legacy- und IndexedDB-Aufzeichnungen weichen voneinander ab. Beide bleiben unverändert erhalten.')
+  }
+  if (records.length > 1) throw new RideStoreError('legacy_conflict', 'Mehrere ungespeicherte Fahrten vorhanden. Keine wurde verändert.')
+  return records.length ? recoveryToLegacy(records[0]) : null
+}
+
+export async function verwerfeGesicherteAufzeichnung(erwarteteId) {
+  if (!erwarteteId) return false
+  await ladeUnterbrocheneAufzeichnung()
+  const record = await store().getRecovery(erwarteteId)
+  if (!record) return verwerfeUnterbrochene(erwarteteId)
+  try {
+    if (record.state === 'completed') await store().discardCompleted(record.id, record.revision)
+    else {
+      const handle = await store().resumeRecording(record.id, record.revision)
+      await store().cancelRecording(handle)
+    }
+  } catch { return false }
+  // Legacy removal happens only after the durable IndexedDB delete committed.
+  verwerfeUnterbrochene(erwarteteId)
+  return true
+}
+
+export async function bestaetigeGespeicherteFahrt(track) {
+  if (!track?.id) return false
+  await ladeUnterbrocheneAufzeichnung()
+  const record = await store().getRecovery(track.id)
+  if (record) {
+    if (record.state !== 'completed' || record.track?.id !== track.id) return false
+    try { await store().discardCompleted(record.id, record.revision) }
+    catch { return false }
+  }
+  verwerfeUnterbrochene(track.id)
+  return true
+}
 
 /* Rohpunkte des Satellitenempfaengers sind nicht sauber. Ohne diese Grenzen
    zaehlt eine Fahrt Kilometer, die niemand gefahren ist: an der Ampel wandert
@@ -138,13 +219,22 @@ export function standortVerfuegbar() {
 export function unterbrocheneAufzeichnung() {
   try {
     const roh = JSON.parse(localStorage.getItem(LS_LAUFEND) || 'null')
+    if (roh?.fertig) return roh.track?.punkte?.length ? roh : null
     if (!roh?.punkte?.length) return null
     return roh
   } catch { return null }
 }
 
-export function verwerfeUnterbrochene() {
-  try { localStorage.removeItem(LS_LAUFEND) } catch {}
+export function verwerfeUnterbrochene(erwarteteId = null) {
+  try {
+    if (erwarteteId) {
+      const offen = unterbrocheneAufzeichnung()
+      if (!offen && localStorage.getItem(LS_LAUFEND) != null) return false
+      if (offen && (offen.fertig ? offen.track?.id : offen.id) !== erwarteteId) return false
+    }
+    localStorage.removeItem(LS_LAUFEND)
+    return true
+  } catch { return false }
 }
 
 /**
@@ -153,19 +243,41 @@ export function verwerfeUnterbrochene() {
  * @param {(text) => void}  beiFehler
  * @returns {Promise<object>} Steuerung mit pause/weiter/beenden/abbrechen
  */
-export function starteAufzeichnung({ beiAenderung, beiFehler, fortsetzen = null } = {}) {
-  return new Promise((aufloesen, ablehnen) => {
+export async function starteAufzeichnung({ beiAenderung, beiFehler, fortsetzen = null } = {}) {
     if (!standortVerfuegbar()) {
-      ablehnen(new Error('Dieses Geraet oder dieser Browser gibt den Standort nicht frei.'))
-      return
+      throw new Error('Dieses Geraet oder dieser Browser gibt den Standort nicht frei.')
+    }
+    if (aufzeichnungAktiv) {
+      throw new Error('Es läuft bereits eine Fahrtaufzeichnung.')
     }
 
-    const punkte = fortsetzen?.punkte?.map(p => ({ lat: p[0], lon: p[1], t: p[2], alt: p[3] ?? null })) || []
+    const offen = await ladeUnterbrocheneAufzeichnung()
+    if (offen?.fertig || (offen && (!fortsetzen || offen.start !== fortsetzen.start))) {
+      throw new Error('Eine ungespeicherte Fahrt wartet noch. Bitte zuerst speichern oder verwerfen.')
+    }
+    const id = fortsetzen?.id || `auf-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`
+    const start = fortsetzen?.start || Date.now()
+    let ownership
+    if (fortsetzen) {
+      const record = await store().getRecovery(id)
+      if (!record || record.state !== 'active' || record.snapshot?.start !== start) {
+        throw new RideStoreError('conflict', 'Die Wiederherstellung hat sich geändert. Keine Daten wurden verändert.')
+      }
+      ownership = await store().resumeRecording(id, record.revision, {
+        legacyDigest: unterbrocheneAufzeichnung() ? legacyDigest(unterbrocheneAufzeichnung()) : undefined,
+      })
+    } else {
+      if (offen) throw new Error('Eine ungespeicherte Fahrt wartet noch. Bitte zuerst speichern oder verwerfen.')
+      ownership = await store().beginRecording({ id, start, meter: 0, fahrMs: 0, maxKmh: 0, hoehe: 0, punkte: [] }, id)
+    }
+    return new Promise((aufloesen, ablehnen) => {
+    aufzeichnungAktiv = true
+
+    const punkte = fortsetzen?.punkte?.map(p => ({ lat: p[0], lon: p[1], t: p[2], alt: p[3] ?? null, luecke: !!p[4] })) || []
     let meterGesamt = fortsetzen?.meter || 0
     let fahrMs      = fortsetzen?.fahrMs || 0
     let maxKmh      = fortsetzen?.maxKmh || 0
     let hoehenMeter = fortsetzen?.hoehe || 0
-    let start       = fortsetzen?.start || Date.now()
     let pausiert    = false      // von Hand
     let autoPause   = false      // erkannter Stillstand
     let stillSeit   = 0
@@ -179,6 +291,9 @@ export function starteAufzeichnung({ beiAenderung, beiFehler, fortsetzen = null 
     let sicherTimer = null
     let wakeLock    = null
     let ersterPunkt = punkte.length > 0
+    let speicherFehlerGemeldet = false
+    let besitzerVerloren = false
+    let sicherungKette = Promise.resolve()
 
     const stand = () => ({
       km: meterGesamt / 1000,
@@ -207,13 +322,30 @@ export function starteAufzeichnung({ beiAenderung, beiFehler, fortsetzen = null 
     const beiSichtbar = () => { if (document.visibilityState === 'visible' && !beendet) wachHalten() }
     document.addEventListener('visibilitychange', beiSichtbar)
 
+    const snapshot = () => ({
+          id, start, meter: meterGesamt, fahrMs, maxKmh, hoehe: hoehenMeter,
+          punkte: punkte.map(p => [+p.lat.toFixed(5), +p.lon.toFixed(5), p.t, p.alt, p.luecke ? 1 : 0]),
+    })
+    const meldenSpeicherfehler = () => {
+      if (!speicherFehlerGemeldet) {
+        beiFehler?.('Zwischenstand konnte nicht gesichert werden. Die Fahrt ist nur in dieser Sitzung vollständig vorhanden.')
+        speicherFehlerGemeldet = true
+      }
+    }
     const sichern = () => {
-      try {
-        localStorage.setItem(LS_LAUFEND, JSON.stringify({
-          start, meter: meterGesamt, fahrMs, maxKmh, hoehe: hoehenMeter,
-          punkte: punkte.map(p => [+p.lat.toFixed(5), +p.lon.toFixed(5), p.t, p.alt]),
-        }))
-      } catch { /* Speicher voll — die laufende Messung bleibt trotzdem gueltig */ }
+      const standJetzt = snapshot()
+      sicherungKette = sicherungKette.then(async () => {
+        if (beendet || besitzerVerloren) return
+        ownership = await store().checkpointRecording(ownership, standJetzt)
+        speicherFehlerGemeldet = false
+      }).catch((error) => {
+        besitzerVerloren = true
+        if (watchId != null) navigator.geolocation.clearWatch(watchId)
+        watchId = null
+        meldenSpeicherfehler()
+        if (error?.code === 'conflict') beiFehler?.('Die Aufnahme wurde in einem anderen Tab übernommen. Dieser Tab zeichnet nicht weiter auf; die Fahrt bleibt zur Sicherung erhalten.')
+      })
+      return sicherungKette
     }
 
     /* Hoehenmeter sammeln. Erst glaetten, dann nur Anstiege ueber der Schwelle
@@ -237,7 +369,7 @@ export function starteAufzeichnung({ beiAenderung, beiFehler, fortsetzen = null 
       hoeheVerarbeiten(altitude, altitudeAccuracy)
       const punkt = {
         lat, lon,
-        t: Math.round((jetzt - start) / 1000),
+        t: Math.max(0, Math.round((jetzt - start) / 1000)),
         alt: hoeheGlatt != null ? Math.round(hoeheGlatt) : null,
       }
 
@@ -283,7 +415,7 @@ export function starteAufzeichnung({ beiAenderung, beiFehler, fortsetzen = null 
       punkte.push(punkt)
       letzter = punkt
       letzterMs = jetzt
-      if (!ersterPunkt) { ersterPunkt = true; aufloesen(steuerung) }
+      if (!ersterPunkt) { ersterPunkt = true; sichern(); aufloesen(steuerung) }
       beiAenderung?.(stand())
     }
 
@@ -294,12 +426,17 @@ export function starteAufzeichnung({ beiAenderung, beiFehler, fortsetzen = null 
         3: 'Der Standort kam nicht rechtzeitig.',
       }
       const text = texte[err.code] || 'Der Standort konnte nicht ermittelt werden.'
-      if (!ersterPunkt) { aufraeumen(); ablehnen(new Error(text)); return }
+      if (!ersterPunkt) {
+        Promise.resolve().then(() => store().cancelRecording(ownership)).catch(() => {})
+          .finally(() => { aufraeumen(); ablehnen(new Error(text)) })
+        return
+      }
       beiFehler?.(text)
     }
 
     function aufraeumen() {
       beendet = true
+      aufzeichnungAktiv = false
       if (watchId != null) navigator.geolocation.clearWatch(watchId)
       clearInterval(sicherTimer)
       document.removeEventListener('visibilitychange', beiSichtbar)
@@ -309,18 +446,37 @@ export function starteAufzeichnung({ beiAenderung, beiFehler, fortsetzen = null 
 
     const steuerung = {
       stand,
-      pause() { pausiert = true; tempoKmh = 0; letzter = null; beiAenderung?.(stand()) },
+      pause() { pausiert = true; tempoKmh = 0; letzter = null; beiAenderung?.(stand()); return sichern() },
       weiter() {
         pausiert = false; autoPause = false; stillSeit = 0
-        letzterMs = Date.now(); beiAenderung?.(stand())
+        letzterMs = Date.now(); beiAenderung?.(stand()); return sichern()
       },
-      abbrechen() { aufraeumen(); verwerfeUnterbrochene() },
+      async abbrechen() {
+        if (beendet) return false
+        await sicherungKette
+        try {
+          await store().cancelRecording(ownership)
+          verwerfeUnterbrochene(id)
+          aufraeumen()
+          return true
+        } catch (error) {
+          meldenSpeicherfehler()
+          beiFehler?.('Die Fahrt wurde nicht verworfen. Der gespeicherte Wiederherstellungsstand bleibt erhalten.')
+          return false
+        }
+      },
       /** Beendet und liefert die fertige Fahrt — oder null, wenn zu kurz. */
-      beenden() {
+      async beenden() {
         const s = stand()
+        await sicherungKette
         aufraeumen()
-        verwerfeUnterbrochene()
-        if (punkte.length < 2) return null
+        if (punkte.length < 2) {
+          if (!besitzerVerloren) {
+            try { await store().cancelRecording(ownership); verwerfeUnterbrochene(id) }
+            catch { meldenSpeicherfehler() }
+          }
+          return null
+        }
         // Je Abschnitt zwischen GPS-Lücken vereinfachen, damit die Lücken-Enden
         // erhalten bleiben; lange Fahrten gröber statt abgeschnitten
         const abschnitte = [[]]
@@ -339,7 +495,8 @@ export function starteAufzeichnung({ beiAenderung, beiFehler, fortsetzen = null 
           knapp.luecken = luecken
           toleranz *= 1.5
         } while (knapp.length > 1500)
-        return {
+        const track = {
+          id,
           punkte: knapp.map(p => [+p.lat.toFixed(5), +p.lon.toFixed(5), p.t, p.alt]),
           luecken: knapp.luecken,
           km: +(s.km).toFixed(2),
@@ -352,20 +509,37 @@ export function starteAufzeichnung({ beiAenderung, beiFehler, fortsetzen = null 
           ende: Date.now(),
           rohPunkte: punkte.length,
         }
+        let gesichert = false
+        try {
+          if (besitzerVerloren) throw new RideStoreError('conflict', 'Besitz der Aufnahme verloren')
+          await store().finishRecording(ownership, track)
+          gesichert = true
+        } catch {
+          meldenSpeicherfehler()
+          beiFehler?.('Die fertige Fahrt konnte nicht dauerhaft gesichert werden. Bitte jetzt speichern oder eine Sicherung herunterladen.')
+        }
+        Object.defineProperty(track, 'wiederherstellungGesichert', { value: gesichert })
+        return track
       },
     }
 
     wachHalten()
     sicherTimer = setInterval(sichern, SICHERN_ALLE_MS)
-    watchId = navigator.geolocation.watchPosition(neuerPunkt, fehler, {
-      enableHighAccuracy: true,
-      maximumAge: 2000,
-      timeout: 20000,
-    })
+    try {
+      watchId = navigator.geolocation.watchPosition(neuerPunkt, fehler, {
+        enableHighAccuracy: true,
+        maximumAge: 2000,
+        timeout: 20000,
+      })
+    } catch (err) {
+      Promise.resolve().then(() => store().cancelRecording(ownership)).catch(() => {})
+        .finally(() => { aufraeumen(); ablehnen(err) })
+      return
+    }
 
     // Wird beim ersten Punkt aufgeloest; bei Fortsetzung sofort.
     if (ersterPunkt) aufloesen(steuerung)
-  })
+    })
 }
 
 // ── Darstellung ──────────────────────────────────────────────

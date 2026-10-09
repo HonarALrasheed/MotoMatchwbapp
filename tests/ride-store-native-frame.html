@@ -1,0 +1,7 @@
+<!doctype html><meta charset="utf-8"><title>Ride store test frame</title>
+<script type="module">
+import { createRideStore } from '/src/js/ride-store.js'
+import { createRideMigration } from '/src/js/ride-store-migration.js'
+window.rideTest = { createRideStore, createRideMigration }
+parent.postMessage({ rideTestReady: true }, location.origin)
+</script>

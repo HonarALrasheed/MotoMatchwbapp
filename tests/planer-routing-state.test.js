@@ -2,11 +2,13 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import vm from 'node:vm'
+import { createPlannerDraftStore } from '../src/js/planner-draft.js'
 
 const quelle = readFileSync(new URL('../src/js/planer.js', import.meta.url), 'utf8')
   .replace(/^import .*\n/gm, '')
   .replace('export async function planerOeffnen', 'async function planerOeffnen')
   .replace('export const plantGerade', 'const plantGerade')
+  .replace("await import('./touren.js')", '({ tourenKarteLeeren: globalThis.tourenKarteLeeren })')
   .replace("await import('./tour-fahren.js')", '({ fahrtVorbereiten: globalThis.fahrtVorbereiten })')
 
 function verzögert() {
@@ -25,9 +27,16 @@ function routeDaten(n = 1) {
 
 function umgebung(routeMock, { eingeben = async () => 'Teststrecke', speichern = () => 'id-1', karte = null } = {}) {
   const meldungen = [], speicherungen = [], navigationen = []
+  const draftData = new Map()
+  const draftStorage = {
+    getItem: (key) => draftData.get(key) ?? null,
+    setItem: (key, value) => draftData.set(key, value),
+    removeItem: (key) => draftData.delete(key),
+  }
   const info = { innerHTML: '' }, mini = { innerHTML: '' }, vorschlag = { hidden: false }
   const liste = {
     innerHTML: '', scrollTop: 0,
+    addEventListener() {}, removeEventListener() {},
     querySelector(sel) {
       if (sel === '#plan-mini') return mini
       if (sel === '[data-plan="zurueck"]' || sel === '[data-plan="leeren"]' || sel === '[data-plan="standort"]' || sel === '.plan-vorschlag-karte') return { disabled: false, hidden: false }
@@ -36,7 +45,7 @@ function umgebung(routeMock, { eingeben = async () => 'Teststrecke', speichern =
   }
   const document = {
     getElementById(id) { return id === 'tour-liste' ? liste : id === 'plan-info' ? info : id === 'plan-vorschlag' ? vorschlag : null },
-    querySelector() { return null }, dispatchEvent() {}, body: { classList: { remove() {} } },
+    querySelector() { return null }, dispatchEvent() {}, body: { classList: { add() {}, remove() {} } },
   }
   class RoutingFehler extends Error {
     constructor(code, message, kind = code) { super(message); this.code = code; this.kind = kind }
@@ -44,15 +53,17 @@ function umgebung(routeMock, { eingeben = async () => 'Teststrecke', speichern =
   const context = vm.createContext({
     document, window: { matchMedia: () => ({ matches: false }) }, navigator: {}, CustomEvent: class {},
     AbortController, setTimeout, clearTimeout,
+    createPlannerDraftStore: () => createPlannerDraftStore({ storage: draftStorage }),
     esc: (s) => s, hinweisen: (...args) => meldungen.push(args), eingeben,
     getHubMap: () => karte, getMapLib: () => null, haversineKm: () => 5,
     getUserCoords: () => ({ lat: null, lng: null }), resolveOrt: async () => ({ ok: false }), sucheAdressen: async () => [],
     route: routeMock, naechster: () => ({ index: 0 }), RoutingFehler, streckenIn: async () => [],
     speichereStrecke: (daten) => { speicherungen.push(daten); return speichern(daten) },
     profilAus: () => [], alsTour: (daten) => daten, kurvigkeit: () => 100, PRAEFIX: 'eig-',
+    tourenKarteLeeren() {},
     fahrtVorbereiten: (...args) => navigationen.push(args),
   })
-  vm.runInContext(`${quelle}\nglobalThis.pruefung = { neuRechnen, planKlick, aufKarteGetippt, renderInfo, aktuellesErgebnis, schliessen, setPlan: (p) => { plan = p }, getPlan: () => plan }`, context)
+  vm.runInContext(`${quelle}\nglobalThis.pruefung = { neuRechnen, planKlick, aufKarteGetippt, planerOeffnen, renderInfo, aktuellesErgebnis, schliessen, plannerDraft, setPlan: (p) => { plan = p }, getPlan: () => plan }`, context)
   const api = context.pruefung
   const plan = {
     punkte: [[50, 8], [50.01, 8.01]], marker: [], modus: 'schnell', rund: false,
@@ -65,13 +76,15 @@ function umgebung(routeMock, { eingeben = async () => 'Teststrecke', speichern =
       return sel === `[data-${art}]` ? { dataset: { [art === 'plan' ? 'plan' : art === 'vorschlag-km' ? 'vorschlagKm' : art === 'plan-modus' ? 'planModus' : art === 'plan-rund' ? 'planRund' : 'planWeg']: wert } } : null
     } }, currentTarget: { removeEventListener() {} },
   })
-  return { api, plan, info, mini, vorschlag, meldungen, speicherungen, navigationen, klick, RoutingFehler }
+  return { api, plan, info, mini, vorschlag, meldungen, speicherungen, navigationen, draftData, klick, RoutingFehler }
 }
 
 function testKarte() {
   return {
+    __mmBereit: true,
     queryRenderedFeatures: () => [], getLayer: () => null, getSource: () => null,
-    fitBounds() {}, off() {}, getCanvas: () => ({ classList: { remove() {} } }),
+    fitBounds() {}, off() {}, on() {}, addSource() {}, addLayer() {}, getZoom: () => 12,
+    getCanvas: () => ({ classList: { add() {}, remove() {} } }),
   }
 }
 
@@ -80,6 +93,17 @@ function kartenPunkt(u, lat, lng) {
 }
 
 const planBerechnet = () => new Promise((resolve) => setImmediate(resolve))
+
+test('wiederhergestellter Planer zeigt Draft und startet ohne ausdrückliche Aktion keine Route', async () => {
+  let routeCalls = 0
+  const u = umgebung(async () => { routeCalls++; return routeDaten() }, { karte: testKarte() })
+  u.api.plannerDraft.save({ points: [[50, 8], [50.01, 8.01]], mode: 'schnell', roundTrip: false, startMissing: false })
+  await u.api.planerOeffnen()
+  assert.equal(routeCalls, 0)
+  assert.equal(u.api.getPlan().wiederhergestellt, true)
+  assert.match(u.info.innerHTML, /Entwurf wiederhergestellt/)
+  assert.match(u.info.innerHTML, /Route neu berechnen/)
+})
 
 test('erfolgreiche Start-Ziel-Route ist aktuell und kann gespeichert werden', async () => {
   const u = umgebung(async () => routeDaten())

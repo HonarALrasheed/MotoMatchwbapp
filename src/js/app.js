@@ -1,8 +1,8 @@
 import { initLanding } from './landing.js'
-import { findBikeByShortName, ladeVollkatalog, getCatalog } from './matching.js'
+import { findBikeByShortName, ladeVollkatalog, getCatalog, findBestBike } from './matching.js'
 import { initSupabaseAuth, openPasswordResetScreen } from './auth.js'
 import { initFeedbackFab } from './feedback.js'
-import { initNav, setViewResolver, readRestoreView, clearRestoreView, rebuild } from './nav.js'
+import { initNav, setViewResolver, readRestoreState, clearRestoreView, rebuild } from './nav.js'
 import { initSwipeNav } from './swipe.js'
 import { initViewport } from './viewport.js'
 import { initInstall } from './install.js'
@@ -18,24 +18,51 @@ import { initInstall } from './install.js'
  *          aufloesen laesst (Bike aus dem Katalog verschwunden o. Ae.).
  */
 async function openView(view) {
-  if (!view?.bike) return false
-  // Der Vollkatalog lädt erst im Leerlauf (siehe startApp) — ein Bike außerhalb der
-  // eingebauten Liste wäre beim Wiederherstellen sonst "nicht gefunden".
-  if (!findBikeByShortName(view.bike)) await ladeVollkatalog()
+  if (!view?.bike || typeof view.bike !== 'string') return false
+  if (view.screen === 'match-result') {
+    try {
+      await ladeVollkatalog()
+      const { getLastAnswers } = await import('./match-history.js')
+      const answers = getLastAnswers()
+      if (!answers || findBestBike(answers)?.name !== view.bike) return false
+      const { loadGarage } = await import('./garage.js')
+      loadGarage(answers)
+      await new Promise(resolve => setTimeout(resolve, 280))
+      return document.getElementById('garage-container')?.style.display !== 'none'
+    } catch (err) {
+      console.error('[app] Match-Ergebnis konnte nicht wiederhergestellt werden:', err)
+      return false
+    }
+  }
+  if (view.screen === 'deckblatt') {
+    const { openBikeDetail } = await import('./bike-detail.js')
+    // openBikeDetail accepts only its fixed, reviewed catalogue identifiers.
+    // Unknown or removed destinations fall back to the landing page.
+    openBikeDetail(view.bike)
+    await new Promise(resolve => setTimeout(resolve, 280))
+    return document.getElementById('bike-detail')?.style.display !== 'none'
+  }
   if (view.screen === 'konfigurator') {
+    // Vor dem Finden auf den Vollkatalog warten: ein gleichnamiges Seed-Bike
+    // kann dieselbe Anzeige, aber unvollständige oder abweichende Daten haben.
+    // Sonst würde ein Resume vor dem Idle-Import falsche technische Werte zeigen.
+    await ladeVollkatalog()
     /* matching.js wird von landing.js ohnehin statisch geladen und liegt damit
        schon im Start-Bundle — der dynamische Import hier brachte kein eigenes
        Stueck Code, nur eine Build-Warnung. */
     const { openKonfigurator } = await import('./bike-detail.js')
     const bikeData = findBikeByShortName(view.bike)
     if (!bikeData) return false
-    openKonfigurator(bikeData, null, view.tab)
+    openKonfigurator(bikeData, null, view.tab, { restoring: true })
+    await new Promise(resolve => setTimeout(resolve, 280))
     return true
   }
-  // Garage und Deckblatt führen beide über die Garage-Seite des Bikes — der
-  // einzige Einstieg, der ohne Quiz-Antworten auskommt.
+  if (view.screen !== 'garage') return false
+  if (!findBikeByShortName(view.bike)) await ladeVollkatalog()
+  // Garage ist der Einstieg, der ohne Quiz-Antworten auskommt.
   const { openBikeGarage } = await import('./garage.js')
   openBikeGarage(view.bike)
+  await new Promise(resolve => setTimeout(resolve, 280))
   return true
 }
 
@@ -105,20 +132,25 @@ export function startApp() {
       .then(([, m]) => {
         const bike = getCatalog().find(b => String(b.slug || '').toLowerCase().replace(/_/g, '-') === gesucht)
         if (bike) m.openBikeGarage(bike)
-        else initLanding()
+        else { clearRestoreView(); initLanding() }
       })
       .catch(err => {
         console.error('[app] Direktlink konnte nicht geladen werden:', err)
+        clearRestoreView()
         initLanding()
       })
     return
   }
   const bikeName = params.get('bike')
   if (bikeName) {
-    Promise.all([findBikeByShortName(bikeName) ? null : ladeVollkatalog(), import('./garage.js')])
-      .then(([, m]) => m.openBikeGarage(bikeName))
+    Promise.all([ladeVollkatalog(), import('./garage.js')])
+      .then(([, m]) => {
+        if (findBikeByShortName(bikeName)) m.openBikeGarage(bikeName)
+        else { clearRestoreView(); initLanding() }
+      })
       .catch(err => {
         console.error('[app] Direktlink konnte nicht geladen werden:', err)
+        clearRestoreView()
         initLanding()
       })
     return
@@ -143,9 +175,9 @@ export function startApp() {
   // sein `restoring`-Flag, bevor der wiederhergestellte Bildschirm sich per
   // enterScreen() anmeldet — sonst legt das einen zweiten, doppelten
   // History-Eintrag an, statt den bestehenden Eintrag zu übernehmen.
-  const saved = readRestoreView()
+  const saved = readRestoreState()
   if (saved) {
-    rebuild(saved)
+    rebuild(saved.view, saved.scrollY)
       .then(ok => { if (!ok) { clearRestoreView(); initLanding() } })
       .catch(err => {
         console.error('[app] Ansicht konnte nicht wiederhergestellt werden:', err)

@@ -5,6 +5,7 @@ import { MeshoptDecoder } from "three/addons/libs/meshopt_decoder.module.js";
 import { startDropAnimation } from "./drop-animation.js";
 import { ladeVollkatalog } from "./matching.js";
 import { LS_QUIZ_ANSWERS } from "./util.js";
+import { createQuizProgress } from "./quiz-progress.js";
 
 /* ═══ Questions ═══ */
 const questions = [
@@ -30,11 +31,14 @@ const questions = [
   {
     id: 3,
     question: "Welcher Stil spricht dich an?",
+    multiple: true,
+    hinweis: "Du kannst mehrere Stile wählen. „Ist mir egal“ steht für sich allein.",
     /* Alle acht Gattungen, die es im Katalog gibt (2026-09-19). Vorher standen hier vier — Roller,
        Klassiker, Touring und Supermoto waren damit unwählbar, und die 400 Bikes dieser Gattungen
        konnten die volle Stil-Punktzahl nie erreichen, egal wie gut sie sonst passten. */
     options: [
       { value: "Sportbike", label: "Sportbike" },
+      { value: "Supersportler", label: "Supersportler" },
       { value: "Naked", label: "Naked Bike" },
       { value: "Cruiser", label: "Cruiser" },
       { value: "Enduro", label: "Enduro / Offroad" },
@@ -113,6 +117,7 @@ const questions = [
     ],
   },
 ];
+const quizProgress = createQuizProgress({ questions });
 
 /* ═══ State ═══ */
 let idx = 0,
@@ -228,13 +233,15 @@ export function preloadQuizAssets() {
 const LS_KEY = LS_QUIZ_ANSWERS;
 
 function saveAnswers() {
-  try { localStorage.setItem(LS_KEY, JSON.stringify(answers)); } catch (e) { /* ignore */ }
+  try { localStorage.setItem(LS_KEY, JSON.stringify(answers)); } catch (e) { /* matching still works in memory */ }
+  quizProgress.save(currentQuestionIndex, answers);
 }
 
 /* ═══ Init ═══ */
-export function initQuiz() {
+export function initQuiz({ resume = false } = {}) {
+  const savedProgress = resume ? quizProgress.read() : null;
   idx = 0;
-  answers = {};
+  answers = savedProgress?.answers || {};
   speed = 0;
   targetSpeed = 20;
   exiting = false;
@@ -263,7 +270,13 @@ export function initQuiz() {
   clock = new THREE.Timer();
   animId = requestAnimationFrame(loop);
 
-  showQuestion(0);
+  if (!resume) quizProgress.clear();
+  showQuestion(savedProgress?.questionIndex ?? 0);
+}
+
+/** Checks a hinted checkpoint against the same answer schema used on restore. */
+export function hasResumableQuiz() {
+  return !!quizProgress.read()
 }
 
 /* ═══ Three.js Setup ═══ */
@@ -1234,9 +1247,10 @@ function finishExit() {
          warten wir höchstens zwei Sekunden — danach entscheidet der eingebaute Katalog,
          statt den Nutzer vor einem leeren Bildschirm warten zu lassen. */
       Promise.race([ladeVollkatalog(), sleep(2000)])
-        .then(() => startDropAnimation(answers))
+        .then(() => { quizProgress.clear(); return startDropAnimation(answers) })
         .catch((err) => {
           console.error("[quiz] Katalog-Race fehlgeschlagen, starte trotzdem:", err);
+          quizProgress.clear();
           startDropAnimation(answers);
         });
     }, 400);
@@ -1260,6 +1274,7 @@ function formatSliderValue(value, q) {
 function showQuestion(i) {
   idx = i;
   currentQuestionIndex = i;
+  if (Object.keys(answers).length) quizProgress.save(i, answers);
   const q = questions[i];
   const container = document.getElementById("quiz-container");
   const progress = ((i + 1) / questions.length) * 100;
@@ -1387,19 +1402,43 @@ function showQuestion(i) {
     numberInput.addEventListener("change", anzeigeAngleichen);
     numberInput.addEventListener("blur", anzeigeAngleichen);
   } else {
-    if (answers[`q${q.id}`]) {
-      const pre = container.querySelector(
-        `[data-value="${answers[`q${q.id}`]}"]`,
-      );
-      if (pre) {
-        pre.classList.add("selected");
-        pre.setAttribute("aria-pressed", "true");
-      }
+    const stored = answers[`q${q.id}`];
+    if (stored) {
+      const selected = Array.isArray(stored) ? stored : [stored];
+      container.querySelectorAll(".opt-btn").forEach((button) => {
+        const active = selected.includes(button.dataset.value);
+        button.classList.toggle("selected", active);
+        button.setAttribute("aria-pressed", String(active));
+      });
       document.getElementById("next-btn").disabled = false;
     }
 
     container.querySelectorAll(".opt-btn").forEach((btn) => {
       btn.addEventListener("click", () => {
+        if (q.multiple) {
+          const key = `q${q.id}`;
+          const previous = answers[key];
+          let selected = Array.isArray(previous) ? [...previous]
+            : previous && previous !== "Egal" ? [previous] : [];
+          if (btn.dataset.value === "Egal") selected = ["Egal"];
+          else {
+            selected = selected.filter((value) => value !== "Egal");
+            selected = selected.includes(btn.dataset.value)
+              ? selected.filter((value) => value !== btn.dataset.value)
+              : [...selected, btn.dataset.value];
+          }
+          if (!selected.length) delete answers[key];
+          else answers[key] = selected.length === 1 ? selected[0] : selected;
+          container.querySelectorAll(".opt-btn").forEach((button) => {
+            const active = selected.includes(button.dataset.value);
+            button.classList.toggle("selected", active);
+            button.setAttribute("aria-pressed", String(active));
+          });
+          saveAnswers();
+          document.getElementById("next-btn").disabled = selected.length === 0;
+          pulseRpm();
+          return;
+        }
         container.querySelectorAll(".opt-btn").forEach((b) => {
           b.classList.remove("selected");
           b.setAttribute("aria-pressed", "false");

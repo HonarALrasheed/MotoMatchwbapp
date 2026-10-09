@@ -96,7 +96,32 @@ function aufAb(hoehen) {
 // ── Speicher ─────────────────────────────────────────────────────────────
 
 const lies = (k) => { try { return JSON.parse(localStorage.getItem(k) || '[]') } catch { return [] } }
-const schreib = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); return true } catch { return false } }
+function schreib(k, v) {
+  try { localStorage.setItem(k, JSON.stringify(v)); return true }
+  catch (error) {
+    if (error?.name === 'QuotaExceededError') throw new Error('Der Speicher deines Browsers ist voll. Die Änderung wurde nicht gespeichert.')
+    throw new Error('Der Browser-Speicher konnte nicht beschrieben werden. Die Änderung wurde nicht gespeichert.')
+  }
+}
+function listeZumSchreiben(k, name) {
+  try {
+    const roh = localStorage.getItem(k)
+    const liste = roh === null ? [] : JSON.parse(roh)
+    if (Array.isArray(liste)) {
+      const ids = new Set()
+      for (const eintrag of liste) {
+        if (!eintrag || typeof eintrag !== 'object' || Array.isArray(eintrag)
+          || typeof eintrag.id !== 'string' || !eintrag.id || ids.has(eintrag.id)
+          || (k === LS_STRECKEN && typeof eintrag.linie !== 'string')) throw new Error('Ungültige Liste')
+        ids.add(eintrag.id)
+      }
+      return liste
+    }
+  } catch {}
+  throw new Error(`${name} konnte nicht gelesen werden. Bestehende Daten wurden nicht verändert.`)
+}
+function fahrtenZumSchreiben() { return listeZumSchreiben(LS_RIDES, 'Das Fahrtenbuch') }
+function streckenZumSchreiben() { return listeZumSchreiben(LS_STRECKEN, 'Die Streckenliste') }
 
 /** Alle eigenen Strecken, neueste zuerst: { id, name, art, datum, pts, hoehen, sekunden }. */
 export function alleEigenen() {
@@ -121,42 +146,61 @@ export function findeEigene(id) {
 
 /** Strecke speichern (geplant/importiert/geteilt). Liefert die id. */
 export function speichereStrecke({ name, art, pts, hoehen = null, sekunden = null }) {
-  const liste = lies(LS_STRECKEN)
-  const id = `${art.slice(0, 3)}-${Date.now().toString(36)}`
+  const liste = streckenZumSchreiben()
+  let idZeit = Date.now()
+  let id = `${art.slice(0, 3)}-${idZeit.toString(36)}`
+  while (liste.some((s) => s.id === id)) {
+    idZeit++
+    id = `${art.slice(0, 3)}-${idZeit.toString(36)}`
+  }
   const dicht = ausduennen(pts, 4000)
   liste.unshift({
     id, name: (name || 'Meine Strecke').slice(0, 80), art, datum: Date.now(), linie: kodieren(dicht),
     hoehen: hoehen ? ausduennen(hoehen.map((h, i) => [h, i]), 4000).map((x) => x[0]) : null, sekunden,
   })
-  if (!schreib(LS_STRECKEN, liste)) throw new Error('Der Speicher deines Browsers ist voll — lösche ältere Strecken.')
+  schreib(LS_STRECKEN, liste)
   return id
 }
 
 /** Neue Fahrt (vom Recorder) ins Fahrtenbuch — dasselbe Format wie im Profil. */
 export function speichereFahrt(track, titel) {
-  const rides = lies(LS_RIDES)
-  const id = Date.now().toString(36)
+  const rides = fahrtenZumSchreiben()
+  const id = track.id || Date.now().toString(36)
+  const vorhanden = rides.find((r) => r.id === id)
+  if (vorhanden) {
+    if (track.id && vorhanden.track?.id === track.id) return `fahrt-${id}`
+    throw new Error('Diese Fahrt-ID ist bereits vergeben. Das Fahrtenbuch wurde nicht verändert.')
+  }
   rides.push({
     id, date: track.start || Date.now(), km: Math.round(track.km), hours: +(track.fahrMs / 3600000).toFixed(1),
     title: (titel || 'Aufgezeichnete Fahrt').slice(0, 80), notes: '', mood: null, accent: null, photo: null, track,
   })
-  if (!schreib(LS_RIDES, rides)) throw new Error('Der Speicher deines Browsers ist voll.')
+  schreib(LS_RIDES, rides)
   return `fahrt-${id}`
 }
 
 export function umbenennen(id, name) {
   const roh = id.replace(PRAEFIX, '')
   if (roh.startsWith('fahrt-')) {
-    const rides = lies(LS_RIDES).map((r) => (`fahrt-${r.id}` === roh ? { ...r, title: name } : r))
-    return schreib(LS_RIDES, rides)
+    const rides = fahrtenZumSchreiben()
+    if (!rides.some((r) => `fahrt-${r.id}` === roh)) return false
+    return schreib(LS_RIDES, rides.map((r) => (`fahrt-${r.id}` === roh ? { ...r, title: name } : r)))
   }
-  return schreib(LS_STRECKEN, lies(LS_STRECKEN).map((s) => (s.id === roh ? { ...s, name } : s)))
+  const strecken = streckenZumSchreiben()
+  if (!strecken.some((s) => s.id === roh)) return false
+  return schreib(LS_STRECKEN, strecken.map((s) => (s.id === roh ? { ...s, name } : s)))
 }
 
 export function loesche(id) {
   const roh = id.replace(PRAEFIX, '')
-  if (roh.startsWith('fahrt-')) return schreib(LS_RIDES, lies(LS_RIDES).filter((r) => `fahrt-${r.id}` !== roh))
-  return schreib(LS_STRECKEN, lies(LS_STRECKEN).filter((s) => s.id !== roh))
+  if (roh.startsWith('fahrt-')) {
+    const rides = fahrtenZumSchreiben()
+    if (!rides.some((r) => `fahrt-${r.id}` === roh)) return false
+    return schreib(LS_RIDES, rides.filter((r) => `fahrt-${r.id}` !== roh))
+  }
+  const strecken = streckenZumSchreiben()
+  if (!strecken.some((s) => s.id === roh)) return false
+  return schreib(LS_STRECKEN, strecken.filter((s) => s.id !== roh))
 }
 
 // ── In die Form der Touren bringen ───────────────────────────────────────
@@ -241,6 +285,11 @@ export function herunterladen(dateiname, inhalt, typ = 'application/gpx+xml') {
   a.click()
   a.remove()
   setTimeout(() => URL.revokeObjectURL(url), 2000)
+}
+
+/** Vollständige manuelle Sicherung, falls der Browser keine Fahrt speichern kann. */
+export function fahrtSichernAlsDatei(track) {
+  herunterladen(`motomatch-fahrt-${track.id || track.start}.json`, JSON.stringify({ format: 'motomatch-fahrt-v1', track }), 'application/json')
 }
 
 // ── Teilen per Link ──────────────────────────────────────────────────────

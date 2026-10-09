@@ -16,7 +16,12 @@
 import { haversineKm } from './karte.js'
 
 export class RoutingFehler extends Error {
-  constructor(code, message) { super(message); this.code = code }
+  constructor(code, message, { kind = code, status = null } = {}) {
+    super(message)
+    this.code = code
+    this.kind = kind
+    this.status = status
+  }
 }
 
 /** Kumulierte Meter entlang der Punkte. */
@@ -34,38 +39,106 @@ export function schritteAufLinie(schritte, kum, gesamtQuelle) {
 }
 
 const anfragen = new Map()
+const ROUTING_TIMEOUT_MS = 12_000
+const TIMEOUT_TEXT = 'Die Routenberechnung dauert zu lange. Bitte versuch es erneut.'
+const ABBRUCH_TEXT = 'Die Routenberechnung wurde abgebrochen.'
+const ANTWORT_TEXT = 'Der Routingdienst hat keine gültige Route geliefert.'
+
+function gueltigeAntwort(j) {
+  return j && typeof j === 'object' && Array.isArray(j.linie) && j.linie.length >= 2 &&
+    j.linie.every((p) => Array.isArray(p) && p.length >= 2 &&
+      Number.isFinite(p[0]) && p[0] >= -90 && p[0] <= 90 &&
+      Number.isFinite(p[1]) && p[1] >= -180 && p[1] <= 180 &&
+      (p[2] == null || Number.isFinite(p[2]))) &&
+    Array.isArray(j.schritte) && j.schritte.length > 0 &&
+    j.schritte.every((s) => Array.isArray(s) && s.length >= 5 &&
+      Number.isFinite(s[0]) && s[0] >= 0 &&
+      typeof s[1] === 'string' && typeof s[2] === 'string' && typeof s[3] === 'string' &&
+      (typeof s[4] === 'string' || Number.isFinite(s[4]))) &&
+    Number.isFinite(j.meter) && j.meter > 0 &&
+    Number.isFinite(j.sekunden) && j.sekunden >= 0 &&
+    Number.isFinite(j.auf) && j.auf >= 0 && Number.isFinite(j.ab) && j.ab >= 0
+}
+
+async function routingAnfrage(punkte, rundtour, signal) {
+  if (signal?.aborted) throw new RoutingFehler('abbruch', ABBRUCH_TEXT)
+  const controller = new AbortController()
+  let grund = null
+  let timer
+  let beiAbbruch
+  const frist = new Promise((_, reject) => {
+    timer = setTimeout(() => {
+      grund = 'timeout'
+      controller.abort()
+      reject(new RoutingFehler('timeout', TIMEOUT_TEXT))
+    }, ROUTING_TIMEOUT_MS)
+  })
+  const abbruch = signal && new Promise((_, reject) => {
+    beiAbbruch = () => {
+      grund = 'abbruch'
+      controller.abort()
+      reject(new RoutingFehler('abbruch', ABBRUCH_TEXT))
+    }
+    signal.addEventListener('abort', beiAbbruch, { once: true })
+    if (signal.aborted) beiAbbruch()
+  })
+  try {
+    const anfrage = (async () => {
+      const r = await fetch('/api/route', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ punkte: punkte.map(([la, ln]) => [+ln.toFixed(6), +la.toFixed(6)]), ...(rundtour ? { rundtour } : {}) }),
+        signal: controller.signal,
+      })
+      if (!r.ok) {
+        const j = await r.json().catch(() => ({}))
+        const code = typeof j?.error?.code === 'string' ? j.error.code : 'http'
+        const message = typeof j?.error?.message === 'string' ? j.error.message : `Die Route konnte nicht berechnet werden (HTTP ${r.status}).`
+        const kind = code === 'timeout' ? 'timeout' : code === 'aborted' ? 'abbruch' : code === 'invalid_response' ? 'validierung' : 'http'
+        throw new RoutingFehler(code, message, { kind, status: r.status })
+      }
+      let j
+      try { j = await r.json() }
+      catch (err) {
+        if (err?.name === 'SyntaxError') throw new RoutingFehler('invalid_response', ANTWORT_TEXT, { kind: 'validierung' })
+        throw err
+      }
+      if (!gueltigeAntwort(j)) throw new RoutingFehler('invalid_response', ANTWORT_TEXT, { kind: 'validierung' })
+      const pts = j.linie.map(([la, ln]) => [la, ln])
+      const kum = kumuliert(pts)
+      if (!(kum.at(-1) > 0)) throw new RoutingFehler('invalid_response', ANTWORT_TEXT, { kind: 'validierung' })
+      return {
+        pts, kum,
+        hoehen: j.linie.map((x) => x[2]),
+        schritte: schritteAufLinie(j.schritte, kum, j.meter),
+        meter: kum.at(-1), sekunden: j.sekunden, auf: j.auf, ab: j.ab,
+      }
+    })()
+    return await Promise.race([anfrage, frist, ...(abbruch ? [abbruch] : [])])
+  } catch (err) {
+    if (grund === 'timeout') throw new RoutingFehler('timeout', TIMEOUT_TEXT)
+    if (grund === 'abbruch' || err?.name === 'AbortError') throw new RoutingFehler('abbruch', ABBRUCH_TEXT)
+    if (err instanceof RoutingFehler) throw err
+    throw new RoutingFehler('offline', 'Keine Verbindung — die Route kann gerade nicht berechnet werden.', { kind: 'netzwerk' })
+  } finally {
+    clearTimeout(timer)
+    if (beiAbbruch) signal.removeEventListener('abort', beiAbbruch)
+  }
+}
 
 /**
  * Route zwischen Punkten ([[lat, lng], …], 2–50).
  * @returns {Promise<{pts, kum, schritte, hoehen, meter, sekunden, auf, ab}>}
  */
-export function route(punkte, { rundtour = null } = {}) {
+export function route(punkte, { rundtour = null, signal = null } = {}) {
   const schluessel = punkte.map((p) => `${p[0].toFixed(5)},${p[1].toFixed(5)}`).join(';') + (rundtour ? `|${rundtour.km}-${rundtour.seed}` : '')
+  // Aufrufe mit eigenem Abbruchsignal teilen keine Promise: ein Abbruch darf
+  // keine andere Ansicht mit demselben Ziel abbrechen.
+  if (signal) return routingAnfrage(punkte, rundtour, signal)
   if (anfragen.has(schluessel)) return anfragen.get(schluessel)
-  const p = (async () => {
-    let r
-    try {
-      r = await fetch('/api/route', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ punkte: punkte.map(([la, ln]) => [+ln.toFixed(6), +la.toFixed(6)]), ...(rundtour ? { rundtour } : {}) }),
-      })
-    } catch {
-      throw new RoutingFehler('offline', 'Keine Verbindung — die Route kann gerade nicht berechnet werden.')
-    }
-    const j = await r.json().catch(() => ({}))
-    if (!r.ok) throw new RoutingFehler(j.error?.code || 'fehler', j.error?.message || 'Die Route konnte nicht berechnet werden.')
-    const pts = j.linie.map(([la, ln]) => [la, ln])
-    const kum = kumuliert(pts)
-    return {
-      pts, kum,
-      hoehen: j.linie.map((x) => x[2]),
-      schritte: schritteAufLinie(j.schritte, kum, j.meter),
-      meter: kum[kum.length - 1], sekunden: j.sekunden, auf: j.auf, ab: j.ab,
-    }
-  })()
+  const p = routingAnfrage(punkte, rundtour, null)
   anfragen.set(schluessel, p)
-  p.catch(() => anfragen.delete(schluessel))
+  p.catch(() => { if (anfragen.get(schluessel) === p) anfragen.delete(schluessel) })
   if (anfragen.size > 60) anfragen.delete(anfragen.keys().next().value)
   return p
 }

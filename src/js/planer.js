@@ -130,6 +130,7 @@ function markerSetzen() {
     m.on('dragend', () => {
       const ll = m.getLngLat()
       plan.punkte[i] = [ll.lat, ll.lng]
+      vorschlagVerwerfen(plan)
       neuRechnen()
     })
     el.addEventListener('click', (e) => e.stopPropagation())
@@ -149,14 +150,42 @@ function einpassen(pts) {
 function merken() {
   const p = plan
   if (!p) return
-  p.verlauf.push({ punkte: p.punkte.map((x) => x.slice()), rund: p.rund, vorschlagVias: p.vorschlagVias, ergebnis: p.ergebnis })
+  p.verlauf.push({ punkte: p.punkte.map((x) => x.slice()), rund: p.rund, vorschlagVias: p.vorschlagVias, vorschlagKm: p.vorschlagKm, ergebnis: aktuellesErgebnis(p) })
   if (p.verlauf.length > 40) p.verlauf.shift()
+}
+
+function vorschlagVerwerfen(p) {
+  p.vorschlagVias = null
+  p.vorschlagKm = null
+}
+
+function planSignatur(p) {
+  const punkte = p.punkte.map(([lat, lng]) => [lat, lng])
+  if (p.rund && punkte.length === 1 && p.vorschlagKm != null) return JSON.stringify([punkte, 'vorschlag', p.vorschlagKm])
+  return JSON.stringify([punkte, p.rund, p.vorschlagVias, p.vorschlagVias && punkte.length === 1 ? null : p.modus])
+}
+
+function aktuellesErgebnis(p) {
+  return p?.ergebnis && p.ergebnisSignatur === planSignatur(p) ? p.ergebnis : null
+}
+
+function neueBerechnung(p) {
+  const lauf = ++p.lauf
+  p.abbruch?.abort()
+  p.abbruch = null
+  p.fehler = null
+  if (!aktuellesErgebnis(p)) zeichneLinie(null)
+  return lauf
+}
+
+function gueltigerLauf(p, lauf, signatur, controller) {
+  return plan === p && p.lauf === lauf && planSignatur(p) === signatur && !controller.signal.aborted
 }
 
 /** Punkt an der richtigen Stelle einfügen: zwischen die Wegpunkte, auf deren Abschnitt er liegt. */
 function einfuegen(lat, lng) {
   const p = plan
-  const r = p.ergebnis
+  const r = aktuellesErgebnis(p)
   if (!r || p.punkte.length < 2) { p.punkte.push([lat, lng]); return }
   const ort = naechster(r, lat, lng).index
   const lage = p.punkte.map((pt) => naechster(r, pt[0], pt[1]).index)
@@ -170,12 +199,15 @@ function einfuegen(lat, lng) {
 async function neuRechnen() {
   const p = plan
   if (!p) return
+  const lauf = neueBerechnung(p)
+  const signatur = planSignatur(p)
   markerSetzen()
   renderInfo()
   const kette = p.rund && p.punkte.length > 1 ? [...p.punkte, p.punkte[0]] : p.punkte
   const vorschlag = p.vorschlagVias && p.punkte.length === 1
-  if (!vorschlag && kette.length < 2) { p.ergebnis = null; p.rechnet = false; zeichneLinie(null); renderInfo(); return }
-  const lauf = ++p.lauf
+  if (!vorschlag && kette.length < 2) { p.rechnet = false; renderInfo(); return }
+  const controller = new AbortController()
+  p.abbruch = controller
   p.rechnet = true
   renderInfo()
   try {
@@ -185,21 +217,26 @@ async function neuRechnen() {
       wegpunkte = [kette[0]]
       for (let i = 1; i < kette.length; i++) {
         const vias = await kurvigeVias(kette[i - 1], kette[i])
+        if (!gueltigerLauf(p, lauf, signatur, controller)) return
         wegpunkte.push(...vias, kette[i])
       }
     }
     if (wegpunkte.length > MAX_PUNKTE) wegpunkte = [wegpunkte[0], ...wegpunkte.slice(1, -1).filter((_, i, arr) => i % Math.ceil(arr.length / (MAX_PUNKTE - 2)) === 0), wegpunkte[wegpunkte.length - 1]]
-    if (wegpunkte.length < 2) { p.rechnet = false; renderInfo(); return }
-    const r = await route(wegpunkte)
-    if (plan !== p || lauf !== p.lauf) return
+    if (!gueltigerLauf(p, lauf, signatur, controller)) return
+    if (wegpunkte.length < 2) return
+    const r = await route(wegpunkte, { signal: controller.signal })
+    if (!gueltigerLauf(p, lauf, signatur, controller)) return
     p.ergebnis = r
+    p.ergebnisSignatur = signatur
     p.fehler = null
     zeichneLinie(r.pts)
     if (p.einpassen) { p.einpassen = false; einpassen(r.pts) }
   } catch (err) {
-    if (plan !== p || lauf !== p.lauf) return
-    p.fehler = err instanceof RoutingFehler ? err.message : 'Die Route konnte nicht berechnet werden.'
+    if (!gueltigerLauf(p, lauf, signatur, controller)) return
+    if (!(err instanceof RoutingFehler && err.kind === 'abbruch'))
+      p.fehler = err instanceof RoutingFehler ? err.message : 'Die Route konnte nicht berechnet werden.'
   } finally {
+    if (p.abbruch === controller) p.abbruch = null
     if (plan === p && lauf === p.lauf) { p.rechnet = false; renderInfo() }
   }
 }
@@ -226,7 +263,7 @@ const PI = {
 function renderInfo() {
   const p = plan, el = document.getElementById('plan-info')
   if (!p || !el) return
-  const r = p.ergebnis
+  const r = aktuellesErgebnis(p)
   const nPunkte = p.punkte.length
   // Werkzeuge im Kopf aktuell halten (Punkte kommen auch über die Karte dazu)
   const undo = box()?.querySelector('[data-plan="zurueck"]')
@@ -316,27 +353,28 @@ function aufKarteGetippt(e) {
   if (p.punkte.length >= 25) return
   if (p.ziehtGerade) return
   merken()
-  p.vorschlagVias = null
+  vorschlagVerwerfen(p)
   if (p.startFehlt) { p.startFehlt = false; p.fehler = null; p.punkte.unshift([e.lngLat.lat, e.lngLat.lng]); p.einpassen = true }
   else p.punkte.push([e.lngLat.lat, e.lngLat.lng])
   if (p.punkte.length === 1) renderPanel()
   neuRechnen()
 }
 
-async function speichern(name) {
-  const p = plan
-  const r = p.ergebnis
+function speichern(name, p, r) {
+  if (plan !== p || aktuellesErgebnis(p) !== r || !r) throw new Error('Die Route ist nicht mehr aktuell. Bitte berechne sie erneut.')
   return speichereStrecke({ name, art: 'geplant', pts: r.pts, hoehen: r.hoehen, sekunden: r.sekunden * (p.modus === 'kurvig' ? 1.1 : 1) })
 }
 
-function standardName() {
-  const r = plan.ergebnis
-  return `${plan.modus === 'kurvig' ? 'Kurvige ' : ''}${plan.rund ? 'Runde' : 'Strecke'} · ${km1(r.meter)} km`
+function standardName(p, r) {
+  return `${p.modus === 'kurvig' ? 'Kurvige ' : ''}${p.rund ? 'Runde' : 'Strecke'} · ${km1(r.meter)} km`
 }
 
 function schliessen(nach = null) {
   const p = plan
   if (!p) return
+  p.lauf++
+  p.abbruch?.abort()
+  p.abbruch = null
   plan = null
   p.marker.forEach((m) => m.remove())
   zeichneLinie(null)
@@ -360,7 +398,7 @@ export async function planerOeffnen({ fertig, ziel = null } = {}) {
   const { tourenKarteLeeren } = await import('./touren.js')
   tourenKarteLeeren()
   ebene(map)
-  plan = { punkte: [], marker: [], modus: 'kurvig', rund: false, ergebnis: null, rechnet: false, lauf: 0, fertig, vorschlagVias: null, fehler: null, verlauf: [] }
+  plan = { punkte: [], marker: [], modus: 'kurvig', rund: false, ergebnis: null, ergebnisSignatur: null, rechnet: false, lauf: 0, abbruch: null, fertig, vorschlagVias: null, vorschlagKm: null, fehler: null, verlauf: [] }
   plan.klick = aufKarteGetippt
   map.on('click', plan.klick)
   map.getCanvas().classList.add('plan-aktiv')
@@ -420,7 +458,7 @@ async function planSuche(e) {
   if (plan !== p) return
   if (!ort.ok) { feld.setCustomValidity('Ort nicht gefunden'); feld.reportValidity(); setTimeout(() => feld.setCustomValidity(''), 1500); return }
   merken()
-  p.vorschlagVias = null
+  vorschlagVerwerfen(p)
   // Gesuchter Name bleibt am Punkt (3. Feld) — die Liste zeigt dann "Titisee" statt "Zwischenpunkt 2"
   p.punkte.push([ort.lat, ort.lng, ort.label || text])
   feld.value = ''
@@ -438,7 +476,7 @@ function linieZiehenAn(map) {
   let geist = null
   const start = (e) => {
     const p = plan
-    if (!p?.ergebnis || e.originalEvent?.button > 0) return
+    if (!aktuellesErgebnis(p) || e.originalEvent?.button > 0) return
     e.preventDefault()
     p.ziehtGerade = true
     map.dragPan.disable()
@@ -455,7 +493,7 @@ function linieZiehenAn(map) {
       setTimeout(() => { if (plan) plan.ziehtGerade = false }, 50)
       if (plan !== p) return
       merken()
-      p.vorschlagVias = null
+      vorschlagVerwerfen(p)
       einfuegen(ll.lat, ll.lng)
       renderPanel()
       neuRechnen()
@@ -482,44 +520,58 @@ async function planKlick(e) {
     return
   }
   const rund = t.closest('[data-plan-rund]')
-  if (rund) { merken(); p.rund = rund.dataset.planRund === '1'; p.vorschlagVias = null; renderPanel(); neuRechnen(); return }
+  if (rund) { merken(); p.rund = rund.dataset.planRund === '1'; vorschlagVerwerfen(p); renderPanel(); neuRechnen(); return }
   const weg = t.closest('[data-plan-weg]')
-  if (weg) { merken(); p.punkte.splice(+weg.dataset.planWeg, 1); p.vorschlagVias = null; if (!p.punkte.length) p.ergebnis = null; renderPanel(); neuRechnen(); return }
+  if (weg) { merken(); p.punkte.splice(+weg.dataset.planWeg, 1); vorschlagVerwerfen(p); if (!p.punkte.length) p.ergebnis = null; renderPanel(); neuRechnen(); return }
   const km = t.closest('[data-vorschlag-km]')
   if (km && p.punkte.length) {
     document.getElementById('plan-vorschlag').hidden = true
+    const ziel = +km.dataset.vorschlagKm
     p.punkte = [p.punkte[0]]
     p.rund = true
+    p.vorschlagVias = null
+    p.vorschlagKm = ziel
+    const lauf = neueBerechnung(p)
+    const signatur = planSignatur(p)
+    const controller = new AbortController()
+    p.abbruch = controller
     p.rechnet = true
     renderPanel()
     try {
       // Sechs Rundtouren mit verschiedenem Zufallsstart rechnen lassen und die
       // kurvigste nehmen, deren Länge passt. ORS baut echte Runden ohne Stichwege,
       // die Kurvigkeit messen wir selbst (wie bei den Touren).
-      const ziel = +km.dataset.vorschlagKm
       const start = p.punkte[0]
       // ORS plant die Länge über ein Vieleck aus Luftlinien; auf kurvigen Straßen wird die Runde
       // deutlich länger (im Schwarzwald gemessen: Faktor ~1,5)
       const anfrage = Math.round(ziel / 1.5)
-      const ergebnisse = (await Promise.all([1, 2, 3, 4, 5, 6].map((seed) => route([start], { rundtour: { km: anfrage, seed } }).catch(() => null)))).filter(Boolean)
-      if (plan !== p) return
+      const kandidaten = await Promise.allSettled([1, 2, 3, 4, 5, 6].map((seed) => route([start], { rundtour: { km: anfrage, seed }, signal: controller.signal })))
+      if (!gueltigerLauf(p, lauf, signatur, controller)) return
+      const ergebnisse = kandidaten.filter((x) => x.status === 'fulfilled').map((x) => x.value)
       const bewertet = ergebnisse.map((r) => {
         const abw = Math.abs(r.meter / 1000 - ziel) / ziel
         return { r, kurven: kurvigkeit(r.pts), abw }
       }).sort((x, y) => (y.kurven * (1 - Math.min(0.9, y.abw))) - (x.kurven * (1 - Math.min(0.9, x.abw))))
-      if (!bewertet.length) { p.fehler = 'Für diesen Start ließ sich keine Rundtour berechnen — setz die Punkte selbst.'; p.rechnet = false; renderInfo(); return }
+      if (!bewertet.length) {
+        const fehler = kandidaten.find((x) => x.status === 'rejected' && x.reason instanceof RoutingFehler && x.reason.kind !== 'abbruch')?.reason
+        p.fehler = fehler?.message || 'Für diesen Start ließ sich keine Rundtour berechnen — setz die Punkte selbst.'
+        return
+      }
       const best = bewertet[0].r
-      p.lauf++
       p.vorschlagVias = []
       p.ergebnis = best
-            p.rund = true
-      p.rechnet = false
+      p.ergebnisSignatur = signatur
       p.fehler = null
       p.einpassen = true
       renderPanel()
       zeichneLinie(best.pts)
       einpassen(best.pts)
-    } catch { p.rechnet = false; renderInfo() }
+    } catch (err) {
+      if (gueltigerLauf(p, lauf, signatur, controller)) p.fehler = err instanceof RoutingFehler ? err.message : 'Die Rundtour konnte nicht berechnet werden.'
+    } finally {
+      if (p.abbruch === controller) p.abbruch = null
+      if (plan === p && p.lauf === lauf) { p.rechnet = false; renderInfo() }
+    }
     return
   }
   const a = t.closest('[data-plan]')
@@ -528,32 +580,36 @@ async function planKlick(e) {
   if (was === 'schliessen') schliessen()
   if (was === 'zurueck' && p.verlauf.length) {
     const alt = p.verlauf.pop()
-    Object.assign(p, { punkte: alt.punkte, rund: alt.rund, vorschlagVias: alt.vorschlagVias })
+    Object.assign(p, { punkte: alt.punkte, rund: alt.rund, vorschlagVias: alt.vorschlagVias, vorschlagKm: alt.vorschlagKm })
+    if (alt.ergebnis && alt.vorschlagVias) neueBerechnung(p)
     renderPanel()
-    if (alt.ergebnis && alt.vorschlagVias) { p.ergebnis = alt.ergebnis; zeichneLinie(alt.ergebnis.pts); markerSetzen(); renderInfo() } else neuRechnen()
+    if (alt.ergebnis && alt.vorschlagVias) { p.ergebnis = alt.ergebnis; p.ergebnisSignatur = planSignatur(p); p.rechnet = false; zeichneLinie(alt.ergebnis.pts); markerSetzen(); renderInfo() } else neuRechnen()
     return
   }
-  if (was === 'leeren') { merken(); p.punkte = []; p.ergebnis = null; p.vorschlagVias = null; renderPanel(); neuRechnen() }
+  if (was === 'leeren') { merken(); p.punkte = []; p.ergebnis = null; vorschlagVerwerfen(p); renderPanel(); neuRechnen() }
   if (was === 'vorschlag') { const v = document.getElementById('plan-vorschlag'); v.hidden = !v.hidden }
   if (was === 'standort') {
     const u = getUserCoords()
-    const setze = (lat, lng) => { p.punkte.unshift([lat, lng]); p.vorschlagVias = null; renderPanel(); neuRechnen(); getHubMap()?.flyTo({ center: [lng, lat], zoom: Math.max(getHubMap().getZoom(), 10) }) }
+    const setze = (lat, lng) => { if (plan !== p) return; p.punkte.unshift([lat, lng]); vorschlagVerwerfen(p); renderPanel(); neuRechnen(); getHubMap()?.flyTo({ center: [lng, lat], zoom: Math.max(getHubMap().getZoom(), 10) }) }
     if (u.lat != null) setze(u.lat, u.lng)
     else navigator.geolocation?.getCurrentPosition((pos) => setze(pos.coords.latitude, pos.coords.longitude), () => hinweisen('Standort nicht verfügbar', 'Tippe den Start einfach auf der Karte an.'), { enableHighAccuracy: true, timeout: 12000 })
   }
-  if (was === 'speichern' && p.ergebnis) {
-    const name = await eingeben('Name der Strecke', standardName())
+  if (was === 'speichern' && aktuellesErgebnis(p)) {
+    const r = aktuellesErgebnis(p), lauf = p.lauf
+    const name = await eingeben('Name der Strecke', standardName(p, r))
     if (name == null) return
+    if (plan !== p || p.lauf !== lauf || aktuellesErgebnis(p) !== r) { hinweisen('Nicht gespeichert', 'Die Route hat sich geändert. Bitte prüfe sie erneut.'); return }
     try {
-      const id = await speichern(name.trim() || standardName())
+      const id = speichern(name.trim() || standardName(p, r), p, r)
       schliessen(() => p.fertig?.(PRAEFIX + id))
     } catch (err) { hinweisen('Nicht gespeichert', err.message) }
   }
-  if (was === 'fahren' && p.ergebnis) {
+  if (was === 'fahren' && aktuellesErgebnis(p)) {
+    const r = aktuellesErgebnis(p)
     try {
-      const id = await speichern(standardName())
-      const r = p.ergebnis
-      const tour = alsTour({ id, name: standardName(), art: 'geplant', datum: Date.now(), pts: r.pts, hoehen: r.hoehen, sekunden: r.sekunden })
+      const name = standardName(p, r)
+      const id = speichern(name, p, r)
+      const tour = alsTour({ id, name, art: 'geplant', datum: Date.now(), pts: r.pts, hoehen: r.hoehen, sekunden: r.sekunden })
       const d = { pts: r.pts, kum: r.kum, schritte: r.schritte, profil: profilAus(r.pts, r.hoehen) }
       schliessen(() => {})
       const { fahrtVorbereiten } = await import('./tour-fahren.js')

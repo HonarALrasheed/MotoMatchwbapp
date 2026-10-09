@@ -4,5 +4,16 @@
 # tools/ ist die Bildwerkstatt (Pressefotos, gerechnete Bilder, Archiv — mehrere GB). Die Website braucht davon
 # nichts; fertige Bilder kommen erst beim Einbau nach public/.
 tools/
+.env*
+dist/
+docs/
+tests/
+supabase/
+videos/
+AUDIT-*.md
+BACKLOG.md
+CLAUDE.md
+.claude/
+.github/
 # macOS-Begleitdateien auf diesem Laufwerk (exFAT) — ohne Inhalt für die Website
 ._*

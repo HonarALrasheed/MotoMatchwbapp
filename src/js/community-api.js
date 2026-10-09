@@ -1152,8 +1152,8 @@ export async function setMyProfile(data) {
   // frühere zweite Versuch ohne die Spalte konnte ein gespeichertes Profil
   // melden, dessen Bild nie ankam — jetzt scheitert der Aufruf sichtbar.
   return write('setMyProfile',
-    () => supabase.from('profiles').update(dbPatch).eq('id', _myUid),
-    rollback)
+    () => supabase.from('profiles').update(dbPatch).eq('id', _myUid).select('id'),
+    rollback, { expectRows: true })
 }
 
 /* ══════════════════════════════════════════════════════════════════

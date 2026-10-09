@@ -39,6 +39,7 @@ const katalog = JSON.parse(readFileSync(join(WURZEL, "public/data/katalog-de.jso
 const bikes = katalog.bikes;
 setCatalog(bikes);
 const STAND = katalog.stand || "";
+const KATALOG_STAND = /^\d{4}-\d{2}-\d{2}$/.test(STAND) ? STAND : null;
 
 // ── Helfer ─────────────────────────────────────────────────────────────────
 
@@ -282,8 +283,11 @@ const BEREICHE = [
   ["Ratgeber", "/ratgeber/", (p) => p.startsWith("/ratgeber/")],
 ];
 
-function kopf({ titel, beschreibung, pfad, bild, krumen, ld: extraLd = [] }) {
-  const og = bild ? url(bild) : url("/bikes/sportbikes_trio.webp");
+function kopf({ titel, beschreibung, pfad, bild, bildAlt, krumen, ld: extraLd = [] }) {
+  // Ohne passendes Foto kein fremdes Motorrad als Vorschau ausgeben. `undefined` ist für
+  // Übersichtsseiten mit relevanter Katalog-Collage reserviert; `null` bedeutet bewusst kein Bild.
+  const og = bild ? url(bild) : bild === undefined ? url("/bikes/sportbikes_trio.webp") : null;
+  const ogAlt = bildAlt || (bild === undefined ? "Motorräder aus dem MotoMatch-Katalog" : null);
   const ld = {
     "@context": "https://schema.org", "@type": "BreadcrumbList",
     itemListElement: krumen.map(([name, p], i) => ({ "@type": "ListItem", position: i + 1, name, item: url(p) })),
@@ -301,6 +305,9 @@ function kopf({ titel, beschreibung, pfad, bild, krumen, ld: extraLd = [] }) {
   <link rel="canonical" href="${url(pfad)}" />
   <link rel="icon" href="/favicon.ico" sizes="32x32" />
   <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+  <link rel="icon" type="image/png" href="/icon-192.png" sizes="192x192" />
+  <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+  <link rel="manifest" href="/manifest.webmanifest" />
   <meta name="theme-color" content="#0a0a0a" />
   <meta property="og:type" content="website" />
   <meta property="og:site_name" content="MotoMatch" />
@@ -308,8 +315,11 @@ function kopf({ titel, beschreibung, pfad, bild, krumen, ld: extraLd = [] }) {
   <meta property="og:url" content="${url(pfad)}" />
   <meta property="og:title" content="${esc(titel)}" />
   <meta property="og:description" content="${esc(beschreibung)}" />
-  <meta property="og:image" content="${og}" />
+  ${og ? `<meta property="og:image" content="${og}" />${ogAlt ? `\n  <meta property="og:image:alt" content="${esc(ogAlt)}" />` : ""}` : ""}
   <meta name="twitter:card" content="summary_large_image" />
+  <meta name="twitter:title" content="${esc(titel)}" />
+  <meta name="twitter:description" content="${esc(beschreibung)}" />
+  ${og ? `<meta name="twitter:image" content="${og}" />${ogAlt ? `\n  <meta name="twitter:image:alt" content="${esc(ogAlt)}" />` : ""}` : ""}
   <link rel="stylesheet" href="/seo.css" />
   <!-- Vercel Web Analytics wie in der App (src/main.js): ohne Cookies, ohne gespeicherte Kennung,
        daher ohne Einwilligungsbanner. Ohne diese Zeile zählten die Katalogseiten nicht mit — genau
@@ -499,7 +509,11 @@ for (const t of themen) {
   const fragen = themaFragen(t);
   const liste = { "@context": "https://schema.org", "@type": "ItemList", name: t.h1, numberOfItems: t.liste.length,
     itemListElement: t.liste.slice(0, 30).map((b, i) => ({ "@type": "ListItem", position: i + 1, name: b.name, url: url(bikePfad.get(b)) })) };
-  schreibe(t.pfad, kopf({ titel: t.titel, beschreibung, pfad: t.pfad, krumen, bild: hatFoto(t.liste[0]) ? bikeBild(t.liste[0], "titel") : null, ld: [liste, ...faqLd(fragen)] }) + `
+  const titelBild = t.liste.find(hatFoto) || null;
+  schreibe(t.pfad, kopf({ titel: t.titel, beschreibung, pfad: t.pfad, krumen,
+    bild: titelBild ? bikeBild(titelBild, "titel") : null,
+    bildAlt: titelBild ? altText(titelBild, "titel") : null,
+    ld: [liste, ...faqLd(fragen)] }) + `
     <h1>${esc(t.h1)}</h1>
     <p class="intro">${esc(t.intro)}</p>
     ${t.mehr ? `<p class="intro zwei">${esc(t.mehr)}</p>` : ""}
@@ -610,7 +624,11 @@ for (const b of bikes) {
   const seitenTitel = b.priceNew
     ? `${b.name}: Neupreis, Gebrauchtpreis & technische Daten`
     : `${b.name} gebraucht: Preis, technische Daten & Führerschein`;
-  schreibe(pfad, kopf({ titel: seitenTitel, beschreibung, pfad, krumen, bild: hatFoto(b) ? bikeBild(b, "titel") : null, ld: [motorrad, ...faqLd(fragen)] }) + `
+  const hatTitelbild = hatFoto(b);
+  schreibe(pfad, kopf({ titel: seitenTitel, beschreibung, pfad, krumen,
+    bild: hatTitelbild ? bikeBild(b, "titel") : null,
+    bildAlt: hatTitelbild ? altText(b, "titel") : null,
+    ld: [motorrad, ...faqLd(fragen)] }) + `
     <article class="bike">
       <h1>${esc(b.name)}</h1>
       <figure><img src="${esc(bikeBild(b, "titel"))}" alt="${esc(altText(b, "titel"))}" width="1600" height="437" fetchpriority="high" />${hatFoto(b) ? "" : "<figcaption>Foto folgt</figcaption>"}</figure>
@@ -692,7 +710,13 @@ for (const v of vergleiche) {
   const beschreibung = `${a.name} oder ${b.name}? Preis (${preisText(a)} vs. ${preisText(b)}), Leistung, Gewicht, Sitzhöhe und Führerschein im direkten Vergleich.`;
   const weitere = [...(vergleicheVon.get(a) || []), ...(vergleicheVon.get(b) || [])].filter((x) => x !== v).slice(0, 8);
 
-  schreibe(v.pfad, kopf({ titel: `${a.name} vs. ${b.name}: Unterschied bei Preis, PS & Gewicht`, beschreibung, pfad: v.pfad, krumen, bild: hatFoto(a) ? bikeBild(a, "titel") : null }) + `
+  const vergleichsbildBike = hatFoto(a) ? a : hatFoto(b) ? b : null;
+  const vergleichsbildPartner = vergleichsbildBike === a ? b : a;
+  const bildAlt = vergleichsbildBike
+    ? `${altText(vergleichsbildBike, "titel")} — Motorradvergleich mit ${vergleichsbildPartner.name}`
+    : null;
+  schreibe(v.pfad, kopf({ titel: `${a.name} vs. ${b.name}: Unterschied bei Preis, PS & Gewicht`, beschreibung, pfad: v.pfad, krumen,
+    bild: vergleichsbildBike ? bikeBild(vergleichsbildBike, "titel") : null, bildAlt }) + `
     <h1>${esc(a.name)} vs. ${esc(b.name)}</h1>
     <p class="intro">${esc(a.name)} oder ${esc(b.name)}? Zwei ${esc(STIL[a.style]?.mehrzahl || a.style)} im direkten Vergleich — mit Gebrauchtpreis, Technik und Führerschein.</p>
     <div class="vs">${[a, b].map((x) => `<a href="${bikePfad.get(x)}"><img src="${esc(bikeBild(x, "kachel"))}" alt="${esc(altText(x, "kachel"))}" width="420" height="300" /><strong>${esc(x.name)}</strong><span class="preis">${preisText(x)}</span></a>`).join("")}</div>
@@ -731,12 +755,15 @@ for (const r of ratgeber) {
   const woerter = inhalt.replace(/<[^>]+>/g, " ").split(/\s+/).filter(Boolean).length;
   const krumen = [["Start", "/"], ["Ratgeber", "/ratgeber/"], [r.h1, r.pfad]];
   const bild = heldBild(r.held);
+  const bildAlt = r.held && hatFoto(r.held) ? altText(r.held, "studio") : null;
+  const dateModified = KATALOG_STAND && KATALOG_STAND > RATGEBER_DATUM ? KATALOG_STAND : RATGEBER_DATUM;
   const ld = { "@context": "https://schema.org", "@type": "Article", headline: r.titel.slice(0, 110), description: r.beschreibung,
-    datePublished: RATGEBER_DATUM, dateModified: STAND || RATGEBER_DATUM, inLanguage: "de-DE", mainEntityOfPage: url(r.pfad),
+    datePublished: RATGEBER_DATUM, dateModified, inLanguage: "de-DE", mainEntityOfPage: url(r.pfad),
     image: bild ? url(bild) : undefined,
     author: { "@type": "Organization", name: "MotoMatch", url: BASIS }, publisher: { "@type": "Organization", name: "MotoMatch", url: BASIS } };
   const verzeichnis = kapitel.length > 2 ? `<nav class="r-inhalt" aria-label="Inhalt"><strong>Inhalt</strong><ol>${kapitel.map(([id, t]) => `<li><a href="#${id}">${t}</a></li>`).join("")}</ol></nav>` : "";
-  schreibe(r.pfad, kopf({ titel: r.titel, beschreibung: r.beschreibung, pfad: r.pfad, krumen, bild, ld: [ld] }) + `
+  schreibe(r.pfad, kopf({ titel: r.titel, beschreibung: r.beschreibung, pfad: r.pfad, krumen,
+    bild: bild && r.held && !hatFoto(r.held) ? null : bild, bildAlt, ld: [ld] }) + `
     <header class="r-held">
       ${bild ? `<img src="${esc(bild)}" alt="${esc(altText(r.held, "studio"))}" width="1280" height="960" fetchpriority="high" />` : ""}
       <div class="r-held-text">
@@ -979,9 +1006,16 @@ ${gruppe("Marke")}
 `);
 }
 
-/* lastmod = Stand des Katalogs, nicht das Build-Datum: Wer bei jedem Deploy "heute" meldet,
-   dem glaubt Google das Datum nicht mehr und ignoriert es (Search Console, 2026-10-05). */
-const heute = /^\d{4}-\d{2}-\d{2}$/.test(STAND) ? STAND : new Date().toISOString().slice(0, 10);
+/* lastmod beschreibt die Datenquelle der jeweiligen Seite. Nie das Build-Datum einsetzen.
+   Für die Startseite gibt es keinen verlässlichen Änderungszeitpunkt, daher wird lastmod dort
+   weggelassen; Ratgeber verwenden mindestens ihr belegtes Veröffentlichungsdatum. */
+const letzterStand = (pfad) => {
+  if (pfad === "/") return null;
+  if (pfad === "/ratgeber/" || pfad.startsWith("/ratgeber/")) {
+    return KATALOG_STAND && KATALOG_STAND > RATGEBER_DATUM ? KATALOG_STAND : RATGEBER_DATUM;
+  }
+  return KATALOG_STAND;
+};
 const adressen = ["/", "/motorraeder/", "/vergleich/", "/ratgeber/", ...ratgeber.map((r) => r.pfad), ...themen.map((t) => t.pfad), ...bikes.map((b) => bikePfad.get(b)), ...vergleiche.map((v) => v.pfad)];
 /* Bild-Sitemap (Google-Erweiterung): die echten Fotos je Bike-Seite, damit sie in der Bildersuche
    erscheinen. Nur echte Fotos — Platzhalter-Silhouetten gehören nicht in die Bildersuche. */
@@ -993,7 +1027,7 @@ for (const b of bikes) {
 }
 writeFileSync(join(DIST, "sitemap.xml"), `<?xml version="1.0" encoding="UTF-8"?>
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9" xmlns:image="http://www.google.com/schemas/sitemap-image/1.1">
-${adressen.map((p) => `  <url><loc>${url(p)}</loc><lastmod>${heute}</lastmod>${(bilderJeSeite.get(p) || [])
+${adressen.map((p) => `  <url><loc>${url(p)}</loc>${letzterStand(p) ? `<lastmod>${letzterStand(p)}</lastmod>` : ""}${(bilderJeSeite.get(p) || [])
     .map((bild) => `<image:image><image:loc>${esc(url(bild))}</image:loc></image:image>`).join("")}</url>`).join("\n")}
 </urlset>
 `);

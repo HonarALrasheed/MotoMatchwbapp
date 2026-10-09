@@ -26,10 +26,5 @@
         { "key": "Permissions-Policy", "value": "camera=(), microphone=(self), geolocation=(self), display-capture=(self), payment=(), usb=(), browsing-topics=()" }
       ]
     }
-  ],
-  "git": {
-    "deploymentEnabled": {
-      "codex/seo-foundation-production-release-20261009": false
-    }
-  }
+  ]
 }

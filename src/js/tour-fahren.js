@@ -20,11 +20,14 @@ import { esc } from './util.js'
 import { hinweisen, fragen } from './meldung.js'
 import { getHubMap, getMapLib, haversineKm, getUserCoords } from './karte.js'
 import { wetterEntlang, wetterWarnung, wetterSymbol } from './wetter.js'
-import { starteAufzeichnung } from './ride-tracker.js'
+import { starteAufzeichnung, bestaetigeGespeicherteFahrt, ladeUnterbrocheneAufzeichnung, verwerfeGesicherteAufzeichnung } from './ride-tracker.js'
 import { sage, verstummen, manoever, stimmeEntsperren, wartetAufDich, wartetSetzen, PERSONA } from './stimme.js'
 
 const LS_MITSCHNEIDEN = 'mm_fahrt_aufzeichnen_v1'
 const mitschneidenGemerkt = () => { try { return localStorage.getItem(LS_MITSCHNEIDEN) !== '0' } catch { return true } }
+const NAV_KEY = 'mm_navigation_active_v1'
+const NAV_ALTER_MS = 12 * 60 * 60_000
+const NAV_MAX_ZEICHEN = 1_000_000
 import { route, naechster, teil, verbinde, rundAb, kumuliert, stuetzpunkte, punktBei, kursBei, projiziere, RoutingFehler } from './routing.js'
 
 const ABSEITS_M = 60 // ab hier gilt man als neben der Strecke
@@ -35,6 +38,72 @@ let fahrt = null
 let vorbereitung = null
 
 const sim = () => { try { return localStorage.getItem('mm_sim_fahrt') === '1' } catch { return false } }
+
+function gueltigeNavigationssitzung(s) {
+  const d = s?.strecke, t = s?.tour, i = s?.info, jetzt = Date.now()
+  if (s?.version !== 1 || !Number.isFinite(s.zeit) || s.zeit > jetzt + 60_000 || jetzt - s.zeit > NAV_ALTER_MS ||
+      !t || typeof t.name !== 'string' || !t.name.trim() || t.name.length > 200 ||
+      !d || !Array.isArray(d.pts) || d.pts.length < 2 || d.pts.length > 20_000 ||
+      !Array.isArray(d.kum) || d.kum.length !== d.pts.length ||
+      !Array.isArray(d.schritte) || !d.schritte.length || !i) return false
+  if (!d.pts.every((p) => Array.isArray(p) && p.length === 2 && Number.isFinite(p[0]) && Math.abs(p[0]) <= 90 && Number.isFinite(p[1]) && Math.abs(p[1]) <= 180) ||
+      !d.pts.some((p) => p[0] !== d.pts[0][0] || p[1] !== d.pts[0][1])) return false
+  if (d.kum[0] !== 0 || !d.kum.every((m, n) => Number.isFinite(m) && m >= 0 && (n === 0 || m >= d.kum[n - 1])) || d.kum.at(-1) <= 0) return false
+  const linienMeter = kumuliert(d.pts).at(-1)
+  if (!Number.isFinite(linienMeter) || Math.abs(linienMeter - d.kum.at(-1)) > Math.max(100, linienMeter * 0.15)) return false
+  if (!d.schritte.every((s, n) => Array.isArray(s) && s.length >= 5 && Number.isFinite(s[0]) && s[0] >= 0 && s[0] <= d.kum.at(-1) + 1000 &&
+      (n === 0 || s[0] >= d.schritte[n - 1][0]) &&
+      typeof s[1] === 'string' && s[1] && typeof s[2] === 'string' && typeof s[3] === 'string' &&
+      (typeof s[4] === 'string' || Number.isFinite(s[4]))) || d.schritte.at(-1)[1] !== 'arrive') return false
+  return ['anfahrtM', 'anfahrtSek', 'tourMinJeM'].every((k) => Number.isFinite(i[k]) && i[k] >= 0)
+}
+
+/** Nur Navigationsdaten des aktuellen Tabs; Aufzeichnungen bleiben davon unabhängig. */
+export function leseNavigationssitzung() {
+  try {
+    const roh = sessionStorage.getItem(NAV_KEY)
+    if (roh == null) return null
+    if (roh.length > NAV_MAX_ZEICHEN) return null
+    const s = JSON.parse(roh)
+    if (gueltigeNavigationssitzung(s)) return s
+    verwerfeNavigationssitzung()
+  } catch { /* gesperrter oder beschädigter Sitzungsspeicher: nichts fortsetzen */ }
+  return null
+}
+
+export function verwerfeNavigationssitzung() {
+  try {
+    sessionStorage.removeItem(NAV_KEY)
+    return sessionStorage.getItem(NAV_KEY) === null
+  } catch { return false }
+}
+
+function sichereNavigationssitzung(f) {
+  const info = { anfahrtM: f.anfahrtEnde || 0, anfahrtSek: f.info.anfahrtSek || 0, tourMinJeM: f.info.tourMinJeM || 0 }
+  const s = { version: 1, zeit: Date.now(), tour: {
+    id: typeof f.t.id === 'string' ? f.t.id : null, name: f.t.name,
+    typ: typeof f.t.typ === 'string' ? f.t.typ : null,
+  },
+    strecke: { pts: f.d.pts, kum: f.d.kum, schritte: f.d.schritte }, info }
+  try {
+    if (!gueltigeNavigationssitzung(s)) throw new Error('Ungültige Route')
+    const roh = JSON.stringify(s)
+    if (roh.length > NAV_MAX_ZEICHEN) throw new Error('Sitzung zu groß')
+    // Vor dem Schreiben eine alte Route entfernen: bei Quota-Fehlern darf sie
+    // nicht nach einem Reload als aktuelle Navigation angeboten werden.
+    if (!verwerfeNavigationssitzung()) throw new Error('Alte Sitzung nicht entfernbar')
+    sessionStorage.setItem(NAV_KEY, roh)
+    if (sessionStorage.getItem(NAV_KEY) !== roh) throw new Error('Schreiben nicht bestätigt')
+    return true
+  } catch {
+    verwerfeNavigationssitzung()
+    if (!f.navWarnung) {
+      f.navWarnung = true
+      hinweisen('Wiederaufnahme nicht verfügbar', 'Diese Navigation kann nach einem Neuladen nicht fortgesetzt werden.')
+    }
+    return false
+  }
+}
 
 // ── Texte und Symbole ────────────────────────────────────────────────────
 
@@ -722,6 +791,7 @@ async function neuBerechnen() {
     f.index = 0; f.meter = 0; f.schritt = 0; f.abseitsSeit = 0; f.dVersion++
     f.anzeigeM = 0
     if (f.fix) f.fix = { ...f.fix, meter: 0, aufStrecke: true }
+    sichereNavigationssitzung(f)
     zeichneNaviLinie()
     sprich('neu', 'Kein Problem, ich habe die Route neu berechnet.')
   } catch (err) {
@@ -912,11 +982,22 @@ export function starteFahrt(t, strecke, { info = {}, onEnde, mitschneiden = fals
   })
   f.sichtbar = () => { if (document.visibilityState === 'visible' && fahrt && !fahrt.wach) wachHalten() }
   document.addEventListener('visibilitychange', f.sichtbar)
+  // Karte entlang der Strecke offline ablegen (Funklöcher im Wald und in den Bergen)
+  import('./offline.js').then(({ vorladen }) => vorladen(d.pts, (n, g) => {
+    if (fahrt?.el !== el) return
+    el.querySelector('.fahrt-name').textContent = n < g ? `${t.name} · Karte wird offline gespeichert ${Math.round((n / g) * 100)} %` : `${t.name} · Karte offline verfügbar`
+  })).catch(() => {})
 
   wachHalten()
   // Aufzeichnung im Hintergrund (ride-tracker.js) — am Ende wird gefragt, ob sie gespeichert wird
   if (mitschneiden && !sim()) {
-    starteAufzeichnung({}).then((st) => { if (fahrt === f) f.aufnahme = st; else st.abbrechen() }).catch(() => {})
+    ladeUnterbrocheneAufzeichnung()
+      .then((offen) => {
+        if (offen) throw new Error('Eine frühere Aufzeichnung wartet noch. Öffne „Aufzeichnen“, um sie zu sichern oder fortzusetzen.')
+        return starteAufzeichnung({ beiFehler: (text) => hinweisen('Mitschnitt nicht gesichert', text) })
+      })
+      .then((st) => { if (fahrt === f) f.aufnahme = st; else st.abbrechen() })
+      .catch((err) => hinweisen('Mitschnitt nicht gestartet', err.message))
   }
   if (sim()) simulieren()
   else {
@@ -926,16 +1007,39 @@ export function starteFahrt(t, strecke, { info = {}, onEnde, mitschneiden = fals
       zeichne()
     }, { enableHighAccuracy: true, maximumAge: 0, timeout: 20000 })
   }
-  // Karte entlang der Strecke offline ablegen (Funklöcher im Wald und in den Bergen)
-  import('./offline.js').then(({ vorladen }) => vorladen(d.pts, (n, g) => {
-    if (fahrt?.el !== el) return
-    el.querySelector('.fahrt-name').textContent = n < g ? `${t.name} · Karte wird offline gespeichert ${Math.round((n / g) * 100)} %` : `${t.name} · Karte offline verfügbar`
-  })).catch(() => {})
   const wartet = wartetAufDich()
   f.begruessungBis = Date.now() + 9000
   sprich('hallo', `Hi, ich bin ${PERSONA.name}. Fahr vorsichtig. ${wartet ? `${wartet} wartet auf dich.` : 'Zu Hause wartet jemand auf dich.'}`)
   sprich(info.anfahrtM ? 'los-anfahrt' : 'los', info.anfahrtM ? `Los geht's. Erst ${mSprache(info.anfahrtM)} zum Start der Tour.` : "Los geht's. Gute Fahrt, und komm gut heim.", { anhaengen: true })
+  sichereNavigationssitzung(f)
   zeichne()
+  return true
+}
+
+/** Nach ausdrücklicher Zustimmung mit einem neuen GPS-Fix neu auf der Route beginnen. */
+export async function navigationFortsetzen(erwarteteZeit = null) {
+  const s = leseNavigationssitzung()
+  if (!s || fahrt || (erwarteteZeit != null && s.zeit !== erwarteteZeit)) return false
+  let pos
+  try {
+    if (sim()) {
+      const start = simStart() || getUserCoords()
+      if (!Number.isFinite(start?.lat) || !Number.isFinite(start?.lng)) throw new Error('Kein Teststandort')
+      pos = { coords: { latitude: start.lat, longitude: start.lng, heading: null, speed: 0, accuracy: 5 } }
+    } else {
+      pos = await new Promise((ok, fehler) => navigator.geolocation.getCurrentPosition(ok, fehler,
+        { enableHighAccuracy: true, maximumAge: 0, timeout: 15000 }))
+    }
+  } catch {
+    hinweisen('Navigation nicht fortgesetzt', 'Der aktuelle Standort konnte nicht ermittelt werden. Die Navigation bleibt angehalten.')
+    return false
+  }
+  const { latitude: lat, longitude: lng } = pos?.coords || {}
+  const aktuell = leseNavigationssitzung()
+  if (!Number.isFinite(lat) || Math.abs(lat) > 90 || !Number.isFinite(lng) || Math.abs(lng) > 180 ||
+      !aktuell || fahrt || aktuell.zeit !== s.zeit) return false
+  if (!starteFahrt(s.tour, s.strecke, { info: s.info, mitschneiden: false })) return false
+  position(pos)
   return true
 }
 
@@ -943,6 +1047,7 @@ export function beenden(ziel = false) {
   const f = fahrt
   if (!f) return
   fahrt = null
+  if (!verwerfeNavigationssitzung()) hinweisen('Navigationsstatus nicht entfernt', 'Die alte Navigation konnte nicht aus dem Sitzungsspeicher entfernt werden.')
   cancelAnimationFrame(f.raf)
   clearTimeout(f.simT)
   import('./offline.js').then((m) => m.vorladenAbbrechen()).catch(() => {})
@@ -965,9 +1070,15 @@ export function beenden(ziel = false) {
     sprich('angekommen', 'Du bist angekommen. Schön, dass du heil zurück bist.', { ton: f.ton })
     heimMelden()
   } else verstummen()
-  const aufnahme = f.aufnahme?.beenden()
-  if (aufnahme && aufnahme.km >= 1) aufnahmeSpeichern(f, aufnahme)
-  else f.onEnde?.(ziel)
+  Promise.resolve(f.aufnahme?.beenden()).then((aufnahme) => {
+    if (aufnahme && aufnahme.km >= 1) aufnahmeSpeichern(f, aufnahme)
+    else {
+      if (aufnahme) verwerfeGesicherteAufzeichnung(aufnahme.id).then((ok) => {
+        if (!ok) hinweisen('Mitschnitt nicht verworfen', 'Der Wiederherstellungsstand blieb erhalten. Öffne „Aufzeichnen“, um ihn zu prüfen.')
+      })
+      f.onEnde?.(ziel)
+    }
+  }).catch(() => hinweisen('Mitschnitt konnte nicht beendet werden', 'Der Wiederherstellungsstand bleibt erhalten. Öffne „Aufzeichnen“, um ihn zu prüfen.'))
 }
 
 /** Am Ziel: kurz Bescheid geben, dass man heil angekommen ist. */
@@ -1003,8 +1114,7 @@ function heimMelden() {
 
 /** Nach der Fahrt: mitgeschnittene Strecke unter dem Namen der Tour speichern. */
 function aufnahmeSpeichern(f, aufnahme) {
-  const host = document.querySelector('.konf-karte-hub .kv-map-wrap')
-  if (!host) { f.onEnde?.(true); return }
+  const host = document.querySelector('.konf-karte-hub .kv-map-wrap') || document.body
   const el = document.createElement('div')
   el.className = 'aufnahme'
   const km = aufnahme.km.toFixed(1).replace('.', ',')
@@ -1016,21 +1126,43 @@ function aufnahmeSpeichern(f, aufnahme) {
       <button type="button" class="aufnahme-btn" data-auf="weg">Verwerfen</button>
       <button type="button" class="aufnahme-btn aufnahme-btn--haupt" data-auf="sichern">Speichern</button>
     </div>
+    <button type="button" class="aufnahme-btn" data-auf="datei" hidden>Sicherung herunterladen</button>
   </div>`
   host.appendChild(el)
   el.addEventListener('click', async (e) => {
     const b = e.target.closest('[data-auf]')
     if (!b) return
-    if (b.dataset.auf === 'weg' && !(await fragen('Fahrt verwerfen?', 'Die aufgezeichnete Strecke geht dabei verloren.', { ja: 'Verwerfen', gefahr: true }))) return
+    if (b.dataset.auf === 'datei') {
+      try {
+        const { fahrtSichernAlsDatei } = await import('./eigene-strecken.js')
+        fahrtSichernAlsDatei(aufnahme)
+      } catch { hinweisen('Sicherung fehlgeschlagen', 'Die Datei konnte nicht heruntergeladen werden. Die Fahrt bleibt hier für einen erneuten Versuch.') }
+      return
+    }
+    if (b.dataset.auf === 'weg') {
+      if (!(await fragen('Fahrt verwerfen?', 'Die aufgezeichnete Strecke geht dabei verloren.', { ja: 'Verwerfen', gefahr: true }))) return
+      if (!await verwerfeGesicherteAufzeichnung(aufnahme.id)) { hinweisen('Nicht verworfen', 'Der Wiederherstellungsstand konnte nicht entfernt werden.'); return }
+    }
     let id = null
     if (b.dataset.auf === 'sichern') {
-      const { speichereFahrt, PRAEFIX } = await import('./eigene-strecken.js')
-      try { id = PRAEFIX + speichereFahrt(aufnahme, el.querySelector('.aufnahme-name').value.trim() || f.t.name) } catch (err) { hinweisen('Nicht gespeichert', err.message); return }
+      try {
+        const { speichereFahrt, PRAEFIX } = await import('./eigene-strecken.js')
+        id = PRAEFIX + speichereFahrt(aufnahme, el.querySelector('.aufnahme-name').value.trim() || f.t.name)
+        if (!await bestaetigeGespeicherteFahrt(aufnahme)) hinweisen('Fahrt gespeichert', 'Der Wiederherstellungsstand konnte nicht entfernt werden und bleibt erhalten.')
+      } catch (err) {
+        el.querySelector('[data-auf="datei"]').hidden = false
+        hinweisen('Nicht gespeichert', `${err.message} Versuche es erneut oder lade eine Sicherung herunter.`)
+        return
+      }
     }
     el.remove()
     if (id) import('./touren.js').then((m) => m.zeigeEigeneStrecke?.(id))
     else f.onEnde?.(true)
   })
+  if (aufnahme.wiederherstellungGesichert === false) {
+    el.querySelector('[data-auf="datei"]').hidden = false
+    hinweisen('Fahrt nicht dauerhaft gesichert', 'Speichere sie jetzt oder lade eine Sicherung herunter. Schließe die Seite vorher nicht.')
+  }
 }
 
 export const faehrtGerade = () => !!fahrt

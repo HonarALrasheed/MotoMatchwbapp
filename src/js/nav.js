@@ -40,6 +40,8 @@
  * wechsel macht immer der popstate-Handler.
  */
 
+import { createResumeState } from './resume-state.js'
+
 /** Besuchte Ebenen, unterste zuerst. */
 const stack = []
 /** Per Zurück verlassene Ebenen — Nachschub für Vorwärts. */
@@ -54,8 +56,9 @@ let restoring = false
 /** Von app.js gesetzt: macht aus einer view-Beschreibung wieder einen Bildschirm. */
 let resolveView = null
 
-/** Überlebt das Neuladen, nicht aber einen neuen Tab — genau das ist gewollt. */
-const RESTORE_KEY = 'mm_nav_view_v1'
+/** Persistiert nur eine validierte öffentliche Ansicht, niemals Auth-Zustand. */
+const resumeState = createResumeState()
+let persistTimer = null
 
 export function initNav() {
   if (installed) return
@@ -68,6 +71,10 @@ export function initNav() {
     window.history.replaceState({ ...(window.history.state || {}), mmNav: index }, '', window.location.href)
   } catch { /* ohne Stempel faellt die Richtung auf "zurück" zurück — wie vorher */ }
   window.addEventListener('popstate', handlePop)
+  window.addEventListener('scroll', () => {
+    if (persistTimer !== null) return
+    persistTimer = setTimeout(() => { persistTimer = null; persist() }, 180)
+  }, { passive: true })
 }
 
 function numFromState(state) {
@@ -78,10 +85,8 @@ function numFromState(state) {
 /** Beschreibung der obersten Ebene sichern (fürs Neuladen). */
 function persist() {
   const top = stack[stack.length - 1]
-  try {
-    if (top?.view) sessionStorage.setItem(RESTORE_KEY, JSON.stringify(top.view))
-    else sessionStorage.removeItem(RESTORE_KEY)
-  } catch { /* gesperrter Speicher: dann eben ohne Wiederherstellung */ }
+  if (top?.view) resumeState.save(top.view, window.scrollY)
+  else resumeState.clear()
 }
 
 /**
@@ -106,8 +111,30 @@ function persist() {
  *          wenn sich die Beschreibung nicht aufloesen liess oder ein Fehler
  *          auftrat.
  */
-export function rebuild(view) {
+export function rebuild(view, scrollY = 0) {
   restoring = true
+  let seededStack = false
+  let seededHistory = false
+  if (!stack.length) {
+    const name = ({ garage: 'garage', 'match-result': 'garage', deckblatt: 'bd-deckblatt', konfigurator: 'bd-konfigurator' })[view?.screen]
+    if (name) {
+      // On a fresh tab, create one in-app back step to the landing page. On a
+      // reload, the current entry already carries mmNav and must not be doubled.
+      stack.push({ name, view, onBack() {}, isActive: () => true })
+      seededStack = true
+      if (index === 0) {
+        index += 1
+        try {
+          window.history.pushState({ ...(window.history.state || {}), mmNav: index }, '', window.location.href)
+          seededHistory = true
+        } catch {
+          index -= 1
+          stack.pop()
+          seededStack = false
+        }
+      }
+    }
+  }
   let settled = false
   const guard = setTimeout(() => {
     if (!settled) console.warn('[nav] Vorwärts-Schritt braucht ungewöhnlich lange — restoring bleibt gesperrt, bis er fertig ist.')
@@ -115,12 +142,24 @@ export function rebuild(view) {
   const finish = (ok) => {
     settled = true
     clearTimeout(guard)
+    if (!ok && seededStack) {
+      stack.pop()
+      if (seededHistory) {
+        index = Math.max(0, index - 1)
+        try { window.history.replaceState({ ...(window.history.state || {}), mmNav: index }, '', window.location.href) } catch {}
+      }
+    }
     restoring = false
     return ok
   }
   try {
     return Promise.resolve(resolveView(view))
-      .then(ok => finish(ok))
+      .then(ok => {
+        if (ok && Number.isFinite(scrollY) && scrollY > 0) {
+          setTimeout(() => window.scrollTo?.(0, scrollY), 350)
+        }
+        return finish(ok)
+      })
       .catch(err => {
         console.error('[nav] Vorwärts-Schritt fehlgeschlagen:', err)
         return finish(false)
@@ -270,15 +309,25 @@ export function setViewResolver(fn) {
   resolveView = fn
 }
 
+/** Aktualisiert den serialisierbaren Zustand des aktuellen Screens. */
+export function updateCurrentView(view) {
+  const top = stack[stack.length - 1]
+  if (!top || !view) return false
+  top.view = view
+  persist()
+  return true
+}
+
 /** Die beim letzten Mal sichtbare Ebene — für die Wiederherstellung beim Laden. */
 export function readRestoreView() {
-  try {
-    const raw = sessionStorage.getItem(RESTORE_KEY)
-    return raw ? JSON.parse(raw) : null
-  } catch { return null }
+  return resumeState.read()?.view || null
+}
+
+export function readRestoreState() {
+  return resumeState.read()
 }
 
 /** Gemerkte Ebene verwerfen (z. B. wenn die Wiederherstellung fehlschlägt). */
 export function clearRestoreView() {
-  try { sessionStorage.removeItem(RESTORE_KEY) } catch {}
+  resumeState.clear()
 }

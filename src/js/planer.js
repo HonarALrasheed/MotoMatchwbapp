@@ -17,9 +17,21 @@ import { getHubMap, getMapLib, haversineKm, getUserCoords, resolveOrt, sucheAdre
 import { route, naechster, RoutingFehler } from './routing.js'
 import { streckenIn } from './kurven.js'
 import { speichereStrecke, profilAus, alsTour, kurvigkeit, PRAEFIX } from './eigene-strecken.js'
+import { createPlannerDraftStore } from './planner-draft.js'
 
 const MAX_PUNKTE = 50
 let plan = null
+const plannerDraft = createPlannerDraftStore()
+
+function entwurfSichern(p = plan) {
+  if (!p) return false
+  if (!p.punkte?.length) {
+    p.entwurfGesichert = plannerDraft.clear()
+    return p.entwurfGesichert
+  }
+  p.entwurfGesichert = plannerDraft.save({ points: p.punkte, mode: p.modus, roundTrip: p.rund, startMissing: !!p.startFehlt })
+  return p.entwurfGesichert
+}
 
 const LEER = { type: 'FeatureCollection', features: [] }
 const km1 = (m) => (m / 1000).toFixed(m >= 100000 ? 0 : 1).replace('.', ',')
@@ -131,6 +143,8 @@ function markerSetzen() {
       const ll = m.getLngLat()
       plan.punkte[i] = [ll.lat, ll.lng]
       vorschlagVerwerfen(plan)
+      plan.wiederhergestellt = false
+      entwurfSichern(plan)
       neuRechnen()
     })
     el.addEventListener('click', (e) => e.stopPropagation())
@@ -288,6 +302,8 @@ function renderInfo() {
     ${nPunkte === 0 ? `<p class="plan-tipp">${PI.tippen}<span>Tippe auf die Karte, um den Start zu setzen.</span></p>`
       : nPunkte === 1 && !p.vorschlagVias && !p.rund && !p.startFehlt ? `<p class="plan-tipp">${PI.tippen}<span>Jetzt das Ziel auf der Karte antippen.</span></p>` : ''}
     ${p.fehler ? `<p class="fahrt-start-fehler">${esc(p.fehler)}</p>` : ''}
+    ${p.entwurfGesichert === false ? '<p class="fahrt-start-fehler">Der Entwurf konnte auf diesem Gerät nicht gesichert werden.</p>' : ''}
+    ${p.wiederhergestellt ? '<button type="button" class="tour-btn" data-plan="neu-berechnen">Route neu berechnen</button>' : ''}
     ${nPunkte ? `<ol class="plan-liste">${p.punkte.map((pt, i) => `<li class="plan-liste-punkt plan-liste-punkt--${i === 0 && !p.startFehlt ? 'start' : i === nPunkte - 1 && !p.rund ? 'ziel' : 'via'}">
         <span class="plan-nr">${i === 0 && !p.startFehlt ? 'S' : i === nPunkte - 1 && !p.rund ? 'Z' : i}</span><span class="plan-liste-name">${name(i)}</span>
         <button type="button" class="plan-weg" data-plan-weg="${i}" aria-label="${name(i)} entfernen">×</button></li>`).join('')}
@@ -356,6 +372,8 @@ function aufKarteGetippt(e) {
   vorschlagVerwerfen(p)
   if (p.startFehlt) { p.startFehlt = false; p.fehler = null; p.punkte.unshift([e.lngLat.lat, e.lngLat.lng]); p.einpassen = true }
   else p.punkte.push([e.lngLat.lat, e.lngLat.lng])
+  p.wiederhergestellt = false
+  entwurfSichern(p)
   if (p.punkte.length === 1) renderPanel()
   neuRechnen()
 }
@@ -398,7 +416,15 @@ export async function planerOeffnen({ fertig, ziel = null } = {}) {
   const { tourenKarteLeeren } = await import('./touren.js')
   tourenKarteLeeren()
   ebene(map)
-  plan = { punkte: [], marker: [], modus: 'kurvig', rund: false, ergebnis: null, ergebnisSignatur: null, rechnet: false, lauf: 0, abbruch: null, fertig, vorschlagVias: null, vorschlagKm: null, fehler: null, verlauf: [] }
+  const savedDraft = ziel ? null : plannerDraft.read()
+  plan = {
+    punkte: savedDraft?.points.map((point) => point.slice()) || [],
+    marker: [], modus: savedDraft?.mode || 'kurvig', rund: !!savedDraft?.roundTrip,
+    ergebnis: null, ergebnisSignatur: null, rechnet: false, lauf: 0, abbruch: null,
+    fertig, vorschlagVias: null, vorschlagKm: null,
+    fehler: savedDraft ? 'Entwurf wiederhergestellt. Die Route ist veraltet und wird nicht automatisch neu berechnet.' : null,
+    verlauf: [], startFehlt: !!savedDraft?.startMissing, wiederhergestellt: !!savedDraft,
+  }
   plan.klick = aufKarteGetippt
   map.on('click', plan.klick)
   map.getCanvas().classList.add('plan-aktiv')
@@ -408,6 +434,7 @@ export async function planerOeffnen({ fertig, ziel = null } = {}) {
   const zaehler = document.getElementById('tour-count')
   if (zaehler) zaehler.textContent = ''
   renderPanel()
+  if (savedDraft) markerSetzen()
   document.dispatchEvent(new CustomEvent('mm:kv-sheet', { detail: { auf: false } }))
 
   box().addEventListener('click', planKlick)
@@ -431,6 +458,8 @@ function mitZiel(ziel, u) {
     p.startFehlt = false
     p.fehler = null
     p.punkte.unshift([lat, lng, 'Mein Standort'])
+    p.wiederhergestellt = false
+    entwurfSichern(p)
     p.einpassen = true
     renderPanel()
     neuRechnen()
@@ -438,6 +467,7 @@ function mitZiel(ziel, u) {
   if (u.lat != null) { start(u.lat, u.lng); return }
   p.startFehlt = true
   p.fehler = 'Dein Standort fehlt — tippe den Start auf der Karte an.'
+  entwurfSichern(p)
   renderPanel()
   getHubMap()?.flyTo({ center: [ziel.lng, ziel.lat], zoom: 12, duration: 800 })
   navigator.geolocation?.getCurrentPosition((pos) => { if (p.startFehlt) start(pos.coords.latitude, pos.coords.longitude) }, () => {}, { enableHighAccuracy: true, timeout: 12000, maximumAge: 60000 })
@@ -461,6 +491,8 @@ async function planSuche(e) {
   vorschlagVerwerfen(p)
   // Gesuchter Name bleibt am Punkt (3. Feld) — die Liste zeigt dann "Titisee" statt "Zwischenpunkt 2"
   p.punkte.push([ort.lat, ort.lng, ort.label || text])
+  p.wiederhergestellt = false
+  entwurfSichern(p)
   feld.value = ''
   renderPanel()
   neuRechnen()
@@ -495,6 +527,8 @@ function linieZiehenAn(map) {
       merken()
       vorschlagVerwerfen(p)
       einfuegen(ll.lat, ll.lng)
+      p.wiederhergestellt = false
+      entwurfSichern(p)
       renderPanel()
       neuRechnen()
     }
@@ -514,15 +548,17 @@ async function planKlick(e) {
   const modus = t.closest('[data-plan-modus]')
   if (modus) {
     p.modus = modus.dataset.planModus
+    p.wiederhergestellt = false
+    entwurfSichern(p)
     renderPanel()
     // Ein Rundtour-Vorschlag ist schon kurvig ausgesucht — nicht neu rechnen
     if (!(p.vorschlagVias && p.punkte.length === 1)) neuRechnen()
     return
   }
   const rund = t.closest('[data-plan-rund]')
-  if (rund) { merken(); p.rund = rund.dataset.planRund === '1'; vorschlagVerwerfen(p); renderPanel(); neuRechnen(); return }
+  if (rund) { merken(); p.rund = rund.dataset.planRund === '1'; p.wiederhergestellt = false; vorschlagVerwerfen(p); entwurfSichern(p); renderPanel(); neuRechnen(); return }
   const weg = t.closest('[data-plan-weg]')
-  if (weg) { merken(); p.punkte.splice(+weg.dataset.planWeg, 1); vorschlagVerwerfen(p); if (!p.punkte.length) p.ergebnis = null; renderPanel(); neuRechnen(); return }
+  if (weg) { merken(); p.punkte.splice(+weg.dataset.planWeg, 1); p.wiederhergestellt = false; vorschlagVerwerfen(p); if (!p.punkte.length) p.ergebnis = null; entwurfSichern(p); renderPanel(); neuRechnen(); return }
   const km = t.closest('[data-vorschlag-km]')
   if (km && p.punkte.length) {
     document.getElementById('plan-vorschlag').hidden = true
@@ -531,6 +567,8 @@ async function planKlick(e) {
     p.rund = true
     p.vorschlagVias = null
     p.vorschlagKm = ziel
+    p.wiederhergestellt = false
+    entwurfSichern(p)
     const lauf = neueBerechnung(p)
     const signatur = planSignatur(p)
     const controller = new AbortController()
@@ -578,19 +616,33 @@ async function planKlick(e) {
   if (!a) return
   const was = a.dataset.plan
   if (was === 'schliessen') schliessen()
+  if (was === 'neu-berechnen') {
+    if (p.rund && p.punkte.length === 1) {
+      const auswahl = document.getElementById('plan-vorschlag')
+      if (auswahl) auswahl.hidden = false
+      return
+    }
+    p.wiederhergestellt = false
+    p.fehler = null
+    entwurfSichern(p)
+    neuRechnen()
+    return
+  }
   if (was === 'zurueck' && p.verlauf.length) {
     const alt = p.verlauf.pop()
     Object.assign(p, { punkte: alt.punkte, rund: alt.rund, vorschlagVias: alt.vorschlagVias, vorschlagKm: alt.vorschlagKm })
+    p.wiederhergestellt = false
+    entwurfSichern(p)
     if (alt.ergebnis && alt.vorschlagVias) neueBerechnung(p)
     renderPanel()
     if (alt.ergebnis && alt.vorschlagVias) { p.ergebnis = alt.ergebnis; p.ergebnisSignatur = planSignatur(p); p.rechnet = false; zeichneLinie(alt.ergebnis.pts); markerSetzen(); renderInfo() } else neuRechnen()
     return
   }
-  if (was === 'leeren') { merken(); p.punkte = []; p.ergebnis = null; vorschlagVerwerfen(p); renderPanel(); neuRechnen() }
+  if (was === 'leeren') { merken(); p.punkte = []; p.ergebnis = null; p.wiederhergestellt = false; vorschlagVerwerfen(p); entwurfSichern(p); renderPanel(); neuRechnen() }
   if (was === 'vorschlag') { const v = document.getElementById('plan-vorschlag'); v.hidden = !v.hidden }
   if (was === 'standort') {
     const u = getUserCoords()
-    const setze = (lat, lng) => { if (plan !== p) return; p.punkte.unshift([lat, lng]); vorschlagVerwerfen(p); renderPanel(); neuRechnen(); getHubMap()?.flyTo({ center: [lng, lat], zoom: Math.max(getHubMap().getZoom(), 10) }) }
+    const setze = (lat, lng) => { if (plan !== p) return; p.punkte.unshift([lat, lng]); p.wiederhergestellt = false; vorschlagVerwerfen(p); entwurfSichern(p); renderPanel(); neuRechnen(); getHubMap()?.flyTo({ center: [lng, lat], zoom: Math.max(getHubMap().getZoom(), 10) }) }
     if (u.lat != null) setze(u.lat, u.lng)
     else navigator.geolocation?.getCurrentPosition((pos) => setze(pos.coords.latitude, pos.coords.longitude), () => hinweisen('Standort nicht verfügbar', 'Tippe den Start einfach auf der Karte an.'), { enableHighAccuracy: true, timeout: 12000 })
   }
@@ -601,6 +653,7 @@ async function planKlick(e) {
     if (plan !== p || p.lauf !== lauf || aktuellesErgebnis(p) !== r) { hinweisen('Nicht gespeichert', 'Die Route hat sich geändert. Bitte prüfe sie erneut.'); return }
     try {
       const id = speichern(name.trim() || standardName(p, r), p, r)
+      plannerDraft.clear()
       schliessen(() => p.fertig?.(PRAEFIX + id))
     } catch (err) { hinweisen('Nicht gespeichert', err.message) }
   }
@@ -609,6 +662,7 @@ async function planKlick(e) {
     try {
       const name = standardName(p, r)
       const id = speichern(name, p, r)
+      plannerDraft.clear()
       const tour = alsTour({ id, name, art: 'geplant', datum: Date.now(), pts: r.pts, hoehen: r.hoehen, sekunden: r.sekunden })
       const d = { pts: r.pts, kum: r.kum, schritte: r.schritte, profil: profilAus(r.pts, r.hoehen) }
       schliessen(() => {})

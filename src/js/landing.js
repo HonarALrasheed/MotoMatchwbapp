@@ -1,9 +1,11 @@
 import { maybeShowOnboarding } from "./onboarding.js";
-import { getCatalog, findBikeByShortName, ladeVollkatalog } from "./matching.js";
+import { getCatalog, findBikeByShortName, ladeVollkatalog, pickRandomBike } from "./matching.js";
 import { bikeBild } from "./bike-bild.js";
 import { esc } from "./util.js";
+import { hasQuizProgressHint } from "./quiz-progress.js";
 
 let _scrollHandler = null;
+let quizStarting = false;
 
 // Kurze Vorschau-Info auf den Lifestyle-Karten — erscheint rein per CSS
 // (:hover mit transition-delay), verschwindet sofort beim Verlassen.
@@ -493,6 +495,21 @@ export function initLanding() {
           </div>
         `).join("")}
       </div>
+      <div class="p-discover-random">
+        <label for="p-random-style">Motorradtyp</label>
+        <select id="p-random-style" aria-label="Zufallsbike nach Motorradtyp filtern">
+          <option value="">Alle Typen</option>
+          <option value="Naked">Naked Bike</option>
+          <option value="Sportbike">Sportbike / Supersportler</option>
+          <option value="Cruiser">Cruiser</option>
+          <option value="Enduro">Enduro / Offroad</option>
+          <option value="Touring">Tourer / Reise</option>
+          <option value="Klassiker">Klassiker / Retro</option>
+          <option value="Supermoto">Supermoto</option>
+          <option value="Roller">Roller</option>
+        </select>
+        <button type="button" id="p-random-bike">Zufallsbike entdecken</button>
+      </div>
     </section>
 
     <!-- ═══ WISSEN: Ratgeber + Motorräder nach Thema (statische Seiten) ═══ -->
@@ -550,21 +567,55 @@ export function initLanding() {
   `;
 
   // ── Quiz start ──────────────────────────────────────────
-  const startQuiz = async () => {
+  const startQuiz = async (resume = false) => {
+    if (quizStarting) return;
+    quizStarting = true;
+    let quiz;
+    try {
+      quiz = await import("./quiz.js");
+    } catch (error) {
+      quizStarting = false;
+      showToast('Das Match-Quiz konnte nicht geladen werden. Bitte versuche es erneut.');
+      console.error('[landing] Quiz konnte nicht geladen werden:', error);
+      return;
+    }
+    let resumeThisQuiz = resume;
+    if (resume && !quiz.hasResumableQuiz()) {
+      resumeThisQuiz = false;
+      showToast('Der gespeicherte Quizstand war ungültig. Das Quiz startet neu.');
+    }
     if (_scrollHandler) { window.removeEventListener("scroll", _scrollHandler); _scrollHandler = null; }
     document.documentElement.classList.remove("has-landing");
     landing.style.transition = "opacity 0.5s ease";
     landing.style.opacity = "0";
-    const { initQuiz } = await import("./quiz.js");
     setTimeout(() => {
-      landing.style.display = "none";
-      document.getElementById("quiz-screen").style.display = "flex";
-      initQuiz();
+      try {
+        landing.style.display = "none";
+        document.getElementById("quiz-screen").style.display = "flex";
+        quiz.initQuiz({ resume: resumeThisQuiz });
+      } catch (error) {
+        landing.style.display = "block";
+        landing.style.opacity = "1";
+        document.documentElement.classList.add("has-landing");
+        showToast('Das Match-Quiz konnte nicht gestartet werden. Bitte versuche es erneut.');
+        console.error('[landing] Quiz konnte nicht gestartet werden:', error);
+      } finally {
+        quizStarting = false;
+      }
     }, 500);
   };
 
   startHeroVideo(landing);
-  document.getElementById("hero-cta").addEventListener("click", startQuiz);
+  document.getElementById("hero-cta").addEventListener("click", () => startQuiz(false));
+  if (hasQuizProgressHint()) {
+    const resumeButton = document.createElement('button');
+    resumeButton.type = 'button';
+    resumeButton.id = 'hero-cta-resume';
+    resumeButton.className = 'p-hero-btn p-hero-btn--secondary';
+    resumeButton.textContent = 'Match fortsetzen';
+    resumeButton.addEventListener('click', () => startQuiz(true));
+    document.querySelector('.p-hero-ctas')?.append(resumeButton);
+  }
   document.getElementById("hero-cta-existing").addEventListener("click", openExistingRiderChooser);
 
   // ── Use-section cards → passenden Screen ────────────────
@@ -581,6 +632,30 @@ export function initLanding() {
         openBikeGarage(primaryBike);
       }
     });
+  });
+
+  const randomBikeButton = document.getElementById("p-random-bike");
+  randomBikeButton?.addEventListener("click", async () => {
+    if (randomBikeButton.disabled) return;
+    const select = document.getElementById("p-random-style");
+    randomBikeButton.disabled = true;
+    randomBikeButton.textContent = "Motorräder werden geladen …";
+    try {
+      await ladeVollkatalog();
+      const bike = pickRandomBike({ style: select?.value || undefined });
+      if (!bike) {
+        showToast("Für diesen Typ ist gerade kein Motorrad verfügbar.");
+        return;
+      }
+      const { openBikeGarage } = await import("./garage.js");
+      openBikeGarage(bike.name);
+    } catch (error) {
+      console.warn("[landing] Zufallsbike konnte nicht geöffnet werden:", error);
+      showToast("Das Motorrad konnte gerade nicht geöffnet werden.");
+    } finally {
+      randomBikeButton.disabled = false;
+      randomBikeButton.textContent = "Zufallsbike entdecken";
+    }
   });
 
   // ── Nav: Search ──────────────────────────────────────────
@@ -713,7 +788,7 @@ export function initLanding() {
   // ── Finder submit ────────────────────────────────────────
   const finderSubmit = document.getElementById("finder-submit");
   if (finderSubmit) {
-    finderSubmit.addEventListener("click", startQuiz);
+    finderSubmit.addEventListener("click", () => startQuiz(false));
   }
 
   // ── Nav scroll behaviour ─────────────────────────────────

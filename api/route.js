@@ -12,9 +12,10 @@
  *  mit unserer Domain. Die Schritte kommen im selben Format wie die der
  *  vorberechneten Touren (OSRM-Begriffe), damit das Navi beide gleich liest.
  *
- *  Schutz: Origin-Allowlist (fängt fremde Webseiten ab, s. _shared.js) und
- *  eine Burst-Bremse je Instanz. Das kostenlose ORS-Kontingent (2.000/Tag,
- *  40/Minute) ist die harte Grenze dahinter; Antworten werden kurz gecacht.
+ *  Schutz: Origin-Allowlist und Burst-Bremse je Instanz. Die Produktions-
+ *  Integration nutzt den bestehenden ORS_KEY-Vertrag; sie setzt keine
+ *  Supabase-Quota-Migration voraus. ORS begrenzt das Anbieter-Kontingent.
+ *  Antworten werden kurz gecacht.
  * ══════════════════════════════════════════════════════════════════
  */
 import { sendError, report } from "./_shared.js";
@@ -156,7 +157,8 @@ export default async function handler(req, res) {
       catch (err) { if (grund) throw err; }
       report(new Error(`ORS ${r.status}`), { text: text.slice(0, 300) });
       if (r.status === 404 || r.status === 400) return sendError(res, 422, "no_route", "Zwischen diesen Punkten wurde keine Straße gefunden.");
-      if (r.status === 429) return sendError(res, 503, "quota", "Das Routing ist gerade ausgelastet. Bitte gleich noch einmal.");
+      if (r.status === 403) return sendError(res, 503, "quota_or_access", "Der Routingdienst hat die Anfrage abgelehnt (Kontingent oder Zugang). Bitte später erneut versuchen.");
+      if (r.status === 429) return sendError(res, 503, "quota", "Das Minutenkontingent des Routingdienstes ist gerade ausgeschöpft. Bitte später erneut versuchen.");
       return sendError(res, 502, "upstream", "Die Route konnte gerade nicht berechnet werden.");
     }
     const j = await warten(r.json());

@@ -454,7 +454,7 @@ let initToken = 0
  * Wartet NICHT auf den Standort: die Karte steht sofort (Deutschland bzw. der
  * letzte Standort), der Standort springt nach, sobald er da ist.
  */
-export async function initHubMap(ziel = null) {
+export async function initHubMap(ziel = null, { requestLocation = true } = {}) {
   // ziel: wenn mehrere Bereiche ein #hub-gmap haben (Profil + verdeckter Karten-Reiter)
   const el = ziel || document.getElementById('hub-gmap')
   if (!el) return
@@ -469,7 +469,7 @@ export async function initHubMap(ziel = null) {
     import('./freunde-karte.js').then((m) => m.leuteStarten()).catch(() => {})
     emitMapReady()
     sucheAktiveKachel()
-    if (!userLocationKnown) getUserLocation().then((ok) => { if (ok) standortGefunden() })
+    if (!userLocationKnown && requestLocation) getUserLocation().then((ok) => { if (ok) standortGefunden() })
     return
   }
 
@@ -515,7 +515,8 @@ export async function initHubMap(ziel = null) {
     import('./freunde-karte.js').then((m) => m.leuteStarten()).catch((err) => console.warn('[karte] Freunde', err))
     emitMapReady()
     if (userLocationKnown) sucheAktiveKachel()
-    else getUserLocation().then((ok) => { if (ok) standortGefunden(); else sucheAktiveKachel() })
+    else if (requestLocation) getUserLocation().then((ok) => { if (ok) standortGefunden(); else sucheAktiveKachel() })
+    else sucheAktiveKachel()
   } catch (err) {
     console.warn('[karte] Init fehlgeschlagen:', err)
     karte = null

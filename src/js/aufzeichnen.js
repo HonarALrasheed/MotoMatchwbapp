@@ -14,8 +14,8 @@ import { esc } from './util.js'
 import { hinweisen, fragen, standortGesperrt } from './meldung.js'
 import { getHubMap, getMapLib, getUserCoords, haversineKm } from './karte.js'
 import { route } from './routing.js'
-import { starteAufzeichnung, unterbrocheneAufzeichnung, verwerfeUnterbrochene, formatiereDauer, standortVerfuegbar } from './ride-tracker.js'
-import { speichereFahrt, PRAEFIX } from './eigene-strecken.js'
+import { starteAufzeichnung, ladeUnterbrocheneAufzeichnung, verwerfeGesicherteAufzeichnung, bestaetigeGespeicherteFahrt, formatiereDauer, standortVerfuegbar } from './ride-tracker.js'
+import { speichereFahrt, fahrtSichernAlsDatei, PRAEFIX } from './eigene-strecken.js'
 
 let lauf = null
 
@@ -132,7 +132,7 @@ function abbauen() {
   document.querySelector('.konf-karte-hub')?.classList.remove('kv-faehrt')
   document.body.classList.remove('mm-faehrt')
   const map = getHubMap()
-  map?.off('dragstart', l.wegschieben)
+  if (l.wegschieben) map?.off('dragstart', l.wegschieben)
 }
 
 /** Name eingeben und ins Fahrtenbuch speichern. */
@@ -151,20 +151,35 @@ function speichernFragen(fahrt) {
         <button type="button" class="aufnahme-btn" data-auf="weg">Verwerfen</button>
         <button type="button" class="aufnahme-btn aufnahme-btn--haupt" data-auf="sichern">Speichern</button>
       </div>
+      <button type="button" class="aufnahme-btn" data-auf="datei" hidden>Sicherung herunterladen</button>
     </div>`
   const name = l.el.querySelector('.aufnahme-name')
   name.focus(); name.select()
-  l.el.querySelector('[data-auf="sichern"]').addEventListener('click', () => {
+  l.el.querySelector('[data-auf="sichern"]').addEventListener('click', async () => {
     try {
       const id = speichereFahrt(fahrt, name.value.trim())
+      if (!await bestaetigeGespeicherteFahrt(fahrt)) hinweisen('Fahrt gespeichert', 'Der Wiederherstellungsstand konnte nicht entfernt werden und bleibt erhalten.')
       const fertig = l.fertig
       abbauen()
       fertig?.(PRAEFIX + id)
-    } catch (err) { hinweisen('Nicht gespeichert', err.message) }
+    } catch (err) {
+      l.el.querySelector('[data-auf="datei"]').hidden = false
+      hinweisen('Nicht gespeichert', `${err.message} Die Fahrt bleibt hier für einen erneuten Versuch. Du kannst eine Sicherung herunterladen.`)
+    }
+  })
+  l.el.querySelector('[data-auf="datei"]').addEventListener('click', () => {
+    try { fahrtSichernAlsDatei(fahrt) } catch { hinweisen('Sicherung fehlgeschlagen', 'Die Datei konnte nicht heruntergeladen werden. Die Fahrt bleibt hier für einen erneuten Versuch.') }
   })
   l.el.querySelector('[data-auf="weg"]').addEventListener('click', async () => {
-    if (await fragen('Fahrt verwerfen?', 'Die aufgezeichnete Strecke geht dabei verloren.', { ja: 'Verwerfen', gefahr: true })) abbauen()
+    if (await fragen('Fahrt verwerfen?', 'Die aufgezeichnete Strecke geht dabei verloren.', { ja: 'Verwerfen', gefahr: true })) {
+      if (!await verwerfeGesicherteAufzeichnung(fahrt.id)) { hinweisen('Nicht verworfen', 'Der Wiederherstellungsstand konnte nicht entfernt werden.'); return }
+      abbauen()
+    }
   })
+  if (fahrt.wiederherstellungGesichert === false) {
+    l.el.querySelector('[data-auf="datei"]').hidden = false
+    hinweisen('Fahrt nicht dauerhaft gesichert', 'Speichere sie jetzt oder lade eine Sicherung herunter. Schließe die Seite vorher nicht.')
+  }
 }
 
 /**
@@ -178,10 +193,21 @@ export async function aufzeichnungStarten({ fertig } = {}) {
   if (!map || !host) return
   if (!standortVerfuegbar()) { hinweisen('Kein Standort', 'Dieser Browser gibt keinen Standort frei — ohne GPS lässt sich nichts aufzeichnen.'); return }
   let fortsetzen = null
-  const offen = unterbrocheneAufzeichnung()
+  let offen
+  try { offen = await ladeUnterbrocheneAufzeichnung() }
+  catch (error) { hinweisen('Fahrt nicht geöffnet', error.message); return }
+  if (offen?.fertig) {
+    const el = document.createElement('div')
+    el.className = 'aufnahme'
+    host.appendChild(el)
+    lauf = { el, fertig, marker: null }
+    speichernFragen(offen.track)
+    hinweisen('Ungespeicherte Fahrt', 'Die fertige Aufzeichnung wurde wiederhergestellt. Bitte speichere sie im Fahrtenbuch.')
+    return
+  }
   if (offen) {
     if (await fragen('Weiter aufzeichnen?', 'Es gibt eine unterbrochene Aufzeichnung. Dort weitermachen?', { ja: 'Weitermachen', nein: 'Neu starten' })) fortsetzen = offen
-    else verwerfeUnterbrochene()
+    else if (!offen.id || !await verwerfeGesicherteAufzeichnung(offen.id)) { hinweisen('Nicht verworfen', 'Der Wiederherstellungsstand hat sich geändert oder konnte nicht entfernt werden. Bitte erneut öffnen.'); return }
   }
 
   // Angezeigte Tourlinien weg — sonst sieht man nicht, was gerade aufgezeichnet wird
@@ -232,8 +258,9 @@ export async function aufzeichnungStarten({ fertig } = {}) {
     if (b.dataset.auf === 'pause' && s) { s.stand().pausiert ? s.weiter() : s.pause() }
     if (b.dataset.auf === 'stopp') {
       if (!s) { abbauen(); return }
-      const fahrt = s.beenden()
-      if (!fahrt || fahrt.km < 0.2) { hinweisen('Nichts gespeichert', 'Zu wenig Strecke aufgezeichnet.'); abbauen(); return }
+      b.disabled = true
+      const fahrt = await s.beenden()
+      if (!fahrt || fahrt.km < 0.2) { if (fahrt) await verwerfeGesicherteAufzeichnung(fahrt.id); hinweisen('Nichts gespeichert', 'Zu wenig Strecke aufgezeichnet.'); abbauen(); return }
       if (fahrt.luecken?.length) {
         lauf.el.innerHTML = '<div class="aufnahme-speichern"><strong>Strecke wird ergänzt …</strong><span>Abschnitte ohne GPS werden über die Straße nachgerechnet.</span></div>'
         await lueckenFuellen(fahrt)

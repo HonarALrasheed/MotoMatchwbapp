@@ -33,7 +33,7 @@ import { buildTourenAnsicht, buildTourenUmkreis, initTouren, setTourenAktiv, set
 import { produktLink, hatPartnerLinks, hatAmazonPartner } from './affiliate.js'
 import { zielZeigen } from './ziel.js'
 import { ensureLandingRendered } from './landing.js'
-import { enterScreen, goBack } from './nav.js'
+import { enterScreen, goBack, updateCurrentView } from './nav.js'
 import { findBikeByShortName, findTopMatches, findSimilarBikes, scoreBikeAgainst, begruendungFuer, MATCH_WEIGHTS } from './matching.js'
 import { bikeBild, hatFoto, kachelFuerHero } from './bike-bild.js'
 import { getMatches, addMatch, removeMatch, clearMatches, restoreMatch, hasMatch, getLastAnswers, getPrimaryBike, setPrimaryBike } from './match-history.js'
@@ -295,7 +295,7 @@ function normalizeGarageDataRoh(bikeData) {
  * Open Konfigurator split-screen directly from garage.
  * garageCleanup: function to call to clean up the garage 3D/state before we take over.
  */
-export function openKonfigurator(bikeData, garageCleanup, initialTab) {
+export function openKonfigurator(bikeData, garageCleanup, initialTab, { restoring = false } = {}) {
   // garageCleanup ist der verlässliche Herkunfts-Indikator: nur die Garage
   // übergibt ihn. Die Startseite ruft mit null auf.
   konfOrigin = garageCleanup ? 'garage' : 'landing'
@@ -360,7 +360,7 @@ export function openKonfigurator(bikeData, garageCleanup, initialTab) {
       // Direkt die Ziel-Ansicht initialisieren — kein Umweg über "Ansicht"
       if (targetTab === 'ansicht') animateBarsOnReveal()
       if (targetTab === 'match') bindMatchViewEvents(data)
-      if (targetTab === 'karte') bindKarteViewEvents()
+      if (targetTab === 'karte') bindKarteViewEvents({ requestLocation: !restoring })
       if (targetTab === 'community') import('./community.js').then(m => m.mountCommunity(document.getElementById('mm-comm-root')))
     })
 
@@ -1436,6 +1436,12 @@ function mehrStartsOpen() {
   return false
 }
 
+function counterStart(value, decimals = 0) {
+  const number = Number.parseFloat(value)
+  if (!Number.isFinite(number)) return '0'
+  return decimals ? number.toFixed(decimals) : String(Math.round(number))
+}
+
 export function buildAnsichtView(data, headerCard) {
   const mehrOpen = mehrStartsOpen()
   // fehlender Wert (normalizeGarageData): power ist dann "—" statt "X kW / Y PS" — nicht splitten
@@ -1468,21 +1474,21 @@ export function buildAnsichtView(data, headerCard) {
       ${Number.isFinite(accel) ? `<div class="konf-bar-group">
         <div class="konf-bar-header">
           <span class="konf-bar-label">Beschleunigung 0\u2013100 km/h</span>
-          <span class="konf-bar-value"><span class="konf-bar-counter" data-target="${accel}" data-decimals="1">0</span> s</span>
+          <span class="konf-bar-value"><span class="konf-bar-counter" data-target="${accel}" data-decimals="1">${counterStart(accel, 1)}</span> s</span>
         </div>
         <div class="konf-bar-track"><div class="konf-bar-fill" data-pct="${accelPct}" style="width:0%"></div></div>
       </div>` : ''}<!-- ohne Quelle (freigegebene Bikes): Balken weglassen statt \u201e0 s" -->
       <div class="konf-bar-group">
         <div class="konf-bar-header">
           <span class="konf-bar-label">Leistung</span>
-          <span class="konf-bar-value">${hasPower ? `<span class="konf-bar-counter" data-target="${kw}" data-decimals="0">0</span> kW / <span class="konf-bar-counter" data-target="${ps}" data-decimals="0">0</span> PS` : '—'}</span>
+          <span class="konf-bar-value">${hasPower ? `<span class="konf-bar-counter" data-target="${kw}" data-decimals="0">${counterStart(kw)}</span> kW / <span class="konf-bar-counter" data-target="${ps}" data-decimals="0">${counterStart(ps)}</span> PS` : '—'}</span>
         </div>
         <div class="konf-bar-track"><div class="konf-bar-fill" data-pct="${psPct}" style="width:0%"></div></div>
       </div>
       ${Number.isFinite(topSpeed) ? `<div class="konf-bar-group">
         <div class="konf-bar-header">
           <span class="konf-bar-label">H\u00f6chstgeschwindigkeit</span>
-          <span class="konf-bar-value"><span class="konf-bar-counter" data-target="${topSpeed}" data-decimals="0">0</span> km/h</span>
+          <span class="konf-bar-value"><span class="konf-bar-counter" data-target="${topSpeed}" data-decimals="0">${counterStart(topSpeed)}</span> km/h</span>
         </div>
         <div class="konf-bar-track"><div class="konf-bar-fill" data-pct="${speedPct}" style="width:0%"></div></div>
       </div>` : ''}
@@ -2246,6 +2252,7 @@ function switchTab(tabName, data) {
   if (!container || !tabViewBuilders[tabName]) return
 
   activeKonfTab = tabName
+  updateCurrentView({ screen: 'konfigurator', bike: data.fullName, tab: tabName })
   document.querySelectorAll('.konf-tb-wrap .tb-btn[data-tab]').forEach(b => {
     b.classList.toggle('tb-btn-active', b.dataset.tab === tabName)
   })
@@ -2564,7 +2571,7 @@ function kvModus() {
   try { return localStorage.getItem(LS_KV_MODUS) === 'orte' ? 'orte' : 'touren' } catch { return 'touren' }
 }
 
-function bindKarteViewEvents() {
+function bindKarteViewEvents({ requestLocation = true } = {}) {
   // Zweimal auf dasselbe DOM gebunden (schnelles Doppel-Oeffnen) hiesse: jeder
   // Klick wirkt doppelt, Gleit-Indikatoren liegen doppelt.
   const hub = document.querySelector('.konf-karte-hub')
@@ -2592,7 +2599,7 @@ function bindKarteViewEvents() {
   // Init the Google Map (re-uses garage's hub map implementation)
   // Ergebnisliste danach einmal aktualisieren, damit sie bei fehlendem
   // Standort sofort "Standort nicht verfügbar" statt für immer "Suche läuft…" zeigt.
-  initHubMap(document.querySelector('.konf-karte-hub .hub-map')).then(() => {
+  initHubMap(document.querySelector('.konf-karte-hub .hub-map'), { requestLocation }).then(() => {
     /* Nur dort abschalten, wo gar keine Suche laufen kann. Steht Karte und
        Standort, hat initHubMap() gerade selbst eine angestossen — dann bleibt
        der Platzhalter, bis onHubResults() meldet. */

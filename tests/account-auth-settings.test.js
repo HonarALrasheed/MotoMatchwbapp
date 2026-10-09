@@ -97,6 +97,48 @@ test('fehlgeschlagenes Abmelden lässt Session und Kontoansicht unangetastet', a
   assert.equal(h.state.unsubscribed, 0)
 })
 
+test('veralteter Auth-Profil-Callback überschreibt nach einer neueren Abmeldung keine Session', async () => {
+  const pending = deferred()
+  const state = { session: { username: 'previous', uid: 'user-old' }, communityLoads: 0 }
+  const code = extract(authSource, 'async function _onSignedIn(', '/* ── Social Login')
+  const context = vm.createContext({
+    initialSession: state.session,
+    LS_ONLINE_PROFILES: 'online-profiles',
+    supabase: { from: () => ({
+      select: () => ({ eq: () => ({ maybeSingle: () => pending.promise }) }),
+    }) },
+    initCommunityData: async () => { state.communityLoads++ },
+    read: (_key, fallback) => fallback,
+    write: () => {},
+    report: () => {},
+  })
+  vm.runInContext(`let _authGeneration = 1; let _sbSession = initialSession;\n${code}\nglobalThis.runSignedIn = _onSignedIn; globalThis.advanceAuth = () => ++_authGeneration; globalThis.getSessionState = () => _sbSession`, context)
+  const loading = context.runSignedIn({ user: { id: 'user-new', email: 'new@example.test' } }, 1)
+  context.advanceAuth() // a newer sign-out or account switch won the race
+  pending.resolve({ data: { username: 'new' } })
+  await loading
+  assert.equal(context.getSessionState(), state.session)
+  assert.equal(state.communityLoads, 0)
+})
+
+test('aktueller Auth-Profil-Callback übernimmt Session und lädt Communitydaten', async () => {
+  const state = { communityLoads: 0 }
+  const code = extract(authSource, 'async function _onSignedIn(', '/* ── Social Login')
+  const context = vm.createContext({
+    initialSession: null,
+    LS_ONLINE_PROFILES: 'online-profiles',
+    supabase: { from: () => ({ select: () => ({ eq: () => ({ maybeSingle: async () => ({ data: { username: 'rider' } }) }) }) }) },
+    initCommunityData: async (uid, username) => { state.communityLoads++; assert.equal(uid, 'user-1'); assert.equal(username, 'rider') },
+    read: (_key, fallback) => fallback,
+    write: () => {},
+    report: () => {},
+  })
+  vm.runInContext(`let _authGeneration = 4; let _sbSession = initialSession;\n${code}\nglobalThis.runSignedIn = _onSignedIn; globalThis.getSessionState = () => _sbSession`, context)
+  await context.runSignedIn({ user: { id: 'user-1', email: 'rider@example.test' } }, 4)
+  assert.deepEqual(JSON.parse(JSON.stringify(context.getSessionState())), { username: 'rider', uid: 'user-1', email: 'rider@example.test' })
+  assert.equal(state.communityLoads, 1)
+})
+
 test('Profil zeigt Erfolg erst nach bestätigtem Supabase-Schreiben', async () => {
   const pending = deferred()
   const remote = updateProfileHarness(() => pending.promise)
@@ -137,6 +179,37 @@ test('E-Mail wird aus der Auth-Session angezeigt und lokale E-Mail-Patches werde
   assert.match(emailMarkup, /E-Mail ändern ist derzeit nicht verfügbar\./)
   assert.doesNotMatch(emailMarkup, /data-fb-edit|data-fb-input/)
   assert.match(authSource, /email: s\.email \|\| ''/)
+})
+
+test('Online-Login legt private E-Mails nicht mehr über den Benutzernamen-RPC offen', async () => {
+  const calls = { rpc: 0, signIn: [] }
+  const code = extract(authSource, 'export async function login', '/**\n * Registrierung.')
+  const context = vm.createContext({
+    OFFLINE_MODE: false,
+    supabase: {
+      rpc: async () => { calls.rpc++; return { data: 'private@example.test' } },
+      auth: { signInWithPassword: async (credentials) => {
+        calls.signIn.push(credentials)
+        return { data: { session: null }, error: new Error('invalid credentials') }
+      } },
+    },
+  })
+  vm.runInContext(`${code}\nglobalThis.runLogin = login`, context)
+
+  const username = await context.runLogin('RiderMax', 'password')
+  assert.equal(username.ok, false)
+  assert.match(username.error, /E-Mail-Adresse/)
+  assert.equal(calls.rpc, 0)
+  assert.equal(calls.signIn.length, 0)
+
+  await context.runLogin('rider@example.test', 'password')
+  assert.deepEqual(JSON.parse(JSON.stringify(calls.signIn)), [
+    { email: 'rider@example.test', password: 'password' },
+  ])
+  assert.equal(calls.rpc, 0)
+  assert.match(authSource, /isLogin && !OFFLINE_MODE \? 'E-Mail-Adresse'/)
+  assert.match(authSource, /type=\"\$\{isLogin && !OFFLINE_MODE \? 'email'/)
+
 })
 
 test('Offline-Profiländerungen melden Storage-Fehler statt einen falschen Erfolg', async () => {

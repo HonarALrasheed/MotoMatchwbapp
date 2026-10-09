@@ -731,6 +731,30 @@ select.p-auth-input {
   grid-template-columns: repeat(3, 1fr);
   gap: 2px;
 }
+.p-discover-random {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin: 24px auto 0;
+  color: #333;
+  font: 600 13px/1.2 var(--p-font);
+}
+.p-discover-random select,
+.p-discover-random button {
+  min-height: 44px;
+  padding: 0 14px;
+  border: 1px solid rgba(0,0,0,0.16);
+  border-radius: 999px;
+  background: #fff;
+  color: #111;
+  font: inherit;
+}
+.p-discover-random button { background: #111; color: #fff; cursor: pointer; }
+.p-discover-random button:disabled { opacity: 0.55; cursor: wait; }
+.p-discover-random select:focus-visible,
+.p-discover-random button:focus-visible { outline: 3px solid #4263eb; outline-offset: 2px; }
 .p-discover-cat {
   position: relative; overflow: hidden;
   aspect-ratio: 4/3; cursor: pointer;

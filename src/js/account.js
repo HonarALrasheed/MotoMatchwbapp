@@ -18,8 +18,9 @@ import { getCatalog, preisAb, findBikeByShortName, ladeVollkatalog } from './mat
 import { bikeBild } from './bike-bild.js'
 import { esc, fmtDate, fmtRelative } from './util.js'
 import {
-  starteAufzeichnung, standortVerfuegbar, unterbrocheneAufzeichnung,
-  verwerfeUnterbrochene, spurPfad, formatiereDauer,
+  starteAufzeichnung, standortVerfuegbar, unterbrocheneAufzeichnung, ladeUnterbrocheneAufzeichnung,
+  verwerfeGesicherteAufzeichnung, spurPfad, formatiereDauer,
+  bestaetigeGespeicherteFahrt,
 } from './ride-tracker.js'
 import { teileFahrt } from './ride-share.js'
 import { avatarZuschneiden } from './avatar-zuschnitt.js'
@@ -718,11 +719,30 @@ function wireCompare() {
    Alles andere im Fahrtenbuch bleibt: eine Fahrt von Hand eintragen, die
    Karteikarten, das Teilen. Auf true stellen, dann ist sie wieder da. */
 const AUFZEICHNEN_AKTIV = false
-function getRides() {
-  try { return JSON.parse(localStorage.getItem('mm_rides_v1') || '[]') } catch { return [] }
+const RIDES_KEY = 'mm_rides_v1'
+const RIDES_READ_ERROR = 'Das Fahrtenbuch konnte nicht gelesen werden. Bestehende Fahrten wurden nicht verändert.'
+function getRides({ forWrite = false } = {}) {
+  try {
+    const raw = localStorage.getItem(RIDES_KEY)
+    const rides = raw === null ? [] : JSON.parse(raw)
+    if (!Array.isArray(rides) || rides.some(r => !r || typeof r !== 'object' || Array.isArray(r))) {
+      throw new Error('Ungültige Fahrtenliste')
+    }
+    return rides
+  } catch {
+    if (forWrite) throw new Error(RIDES_READ_ERROR)
+    return []
+  }
 }
 function saveRides(arr) {
-  try { localStorage.setItem('mm_rides_v1', JSON.stringify(arr)) } catch {}
+  localStorage.setItem(RIDES_KEY, JSON.stringify(arr))
+}
+function showRideStorageError(error) {
+  showFlash(error?.name === 'QuotaExceededError'
+    ? 'Browser-Speicher voll — Eintrag nicht gespeichert. Bitte Speicherplatz freigeben und erneut versuchen.'
+    : error?.message === RIDES_READ_ERROR
+      ? RIDES_READ_ERROR
+      : 'Eintrag konnte nicht gespeichert werden. Bitte erneut versuchen.')
 }
 
 /* Wetter als Strichzeichnungen statt Emojis: die stellt jedes Betriebssystem
@@ -913,24 +933,16 @@ function renderJournal() {
       </div>
 
       ${(() => {
-        /* Wer waehrend der Fahrt die Seite neu laedt oder dessen Telefon den
-           Browser wegraeumt, soll die gefahrenen Kilometer nicht verlieren.
-           Der Zwischenstand wird alle fuenf Sekunden gesichert. */
         if (!AUFZEICHNEN_AKTIV) return ''
         const offen = unterbrocheneAufzeichnung()
-        if (!offen) return ''
-        const km = (offen.meter / 1000).toFixed(1).replace('.', ',')
-        return `
-          <div class="rj-resume" id="rj-resume">
-            <div class="rj-resume-text">
-              Eine Aufzeichnung wurde unterbrochen — <strong>${km} km</strong> sind gesichert.
-            </div>
-            <div class="rj-resume-btns">
-              <button class="rj-resume-go" id="rj-resume-go">Fortsetzen</button>
-              <button class="rj-resume-drop" id="rj-resume-drop">Verwerfen</button>
-            </div>
-          </div>
-        `
+        if (!offen) return '<div id="rj-resume-host"></div>'
+        const km = ((offen.fertig ? offen.track?.km || 0 : offen.meter || 0) / (offen.fertig ? 1 : 1000)).toFixed(1).replace('.', ',')
+        const id = offen.fertig ? offen.track?.id || '' : offen.id || ''
+        return `<div id="rj-resume-host"><div class="rj-resume" id="rj-resume">
+          <div class="rj-resume-text">${offen.fertig ? 'Eine fertige Fahrt wartet auf das Speichern' : 'Eine Aufzeichnung wurde unterbrochen'} — <strong>${km} km</strong>.</div>
+          <div class="rj-resume-btns"><button class="rj-resume-go" id="rj-resume-go">${offen.fertig ? 'Speichern' : 'Fortsetzen'}</button>
+          <button class="rj-resume-drop" id="rj-resume-drop" data-recovery-id="${esc(id)}">Verwerfen</button></div>
+        </div></div>`
       })()}
 
       <!-- Aufzeichnung: eigener Vollbild-Schirm, damit die Zahlen waehrend
@@ -1251,32 +1263,81 @@ function wireJournal() {
   }
 
   document.getElementById('rj-start-rec')?.addEventListener('click', () => starte())
-  document.getElementById('rj-resume-go')?.addEventListener('click', () => {
-    const offen = unterbrocheneAufzeichnung()
-    document.getElementById('rj-resume')?.remove()
-    starte(offen)
-  })
-  document.getElementById('rj-resume-drop')?.addEventListener('click', () => {
-    verwerfeUnterbrochene()
-    document.getElementById('rj-resume')?.remove()
-  })
+  const legacyRecovery = unterbrocheneAufzeichnung()
+  if (legacyRecovery) {
+    const legacyId = legacyRecovery.fertig ? legacyRecovery.track?.id : legacyRecovery.id
+    document.getElementById('rj-resume-go')?.addEventListener('click', async () => {
+      try {
+        const current = await ladeUnterbrocheneAufzeichnung()
+        if (!current) throw new Error('Keine Wiederherstellung vorhanden. Bitte Ansicht neu öffnen.')
+        document.getElementById('rj-resume')?.remove()
+        if (current.fertig) {
+          pendingTrack = current.track
+          const sheet = document.getElementById('rj-sheet')
+          sheet.hidden = false
+          document.getElementById('rj-km').value = Math.round(current.track.km || 0)
+          document.getElementById('rj-hours').value = ((current.track.fahrMs || 0) / 3600000).toFixed(1)
+          document.getElementById('rj-date').value = new Date(current.track.start).toISOString().slice(0, 10)
+          document.getElementById('rj-title').focus()
+        } else starte(current)
+      } catch (error) { showFlash(error.message) }
+    })
+    document.getElementById('rj-resume-drop')?.addEventListener('click', async () => {
+      if (!legacyId || !await verwerfeGesicherteAufzeichnung(legacyId)) { showFlash('Der Wiederherstellungsstand hat sich geändert oder konnte nicht verworfen werden. Bitte Ansicht neu öffnen.'); return }
+      document.getElementById('rj-resume')?.remove()
+    })
+  }
+  ladeUnterbrocheneAufzeichnung().then((offen) => {
+    if (legacyRecovery) return
+    const host = document.getElementById('rj-resume-host')
+    if (!host || !offen) return
+    const fertig = !!offen.fertig
+    const id = fertig ? offen.track?.id : offen.id
+    const km = fertig ? (offen.track?.km || 0) : (offen.meter || 0) / 1000
+    host.innerHTML = `<div class="rj-resume" id="rj-resume">
+      <div class="rj-resume-text">${fertig ? 'Eine fertige Fahrt wartet auf das Speichern' : 'Eine Aufzeichnung wurde unterbrochen'} — <strong>${km.toFixed(1).replace('.', ',')} km</strong>.</div>
+      <div class="rj-resume-btns"><button class="rj-resume-go" id="rj-resume-go">${fertig ? 'Speichern' : 'Fortsetzen'}</button>
+      <button class="rj-resume-drop" id="rj-resume-drop" data-recovery-id="${esc(id || '')}">Verwerfen</button></div>
+    </div>`
+    document.getElementById('rj-resume-go')?.addEventListener('click', async () => {
+      try {
+        const current = await ladeUnterbrocheneAufzeichnung()
+        if (!current) throw new Error('Keine Wiederherstellung vorhanden. Bitte Ansicht neu öffnen.')
+        document.getElementById('rj-resume')?.remove()
+        if (current.fertig) {
+          pendingTrack = current.track
+          const sheet = document.getElementById('rj-sheet')
+          sheet.hidden = false
+          document.getElementById('rj-km').value = Math.round(current.track.km || 0)
+          document.getElementById('rj-hours').value = ((current.track.fahrMs || 0) / 3600000).toFixed(1)
+          document.getElementById('rj-date').value = new Date(current.track.start).toISOString().slice(0, 10)
+          document.getElementById('rj-title').focus()
+        } else starte(current)
+      } catch (error) { showFlash(error.message) }
+    })
+    document.getElementById('rj-resume-drop')?.addEventListener('click', async () => {
+      if (!confirm('Wiederhergestellte Fahrt wirklich verwerfen?')) return
+      if (!await verwerfeGesicherteAufzeichnung(id)) { showFlash('Der Wiederherstellungsstand konnte nicht entfernt werden.'); return }
+      host.replaceChildren()
+    })
+  }).catch((error) => showFlash(error.message))
 
   recPause?.addEventListener('click', () => {
     if (!aufnahme) return
     aufnahme.stand().pausiert ? aufnahme.weiter() : aufnahme.pause()
   })
 
-  document.getElementById('rj-rec-cancel')?.addEventListener('click', () => {
+  document.getElementById('rj-rec-cancel')?.addEventListener('click', async () => {
     if (!aufnahme) { vollbildAn(false); return }
     if (!confirm('Aufzeichnung verwerfen? Die gefahrene Strecke geht verloren.')) return
-    aufnahme.abbrechen()
+    if (!await aufnahme.abbrechen()) { showFlash('Die Fahrt blieb zur Sicherheit erhalten.'); return }
     aufnahme = null
     vollbildAn(false)
   })
 
-  document.getElementById('rj-rec-stop')?.addEventListener('click', () => {
+  document.getElementById('rj-rec-stop')?.addEventListener('click', async () => {
     if (!aufnahme) return
-    const fahrt = aufnahme.beenden()
+    const fahrt = await aufnahme.beenden()
     aufnahme = null
     vollbildAn(false)
     if (!fahrt) {
@@ -1366,7 +1427,7 @@ function wireJournal() {
   })
 
   // Save form
-  document.getElementById('rj-form')?.addEventListener('submit', e => {
+  document.getElementById('rj-form')?.addEventListener('submit', async e => {
     e.preventDefault()
     const mood = document.querySelector('input[name="rj-mood"]:checked')?.value || ''
     const accent = document.querySelector('input[name="rj-accent"]:checked')?.value || CARD_ACCENTS[0]
@@ -1386,9 +1447,19 @@ function wireJournal() {
       showFlash('Bitte einen gültigen Kilometerstand angeben (0 oder mehr).')
       return
     }
-    const rides = getRides()
-    rides.push(ride)
-    saveRides(rides)
+    try {
+      const rides = getRides({ forWrite: true })
+      let idZeit = Date.now()
+      while (rides.some(r => r.id === idZeit.toString(36))) idZeit++
+      ride.id = idZeit.toString(36)
+      if (!pendingTrack || !rides.some((entry) => entry.track?.id === pendingTrack.id)) saveRides([...rides, ride])
+    } catch (error) {
+      showRideStorageError(error)
+      return
+    }
+    if (pendingTrack && !await bestaetigeGespeicherteFahrt(pendingTrack)) {
+      showFlash('Fahrt wurde gespeichert; die Wiederherstellung bleibt als zusätzliche Sicherung erhalten.')
+    }
     pendingPhoto = null
     pendingTrack = null
     photoGen++
@@ -1531,12 +1602,7 @@ function wireJournal() {
     const id = document.getElementById('rj-edit-id').value
     const mood = document.querySelector('input[name="rj-edit-mood"]:checked')?.value || ''
     const accent = document.querySelector('input[name="rj-edit-accent"]:checked')?.value || CARD_ACCENTS[0]
-    /* Das Formular baut den Eintrag neu auf. Die aufgezeichnete Strecke steht
-       in keinem Feld — ohne diese Zeile waere sie nach dem ersten Bearbeiten
-       eines Eintrags weg. */
-    const bisher = getRides().find(r => r.id === id)
-    const updated = {
-      id,
+    const changes = {
       date: new Date(document.getElementById('rj-edit-date').value).getTime(),
       km: parseInt(document.getElementById('rj-edit-km').value) || 0,
       hours: parseFloat(document.getElementById('rj-edit-hours').value) || 0,
@@ -1544,13 +1610,24 @@ function wireJournal() {
       notes: document.getElementById('rj-edit-notes').value.trim(),
       mood, accent,
       photo: editPhoto || null,
-      track: bisher?.track || null,
     }
-    if (!updated.title || !Number.isFinite(updated.km) || updated.km < 0) {
+    if (!changes.title || !Number.isFinite(changes.km) || changes.km < 0) {
       showFlash('Bitte einen gültigen Kilometerstand angeben (0 oder mehr).')
       return
     }
-    saveRides(getRides().map(r => r.id === id ? updated : r))
+    try {
+      const rides = getRides({ forWrite: true })
+      const bisher = rides.find(r => r.id === id)
+      if (!bisher) {
+        showFlash('Fahrt nicht gefunden. Bitte das Fahrtenbuch erneut öffnen.')
+        return
+      }
+      // Track und weitere, hier nicht bearbeitete Felder bleiben erhalten.
+      saveRides(rides.map(r => r.id === id ? { ...bisher, ...changes } : r))
+    } catch (error) {
+      showRideStorageError(error)
+      return
+    }
     showFlash('Eintrag aktualisiert ✓')
     renderTabContent('journal')
   })
@@ -1559,7 +1636,17 @@ function wireJournal() {
   document.getElementById('rj-edit-delete')?.addEventListener('click', () => {
     const id = document.getElementById('rj-edit-id').value
     if (!id) return
-    saveRides(getRides().filter(r => r.id !== id))
+    try {
+      const rides = getRides({ forWrite: true })
+      if (!rides.some(r => r.id === id)) {
+        showFlash('Fahrt nicht gefunden. Bitte das Fahrtenbuch erneut öffnen.')
+        return
+      }
+      saveRides(rides.filter(r => r.id !== id))
+    } catch (error) {
+      showRideStorageError(error)
+      return
+    }
     showFlash('Eintrag gelöscht')
     renderTabContent('journal')
   })

@@ -22,7 +22,7 @@ test('MapLibre bleibt lazy geladen und konfiguriert den Vite-Worker', () => {
 
 test('WebGL2-Initialisierungsfehler zeigt einen zugänglichen Karten-Fallback', () => {
   const start = karte.indexOf('function zeigeFehler(el, err) {')
-  const ende = karte.indexOf('\n\nlet initToken', start)
+  const ende = karte.indexOf('\n\nfunction webgl2Verfuegbar()', start)
   assert.ok(start >= 0 && ende > start, 'Fallbackfunktion muss im Kartenmodul vorhanden sein')
 
   class GPUInitializationError extends Error {}
@@ -45,4 +45,30 @@ test('WebGL2-Initialisierungsfehler zeigt einen zugänglichen Karten-Fallback', 
   assert.match(el.innerHTML, /Karte wird nicht unterstützt/)
   assert.match(el.innerHTML, /WebGL 2 benötigt/)
   assert.equal(typeof retry.handler, 'function')
+  assert.match(karte, /if \(!webgl2Verfuegbar\(\)\) \{\s*zeigeFehler\(el, new ml\.GPUInitializationError\(\{\}, null\)\)/)
+})
+
+test('WebGL2-Prüfung erkennt fehlenden Kontext und gibt einen Testkontext wieder frei', () => {
+  const start = karte.indexOf('function webgl2Verfuegbar() {')
+  const ende = karte.indexOf('\n\nlet initToken', start)
+  assert.ok(start >= 0 && ende > start, 'WebGL2-Prüfung muss im Kartenmodul vorhanden sein')
+
+  const code = `(${karte.slice(start, ende)})`
+  const ohneWebgl2 = vm.runInNewContext(code, {
+    document: { createElement: () => ({ getContext: () => null }) },
+  })
+  assert.equal(ohneWebgl2(), false)
+
+  let kontextFreigegeben = false
+  const mitWebgl2 = vm.runInNewContext(code, {
+    document: {
+      createElement: () => ({
+        getContext: (typ) => typ === 'webgl2'
+          ? { getExtension: () => ({ loseContext() { kontextFreigegeben = true } }) }
+          : null,
+      }),
+    },
+  })
+  assert.equal(mitWebgl2(), true)
+  assert.equal(kontextFreigegeben, true)
 })

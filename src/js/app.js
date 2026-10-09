@@ -61,7 +61,7 @@ async function openView(view) {
   if (!findBikeByShortName(view.bike)) await ladeVollkatalog()
   // Garage ist der Einstieg, der ohne Quiz-Antworten auskommt.
   const { openBikeGarage } = await import('./garage.js')
-  openBikeGarage(view.bike)
+  await openBikeGarage(view.bike)
   await new Promise(resolve => setTimeout(resolve, 280))
   return true
 }

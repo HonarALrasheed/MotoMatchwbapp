@@ -480,6 +480,7 @@ let catalog = [...DEFAULT_CATALOG, ...FREIGEGEBENE_BIKES];
 
 const KATALOG_URL = "/data/katalog-de.json";
 let katalogLaden = null;
+let vollkatalogGeladen = false;
 
 const schluessel = (b) => `${b.brand || ""} ${b.name || ""}`.toLowerCase().replace(/[^a-z0-9]/g, "");
 
@@ -496,11 +497,21 @@ function preisText(b) {
   return "Preis folgt";
 }
 
+/** Einheitliche Preisnormalisierung für Katalog- und Detailansichten. */
+export function preisAnzeige(b) {
+  if (b?.priceDisplay && b.priceDisplay !== "Preis folgt") return b.priceDisplay;
+  return preisText(b || {});
+}
+
+export function hatNutzbarenPreis(b) {
+  return preisAnzeige(b) !== "Preis folgt";
+}
+
 function katalogEintrag(b, i) {
   return {
     ...b,
     id: 1000 + i,
-    priceDisplay: b.priceDisplay || preisText(b),
+    priceDisplay: preisAnzeige(b),
     priceSource: b.priceUsed ? `1000PS Marktpreis ${b.priceYear || ""}`.trim() : b.priceSource,
     has3D: Boolean(b.has3D && b.glb),
   };
@@ -548,6 +559,7 @@ export function ladeVollkatalog() {
     .then((d) => {
       if (d && Array.isArray(d.bikes) && d.bikes.length) {
         setCatalog(mische(d.bikes));
+        vollkatalogGeladen = true;
         console.info(`[matching] Vollkatalog ${d.stand || ""}: ${d.bikes.length} Bikes aus dem deutschen Markt`);
       }
       return catalog;
@@ -557,6 +569,10 @@ export function ladeVollkatalog() {
       return catalog;
     });
   return katalogLaden;
+}
+
+export function istVollkatalogGeladen() {
+  return vollkatalogGeladen;
 }
 
 // ══════════════════════════════════════════════════════════════
@@ -854,6 +870,30 @@ export function findBikeByShortName(shortName) {
     catalog.find((b) => b.bgText?.toLowerCase() === q) ||
     catalog.find((b) => b.name?.toLowerCase().includes(q))
   );
+}
+
+/**
+ * Detailansichten brauchen den Vollkatalog, damit frühe Homepage-Klicks
+ * keinen unvollständigen Bildwerkstatt-Eintrag als endgültige Daten zeigen.
+ */
+export async function resolveBikeDetail(shortName) {
+  await ladeVollkatalog();
+  return {
+    bike: findBikeByShortName(shortName),
+    catalogLoaded: vollkatalogGeladen,
+  };
+}
+
+/**
+ * Für Ansichten gilt der kanonische Katalogeintrag, nicht die für das Quiz
+ * berechnete Kopie mit einem budgetbezogenen Jahrgangspreis.
+ */
+export function canonicalBikeForDetail(bike) {
+  if (!bike) return bike;
+  if (vollkatalogGeladen) return findBikeByShortName(bike.name) || bike;
+  return hatNutzbarenPreis(bike)
+    ? bike
+    : { ...bike, priceDisplay: "Preisdaten derzeit nicht verfügbar" };
 }
 
 /* Slider-Obergrenze aus quiz.js Frage q5 (openEnded: true). Am Anschlag zeigt das Quiz "30.000 €+" —

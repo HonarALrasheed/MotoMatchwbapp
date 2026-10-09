@@ -13,7 +13,7 @@
  * ══════════════════════════════════════════════════════════════
  */
 
-import { enterScreen, goBack as navGoBack } from "./nav.js";
+import { enterScreen, goBack as navGoBack, currentScreen } from "./nav.js";
 // three.js liegt in einem gemeinsamen Chunk von 667 KB. Die meisten Screens
 // (Karte, Ausrüstung, Community) zeigen kein Modell — deshalb erst laden,
 // wenn wirklich ein Viewer aufgebaut wird.
@@ -42,6 +42,10 @@ import {
   ERGEBNIS_ANZAHL,
   findTopMatches,
   findBikeByShortName,
+  resolveBikeDetail,
+  istVollkatalogGeladen,
+  canonicalBikeForDetail,
+  preisAnzeige,
   scoreBikeAgainst,
 } from "./matching.js";
 import { addMatch } from "./match-history.js";
@@ -109,6 +113,7 @@ function stopTabHint() {
 // ══════════════════════════════════════════════════════════════
 
 let garageScene, garageCamera, garageRenderer, garageBike, garageRaf;
+let bikeDetailRequestId = 0;
 // Zaehlt jeden Start eines 3D-Ladevorgangs — der GLTF-Callback vergleicht
 // damit, ob er noch zum aktuellen Ladevorgang gehoert (siehe init3DViewer).
 let garageLoadGen = 0;
@@ -154,7 +159,8 @@ export function loadGarage(answers) {
   /* Ein Durchlauf statt zwei: findBestBike() rechnete dasselbe noch einmal — und konnte seit der
      Stilgarantie sogar ein anderes Bike liefern als Platz eins der Fünferliste. */
   const topMatches = findTopMatches(answers, ERGEBNIS_ANZAHL);
-  const bikeData = topMatches[0]?.bike || findBestBike(answers);
+  const matchBike = topMatches[0]?.bike || findBestBike(answers);
+  const bikeData = canonicalBikeForDetail(matchBike);
 
   // Das vollständige Quiz-Ergebnis ist eine wiederherstellbare Ansicht. Ohne
   // diesen Eintrag landeten Nutzer nach einem Browserneustart auf der
@@ -169,12 +175,12 @@ export function loadGarage(answers) {
   const winner = topMatches[0];
   addMatch(bikeData, {
     score: winner?.score,
-    pct: winner ? scoreBikeAgainst(bikeData, answers)?.pct : null,
+    pct: winner ? scoreBikeAgainst(matchBike, answers)?.pct : null,
     source: 'quiz',
   });
 
   // Build the full page
-  container.innerHTML = buildPage(bikeData, true, topMatches.hinweis);
+  container.innerHTML = buildPage(bikeData, true, topMatches.hinweis, matchBike);
   container.scrollTop = 0;
   window.scrollTo(0, 0);
 
@@ -194,10 +200,29 @@ export function loadGarage(answers) {
  * Open the garage page directly for a bike (from landing page cards).
  * No quiz answers needed — same full-featured page.
  */
-export function openBikeGarage(shortName) {
+export async function openBikeGarage(shortName) {
+  const requestId = ++bikeDetailRequestId;
+  const screenAtRequest = currentScreen();
   // Auch ein Katalog-Objekt: der Direktlink ?motorrad=<slug> (app.js) hat das Bike schon eindeutig
   // gefunden — über den Namen wären gleichnamige Modelle verschiedener Baujahre mehrdeutig.
-  const bikeData = shortName && typeof shortName === "object" ? shortName : findBikeByShortName(shortName);
+  const direktEintrag = shortName && typeof shortName === "object";
+  let bikeData;
+  if (direktEintrag) {
+    bikeData = shortName;
+  } else {
+    const ladeToast = istVollkatalogGeladen() ? null : zeigeToast("Motorraddaten werden geladen…", { duration: 0 });
+    const aufloesung = await resolveBikeDetail(shortName);
+    bikeData = canonicalBikeForDetail(aufloesung.bike);
+    if (ladeToast && ladeToast.textContent === "Motorraddaten werden geladen…") {
+      clearTimeout(ladeToast._t);
+      ladeToast.classList.remove("mm-toast--show");
+    }
+    // Ein langsamer Abruf darf nicht nach einem inzwischen gestarteten Screenwechsel
+    // oder über einem geöffneten Konto-Overlay nachträglich die Garage öffnen.
+    if (requestId !== bikeDetailRequestId || currentScreen() !== screenAtRequest ||
+        document.getElementById("quiz-screen")?.style.display !== "none" ||
+        document.getElementById("acc-overlay")?.classList.contains("acc-overlay--open")) return;
+  }
   if (!bikeData) {
     import('./landing.js').then(m => m.initLanding());
     zeigeToast("Bike nicht gefunden.");
@@ -264,16 +289,8 @@ function preisDetails(bike) {
   return `<p class="bd-price-detail">${teile.join(" · ")} — Marktpreise 1000PS</p>`;
 }
 
-function buildPage(bike, fromQuiz = true, hinweis = null) {
-  const priceDisplay =
-    bike.priceDisplay ||
-    // price=1 ist der Katalog-Platzhalter für "kein echter Preis ermittelbar"
-    // (2026-09-27 Audit) — als Zahl gelesen zeigte das fälschlich "ca. 1 €" an.
-    (typeof bike.price === "number" && bike.price > 1
-      ? `ca. ${Math.round(bike.price).toLocaleString("de-DE")} €`
-      : bike.price && bike.price !== 1
-        ? `Ab EUR ${String(bike.price).split("-")[0]}`
-        : "Preis folgt");
+function buildPage(bike, fromQuiz = true, hinweis = null, preisDetailsBike = bike) {
+  const priceDisplay = preisAnzeige(bike);
 
   return `
     <!-- ═══ SECTION 1: Hero (Porsche-style) ═══ -->
@@ -303,7 +320,7 @@ function buildPage(bike, fromQuiz = true, hinweis = null) {
         ${fromQuiz ? '<p class="gr-match-label">Dein perfektes Match</p>' : ""}
         <h1 class="bd-model-name">${bike.name}</h1>
         <p class="bd-price">${priceDisplay}</p>
-        ${preisDetails(bike)}
+        ${preisDetails(preisDetailsBike)}
         ${hinweis ? `<p class="bd-hinweis">${hinweis}</p>` : ""}
       </div>
     </section>
@@ -1088,7 +1105,7 @@ async function teilen(bike) {
   }
 }
 
-function zeigeToast(text) {
+function zeigeToast(text, { duration = 2800 } = {}) {
   let el = document.getElementById("mm-toast");
   if (!el) {
     el = document.createElement("div");
@@ -1101,7 +1118,8 @@ function zeigeToast(text) {
   void el.offsetWidth; // force reflow so re-adding the class triggers transition
   el.classList.add("mm-toast--show");
   clearTimeout(el._t);
-  el._t = setTimeout(() => el.classList.remove("mm-toast--show"), 2800);
+  el._t = duration > 0 ? setTimeout(() => el.classList.remove("mm-toast--show"), duration) : null;
+  return el;
 }
 
 // ══════════════════════════════════════════════════════════════

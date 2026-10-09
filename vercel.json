@@ -2,6 +2,11 @@
   "buildCommand": "npm run build",
   "outputDirectory": "dist",
   "framework": "vite",
+  "git": {
+    "deploymentEnabled": {
+      "release/update-2-stability": false
+    }
+  },
   "installCommand": "npm install",
   "redirects": [
     { "source": "/:path*", "has": [{ "type": "host", "value": "www.motomatch.studio" }], "destination": "https://motomatch.studio/:path*", "permanent": true }

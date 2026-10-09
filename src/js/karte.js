@@ -462,6 +462,18 @@ function zeigeFehler(el, err) {
   })
 }
 
+function webgl2Verfuegbar() {
+  try {
+    const testCanvas = document.createElement('canvas')
+    const gl = testCanvas.getContext('webgl2')
+    if (!gl) return false
+    gl.getExtension('WEBGL_lose_context')?.loseContext()
+    return true
+  } catch {
+    return false
+  }
+}
+
 let initToken = 0
 /**
  * Karte in #hub-gmap aufbauen oder die bestehende dorthin umziehen.
@@ -491,6 +503,10 @@ export async function initHubMap(ziel = null, { requestLocation = true } = {}) {
     startTeileVorladen(el.clientWidth || innerWidth, el.clientHeight || innerHeight)
     const [, stil] = await Promise.all([ladeMapLibre(), ladeKartenStil()])
     if (token !== initToken || !document.body.contains(el)) return
+    if (!webgl2Verfuegbar()) {
+      zeigeFehler(el, new ml.GPUInitializationError({}, null))
+      return
+    }
     el.innerHTML = ''
     const blick = startBlick()
     karte = new ml.Map({

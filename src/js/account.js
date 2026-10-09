@@ -44,12 +44,13 @@ export function getAccount() {
   if (u) return { ...DEFAULT_ACCOUNT, ...u, name: u.name || u.username }
   return { ...DEFAULT_ACCOUNT }
 }
-export function saveAccount(patch) {
+export async function saveAccount(patch) {
   // Schreibt in den zentralen User-Datensatz (gilt für die ganze Plattform)
-  auth.updateProfile(patch)
+  const result = await auth.updateProfile(patch)
+  if (!result?.ok) return result || { ok: false, error: 'Profil konnte nicht gespeichert werden.' }
   const next = getAccount()
   try { window.dispatchEvent(new CustomEvent('mm:account-updated', { detail: next })) } catch {}
-  return next
+  return { ok: true, account: next }
 }
 export function isAuthenticated() { return auth.isLoggedIn() }
 
@@ -1609,6 +1610,7 @@ function renderFavoriten() {
         <p>Noch nichts gemerkt.</p>
         <p class="acc-empty-sub">Bikes, Ausrüstung und Orte, die du dir merkst, sammeln sich hier.</p>
       </div>
+      ${zeige('bikes') ? `<div class="fav-sektion" data-fav-sektion="bikes">${renderBikes()}</div>` : ''}
     ` : `
       ${zeige('bikes')  ? `<div class="fav-sektion" data-fav-sektion="bikes">${renderBikes()}</div>` : ''}
       ${zeige('gear')   ? `<div class="fav-sektion" data-fav-sektion="gear">${renderGear()}</div>` : ''}
@@ -1942,10 +1944,8 @@ function renderSettings() {
               <div class="acc-fieldbox-label">E-Mail</div>
               <div class="acc-fieldbox-row">
                 <div class="acc-fieldbox-value" data-fb-value>${esc(acc.email || '—')}</div>
-                <input class="acc-input acc-fieldbox-input" data-fb-input type="email" value="${esc(acc.email)}" hidden>
-                <button type="button" class="acc-fieldbox-btn" data-fb-edit>Bearbeiten</button>
               </div>
-              <div class="acc-inline-error" data-fb-error hidden></div>
+              <p class="acc-inline-note">E-Mail ändern ist derzeit nicht verfügbar.</p>
             </div>
 
             ${realUser && !u.provider ? `
@@ -2090,22 +2090,25 @@ function wireSettings() {
     zuruecksetzen()
     if (!lesbar) { showFlash('Bild konnte nicht gelesen werden'); return }
     if (!bild) return   // abgebrochen
-    saveAccount({ avatar: bild })
+    const result = await saveAccount({ avatar: bild })
+    if (!result.ok) { showFlash(result.error); return }
     renderTabContent('settings')
     refreshAccountHeader()
     showFlash('Profilbild aktualisiert ✓')
   })
-  document.getElementById('acc-avatar-remove')?.addEventListener('click', () => {
-    saveAccount({ avatar: null })
+  document.getElementById('acc-avatar-remove')?.addEventListener('click', async () => {
+    const result = await saveAccount({ avatar: null })
+    if (!result.ok) { showFlash(result.error); return }
     renderTabContent('settings')
     refreshAccountHeader()
   })
 
-  document.getElementById('acc-settings-form')?.addEventListener('submit', e => {
+  document.getElementById('acc-settings-form')?.addEventListener('submit', async e => {
     e.preventDefault()
     const name = document.getElementById('acc-set-name')?.value.trim() || 'Du'
     const bio = document.getElementById('acc-set-bio')?.value.trim() || ''
-    saveAccount({ name, bio })
+    const result = await saveAccount({ name, bio })
+    if (!result.ok) { showFlash(result.error); return }
     refreshAccountHeader()
     showFlash('Profil gespeichert ✓')
   })
@@ -2147,24 +2150,17 @@ function wireSettings() {
         if (!res.ok) { errEl.textContent = res.error; errEl.hidden = false; return }
         curInput.value = ''; newInput.value = ''
         showFlash('Passwort geändert ✓')
-      } else if (field === 'email') {
-        const email = inputEl.value.trim()
-        // gleiche Regel wie auth.js register() — nur Format, kein Duplikat-Check (kein Backend-Aufruf hier)
-        if (email && !/^\S+@\S+\.\S+$/.test(email)) {
-          if (errEl) { errEl.textContent = 'Bitte eine gültige E-Mail-Adresse angeben.'; errEl.hidden = false }
-          return
-        }
-        saveAccount({ email })
-        valueEl.textContent = email || '—'
       } else if (field === 'age') {
         let v = inputEl.value ? parseInt(inputEl.value) : null
         if (v != null && !Number.isNaN(v)) v = Math.min(99, Math.max(14, v))
         else v = null
         inputEl.value = v ?? ''
-        saveAccount({ age: v })
+        const result = await saveAccount({ age: v })
+        if (!result.ok) { if (errEl) { errEl.textContent = result.error; errEl.hidden = false }; return }
         valueEl.textContent = v ?? '—'
       } else if (field === 'license') {
-        saveAccount({ license: inputEl.value })
+        const result = await saveAccount({ license: inputEl.value })
+        if (!result.ok) { if (errEl) { errEl.textContent = result.error; errEl.hidden = false }; return }
         valueEl.textContent = inputEl.selectedOptions[0]?.textContent || 'Keine Angabe'
       }
       setEditing(false)
@@ -2230,9 +2226,10 @@ function wireSettings() {
   })
 
   ;['events', 'community', 'gear'].forEach(key => {
-    document.getElementById(`acc-notif-${key}`)?.addEventListener('change', e => {
+    document.getElementById(`acc-notif-${key}`)?.addEventListener('change', async e => {
       const acc = getAccount()
-      saveAccount({ notif: { ...acc.notif, [key]: e.target.checked } })
+      const result = await saveAccount({ notif: { ...acc.notif, [key]: e.target.checked } })
+      if (!result.ok) { e.target.checked = !e.target.checked; showFlash(result.error) }
     })
   })
   document.getElementById('acc-clear-data')?.addEventListener('click', () => {
@@ -2498,9 +2495,13 @@ export function openAccount(sourceBar) {
   })
 
   // Anmelden / Abmelden (zentrale Auth, gilt plattformweit)
-  document.getElementById('acc-auth-btn')?.addEventListener('click', () => {
+  document.getElementById('acc-auth-btn')?.addEventListener('click', async () => {
     const u = auth.currentUser()
-    if (u && !u.guest) { auth.logout(); reopenAccount() }
+    if (u && !u.guest) {
+      const result = await auth.logout()
+      if (!result.ok) { showFlash(result.error); return }
+      reopenAccount()
+    }
     else { auth.openAuthModal(() => reopenAccount()) }
   })
 

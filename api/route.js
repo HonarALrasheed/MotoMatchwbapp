@@ -23,6 +23,8 @@ const ORS_URL = "https://api.heigit.org/openrouteservice/v2/directions/driving-c
 const MAX_PUNKTE = 50;
 const RATE_MAX = 40;
 const RATE_FENSTER_MS = 60_000;
+// Eigene Frist vor der 12-s-Browserfrist; nicht auf die Plattformfrist verlassen.
+const ORS_TIMEOUT_MS = 8_000;
 
 const hits = new Map();
 const cache = new Map(); // Schlüssel → { zeit, daten }
@@ -62,6 +64,31 @@ function gueltig(punkte, min = 2) {
       p[0] >= -180 && p[0] <= 180 && p[1] >= -90 && p[1] <= 90);
 }
 
+class AntwortFehler extends Error {}
+
+function gueltigeRoute(f) {
+  const coords = f?.geometry?.coordinates;
+  const props = f?.properties;
+  const segs = props?.segments;
+  const summary = props?.summary;
+  return f?.geometry?.type === "LineString" && Array.isArray(coords) && coords.length >= 2 &&
+    coords.every((p) => Array.isArray(p) && p.length >= 2 &&
+      Number.isFinite(p[0]) && p[0] >= -180 && p[0] <= 180 &&
+      Number.isFinite(p[1]) && p[1] >= -90 && p[1] <= 90 &&
+      (p[2] == null || Number.isFinite(p[2]))) &&
+    coords.some((p) => p[0] !== coords[0][0] || p[1] !== coords[0][1]) &&
+    Array.isArray(segs) && segs.length > 0 &&
+    segs.every((seg) => Array.isArray(seg?.steps) && seg.steps.every((s) =>
+      Number.isFinite(s?.distance) && s.distance >= 0 && Number.isInteger(s.type) &&
+      (s.name == null || typeof s.name === "string") &&
+      (s.exit_number == null || typeof s.exit_number === "string" || Number.isFinite(s.exit_number)))) &&
+    segs.some((seg) => seg.steps.length > 0) &&
+    (summary?.distance == null || (Number.isFinite(summary.distance) && summary.distance > 0)) &&
+    (summary?.duration == null || (Number.isFinite(summary.duration) && summary.duration >= 0)) &&
+    (props.ascent == null || (Number.isFinite(props.ascent) && props.ascent >= 0)) &&
+    (props.descent == null || (Number.isFinite(props.descent) && props.descent >= 0));
+}
+
 export default async function handler(req, res) {
   if (!erlaubt(req)) return sendError(res, 403, "forbidden_origin", "Zugriff von dieser Herkunft nicht erlaubt.");
   if (req.method !== "POST") return sendError(res, 405, "method_not_allowed", "Method Not Allowed");
@@ -82,13 +109,36 @@ export default async function handler(req, res) {
   }
 
   const schluessel = punkte.map((p) => `${p[0].toFixed(5)},${p[1].toFixed(5)}`).join(";") + (rundtour ? `|r${rundtour.length}-${rundtour.seed}` : "");
+  if (req.signal?.aborted) return sendError(res, 499, "aborted", "Die Routenberechnung wurde abgebrochen.");
   const treffer = cache.get(schluessel);
   if (treffer && Date.now() - treffer.zeit < CACHE_MS) return res.status(200).json(treffer.daten);
 
+  const controller = new AbortController();
+  let grund = null;
+  let timer;
+  let beiAbbruch;
+  const frist = new Promise((_, reject) => {
+    timer = setTimeout(() => {
+      grund = "timeout";
+      controller.abort();
+      reject(new Error("ORS timeout"));
+    }, ORS_TIMEOUT_MS);
+  });
+  const abbruch = req.signal?.addEventListener && new Promise((_, reject) => {
+    beiAbbruch = () => {
+      grund = "aborted";
+      controller.abort();
+      reject(new Error("Client aborted"));
+    };
+    req.signal.addEventListener("abort", beiAbbruch, { once: true });
+    if (req.signal.aborted) beiAbbruch();
+  });
+  const warten = (promise) => Promise.race([promise, frist, ...(abbruch ? [abbruch] : [])]);
   try {
-    const r = await fetch(ORS_URL, {
+    const r = await warten(fetch(ORS_URL, {
       method: "POST",
       headers: { Authorization: KEY, "Content-Type": "application/json", Accept: "application/geo+json" },
+      signal: controller.signal,
       body: JSON.stringify({
         coordinates: punkte,
         elevation: true,
@@ -99,19 +149,22 @@ export default async function handler(req, res) {
         radiuses: punkte.map(() => 1000),
         ...(rundtour ? { options: { round_trip: rundtour } } : {}),
       }),
-    });
+    }));
     if (!r.ok) {
-      const text = await r.text().catch(() => "");
+      let text = "";
+      try { text = await warten(r.text()); }
+      catch (err) { if (grund) throw err; }
       report(new Error(`ORS ${r.status}`), { text: text.slice(0, 300) });
       if (r.status === 404 || r.status === 400) return sendError(res, 422, "no_route", "Zwischen diesen Punkten wurde keine Straße gefunden.");
       if (r.status === 429) return sendError(res, 503, "quota", "Das Routing ist gerade ausgelastet. Bitte gleich noch einmal.");
       return sendError(res, 502, "upstream", "Die Route konnte gerade nicht berechnet werden.");
     }
-    const j = await r.json();
-    const f = j.features?.[0];
+    const j = await warten(r.json());
+    const f = j?.features?.[0];
     if (!f) return sendError(res, 422, "no_route", "Keine Route gefunden.");
+    if (!gueltigeRoute(f)) throw new AntwortFehler("Ungültige ORS-Route");
     const coords = f.geometry.coordinates; // [lng, lat, höhe]
-    const segs = f.properties.segments || [];
+    const segs = f.properties.segments;
     const schritte = [];
     let meter = 0;
     segs.forEach((seg, si) => {
@@ -132,11 +185,18 @@ export default async function handler(req, res) {
       ab: Math.round(f.properties.descent || 0),
       schritte,
     };
+    if (!(daten.meter > 0) || !Number.isFinite(daten.sekunden) || !schritte.length) throw new AntwortFehler("Ungültiges ORS-Ergebnis");
     cache.set(schluessel, { zeit: Date.now(), daten });
     if (cache.size > 300) cache.delete(cache.keys().next().value);
     return res.status(200).json(daten);
   } catch (err) {
+    if (grund === "timeout") return sendError(res, 504, "timeout", "Die Routenberechnung dauert zu lange. Bitte versuch es erneut.");
+    if (grund === "aborted" || err?.name === "AbortError") return sendError(res, 499, "aborted", "Die Routenberechnung wurde abgebrochen.");
     report(err);
-    return sendError(res, 502, "upstream", "Die Route konnte gerade nicht berechnet werden.");
+    if (err instanceof AntwortFehler || err?.name === "SyntaxError") return sendError(res, 502, "invalid_response", "Der Routingdienst hat keine gültige Route geliefert.");
+    return sendError(res, 502, "upstream_network", "Der Routingdienst ist gerade nicht erreichbar.");
+  } finally {
+    clearTimeout(timer);
+    if (beiAbbruch) req.signal.removeEventListener("abort", beiAbbruch);
   }
 }

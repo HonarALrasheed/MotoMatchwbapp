@@ -30,7 +30,7 @@ export const MIN_PASSWORD_LENGTH = 8
 /* ── Supabase-Session-Cache (sync-lesbar) ─────────────────────────
    Wird durch onAuthStateChange und initSupabaseAuth() befüllt.
    Solange null, ist niemand angemeldet (oder Supabase noch am Init). */
-let _sbSession = null  // { username, uid } | { username:'Gast', guest:true } | null
+let _sbSession = null  // { username, uid, email } | { username:'Gast', guest:true } | null
 
 /* register() ruft _onSignedIn() selbst auf, sobald signUp() eine Session
    liefert. Der onAuthStateChange-Listener soll in dem Fenster nicht parallel
@@ -162,7 +162,7 @@ async function _onSignedIn(session) {
     // Letzte Rückfallebene: lieber ein Anzeigename als "undefined" in der UI.
     username = username || _usernameBase(session)
   }
-  _sbSession = { username, uid }
+  _sbSession = { username, uid, email: session.user.email || '' }
   // Beitrittsdatum einmalig aus der Auth-Session übernehmen (auth.users.created_at)
   const overrides = read(LS_ONLINE_PROFILES, {})
   if (!overrides[uid]) {
@@ -384,7 +384,7 @@ export function currentUser() {
   // + lokale Overrides für Felder ohne DB-Spalte (Avatar, Bio, Alter, Notif-Einstellungen, …)
   if (!OFFLINE_MODE && s.username) {
     const overrides = s.uid ? read(LS_ONLINE_PROFILES, {})[s.uid] : null
-    return { ...DEFAULT_PROFILE, username: s.username, name: s.username, ...overrides }
+    return { ...DEFAULT_PROFILE, username: s.username, name: s.username, ...overrides, email: s.email || '' }
   }
   return null
 }
@@ -540,18 +540,31 @@ export function ensureDemoUsers(list) {
   if (changed) saveUsers(users)
 }
 
-export async function logout() {
+export async function logout({ forceLocal = false } = {}) {
+  if (!OFFLINE_MODE) {
+    try {
+      const { error } = await supabase.auth.signOut()
+      if (error && !forceLocal) return { ok: false, error: 'Abmelden fehlgeschlagen. Bitte erneut versuchen.' }
+    } catch {
+      if (!forceLocal) return { ok: false, error: 'Abmelden fehlgeschlagen. Bitte erneut versuchen.' }
+    }
+  }
   _sbSession = null
   unsubscribeAll()
   setSessionRaw(null)
   notify()
-  if (!OFFLINE_MODE) await supabase.auth.signOut()
+  return { ok: true }
 }
 
 /** Profilfelder des aktuellen Nutzers aktualisieren (Name, Bio, E-Mail …). */
-export function updateProfile(patch) {
-  const s = getSession(); if (!s) return
-  if (s.guest) { write(LS_GUEST, { ...read(LS_GUEST, {}), ...patch }); notify(); return }
+export async function updateProfile(patch) {
+  const s = getSession(); if (!s) return { ok: false, error: 'Bitte melde dich erneut an.' }
+  if ('email' in patch) return { ok: false, error: 'E-Mail ändern ist hier derzeit nicht verfügbar.' }
+  if (s.guest) {
+    try { localStorage.setItem(LS_GUEST, JSON.stringify({ ...read(LS_GUEST, {}), ...patch })) }
+    catch { return { ok: false, error: 'Profil konnte lokal nicht gespeichert werden.' } }
+    notify(); return { ok: true }
+  }
 
   // Name/Bio/Avatar sind dieselbe Identität wie im Community-Profil (dort als
   // displayName/bio/avatarImg gecacht) — hier spiegeln, sonst zeigt die Community
@@ -560,18 +573,28 @@ export function updateProfile(patch) {
   if ('name'   in patch) commPatch.displayName = patch.name
   if ('bio'    in patch) commPatch.bio = patch.bio
   if ('avatar' in patch) commPatch.avatarImg = patch.avatar
-  if (Object.keys(commPatch).length) setMyProfile(commPatch)
+  if (Object.keys(commPatch).length) {
+    const result = await setMyProfile(commPatch)
+    if (!result?.ok) return { ok: false, error: result?.error || 'Profil konnte nicht gespeichert werden.' }
+  }
 
   if (!OFFLINE_MODE && s.uid) {
     const all = read(LS_ONLINE_PROFILES, {})
     all[s.uid] = { ...all[s.uid], ...patch }
-    write(LS_ONLINE_PROFILES, all)
+    try { localStorage.setItem(LS_ONLINE_PROFILES, JSON.stringify(all)) }
+    catch { return { ok: false, error: 'Profil wurde auf dem Server gespeichert, aber der Browser-Speicher ist nicht verfügbar.' } }
     notify()
-    return
+    return { ok: true }
   }
+  if (!OFFLINE_MODE) return { ok: false, error: 'Bitte melde dich erneut an.' }
   const users = getUsers()
   const u = users.find(x => x.username.toLowerCase() === s.username.toLowerCase())
-  if (u) { Object.assign(u, patch); saveUsers(users); notify() }
+  if (!u) return { ok: false, error: 'Profil konnte nicht gefunden werden.' }
+  Object.assign(u, patch)
+  try { localStorage.setItem(LS_USERS, JSON.stringify(users)) }
+  catch { return { ok: false, error: 'Profil konnte lokal nicht gespeichert werden.' } }
+  notify()
+  return { ok: true }
 }
 
 /** Benutzernamen des aktuellen Nutzers ändern (inkl. Session-Update). */
@@ -796,7 +819,7 @@ export async function deleteAccount() {
     // signOut() spricht mit einem Token, dessen Nutzer es serverseitig nicht
     // mehr gibt — ein Fehler daraus ist hier bedeutungslos. logout() räumt den
     // lokalen Zustand auf, bevor es signOut() abwartet.
-    try { await logout() } catch {}
+    await logout({ forceLocal: true })
     return { ok: true }
   }
 

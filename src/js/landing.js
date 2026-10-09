@@ -1,5 +1,5 @@
 import { maybeShowOnboarding } from "./onboarding.js";
-import { getCatalog, findBikeByShortName, ladeVollkatalog, pickRandomBike } from "./matching.js";
+import { getCatalog, findBikeByShortName, ladeVollkatalog } from "./matching.js";
 import { bikeBild } from "./bike-bild.js";
 import { esc } from "./util.js";
 import { hasQuizProgressHint } from "./quiz-progress.js";
@@ -350,7 +350,8 @@ function startHeroVideo(root) {
   const sparsam = net?.saveData === true
   const langsam = net && /^(slow-)?2g$/.test(net.effectiveType || '')
   const ruhig = window.matchMedia('(prefers-reduced-motion: reduce)').matches
-  if (sparsam || langsam || ruhig) return
+  const kleinesDisplay = window.matchMedia('(max-width: 768px)').matches
+  if (sparsam || langsam || ruhig || kleinesDisplay) return
 
   const attach = () => {
     video.src = video.dataset.src
@@ -358,9 +359,14 @@ function startHeroVideo(root) {
     video.load()
     video.play().catch(() => { /* Autoplay verweigert: dann eben Standbild */ })
   }
-  // Nach dem load-Ereignis: bis dahin ist alles Sichtbare durch.
-  if (document.readyState === 'complete') setTimeout(attach, 200)
-  else window.addEventListener('load', () => setTimeout(attach, 200), { once: true })
+  const imLeerlauf = () => {
+    if ('requestIdleCallback' in window) window.requestIdleCallback(attach, { timeout: 2500 })
+    else setTimeout(attach, 800)
+  }
+  // Das dekorative Video erst holen, wenn die sichtbaren Inhalte Zeit hatten,
+  // sich aufzubauen und auf Eingaben zu reagieren.
+  if (document.readyState === 'complete') imLeerlauf()
+  else window.addEventListener('load', imLeerlauf, { once: true })
 }
 
 /**
@@ -490,25 +496,10 @@ export function initLanding() {
       <div class="p-discover-cats">
         ${DISCOVER_CATS.map(c => `
           <div class="p-discover-cat" data-primary-bike="${c.primaryBike}">
-            <img src="${c.img}" alt="${c.fullName} \u2014 ${c.name}" loading="lazy" decoding="async">
+            <img src="${c.img}" srcset="${c.img.replace(/\.webp$/i, "_640.jpg")} 640w, ${c.img} 1280w" sizes="(max-width: 768px) 45vw, 33vw" width="1280" height="960" alt="${c.fullName} \u2014 ${c.name}" loading="lazy" decoding="async">
             <div class="p-discover-cat-top">${c.bikes}</div>
           </div>
         `).join("")}
-      </div>
-      <div class="p-discover-random">
-        <label for="p-random-style">Motorradtyp</label>
-        <select id="p-random-style" aria-label="Zufallsbike nach Motorradtyp filtern">
-          <option value="">Alle Typen</option>
-          <option value="Naked">Naked Bike</option>
-          <option value="Sportbike">Sportbike / Supersportler</option>
-          <option value="Cruiser">Cruiser</option>
-          <option value="Enduro">Enduro / Offroad</option>
-          <option value="Touring">Tourer / Reise</option>
-          <option value="Klassiker">Klassiker / Retro</option>
-          <option value="Supermoto">Supermoto</option>
-          <option value="Roller">Roller</option>
-        </select>
-        <button type="button" id="p-random-bike">Zufallsbike entdecken</button>
       </div>
     </section>
 
@@ -632,30 +623,6 @@ export function initLanding() {
         openBikeGarage(primaryBike);
       }
     });
-  });
-
-  const randomBikeButton = document.getElementById("p-random-bike");
-  randomBikeButton?.addEventListener("click", async () => {
-    if (randomBikeButton.disabled) return;
-    const select = document.getElementById("p-random-style");
-    randomBikeButton.disabled = true;
-    randomBikeButton.textContent = "Motorräder werden geladen …";
-    try {
-      await ladeVollkatalog();
-      const bike = pickRandomBike({ style: select?.value || undefined });
-      if (!bike) {
-        showToast("Für diesen Typ ist gerade kein Motorrad verfügbar.");
-        return;
-      }
-      const { openBikeGarage } = await import("./garage.js");
-      openBikeGarage(bike.name);
-    } catch (error) {
-      console.warn("[landing] Zufallsbike konnte nicht geöffnet werden:", error);
-      showToast("Das Motorrad konnte gerade nicht geöffnet werden.");
-    } finally {
-      randomBikeButton.disabled = false;
-      randomBikeButton.textContent = "Zufallsbike entdecken";
-    }
   });
 
   // ── Nav: Search ──────────────────────────────────────────
@@ -810,15 +777,11 @@ export function initLanding() {
     quizVorbereitet = true;
     import("./quiz.js").then(m => m.preloadQuizAssets());
   };
-  ["pointerenter", "touchstart", "focus"].forEach(ev => {
-    document.getElementById("hero-cta")?.addEventListener(ev, bereiteQuizVor, { once: true, passive: true });
+  ["hero-cta", "hero-cta-resume", "finder-submit"].forEach((id) => {
+    ["pointerenter", "touchstart", "focus"].forEach((ev) => {
+      document.getElementById(id)?.addEventListener(ev, bereiteQuizVor, { once: true, passive: true });
+    });
   });
-  // Rueckfall fuer alle, die direkt nach unten scrollen: nach einer Weile und
-  // nur auf einer Verbindung, die es hergibt.
-  const netz = navigator.connection;
-  if (!netz?.saveData && !/^(slow-)?2g|3g$/.test(netz?.effectiveType || "")) {
-    setTimeout(bereiteQuizVor, 12000);
-  }
 
   // ── First-visit onboarding ─────────────────────────────────
   maybeShowOnboarding();

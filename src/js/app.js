@@ -77,17 +77,6 @@ export function startApp() {
   // beim Vorwärts nichts aufbauen.
   setViewResolver(openView)
   initSwipeNav()
-  /* Den Katalog des deutschen Marktes (public/data/katalog-de.json) im Hintergrund holen,
-     damit er dasteht, wenn das Quiz fertig ist. Schlägt es fehl, rechnet die Seite mit den
-     eingebauten Bikes weiter (matching.js).
-     Erst nach dem load-Ereignis und im Leerlauf: gleich beim Start konkurrierte die Datei
-     (ca. 900 KB, gepackt ~150 KB) auf dem Handy mit dem Aufbau der Startseite um die Leitung —
-     gemessen bei langsamem 4G ~0,7 s später sichtbarer Hero. Wer ihn früher braucht, stößt ihn
-     selbst an (ladeVollkatalog() ist idempotent): das Quiz, die Suchfelder, Direktlinks. */
-  const katalogImLeerlauf = () =>
-    (window.requestIdleCallback || ((f) => setTimeout(f, 300)))(() => ladeVollkatalog(), { timeout: 3000 })
-  if (document.readyState === 'complete') katalogImLeerlauf()
-  else window.addEventListener('load', katalogImLeerlauf, { once: true })
   // Karte vorwärmen, sobald der Karten-Reiter in Reichweite ist (Zeiger drauf,
   // Fokus, Antippen) — MapLibre und der Stil sind dann schon da, wenn er aufgeht.
   let karteGewaermt = false
@@ -97,15 +86,6 @@ export function startApp() {
     import('./karte.js').then((m) => m.karteVorwaermen()).catch(() => { karteGewaermt = false })
   }
   for (const typ of ['pointerover', 'pointerdown', 'focusin']) document.addEventListener(typ, karteWaermen, { passive: true })
-  // Nach dem Start im Leerlauf vorladen, damit die Karte beim Öffnen sofort
-  // steht (angemeldet gleich, sonst etwas später)
-  const karteImLeerlauf = () => import('./auth.js').then(({ isLoggedIn }) => setTimeout(() => {
-    if (karteGewaermt) return
-    karteGewaermt = true
-    import('./karte.js').then((m) => m.karteVorwaermen()).catch(() => { karteGewaermt = false })
-  }, isLoggedIn() ? 800 : 3000)).catch(() => {})
-  if (document.readyState === 'complete') karteImLeerlauf()
-  else window.addEventListener('load', karteImLeerlauf, { once: true })
   initSupabaseAuth()
   initFeedbackFab()
   // Registriert den Service Worker und bietet die Installation an — nur so

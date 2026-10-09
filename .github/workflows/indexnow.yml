@@ -1,26 +1,38 @@
-# Meldet nach jedem erfolgreichen Produktions-Deploy auf Vercel alle Adressen der Sitemap per
-# IndexNow an Bing & Co. (scripts/indexnow.mjs). Vercel meldet Deploys als GitHub-Deployments —
-# daran hängt dieser Lauf. Die Umgebung heißt je nach Vercel-Version "Production" oder
-# "Production – <Projekt>", deshalb startsWith. Von Hand: Actions → IndexNow → "Run workflow".
 name: IndexNow
 
 on:
-  deployment_status:
   workflow_dispatch:
+    inputs:
+      production_deployment_id:
+        description: "GitHub-Deployment-ID des neuesten erfolgreichen MotoMatch-Production-Releases"
+        required: true
+        type: string
+      changed_urls:
+        description: "Nach diesem Release neu angelegte oder inhaltlich wesentlich geänderte kanonische URLs, eine je Zeile (max. 100)"
+        required: false
+        type: string
+      deleted_urls:
+        description: "In diesem Release endgültig entfernte kanonische URLs mit echtem HTTP 404, eine je Zeile (max. 100 insgesamt)"
+        required: false
+        type: string
 
 permissions:
   contents: read
+  deployments: read
 
 jobs:
   melden:
-    if: >-
-      github.event_name == 'workflow_dispatch' ||
-      (github.event.deployment_status.state == 'success' &&
-       startsWith(github.event.deployment.environment, 'Production'))
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: 20
-      - run: node scripts/indexnow.mjs
+      - name: Geänderte URLs nach erfolgreichem Production-Release melden
+        env:
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          GITHUB_TOKEN: ${{ github.token }}
+          INDEXNOW_PRODUCTION_DEPLOYMENT_ID: ${{ inputs.production_deployment_id }}
+          INDEXNOW_CHANGED_URLS: ${{ inputs.changed_urls }}
+          INDEXNOW_DELETED_URLS: ${{ inputs.deleted_urls }}
+        run: node scripts/indexnow.mjs
